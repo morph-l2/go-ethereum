@@ -269,6 +269,60 @@ func testGenerateBlockAndImport(t *testing.T, isClique bool) {
 	}
 }
 
+/*
+func TestEmptyWorkEthash(t *testing.T) {
+	testEmptyWork(t, ethashChainConfig, ethash.NewFaker())
+}
+func TestEmptyWorkClique(t *testing.T) {
+	testEmptyWork(t, cliqueChainConfig, clique.New(cliqueChainConfig.Clique, rawdb.NewMemoryDatabase()))
+}
+
+func testEmptyWork(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine) {
+	defer engine.Close()
+
+	w, _ := newTestWorker(t, chainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	var (
+		taskIndex int
+		taskCh    = make(chan struct{}, 2)
+	)
+	checkEqual := func(t *testing.T, task *task, index int) {
+		// The first empty work without any txs included
+		receiptLen, balance := 0, big.NewInt(0)
+		if index == 1 {
+			// The second full work with 1 tx included
+			receiptLen, balance = 1, big.NewInt(1000)
+		}
+		if len(task.receipts) != receiptLen {
+			t.Fatalf("receipt number mismatch: have %d, want %d", len(task.receipts), receiptLen)
+		}
+		if task.state.GetBalance(testUserAddress).Cmp(balance) != 0 {
+			t.Fatalf("account balance mismatch: have %d, want %d", task.state.GetBalance(testUserAddress), balance)
+		}
+	}
+	w.newTaskHook = func(task *task) {
+		if task.block.NumberU64() == 1 {
+			checkEqual(t, task, taskIndex)
+			taskIndex += 1
+			taskCh <- struct{}{}
+		}
+	}
+	w.skipSealHook = func(task *task) bool { return true }
+	w.fullTaskHook = func() {
+		time.Sleep(100 * time.Millisecond)
+	}
+	w.start() // Start mining!
+	for i := 0; i < 2; i += 1 {
+		select {
+		case <-taskCh:
+		case <-time.NewTimer(3 * time.Second).C:
+			t.Error("new task timeout")
+		}
+	}
+}
+*/
+
 func TestStreamUncleBlock(t *testing.T) {
 	ethash := ethash.NewFaker()
 	defer ethash.Close()
@@ -363,7 +417,7 @@ func testRegenerateMiningBlock(t *testing.T, chainConfig *params.ChainConfig, en
 
 	w.start()
 	// Ignore the first two works
-	for i := 0; i < 1; i += 1 {
+	for i := 0; i < 2; i += 1 {
 		select {
 		case <-taskCh:
 		case <-time.NewTimer(time.Second).C:

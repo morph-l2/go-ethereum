@@ -19,6 +19,7 @@ package eth
 import (
 	"github.com/scroll-tech/go-ethereum/core"
 	"github.com/scroll-tech/go-ethereum/eth/protocols/snap"
+	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/p2p/enode"
 )
 
@@ -46,5 +47,6 @@ func (h *snapHandler) PeerInfo(id enode.ID) interface{} {
 // Handle is invoked from a peer's message handler when it receives a new remote
 // message that the handler couldn't consume and serve itself.
 func (h *snapHandler) Handle(peer *snap.Peer, packet snap.Packet) error {
+	log.Warn("receiving snap packet from %s", peer.String())
 	return h.downloader.DeliverSnapPacket(peer, packet)
 }

@@ -183,6 +183,7 @@ func (cs *chainSyncer) modeAndLocalHead() (downloader.SyncMode, *big.Int) {
 	if atomic.LoadUint32(&cs.handler.fastSync) == 1 {
 		block := cs.handler.chain.CurrentFastBlock()
 		td := cs.handler.chain.GetTd(block.Hash(), block.NumberU64())
+		log.Info("modeAndLocalHead uses FastSync")
 		return downloader.FastSync, td
 	}
 	// We are probably in full sync, but we might have rewound to before the
@@ -191,12 +192,14 @@ func (cs *chainSyncer) modeAndLocalHead() (downloader.SyncMode, *big.Int) {
 		if head := cs.handler.chain.CurrentBlock(); head.NumberU64() < *pivot {
 			block := cs.handler.chain.CurrentFastBlock()
 			td := cs.handler.chain.GetTd(block.Hash(), block.NumberU64())
+			log.Info("modeAndLocalHead uses FastSync")
 			return downloader.FastSync, td
 		}
 	}
 	// Nope, we're really full syncing
 	head := cs.handler.chain.CurrentBlock()
 	td := cs.handler.chain.GetTd(head.Hash(), head.NumberU64())
+	log.Info("modeAndLocalHead uses FullSync")
 	return downloader.FullSync, td
 }
 

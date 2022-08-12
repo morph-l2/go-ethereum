@@ -453,9 +453,9 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td *big.I
 	}
 	mode := d.getMode()
 
-	log.Debug("Synchronising with the network", "peer", p.id, "eth", p.version, "head", hash, "td", td, "mode", mode)
+	log.Info("Synchronising with the network", "peer", p.id, "eth", p.version, "head", hash, "td", td, "mode", mode)
 	defer func(start time.Time) {
-		log.Debug("Synchronisation terminated", "elapsed", common.PrettyDuration(time.Since(start)))
+		log.Error("Synchronisation terminated", "elapsed", common.PrettyDuration(time.Since(start)))
 	}(time.Now())
 
 	// Look up the sync boundaries: the common ancestor and the target block
@@ -1738,6 +1738,7 @@ func (d *Downloader) importBlockResults(results []*fetchResult) error {
 // processFastSyncContent takes fetch results from the queue and writes them to the
 // database. It also controls the synchronisation of state nodes of the pivot block.
 func (d *Downloader) processFastSyncContent() error {
+	log.Error("processFastSyncContent called")
 	// Start syncing state of the reported head block. This should get us most of
 	// the state of the pivot block.
 	d.pivotLock.RLock()

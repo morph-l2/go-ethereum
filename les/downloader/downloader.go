@@ -558,9 +558,10 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td *big.I
 		d.pivotLock.Lock()
 		d.pivotHeader = pivot
 		d.pivotLock.Unlock()
-
+		log.Error("fetchers is processFastSyncContent")
 		fetchers = append(fetchers, func() error { return d.processFastSyncContent() })
 	} else if mode == FullSync {
+		log.Info("fetchers is processFullSyncContent")
 		fetchers = append(fetchers, d.processFullSyncContent)
 	}
 	return d.spawnSync(fetchers)

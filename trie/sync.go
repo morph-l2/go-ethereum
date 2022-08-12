@@ -19,6 +19,7 @@ package trie
 import (
 	"errors"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/log"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/prque"
@@ -148,6 +149,7 @@ func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallb
 
 // AddSubTrie registers a new trie to the sync code, rooted at the designated parent.
 func (s *Sync) AddSubTrie(root common.Hash, path []byte, parent common.Hash, callback LeafCallback) {
+	log.Error("AddSubTrie called")
 	// Short circuit if the trie is empty or already known
 	if root == emptyRoot {
 		return

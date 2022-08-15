@@ -149,7 +149,7 @@ func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallb
 
 // AddSubTrie registers a new trie to the sync code, rooted at the designated parent.
 func (s *Sync) AddSubTrie(root common.Hash, path []byte, parent common.Hash, callback LeafCallback) {
-	log.Error("AddSubTrie called")
+	log.Error("AddSubTrie with", "root", root, "path", path, "parent", parent)
 	// Short circuit if the trie is empty or already known
 	if root == emptyRoot {
 		return
@@ -285,6 +285,7 @@ func (s *Sync) Process(result SyncResult) error {
 		// Decode the node data content and update the request
 		node, err := decodeNode(result.Hash[:], result.Data)
 		if err != nil {
+			log.Error("decodeNode failed", err)
 			return err
 		}
 		req.data = result.Data
@@ -312,6 +313,7 @@ func (s *Sync) Process(result SyncResult) error {
 // Commit flushes the data stored in the internal membatch out to persistent
 // storage, returning any occurred error.
 func (s *Sync) Commit(dbw ethdb.Batch) error {
+	log.Warn("trie.Sync commiting node", "len", len(s.membatch.nodes), "code len", len(s.membatch.codes))
 	// Dump the membatch into a database dbw
 	for key, value := range s.membatch.nodes {
 		rawdb.WriteTrieNode(dbw, key, value)

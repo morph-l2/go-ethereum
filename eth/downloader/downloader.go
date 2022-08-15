@@ -251,6 +251,7 @@ func (d *Downloader) Progress() ethereum.SyncProgress {
 
 	current := uint64(0)
 	mode := d.getMode()
+	log.Warn("download progress with mode", mode)
 	switch {
 	case d.blockchain != nil && mode == FullSync:
 		current = d.blockchain.CurrentBlock().NumberU64()
@@ -1686,6 +1687,7 @@ func (d *Downloader) processHeaders(origin uint64, td *big.Int) error {
 
 // processFullSyncContent takes fetch results from the queue and imports them into the chain.
 func (d *Downloader) processFullSyncContent() error {
+	log.Crit("full sync disabled")
 	for {
 		results := d.queue.Results(true)
 		if len(results) == 0 {

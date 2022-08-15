@@ -251,7 +251,8 @@ func (d *Downloader) Progress() ethereum.SyncProgress {
 
 	current := uint64(0)
 	mode := d.getMode()
-	log.Warn("download progress with mode", mode)
+
+	log.Warn("download progress with", "mode", mode.String())
 	switch {
 	case d.blockchain != nil && mode == FullSync:
 		current = d.blockchain.CurrentBlock().NumberU64()

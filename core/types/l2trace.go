@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"runtime"
+	"strconv"
 	"sync"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -27,6 +28,58 @@ type BlockResult struct {
 	StorageTrace     *StorageTrace      `json:"storageTrace"`
 	ExecutionResults []*ExecutionResult `json:"executionResults"`
 	MPTWitness       *json.RawMessage   `json:"mptwitness,omitempty"`
+}
+
+type AliasBlockResult BlockResult
+
+func (b *BlockResult) MarshalJSON() ([]byte, error) {
+	js := struct {
+		FreqCache []string `json:"freqCache,omitempty"`
+		AliasBlockResult
+		cache map[string]int
+		err   error
+	}{nil, AliasBlockResult(*b), make(map[string]int), nil}
+
+	for _, results := range js.ExecutionResults {
+		var preLog []string
+		for _, lg := range results.StructLogs {
+			preLog, lg.Stack = lg.Stack, check(preLog, lg.Stack)
+		}
+	}
+
+	return json.Marshal(&js)
+}
+
+func check(pre, cur []string) []string {
+	minLen := len(pre)
+	if len(cur) < minLen {
+		minLen = len(cur)
+	}
+
+	preIdx := minLen
+	for i := 0; i < minLen; i++ {
+		if pre[i] != cur[i] {
+			preIdx = i
+			break
+		}
+	}
+	if preIdx == 0 {
+		return cur
+	}
+	return append([]string{"p" + strconv.Itoa(preIdx)}, cur[preIdx:]...)
+}
+
+func (b *BlockResult) UnmarshalJSON(input []byte) error {
+	var js struct {
+		AliasBlockResult
+		FreqCache []string `json:"freqCache"`
+	}
+	if err := json.Unmarshal(input, &js); err != nil {
+		return err
+	}
+
+	*b = BlockResult(js.AliasBlockResult)
+	return nil
 }
 
 // StorageTrace stores proofs of storage needed by storage circuit

@@ -539,6 +539,7 @@ func (s *Syncer) Unregister(id string) error {
 // Previously downloaded segments will not be redownloaded of fixed, rather any
 // errors will be healed after the leaves are fully accumulated.
 func (s *Syncer) Sync(root common.Hash, cancel chan struct{}) error {
+	log.Info("snap/Syncer.Sync called with", "root", root)
 	// Move the trie root from any previous value, revert stateless markers for
 	// any peers and initialize the syncer if it was not yet run
 	s.lock.Lock()

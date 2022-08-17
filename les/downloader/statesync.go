@@ -296,6 +296,7 @@ type codeTask struct {
 // newStateSync creates a new state trie download scheduler. This method does not
 // yet start the sync. The user needs to call run to initiate.
 func newStateSync(d *Downloader, root common.Hash) *stateSync {
+	log.Info("les/downloader/statesync.go/newStateSync called with", "root", root)
 	return &stateSync{
 		d:         d,
 		root:      root,

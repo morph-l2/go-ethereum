@@ -18,6 +18,7 @@ package state
 
 import (
 	"bytes"
+	"github.com/scroll-tech/go-ethereum/log"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/types"
@@ -28,6 +29,7 @@ import (
 
 // NewStateSync create a new state trie download scheduler.
 func NewStateSync(root common.Hash, database ethdb.KeyValueReader, bloom *trie.SyncBloom, onLeaf func(paths [][]byte, leaf []byte) error) *trie.Sync {
+	log.Info("NewStateSync with", "root", root)
 	// Register the storage slot callback if the external callback is specified.
 	var onSlot func(paths [][]byte, hexpath []byte, leaf []byte, parent common.Hash) error
 	if onLeaf != nil {

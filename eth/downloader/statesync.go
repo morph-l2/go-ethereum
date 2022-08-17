@@ -62,7 +62,7 @@ type stateSyncStats struct {
 
 // syncState starts downloading state with the given root hash.
 func (d *Downloader) syncState(root common.Hash) *stateSync {
-	log.Info("les/downloader/statesync.go/syncState called with", "root", root)
+	log.Info("eth/downloader/statesync.go/syncState called with", "root", root)
 	// Create the state sync
 	s := newStateSync(d, root)
 	select {

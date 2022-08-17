@@ -1688,7 +1688,7 @@ func (d *Downloader) processHeaders(origin uint64, td *big.Int) error {
 
 // processFullSyncContent takes fetch results from the queue and imports them into the chain.
 func (d *Downloader) processFullSyncContent() error {
-	log.Crit("full sync disabled")
+	log.Error("full sync used")
 	for {
 		results := d.queue.Results(true)
 		if len(results) == 0 {

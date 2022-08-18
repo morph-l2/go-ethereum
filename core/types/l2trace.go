@@ -32,6 +32,28 @@ type BlockResult struct {
 
 type AliasBlockResult BlockResult
 
+// Store content in cache and return the "'s'+index".
+func getIndex(cache map[string]int, content string) string {
+	if len(content) < 10 {
+		return content
+	}
+	idx, ok := cache[content]
+	if !ok {
+		idx = len(cache)
+		cache[content] = idx
+	}
+	return "s" + strconv.Itoa(idx)
+}
+
+// get origin content from freCache by index
+func getOrigin(freqCache []string, sIndex string) string {
+	if len(sIndex) > 1 && sIndex[0] == 's' {
+		idx, _ := strconv.Atoi(sIndex[1:])
+		return freqCache[idx]
+	}
+	return sIndex
+}
+
 func (b *BlockResult) MarshalJSON() ([]byte, error) {
 	js := struct {
 		FreqCache []string `json:"freqCache,omitempty"`
@@ -44,7 +66,16 @@ func (b *BlockResult) MarshalJSON() ([]byte, error) {
 		var preLog []string
 		for _, lg := range results.StructLogs {
 			preLog, lg.Stack = lg.Stack, check(preLog, lg.Stack)
+			for i := range lg.Stack {
+				lg.Stack[i] = getIndex(js.cache, lg.Stack[i])
+			}
 		}
+	}
+
+	// transfer into frequent cache by index.
+	js.FreqCache = make([]string, len(js.cache))
+	for key, idx := range js.cache {
+		js.FreqCache[idx] = key
 	}
 
 	return json.Marshal(&js)

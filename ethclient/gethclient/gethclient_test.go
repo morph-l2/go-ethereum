@@ -19,6 +19,7 @@ package gethclient
 import (
 	"bytes"
 	"context"
+	"github.com/scroll-tech/go-ethereum/eth/filters"
 	"math/big"
 	"testing"
 
@@ -61,6 +62,12 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	if err != nil {
 		t.Fatalf("can't create new ethereum service: %v", err)
 	}
+	filterSystem := filters.NewFilterSystem(ethservice.APIBackend, filters.Config{})
+	n.RegisterAPIs([]rpc.API{{
+		Namespace: "eth",
+		Service:   filters.NewFilterAPI(filterSystem, false, config.MaxBlockRange),
+	}})
+
 	// Import the test chain.
 	if err := n.Start(); err != nil {
 		t.Fatalf("can't start test node: %v", err)

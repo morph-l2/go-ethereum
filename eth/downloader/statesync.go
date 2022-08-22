@@ -541,8 +541,10 @@ func (s *stateSync) process(req *stateReq) (int, error) {
 			s.bytesUncommitted += len(blob)
 			successful++
 		case trie.ErrNotRequested:
+			log.Error("trie process unexpected node")
 			unexpected++
 		case trie.ErrAlreadyProcessed:
+			log.Error("trie process already processed node")
 			duplicate++
 		default:
 			return successful, fmt.Errorf("invalid state node %s: %v", hash.TerminalString(), err)

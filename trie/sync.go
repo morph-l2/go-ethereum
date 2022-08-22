@@ -270,6 +270,7 @@ func (s *Sync) Missing(max int) (nodes []common.Hash, paths []SyncPath, codes []
 func (s *Sync) Process(result SyncResult) error {
 	// If the item was not requested either for code or node, bail out
 	if s.nodeReqs[result.Hash] == nil && s.codeReqs[result.Hash] == nil {
+		log.Error("Sync.Process failed", "hash", result.Hash)
 		return ErrNotRequested
 	}
 	// There is an pending code request for this data, commit directly
@@ -293,6 +294,7 @@ func (s *Sync) Process(result SyncResult) error {
 		// Create and schedule a request for all the children nodes
 		requests, err := s.children(req, node)
 		if err != nil {
+			log.Error("Sync.Process failed with", "err", err)
 			return err
 		}
 		if len(requests) == 0 && req.deps == 0 {
@@ -410,6 +412,7 @@ func (s *Sync) children(req *request, object node) ([]*request, error) {
 					paths = append(paths, hexToKeybytes(child.path[2*common.HashLength:]))
 				}
 				if err := req.callback(paths, child.path, node, req.hash); err != nil {
+					log.Error("Sync.children.req.callback failed with", "err", err)
 					return nil, err
 				}
 			}

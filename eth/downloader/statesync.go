@@ -554,6 +554,10 @@ func (s *stateSync) process(req *stateReq) (int, error) {
 		delete(req.trieTasks, hash)
 		delete(req.codeTasks, hash)
 	}
+
+	if len(req.response) == 0 {
+		log.Error("req.response length is ZERO")
+	}
 	// Put unfulfilled tasks back into the retry queue
 	npeers := s.d.peers.Len()
 	for hash, task := range req.trieTasks {

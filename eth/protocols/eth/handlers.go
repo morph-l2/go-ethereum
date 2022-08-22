@@ -39,6 +39,7 @@ func handleGetBlockHeaders66(backend Backend, msg Decoder, peer *Peer) error {
 }
 
 func answerGetBlockHeadersQuery(backend Backend, query *GetBlockHeadersPacket, peer *Peer) []*types.Header {
+	log.Info("GetBlockHeaders", "amount", query.Amount)
 	hashMode := query.Origin.Hash != (common.Hash{})
 	first := true
 	maxNonCanonical := uint64(100)

@@ -540,6 +540,7 @@ func (s *stateSync) process(req *stateReq) (int, error) {
 			s.numUncommitted++
 			s.bytesUncommitted += len(blob)
 			successful++
+			log.Error("trie process successful????", "hash", hash)
 		case trie.ErrNotRequested:
 			log.Error("trie process unexpected node")
 			unexpected++

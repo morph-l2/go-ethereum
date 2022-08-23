@@ -174,6 +174,7 @@ func answerGetNodeDataQuery(backend Backend, query GetNodeDataPacket, peer *Peer
 		nodes [][]byte
 	)
 	for lookups, hash := range query {
+		log.Info("answerGetNodeDataQuery query", "hash", hash)
 		if bytes >= softResponseLimit || len(nodes) >= maxNodeDataServe ||
 			lookups >= 2*maxNodeDataServe {
 			break
@@ -181,6 +182,7 @@ func answerGetNodeDataQuery(backend Backend, query GetNodeDataPacket, peer *Peer
 		// Retrieve the requested state entry
 		if bloom := backend.StateBloom(); bloom != nil && !bloom.Contains(hash[:]) {
 			// Only lookup the trie node if there's chance that we actually have it
+			log.Error("answerGetNodeDataQuery do not have", "hash", hash)
 			continue
 		}
 		entry, err := backend.Chain().TrieNode(hash)
@@ -191,6 +193,11 @@ func answerGetNodeDataQuery(backend Backend, query GetNodeDataPacket, peer *Peer
 		if err == nil && len(entry) > 0 {
 			nodes = append(nodes, entry)
 			bytes += len(entry)
+			log.Info("answerGetNodeDataQuery ContractCodeWithPrefix append", "len", len(entry))
+		} else if err != nil {
+			log.Error("answerGetNodeDataQuery ContractCodeWithPrefix", "err", err)
+		} else if len(entry) == 0 {
+			log.Error("answerGetNodeDataQuery ContractCodeWithPrefix return ZERO entries")
 		}
 	}
 	return nodes

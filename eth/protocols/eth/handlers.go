@@ -133,6 +133,7 @@ func handleGetBlockBodies66(backend Backend, msg Decoder, peer *Peer) error {
 		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
 	}
 	response := answerGetBlockBodiesQuery(backend, query.GetBlockBodiesPacket, peer)
+	log.Info("handleGetBlockBodies66 response", "length", len(response))
 	return peer.ReplyBlockBodiesRLP(query.RequestId, response)
 }
 
@@ -162,6 +163,7 @@ func handleGetNodeData66(backend Backend, msg Decoder, peer *Peer) error {
 		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
 	}
 	response := answerGetNodeDataQuery(backend, query.GetNodeDataPacket, peer)
+	log.Info("handleGetNodeData66 response", "length", len(response))
 	return peer.ReplyNodeData(query.RequestId, response)
 }
 
@@ -201,6 +203,7 @@ func handleGetReceipts66(backend Backend, msg Decoder, peer *Peer) error {
 		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
 	}
 	response := answerGetReceiptsQuery(backend, query.GetReceiptsPacket, peer)
+	log.Info("handleGetReceipts66 response", "length", len(response))
 	return peer.ReplyReceiptsRLP(query.RequestId, response)
 }
 

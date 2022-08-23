@@ -35,6 +35,7 @@ func handleGetBlockHeaders66(backend Backend, msg Decoder, peer *Peer) error {
 		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
 	}
 	response := answerGetBlockHeadersQuery(backend, query.GetBlockHeadersPacket, peer)
+	log.Info("handleGetBlockHeaders66 response", "length", len(response))
 	return peer.ReplyBlockHeaders(query.RequestId, response)
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/core/vm"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -561,8 +562,8 @@ func handleLogs(od opOrderer, currentContract common.Address, logs []*types.Stru
 			//no need to handle fail calling
 			if !(calledLog.ExtraData != nil && calledLog.ExtraData.CallFailed) {
 				//reentry the last log which "cause" the calling, some handling may needed
-				switch calledLog.Op {
-				case "CREATE", "CREATE2":
+				switch vm.OpCode(calledLog.Op) {
+				case vm.CREATE, vm.CREATE2:
 					//addr, accDataBefore := getAccountDataFromProof(calledLog, posCALLBefore)
 					od.absorb(getAccountState(calledLog, posCREATEAfter))
 				}
@@ -591,24 +592,24 @@ func handleLogs(od opOrderer, currentContract common.Address, logs []*types.Stru
 			continue
 		}
 
-		switch sLog.Op {
-		case "CREATE", "CREATE2":
+		switch vm.OpCode(sLog.Op) {
+		case vm.CREATE, vm.CREATE2:
 			state := getAccountState(sLog, posCREATE)
 			od.absorb(state)
 			//update contract to CREATE addr
 
 			callEnterAddress = state.Address
-		case "CALL", "CALLCODE":
+		case vm.CALL, vm.CALLCODE:
 			state := getAccountState(sLog, posCALL)
 			od.absorb(state)
 			callEnterAddress = state.Address
-		case "STATICCALL":
+		case vm.STATICCALL:
 			//static call has no update on target address
 			callEnterAddress = getAccountState(sLog, posSTATICCALL).Address
-		case "SLOAD":
+		case vm.SLOAD:
 			accountState := getAccountState(sLog, posSSTOREBefore)
 			od.absorb(accountState)
-		case "SSTORE":
+		case vm.SSTORE:
 			log.Debug("build SSTORE", "pc", sLog.Pc, "key", sLog.Stack[len(sLog.Stack)-1])
 			accountState := copyAccountState(getAccountState(sLog, posSSTOREBefore))
 			// notice the log only provide the value BEFORE store and it is not suitable for our protocol,

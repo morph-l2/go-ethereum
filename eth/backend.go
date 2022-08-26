@@ -42,7 +42,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/eth/filters"
 	"github.com/scroll-tech/go-ethereum/eth/gasprice"
 	"github.com/scroll-tech/go-ethereum/eth/protocols/eth"
-	"github.com/scroll-tech/go-ethereum/eth/protocols/snap"
 	"github.com/scroll-tech/go-ethereum/ethdb"
 	"github.com/scroll-tech/go-ethereum/event"
 	"github.com/scroll-tech/go-ethereum/internal/ethapi"
@@ -525,7 +524,8 @@ func (s *Ethereum) BloomIndexer() *core.ChainIndexer   { return s.bloomIndexer }
 func (s *Ethereum) Protocols() []p2p.Protocol {
 	protos := eth.MakeProtocols((*ethHandler)(s.handler), s.networkID, s.ethDialCandidates)
 	if s.config.SnapshotCache > 0 {
-		protos = append(protos, snap.MakeProtocols((*snapHandler)(s.handler), s.snapDialCandidates)...)
+		log.Error("invalid snapshot cache value", "SnapshotCache", s.config.SnapshotCache)
+		//protos = append(protos, snap.MakeProtocols((*snapHandler)(s.handler), s.snapDialCandidates)...)
 	}
 	return protos
 }

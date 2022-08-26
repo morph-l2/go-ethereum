@@ -153,44 +153,44 @@ func answerGetBlockBodiesQuery(backend Backend, query GetBlockBodiesPacket, peer
 	return bodies
 }
 
-func handleGetNodeData66(backend Backend, msg Decoder, peer *Peer) error {
-	// Decode the trie node data retrieval message
-	var query GetNodeDataPacket66
-	if err := msg.Decode(&query); err != nil {
-		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
-	}
-	response := answerGetNodeDataQuery(backend, query.GetNodeDataPacket, peer)
-	return peer.ReplyNodeData(query.RequestId, response)
-}
-
-func answerGetNodeDataQuery(backend Backend, query GetNodeDataPacket, peer *Peer) [][]byte {
-	// Gather state data until the fetch or network limits is reached
-	var (
-		bytes int
-		nodes [][]byte
-	)
-	for lookups, hash := range query {
-		if bytes >= softResponseLimit || len(nodes) >= maxNodeDataServe ||
-			lookups >= 2*maxNodeDataServe {
-			break
-		}
-		// Retrieve the requested state entry
-		if bloom := backend.StateBloom(); bloom != nil && !bloom.Contains(hash[:]) {
-			// Only lookup the trie node if there's chance that we actually have it
-			continue
-		}
-		entry, err := backend.Chain().TrieNode(hash)
-		if len(entry) == 0 || err != nil {
-			// Read the contract code with prefix only to save unnecessary lookups.
-			entry, err = backend.Chain().ContractCodeWithPrefix(hash)
-		}
-		if err == nil && len(entry) > 0 {
-			nodes = append(nodes, entry)
-			bytes += len(entry)
-		}
-	}
-	return nodes
-}
+//func handleGetNodeData66(backend Backend, msg Decoder, peer *Peer) error {
+//	// Decode the trie node data retrieval message
+//	var query GetNodeDataPacket66
+//	if err := msg.Decode(&query); err != nil {
+//		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
+//	}
+//	response := answerGetNodeDataQuery(backend, query.GetNodeDataPacket, peer)
+//	return peer.ReplyNodeData(query.RequestId, response)
+//}
+//
+//func answerGetNodeDataQuery(backend Backend, query GetNodeDataPacket, peer *Peer) [][]byte {
+//	// Gather state data until the fetch or network limits is reached
+//	var (
+//		bytes int
+//		nodes [][]byte
+//	)
+//	for lookups, hash := range query {
+//		if bytes >= softResponseLimit || len(nodes) >= maxNodeDataServe ||
+//			lookups >= 2*maxNodeDataServe {
+//			break
+//		}
+//		// Retrieve the requested state entry
+//		if bloom := backend.StateBloom(); bloom != nil && !bloom.Contains(hash[:]) {
+//			// Only lookup the trie node if there's chance that we actually have it
+//			continue
+//		}
+//		entry, err := backend.Chain().TrieNode(hash)
+//		if len(entry) == 0 || err != nil {
+//			// Read the contract code with prefix only to save unnecessary lookups.
+//			entry, err = backend.Chain().ContractCodeWithPrefix(hash)
+//		}
+//		if err == nil && len(entry) > 0 {
+//			nodes = append(nodes, entry)
+//			bytes += len(entry)
+//		}
+//	}
+//	return nodes
+//}
 
 func handleGetReceipts66(backend Backend, msg Decoder, peer *Peer) error {
 	// Decode the block receipts retrieval message
@@ -293,16 +293,16 @@ func handleBlockBodies66(backend Backend, msg Decoder, peer *Peer) error {
 	return backend.Handle(peer, &res.BlockBodiesPacket)
 }
 
-func handleNodeData66(backend Backend, msg Decoder, peer *Peer) error {
-	// A batch of node state data arrived to one of our previous requests
-	res := new(NodeDataPacket66)
-	if err := msg.Decode(res); err != nil {
-		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
-	}
-	requestTracker.Fulfil(peer.id, peer.version, NodeDataMsg, res.RequestId)
-
-	return backend.Handle(peer, &res.NodeDataPacket)
-}
+//func handleNodeData66(backend Backend, msg Decoder, peer *Peer) error {
+//	// A batch of node state data arrived to one of our previous requests
+//	res := new(NodeDataPacket66)
+//	if err := msg.Decode(res); err != nil {
+//		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
+//	}
+//	requestTracker.Fulfil(peer.id, peer.version, NodeDataMsg, res.RequestId)
+//
+//	return backend.Handle(peer, &res.NodeDataPacket)
+//}
 
 func handleReceipts66(backend Backend, msg Decoder, peer *Peer) error {
 	// A batch of receipts arrived to one of our previous requests

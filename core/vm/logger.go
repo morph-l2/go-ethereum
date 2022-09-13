@@ -170,10 +170,11 @@ type StructLogger struct {
 	storage        map[common.Address]Storage
 	createdAccount *types.AccountWrapper
 
-	callStackLogInd []int
-	logs            []StructLog
-	output          []byte
-	err             error
+	depthStackLogInd []int
+	callStackLogInd  []int
+	logs             []StructLog
+	output           []byte
+	err              error
 }
 
 // NewStructLogger returns a new logger
@@ -194,6 +195,7 @@ func (l *StructLogger) Reset() {
 	l.statesAffected = make(map[common.Address]struct{})
 	l.output = make([]byte, 0)
 	l.logs = l.logs[:0]
+	l.depthStackLogInd = nil
 	l.callStackLogInd = nil
 	l.err = nil
 	l.createdAccount = nil
@@ -281,11 +283,29 @@ func (l *StructLogger) CaptureState(pc uint64, op OpCode, gas, cost uint64, scop
 		}
 	}
 
+	switch op {
+	case CREATE, CREATE2, CALL, CALLCODE, DELEGATECALL, STATICCALL:
+		l.depthStackLogInd = append(l.depthStackLogInd, len(l.logs))
+	}
+
 	structlog.RefundCounter = l.env.StateDB.GetRefund()
 	l.logs = append(l.logs, *structlog)
 }
 
-func (l *StructLogger) CaptureStateAfter(pc uint64, op OpCode, gas, cost uint64, scope *ScopeContext, rData []byte, depth int, err error) {
+func (l *StructLogger) CaptureStateAfter(pc uint64, op OpCode, gas, cost uint64, scope *ScopeContext, rData []byte, depth int, opErr error) {
+	switch op {
+	case CREATE, CREATE2, CALL, CALLCODE, DELEGATECALL, STATICCALL:
+		var (
+			index    int
+			stackLen = len(l.depthStackLogInd)
+		)
+		index, l.depthStackLogInd = l.depthStackLogInd[stackLen-1], l.depthStackLogInd[:stackLen-1]
+		if opErr != nil {
+			l.logs[index].Err = opErr
+		} else if err := l.logs[len(l.logs)-1].Err; err != nil {
+			l.logs[index].Err = err
+		}
+	}
 }
 
 // CaptureFault implements the EVMLogger interface to trace an execution fault

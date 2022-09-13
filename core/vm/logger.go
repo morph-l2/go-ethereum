@@ -170,11 +170,10 @@ type StructLogger struct {
 	storage        map[common.Address]Storage
 	createdAccount *types.AccountWrapper
 
-	depthStackLogInd []int
-	callStackLogInd  []int
-	logs             []StructLog
-	output           []byte
-	err              error
+	callStackLogInd []int
+	logs            []StructLog
+	output          []byte
+	err             error
 }
 
 // NewStructLogger returns a new logger
@@ -195,7 +194,6 @@ func (l *StructLogger) Reset() {
 	l.statesAffected = make(map[common.Address]struct{})
 	l.output = make([]byte, 0)
 	l.logs = l.logs[:0]
-	l.depthStackLogInd = nil
 	l.callStackLogInd = nil
 	l.err = nil
 	l.createdAccount = nil
@@ -283,29 +281,11 @@ func (l *StructLogger) CaptureState(pc uint64, op OpCode, gas, cost uint64, scop
 		}
 	}
 
-	switch op {
-	case CREATE, CREATE2, CALL, CALLCODE, DELEGATECALL, STATICCALL:
-		l.depthStackLogInd = append(l.depthStackLogInd, len(l.logs))
-	}
-
 	structlog.RefundCounter = l.env.StateDB.GetRefund()
 	l.logs = append(l.logs, *structlog)
 }
 
 func (l *StructLogger) CaptureStateAfter(pc uint64, op OpCode, gas, cost uint64, scope *ScopeContext, rData []byte, depth int, opErr error) {
-	switch op {
-	case CREATE, CREATE2, CALL, CALLCODE, DELEGATECALL, STATICCALL:
-		var (
-			index    int
-			stackLen = len(l.depthStackLogInd)
-		)
-		index, l.depthStackLogInd = l.depthStackLogInd[stackLen-1], l.depthStackLogInd[:stackLen-1]
-		if opErr != nil {
-			l.logs[index].Err = opErr
-		} else if err := l.logs[len(l.logs)-1].Err; err != nil {
-			l.logs[index].Err = err
-		}
-	}
 }
 
 // CaptureFault implements the EVMLogger interface to trace an execution fault
@@ -346,7 +326,7 @@ func (l *StructLogger) CaptureEnter(typ OpCode, from common.Address, to common.A
 }
 
 // in CaptureExit phase, a CREATE has its target address's code being set and queryable
-func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, err error) {
+func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, opErr error) {
 	stackH := len(l.callStackLogInd)
 	if stackH == 0 {
 		panic("unexpected capture exit occur")
@@ -354,10 +334,13 @@ func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, err error) {
 
 	theLogPos := l.callStackLogInd[stackH-1]
 	l.callStackLogInd = l.callStackLogInd[:stackH-1]
-	theLog := l.logs[theLogPos]
+	theLog := &l.logs[theLogPos]
 	// update "forecast" data
-	if err != nil {
+	if opErr != nil {
 		theLog.ExtraData.CallFailed = true
+		theLog.Err = opErr
+	} else if err := l.logs[len(l.logs)-1].Err; err != nil {
+		theLog.Err = err
 	}
 
 	// handling updating for CREATE only

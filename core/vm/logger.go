@@ -285,7 +285,7 @@ func (l *StructLogger) CaptureState(pc uint64, op OpCode, gas, cost uint64, scop
 	l.logs = append(l.logs, *structlog)
 }
 
-func (l *StructLogger) CaptureStateAfter(pc uint64, op OpCode, gas, cost uint64, scope *ScopeContext, rData []byte, depth int, opErr error) {
+func (l *StructLogger) CaptureStateAfter(pc uint64, op OpCode, gas, cost uint64, scope *ScopeContext, rData []byte, depth int, err error) {
 }
 
 // CaptureFault implements the EVMLogger interface to trace an execution fault
@@ -326,7 +326,7 @@ func (l *StructLogger) CaptureEnter(typ OpCode, from common.Address, to common.A
 }
 
 // in CaptureExit phase, a CREATE has its target address's code being set and queryable
-func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, opErr error) {
+func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, err error) {
 	stackH := len(l.callStackLogInd)
 	if stackH == 0 {
 		panic("unexpected capture exit occur")
@@ -336,10 +336,8 @@ func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, opErr error) {
 	l.callStackLogInd = l.callStackLogInd[:stackH-1]
 	theLog := &l.logs[theLogPos]
 	// update "forecast" data
-	if opErr != nil {
+	if err != nil {
 		theLog.ExtraData.CallFailed = true
-		theLog.Err = opErr
-	} else if err := l.logs[len(l.logs)-1].Err; err != nil {
 		theLog.Err = err
 	}
 

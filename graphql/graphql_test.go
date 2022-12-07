@@ -215,10 +215,11 @@ func TestGraphQLHTTPOnSamePort_GQLRequest_Unsuccessful(t *testing.T) {
 
 func createNode(t *testing.T, gqlEnabled bool, txEnabled bool) *node.Node {
 	stack, err := node.New(&node.Config{
-		HTTPHost: "127.0.0.1",
-		HTTPPort: 0,
-		WSHost:   "127.0.0.1",
-		WSPort:   0,
+		HTTPHost:     "127.0.0.1",
+		HTTPPort:     0,
+		WSHost:       "127.0.0.1",
+		WSPort:       0,
+		HTTPTimeouts: node.DefaultConfig.HTTPTimeouts,
 	})
 	if err != nil {
 		t.Fatalf("could not create node: %v", err)

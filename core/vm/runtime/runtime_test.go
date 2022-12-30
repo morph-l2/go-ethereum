@@ -703,7 +703,7 @@ func TestColdAccountAccessCost(t *testing.T) {
 				byte(vm.PUSH1), 0xff, byte(vm.SELFDESTRUCT),
 			},
 			step: 1,
-			want: 7600,
+			want: 3,
 		},
 	} {
 		tracer := vm.NewStructLogger(nil)

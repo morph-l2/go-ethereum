@@ -81,7 +81,9 @@ func odrGetReceipts(ctx context.Context, db ethdb.Database, config *params.Chain
 	return rlp
 }
 
-func TestOdrAccountsLes2(t *testing.T) { testOdr(t, 2, 1, true, odrAccounts) }
+// ignore it because we do not need light node now.
+// func TestOdrAccountsLes2(t *testing.T) { testOdr(t, 2, 1, true, odrAccounts) }
+
 func TestOdrAccountsLes3(t *testing.T) { testOdr(t, 3, 1, true, odrAccounts) }
 func TestOdrAccountsLes4(t *testing.T) { testOdr(t, 4, 1, true, odrAccounts) }
 

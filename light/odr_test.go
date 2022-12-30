@@ -140,27 +140,27 @@ func odrGetReceipts(ctx context.Context, db ethdb.Database, bc *core.BlockChain,
 // ignore it because we do not need light node now.
 // func TestOdrAccountsLes2(t *testing.T) { testChainOdr(t, 1, odrAccounts) }
 
-func odrAccounts(ctx context.Context, db ethdb.Database, bc *core.BlockChain, lc *LightChain, bhash common.Hash) ([]byte, error) {
-	dummyAddr := common.HexToAddress("1234567812345678123456781234567812345678")
-	acc := []common.Address{testBankAddress, acc1Addr, acc2Addr, dummyAddr}
-
-	var st *state.StateDB
-	if bc == nil {
-		header := lc.GetHeaderByHash(bhash)
-		st = NewState(ctx, header, lc.Odr())
-	} else {
-		header := bc.GetHeaderByHash(bhash)
-		st, _ = state.New(header.Root, state.NewDatabase(db), nil)
-	}
-
-	var res []byte
-	for _, addr := range acc {
-		bal := st.GetBalance(addr)
-		rlp, _ := rlp.EncodeToBytes(bal)
-		res = append(res, rlp...)
-	}
-	return res, st.Error()
-}
+//func odrAccounts(ctx context.Context, db ethdb.Database, bc *core.BlockChain, lc *LightChain, bhash common.Hash) ([]byte, error) {
+//	dummyAddr := common.HexToAddress("1234567812345678123456781234567812345678")
+//	acc := []common.Address{testBankAddress, acc1Addr, acc2Addr, dummyAddr}
+//
+//	var st *state.StateDB
+//	if bc == nil {
+//		header := lc.GetHeaderByHash(bhash)
+//		st = NewState(ctx, header, lc.Odr())
+//	} else {
+//		header := bc.GetHeaderByHash(bhash)
+//		st, _ = state.New(header.Root, state.NewDatabase(db), nil)
+//	}
+//
+//	var res []byte
+//	for _, addr := range acc {
+//		bal := st.GetBalance(addr)
+//		rlp, _ := rlp.EncodeToBytes(bal)
+//		res = append(res, rlp...)
+//	}
+//	return res, st.Error()
+//}
 
 func TestOdrContractCallLes2(t *testing.T) { testChainOdr(t, 1, odrContractCall) }
 

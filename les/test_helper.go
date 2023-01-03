@@ -37,7 +37,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/contracts/checkpointoracle/contract"
 	"github.com/scroll-tech/go-ethereum/core"
 	"github.com/scroll-tech/go-ethereum/core/forkid"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/crypto"
 	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
@@ -62,10 +61,10 @@ var (
 	userAddr1   = crypto.PubkeyToAddress(userKey1.PublicKey)
 	userAddr2   = crypto.PubkeyToAddress(userKey2.PublicKey)
 
-	testContractAddr         common.Address
-	testContractCode         = common.Hex2Bytes("606060405260cc8060106000396000f360606040526000357c01000000000000000000000000000000000000000000000000000000009004806360cd2685146041578063c16431b914606b57603f565b005b6055600480803590602001909190505060a9565b6040518082815260200191505060405180910390f35b60886004808035906020019091908035906020019091905050608a565b005b80600060005083606481101560025790900160005b50819055505b5050565b6000600060005082606481101560025790900160005b5054905060c7565b91905056")
-	testContractCodeDeployed = testContractCode[16:]
-	testContractDeployed     = uint64(2)
+	testContractAddr common.Address
+	testContractCode = common.Hex2Bytes("606060405260cc8060106000396000f360606040526000357c01000000000000000000000000000000000000000000000000000000009004806360cd2685146041578063c16431b914606b57603f565b005b6055600480803590602001909190505060a9565b6040518082815260200191505060405180910390f35b60886004808035906020019091908035906020019091905050608a565b005b80600060005083606481101560025790900160005b50819055505b5050565b6000600060005082606481101560025790900160005b5054905060c7565b91905056")
+	// testContractCodeDeployed = testContractCode[16:]
+	// testContractDeployed     = uint64(2)
 
 	testEventEmitterCode = common.Hex2Bytes("60606040523415600e57600080fd5b7f57050ab73f6b9ebdd9f76b8d4997793f48cf956e965ee070551b9ca0bb71584e60405160405180910390a160358060476000396000f3006060604052600080fd00a165627a7a723058203f727efcad8b5811f8cb1fc2620ce5e8c63570d697aef968172de296ea3994140029")
 
@@ -584,92 +583,92 @@ type testnetConfig struct {
 	nopruning   bool
 }
 
-func newClientServerEnv(t *testing.T, config testnetConfig) (*testServer, *testClient, func()) {
-	var (
-		sdb    = rawdb.NewMemoryDatabase()
-		cdb    = rawdb.NewMemoryDatabase()
-		speers = newServerPeerSet()
-	)
-	var clock mclock.Clock = &mclock.System{}
-	if config.simClock {
-		clock = &mclock.Simulated{}
-	}
-	dist := newRequestDistributor(speers, clock)
-	rm := newRetrieveManager(speers, dist, func() time.Duration { return time.Millisecond * 500 })
-	odr := NewLesOdr(cdb, light.TestClientIndexerConfig, speers, rm)
-
-	sindexers := testIndexers(sdb, nil, light.TestServerIndexerConfig, true)
-	cIndexers := testIndexers(cdb, odr, light.TestClientIndexerConfig, config.nopruning)
-
-	scIndexer, sbIndexer, sbtIndexer := sindexers[0], sindexers[1], sindexers[2]
-	ccIndexer, cbIndexer, cbtIndexer := cIndexers[0], cIndexers[1], cIndexers[2]
-	odr.SetIndexers(ccIndexer, cbIndexer, cbtIndexer)
-
-	server, b, serverClose := newTestServerHandler(config.blocks, sindexers, sdb, clock)
-	client, clientClose := newTestClientHandler(b, odr, cIndexers, cdb, speers, config.ulcServers, config.ulcFraction)
-
-	scIndexer.Start(server.blockchain)
-	sbIndexer.Start(server.blockchain)
-	ccIndexer.Start(client.backend.blockchain)
-	cbIndexer.Start(client.backend.blockchain)
-
-	if config.indexFn != nil {
-		config.indexFn(scIndexer, sbIndexer, sbtIndexer)
-	}
-	var (
-		err          error
-		speer, cpeer *testPeer
-	)
-	if config.connect {
-		done := make(chan struct{})
-		client.syncEnd = func(_ *types.Header) { close(done) }
-		cpeer, speer, err = newTestPeerPair("peer", config.protocol, server, client, false)
-		if err != nil {
-			t.Fatalf("Failed to connect testing peers %v", err)
-		}
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			t.Fatal("test peer did not connect and sync within 3s")
-		}
-	}
-	s := &testServer{
-		clock:            clock,
-		backend:          b,
-		db:               sdb,
-		peer:             cpeer,
-		handler:          server,
-		chtIndexer:       scIndexer,
-		bloomIndexer:     sbIndexer,
-		bloomTrieIndexer: sbtIndexer,
-	}
-	c := &testClient{
-		clock:            clock,
-		db:               cdb,
-		peer:             speer,
-		handler:          client,
-		chtIndexer:       ccIndexer,
-		bloomIndexer:     cbIndexer,
-		bloomTrieIndexer: cbtIndexer,
-	}
-	teardown := func() {
-		if config.connect {
-			speer.close()
-			cpeer.close()
-			cpeer.cpeer.close()
-			speer.speer.close()
-		}
-		ccIndexer.Close()
-		cbIndexer.Close()
-		scIndexer.Close()
-		sbIndexer.Close()
-		dist.close()
-		serverClose()
-		b.Close()
-		clientClose()
-	}
-	return s, c, teardown
-}
+//func newClientServerEnv(t *testing.T, config testnetConfig) (*testServer, *testClient, func()) {
+//	var (
+//		sdb    = rawdb.NewMemoryDatabase()
+//		cdb    = rawdb.NewMemoryDatabase()
+//		speers = newServerPeerSet()
+//	)
+//	var clock mclock.Clock = &mclock.System{}
+//	if config.simClock {
+//		clock = &mclock.Simulated{}
+//	}
+//	dist := newRequestDistributor(speers, clock)
+//	rm := newRetrieveManager(speers, dist, func() time.Duration { return time.Millisecond * 500 })
+//	odr := NewLesOdr(cdb, light.TestClientIndexerConfig, speers, rm)
+//
+//	sindexers := testIndexers(sdb, nil, light.TestServerIndexerConfig, true)
+//	cIndexers := testIndexers(cdb, odr, light.TestClientIndexerConfig, config.nopruning)
+//
+//	scIndexer, sbIndexer, sbtIndexer := sindexers[0], sindexers[1], sindexers[2]
+//	ccIndexer, cbIndexer, cbtIndexer := cIndexers[0], cIndexers[1], cIndexers[2]
+//	odr.SetIndexers(ccIndexer, cbIndexer, cbtIndexer)
+//
+//	server, b, serverClose := newTestServerHandler(config.blocks, sindexers, sdb, clock)
+//	client, clientClose := newTestClientHandler(b, odr, cIndexers, cdb, speers, config.ulcServers, config.ulcFraction)
+//
+//	scIndexer.Start(server.blockchain)
+//	sbIndexer.Start(server.blockchain)
+//	ccIndexer.Start(client.backend.blockchain)
+//	cbIndexer.Start(client.backend.blockchain)
+//
+//	if config.indexFn != nil {
+//		config.indexFn(scIndexer, sbIndexer, sbtIndexer)
+//	}
+//	var (
+//		err          error
+//		speer, cpeer *testPeer
+//	)
+//	if config.connect {
+//		done := make(chan struct{})
+//		client.syncEnd = func(_ *types.Header) { close(done) }
+//		cpeer, speer, err = newTestPeerPair("peer", config.protocol, server, client, false)
+//		if err != nil {
+//			t.Fatalf("Failed to connect testing peers %v", err)
+//		}
+//		select {
+//		case <-done:
+//		case <-time.After(10 * time.Second):
+//			t.Fatal("test peer did not connect and sync within 3s")
+//		}
+//	}
+//	s := &testServer{
+//		clock:            clock,
+//		backend:          b,
+//		db:               sdb,
+//		peer:             cpeer,
+//		handler:          server,
+//		chtIndexer:       scIndexer,
+//		bloomIndexer:     sbIndexer,
+//		bloomTrieIndexer: sbtIndexer,
+//	}
+//	c := &testClient{
+//		clock:            clock,
+//		db:               cdb,
+//		peer:             speer,
+//		handler:          client,
+//		chtIndexer:       ccIndexer,
+//		bloomIndexer:     cbIndexer,
+//		bloomTrieIndexer: cbtIndexer,
+//	}
+//	teardown := func() {
+//		if config.connect {
+//			speer.close()
+//			cpeer.close()
+//			cpeer.cpeer.close()
+//			speer.speer.close()
+//		}
+//		ccIndexer.Close()
+//		cbIndexer.Close()
+//		scIndexer.Close()
+//		sbIndexer.Close()
+//		dist.close()
+//		serverClose()
+//		b.Close()
+//		clientClose()
+//	}
+//	return s, c, teardown
+//}
 
 // NewFuzzerPeer creates a client peer for test purposes, and also returns
 // a function to close the peer: this is needed to avoid goroutine leaks in the

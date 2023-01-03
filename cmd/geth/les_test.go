@@ -174,51 +174,51 @@ func startClient(t *testing.T, name string) *gethrpc {
 	return startGethWithIpc(t, name, "--datadir", datadir, "--nodiscover", "--syncmode=light", "--nat=extip:127.0.0.1", "--verbosity=4")
 }
 
-func TestPriorityClient(t *testing.T) {
-	lightServer := startLightServer(t)
-	defer lightServer.killAndWait()
-
-	// Start client and add lightServer as peer
-	freeCli := startClient(t, "freeCli")
-	defer freeCli.killAndWait()
-	freeCli.addPeer(lightServer)
-
-	var peers []*p2p.PeerInfo
-	freeCli.callRPC(&peers, "admin_peers")
-	if len(peers) != 1 {
-		t.Errorf("Expected: # of client peers == 1, actual: %v", len(peers))
-		return
-	}
-
-	// Set up priority client, get its nodeID, increase its balance on the lightServer
-	prioCli := startClient(t, "prioCli")
-	defer prioCli.killAndWait()
-	// 3_000_000_000 once we move to Go 1.13
-	tokens := uint64(3000000000)
-	lightServer.callRPC(nil, "les_addBalance", prioCli.getNodeInfo().ID, tokens)
-	prioCli.addPeer(lightServer)
-
-	// Check if priority client is actually syncing and the regular client got kicked out
-	prioCli.callRPC(&peers, "admin_peers")
-	if len(peers) != 1 {
-		t.Errorf("Expected: # of prio peers == 1, actual: %v", len(peers))
-	}
-
-	nodes := map[string]*gethrpc{
-		lightServer.getNodeInfo().ID: lightServer,
-		freeCli.getNodeInfo().ID:     freeCli,
-		prioCli.getNodeInfo().ID:     prioCli,
-	}
-	time.Sleep(1 * time.Second)
-	lightServer.callRPC(&peers, "admin_peers")
-	peersWithNames := make(map[string]string)
-	for _, p := range peers {
-		peersWithNames[nodes[p.ID].name] = p.ID
-	}
-	if _, freeClientFound := peersWithNames[freeCli.name]; freeClientFound {
-		t.Error("client is still a peer of lightServer", peersWithNames)
-	}
-	if _, prioClientFound := peersWithNames[prioCli.name]; !prioClientFound {
-		t.Error("prio client is not among lightServer peers", peersWithNames)
-	}
-}
+//func TestPriorityClient(t *testing.T) {
+//	lightServer := startLightServer(t)
+//	defer lightServer.killAndWait()
+//
+//	// Start client and add lightServer as peer
+//	freeCli := startClient(t, "freeCli")
+//	defer freeCli.killAndWait()
+//	freeCli.addPeer(lightServer)
+//
+//	var peers []*p2p.PeerInfo
+//	freeCli.callRPC(&peers, "admin_peers")
+//	if len(peers) != 1 {
+//		t.Errorf("Expected: # of client peers == 1, actual: %v", len(peers))
+//		return
+//	}
+//
+//	// Set up priority client, get its nodeID, increase its balance on the lightServer
+//	prioCli := startClient(t, "prioCli")
+//	defer prioCli.killAndWait()
+//	// 3_000_000_000 once we move to Go 1.13
+//	tokens := uint64(3000000000)
+//	lightServer.callRPC(nil, "les_addBalance", prioCli.getNodeInfo().ID, tokens)
+//	prioCli.addPeer(lightServer)
+//
+//	// Check if priority client is actually syncing and the regular client got kicked out
+//	prioCli.callRPC(&peers, "admin_peers")
+//	if len(peers) != 1 {
+//		t.Errorf("Expected: # of prio peers == 1, actual: %v", len(peers))
+//	}
+//
+//	nodes := map[string]*gethrpc{
+//		lightServer.getNodeInfo().ID: lightServer,
+//		freeCli.getNodeInfo().ID:     freeCli,
+//		prioCli.getNodeInfo().ID:     prioCli,
+//	}
+//	time.Sleep(1 * time.Second)
+//	lightServer.callRPC(&peers, "admin_peers")
+//	peersWithNames := make(map[string]string)
+//	for _, p := range peers {
+//		peersWithNames[nodes[p.ID].name] = p.ID
+//	}
+//	if _, freeClientFound := peersWithNames[freeCli.name]; freeClientFound {
+//		t.Error("client is still a peer of lightServer", peersWithNames)
+//	}
+//	if _, prioClientFound := peersWithNames[prioCli.name]; !prioClientFound {
+//		t.Error("prio client is not among lightServer peers", peersWithNames)
+//	}
+//}

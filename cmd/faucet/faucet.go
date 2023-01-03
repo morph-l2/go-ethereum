@@ -52,8 +52,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/eth/downloader"
 	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
 	"github.com/scroll-tech/go-ethereum/ethclient"
-	"github.com/scroll-tech/go-ethereum/ethstats"
-	"github.com/scroll-tech/go-ethereum/les"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/node"
 	"github.com/scroll-tech/go-ethereum/p2p"
@@ -254,17 +252,18 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 	cfg.Genesis = genesis
 	utils.SetDNSDiscoveryDefaults(&cfg, genesis.ToBlock(nil).Hash())
 
-	lesBackend, err := les.New(stack, &cfg)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to register the Ethereum service: %w", err)
-	}
+	//lesBackend, err := les.New(stack, &cfg)
+	//if err != nil {
+	//	return nil, fmt.Errorf("Failed to register the Ethereum service: %w", err)
+	//}
+	//
+	//// Assemble the ethstats monitoring and reporting service'
+	//if stats != "" {
+	//	if err := ethstats.New(stack, lesBackend.ApiBackend, lesBackend.Engine(), stats); err != nil {
+	//		return nil, err
+	//	}
+	//}
 
-	// Assemble the ethstats monitoring and reporting service'
-	if stats != "" {
-		if err := ethstats.New(stack, lesBackend.ApiBackend, lesBackend.Engine(), stats); err != nil {
-			return nil, err
-		}
-	}
 	// Boot up the client and ensure it connects to bootnodes
 	if err := stack.Start(); err != nil {
 		return nil, err

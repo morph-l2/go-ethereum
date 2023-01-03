@@ -58,7 +58,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/graphql"
 	"github.com/scroll-tech/go-ethereum/internal/ethapi"
 	"github.com/scroll-tech/go-ethereum/internal/flags"
-	"github.com/scroll-tech/go-ethereum/les"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/metrics/exp"
@@ -1707,24 +1706,24 @@ func SetDNSDiscoveryDefaults(cfg *ethconfig.Config, genesis common.Hash) {
 // The second return value is the full node instance, which may be nil if the
 // node is running as a light client.
 func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend, *eth.Ethereum) {
-	if cfg.SyncMode == downloader.LightSync {
-		backend, err := les.New(stack, cfg)
-		if err != nil {
-			Fatalf("Failed to register the Ethereum service: %v", err)
-		}
-		stack.RegisterAPIs(tracers.APIs(backend.ApiBackend))
-		return backend.ApiBackend, nil
-	}
+	//if cfg.SyncMode == downloader.LightSync {
+	//	backend, err := les.New(stack, cfg)
+	//	if err != nil {
+	//		Fatalf("Failed to register the Ethereum service: %v", err)
+	//	}
+	//	stack.RegisterAPIs(tracers.APIs(backend.ApiBackend))
+	//	return backend.ApiBackend, nil
+	//}
 	backend, err := eth.New(stack, cfg)
 	if err != nil {
 		Fatalf("Failed to register the Ethereum service: %v", err)
 	}
-	if cfg.LightServ > 0 {
-		_, err := les.NewLesServer(stack, backend, cfg)
-		if err != nil {
-			Fatalf("Failed to create the LES server: %v", err)
-		}
-	}
+	//if cfg.LightServ > 0 {
+	//	_, err := les.NewLesServer(stack, backend, cfg)
+	//	if err != nil {
+	//		Fatalf("Failed to create the LES server: %v", err)
+	//	}
+	//}
 	stack.RegisterAPIs(tracers.APIs(backend.APIBackend))
 	return backend.APIBackend, backend
 }

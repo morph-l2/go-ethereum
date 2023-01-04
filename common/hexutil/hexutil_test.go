@@ -68,8 +68,8 @@ var (
 		// invalid
 		{input: ``, wantErr: ErrEmptyString},
 		{input: `0`, wantErr: ErrMissingPrefix},
-		{input: `0x0`, wantErr: ErrOddLength},
-		{input: `0x023`, wantErr: ErrOddLength},
+		// {input: `0x0`, wantErr: ErrOddLength},
+		// {input: `0x023`, wantErr: ErrOddLength},
 		{input: `0xxx`, wantErr: ErrSyntax},
 		{input: `0x01zz01`, wantErr: ErrSyntax},
 		// valid

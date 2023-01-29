@@ -113,7 +113,7 @@ func (t *ZkTrie) GetKey(kHashBytes []byte) []byte {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
 	}
 
-	return t.db.db.preimage(common.BytesToHash(k.Bytes()))
+	return t.db.db.preimages.preimage(common.BytesToHash(k.Bytes()))
 
 }
 

@@ -47,7 +47,7 @@ func VerifyEip1559Header(config *params.ChainConfig, parent, header *types.Heade
 	var expectedBaseFee *big.Int
 
 	// compatible check with the logic in commitNewWork
-	if config.EnableEIP2718 && config.EnableEIP1559 {
+	if config.Clique == nil || (config.EnableEIP2718 && config.EnableEIP1559) {
 		expectedBaseFee = CalcBaseFee(config, parent)
 	} else {
 		expectedBaseFee = big.NewInt(0)

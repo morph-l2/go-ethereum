@@ -143,11 +143,11 @@ func zeroesAndOnes(data []byte) (uint64, uint64) {
 }
 
 // mulByFloat multiplies a big.Int by a float and returns the
-// big.Int rounded upwards
+// big.Int rounded downwards
 func mulByFloat(num *big.Int, float *big.Float) *big.Int {
 	n := new(big.Float).SetUint64(num.Uint64())
 	product := n.Mul(n, float)
 	pfloat, _ := product.Float64()
-	rounded := math.Ceil(pfloat)
+	rounded := math.Floor(pfloat)
 	return new(big.Int).SetUint64(uint64(rounded))
 }

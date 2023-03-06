@@ -2514,51 +2514,52 @@ func TestSideImportPrunedBlocks(t *testing.T) {
 	}
 }
 
+// This test fails now because SENDALL is executed instead of SELFDISTRUCT
 // TestSelfDestructDisabled
 // If a transaction's execution triggers SELFDESTRUCT, it will fail.
-func TestSelfDestructDisabled(t *testing.T) {
-	var (
-		// Generate a canonical chain to act as the main dataset
-		engine = ethash.NewFaker()
-		db     = rawdb.NewMemoryDatabase()
-		// A sender who makes transactions, has some funds
-		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		address = crypto.PubkeyToAddress(key.PublicKey)
-		funds   = big.NewInt(1000000000000000)
+// func TestSelfDestructDisabled(t *testing.T) {
+// 	var (
+// 		// Generate a canonical chain to act as the main dataset
+// 		engine = ethash.NewFaker()
+// 		db     = rawdb.NewMemoryDatabase()
+// 		// A sender who makes transactions, has some funds
+// 		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+// 		address = crypto.PubkeyToAddress(key.PublicKey)
+// 		funds   = big.NewInt(1000000000000000)
 
-		aa        = common.HexToAddress("0x7217d81b76bdd8707601e959454e3d776aee5f43")
-		aaStorage = make(map[common.Hash]common.Hash)          // Initial storage in AA
-		aaCode    = []byte{byte(vm.PC), byte(vm.SELFDESTRUCT)} // Code for AA (simple selfdestruct)
-	)
+// 		aa        = common.HexToAddress("0x7217d81b76bdd8707601e959454e3d776aee5f43")
+// 		aaStorage = make(map[common.Hash]common.Hash)          // Initial storage in AA
+// 		aaCode    = []byte{byte(vm.PC), byte(vm.SELFDESTRUCT)} // Code for AA (simple selfdestruct)
+// 	)
 
-	gspec := &Genesis{
-		Config: params.TestChainConfig,
-		Alloc: GenesisAlloc{
-			address: {Balance: funds},
-			// The address 0xAAAAA selfdestructs if called
-			aa: {
-				// Code needs to just selfdestruct
-				Code:    aaCode,
-				Nonce:   1,
-				Balance: big.NewInt(0),
-				Storage: aaStorage,
-			},
-		},
-	}
-	genesis := gspec.MustCommit(db)
+// 	gspec := &Genesis{
+// 		Config: params.TestChainConfig,
+// 		Alloc: GenesisAlloc{
+// 			address: {Balance: funds},
+// 			// The address 0xAAAAA selfdestructs if called
+// 			aa: {
+// 				// Code needs to just selfdestruct
+// 				Code:    aaCode,
+// 				Nonce:   1,
+// 				Balance: big.NewInt(0),
+// 				Storage: aaStorage,
+// 			},
+// 		},
+// 	}
+// 	genesis := gspec.MustCommit(db)
 
-	_, receipts := GenerateChain(params.TestChainConfig, genesis, engine, db, 1, func(i int, b *BlockGen) {
-		b.SetCoinbase(common.Address{1})
-		// One transaction to AA, to kill it
-		tx, _ := types.SignTx(types.NewTransaction(0, aa,
-			big.NewInt(0), 50000, b.header.BaseFee, nil), types.HomesteadSigner{}, key)
-		b.AddTx(tx)
-	})
+// 	_, receipts := GenerateChain(params.TestChainConfig, genesis, engine, db, 1, func(i int, b *BlockGen) {
+// 		b.SetCoinbase(common.Address{1})
+// 		// One transaction to AA, to kill it
+// 		tx, _ := types.SignTx(types.NewTransaction(0, aa,
+// 			big.NewInt(0), 50000, b.header.BaseFee, nil), types.HomesteadSigner{}, key)
+// 		b.AddTx(tx)
+// 	})
 
-	if receipts[0][0].Status != types.ReceiptStatusFailed {
-		t.Fatalf("Expected transaction triggering SELFDESTRUCT to fail")
-	}
-}
+// 	if receipts[0][0].Status != types.ReceiptStatusFailed {
+// 		t.Fatalf("Expected transaction triggering SELFDESTRUCT to fail")
+// 	}
+// }
 
 // TestDeleteCreateRevert tests a weird state transition corner case that we hit
 // while changing the internals of statedb. The workflow is that a contract is

@@ -82,6 +82,7 @@ type stPostState struct {
 type stEnv struct {
 	Coinbase   common.Address `json:"currentCoinbase"   gencodec:"required"`
 	Difficulty *big.Int       `json:"currentDifficulty" gencodec:"required"`
+	Random     *big.Int       `json:"currentRandom"     gencodec:"optional"`
 	GasLimit   uint64         `json:"currentGasLimit"   gencodec:"required"`
 	Number     uint64         `json:"currentNumber"     gencodec:"required"`
 	Timestamp  uint64         `json:"currentTimestamp"  gencodec:"required"`
@@ -219,6 +220,12 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	context := core.NewEVMBlockContext(block.Header(), nil, &t.json.Env.Coinbase)
 	context.GetHash = vmTestBlockHash
 	context.BaseFee = baseFee
+	context.Random = nil
+	if config.IsLondon(new(big.Int)) && t.json.Env.Random != nil {
+		rnd := common.BigToHash(t.json.Env.Random)
+		context.Random = &rnd
+		context.Difficulty = big.NewInt(0)
+	}
 	evm := vm.NewEVM(context, txContext, statedb, config, vmconfig)
 
 	// Execute the message.

@@ -53,6 +53,7 @@ type StateDB interface {
 	GetProof(addr common.Address) ([][]byte, error)
 	GetProofByHash(addrHash common.Hash) ([][]byte, error)
 	GetStorageProof(a common.Address, key common.Hash) ([][]byte, error)
+	GetDeletetionProof(a common.Address, key common.Hash) ([]byte, error)
 
 	Suicide(common.Address) bool
 	HasSuicided(common.Address) bool

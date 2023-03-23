@@ -169,6 +169,7 @@ type StructLogger struct {
 	statesAffected map[common.Address]struct{}
 	storage        map[common.Address]Storage
 	createdAccount *types.AccountWrapper
+	deletionProof  [][]byte
 
 	callStackLogInd []int
 	logs            []*StructLog
@@ -192,6 +193,7 @@ func NewStructLogger(cfg *LogConfig) *StructLogger {
 func (l *StructLogger) Reset() {
 	l.storage = make(map[common.Address]Storage)
 	l.statesAffected = make(map[common.Address]struct{})
+	l.deletionProof = nil
 	l.output = make([]byte, 0)
 	l.logs = l.logs[:0]
 	l.callStackLogInd = nil
@@ -267,6 +269,18 @@ func (l *StructLogger) CaptureState(pc uint64, op OpCode, gas, cost uint64, scop
 		if err := traceStorage(l, scope, structlog.getOrInitExtraData()); err != nil {
 			log.Error("Failed to trace data", "opcode", op.String(), "err", err)
 		}
+
+		oldValue := l.env.StateDB.GetState(contractAddress, storageKey)
+		if !bytes.Equal(oldValue.Bytes(), storageValue.Bytes()) &&
+			bytes.Equal(storageValue.Bytes(), common.Hash{}.Bytes()) {
+
+			if delSibling, err := l.env.StateDB.GetDeletetionProof(contractAddress, storageKey); err != nil {
+				log.Error("Fail to obtain deletion proof", "err", err, "address", contractAddress, "key", storageKey)
+			} else {
+				l.deletionProof = append(l.deletionProof, delSibling)
+			}
+		}
+
 	}
 	if l.cfg.EnableReturnData {
 		structlog.ReturnData.Write(rData)
@@ -379,6 +393,11 @@ func (l *StructLogger) UpdatedAccounts() map[common.Address]struct{} {
 // UpdatedStorages is used to collect all "touched" storage slots
 func (l *StructLogger) UpdatedStorages() map[common.Address]Storage {
 	return l.storage
+}
+
+// DeletionProofs is used to collect all deletion proof collected in handling
+func (l *StructLogger) DeletionProofs() [][]byte {
+	return l.deletionProof
 }
 
 // CreatedAccount return the account data in case it is a create tx

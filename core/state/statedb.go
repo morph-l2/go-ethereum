@@ -352,37 +352,59 @@ func (s *StateDB) GetRootHash() common.Hash {
 
 // StorageTrieProof is not in Db interface and used explictily for reading proof in storage trie (not the dirty value)
 // For zktrie it also provide required data for predict the deletion, else it just fallback to GetStorageProof
-func (s *StateDB) GetStorageTrieProof(a common.Address, key common.Hash) ([][]byte, []byte, error) {
+func (s *StateDB) GetStorageTrieProof(a common.Address, key common.Hash) ([][]byte, error) {
 
 	// try the trie in stateObject first, else we would create one
 	stateObject := s.getStateObject(a)
 	if stateObject == nil {
-		return nil, nil, errors.New("storage trie for requested address does not exist")
+		return nil, errors.New("storage trie for requested address does not exist")
 	}
 
-	trieS := stateObject.trie
+	trie := stateObject.trie
 	var err error
-	if trieS == nil {
+	if trie == nil {
 		// use a new, temporary trie
-		trieS, err = s.db.OpenStorageTrie(stateObject.addrHash, stateObject.data.Root)
+		trie, err = s.db.OpenStorageTrie(stateObject.addrHash, stateObject.data.Root)
 		if err != nil {
-			return nil, nil, fmt.Errorf("can't create storage trie on root %s: %v ", stateObject.data.Root, err)
+			return nil, fmt.Errorf("can't create storage trie on root %s: %v ", stateObject.data.Root, err)
 		}
 	}
 
 	var proof proofList
-	var sibling []byte
 	if s.IsZktrie() {
-		zkTrie := trieS.(*trie.ZkTrie)
-		if zkTrie == nil {
-			panic("unexpected trie type for zktrie")
-		}
 		key_s, _ := zkt.ToSecureKeyBytes(key.Bytes())
-		sibling, err = zkTrie.ProveWithDeletion(key_s.Bytes(), 0, &proof)
+		err = trie.Prove(key_s.Bytes(), 0, &proof)
 	} else {
-		err = trieS.Prove(crypto.Keccak256(key.Bytes()), 0, &proof)
+		err = trie.Prove(crypto.Keccak256(key.Bytes()), 0, &proof)
 	}
-	return proof, sibling, err
+	return proof, err
+}
+
+// GetDeletetionProof return the sibling of a leaf node. For any deletion,
+// information for this sibling node for the leaf node being deleted is required to be passed to
+// witness generator for predicting the trie root after deletion
+func (s *StateDB) GetDeletetionProof(a common.Address, key common.Hash) ([]byte, error) {
+
+	// mpt trie do not need this
+	if !s.IsZktrie() {
+		return nil, nil
+	}
+
+	trieS := s.StorageTrie(a)
+	if trieS == nil {
+		return nil, errors.New("storage trie for requested address does not exist")
+	}
+
+	zkTrie := trieS.(*trie.ZkTrie)
+	if zkTrie == nil {
+		panic("unexpected trie type for zktrie")
+	}
+
+	key_s, _ := zkt.ToSecureKeyBytes(key.Bytes())
+
+	// notice proof is not need, we just need the sibling bytes being returned
+	var proof proofList
+	return zkTrie.ProveWithDeletion(key_s.Bytes(), 0, &proof)
 }
 
 // GetStorageProof returns the Merkle proof for given storage slot.

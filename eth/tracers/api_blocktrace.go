@@ -13,6 +13,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/core/vm"
+	"github.com/scroll-tech/go-ethereum/crypto"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
@@ -42,6 +43,8 @@ type traceEnv struct {
 	// this lock is used to protect StorageTrace's read and write mutual exclusion.
 	sMu sync.Mutex
 	*types.StorageTrace
+	// used for de-duplication of deletion proofs when handling mutiple txs
+	deletionProofAgg map[common.Hash][]byte
 	executionResults []*types.ExecutionResult
 }
 
@@ -119,6 +122,7 @@ func (api *API) createTraceEnv(ctx context.Context, config *TraceConfig, block *
 			Proofs:        make(map[string][]hexutil.Bytes),
 			StorageProofs: make(map[string]map[string][]hexutil.Bytes),
 		},
+		deletionProofAgg: make(map[common.Hash][]byte),
 		executionResults: make([]*types.ExecutionResult, block.Transactions().Len()),
 	}
 
@@ -314,7 +318,7 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 			}
 			env.sMu.Unlock()
 
-			proof, sibling, err := state.GetStorageTrieProof(addr, key)
+			proof, err := state.GetStorageTrieProof(addr, key)
 			if err != nil {
 				log.Error("Storage proof not available", "error", err, "address", addrStr, "key", keyStr)
 				// but we still mark the proofs map with nil array
@@ -325,11 +329,16 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 			}
 			env.sMu.Lock()
 			m[keyStr] = wrappedProof
-			if sibling != nil {
-				env.DeletionProofs = append(env.DeletionProofs, sibling)
-			}
 			env.sMu.Unlock()
 		}
+	}
+
+	deletionProofs := tracer.DeletionProofs()
+	for _, bt := range deletionProofs {
+		key := crypto.Keccak256Hash(bt)
+		env.sMu.Lock()
+		env.deletionProofAgg[key] = bt
+		env.sMu.Unlock()
 	}
 
 	var l1Fee uint64
@@ -358,6 +367,10 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 	txs := make([]*types.TransactionData, block.Transactions().Len())
 	for i, tx := range block.Transactions() {
 		txs[i] = types.NewTransactionData(tx, block.NumberU64(), api.backend.ChainConfig())
+	}
+
+	for _, bt := range env.deletionProofAgg {
+		env.DeletionProofs = append(env.DeletionProofs, bt)
 	}
 
 	blockTrace := &types.BlockTrace{

@@ -790,6 +790,20 @@ var (
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
 	}
+
+	// L1Settings
+	L1EndpointFlag = cli.StringFlag{
+		Name:  "l1.addr",
+		Usage: "Endpoint of L1 HTTP-RPC server",
+	}
+	L1ConfirmationsFlag = cli.IntFlag{
+		Name:  "l1.confirmations",
+		Usage: "Number of confirmations on L1 needed for finalization",
+	}
+	L1DeploymentBlockFlag = cli.StringFlag{
+		Name:  "l1.deployment.block",
+		Usage: "Hash od block where bridge contract is deployed on L1",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -1217,6 +1231,7 @@ func SetNodeConfig(ctx *cli.Context, cfg *node.Config) {
 	setNodeUserIdent(ctx, cfg)
 	setDataDir(ctx, cfg)
 	setSmartCard(ctx, cfg)
+	setL1(ctx, cfg)
 
 	if ctx.GlobalIsSet(ExternalSignerFlag.Name) {
 		cfg.ExternalSigner = ctx.GlobalString(ExternalSignerFlag.Name)
@@ -1239,6 +1254,18 @@ func SetNodeConfig(ctx *cli.Context, cfg *node.Config) {
 	}
 	if ctx.GlobalIsSet(InsecureUnlockAllowedFlag.Name) {
 		cfg.InsecureUnlockAllowed = ctx.GlobalBool(InsecureUnlockAllowedFlag.Name)
+	}
+}
+
+func setL1(ctx *cli.Context, cfg *node.Config) {
+	if ctx.GlobalIsSet(L1EndpointFlag.Name) {
+		cfg.L1Endpoint = ctx.GlobalString(L1EndpointFlag.Name)
+	}
+	if ctx.GlobalIsSet(L1ConfirmationsFlag.Name) {
+		cfg.L1Confirmations = ctx.GlobalInt(L1ConfirmationsFlag.Name)
+	}
+	if ctx.GlobalIsSet(L1DeploymentBlockFlag.Name) {
+		cfg.L1DeploymentBlock = ctx.GlobalString(L1DeploymentBlockFlag.Name)
 	}
 }
 

@@ -190,6 +190,13 @@ type Config struct {
 
 	// AllowUnprotectedTxs allows non EIP-155 protected transactions to be send over RPC.
 	AllowUnprotectedTxs bool `toml:",omitempty"`
+
+	// Endpoint of L1 HTTP-RPC server
+	L1Endpoint string `toml:",omitempty"`
+	// Number of confirmations on L1 needed for finalization
+	L1Confirmations int `toml:",omitempty"`
+	// Hash od block where bridge contract is deployed on L1
+	L1DeploymentBlock string `toml:",omitempty"`
 }
 
 // IPCEndpoint resolves an IPC endpoint based on a configured value, taking into

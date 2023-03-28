@@ -334,12 +334,17 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 	}
 
 	deletionProofs := tracer.DeletionProofs()
+	// calc key and cache first, so we lock env shorter
+	// while merging
+	mergedProofs := make(map[common.Hash][]byte)
 	for _, bt := range deletionProofs {
-		key := crypto.Keccak256Hash(bt)
-		env.sMu.Lock()
-		env.deletionProofAgg[key] = bt
-		env.sMu.Unlock()
+		mergedProofs[crypto.Keccak256Hash(bt)] = bt
 	}
+	env.sMu.Lock()
+	for key, bt := range mergedProofs {
+		env.deletionProofAgg[key] = bt
+	}
+	env.sMu.Unlock()
 
 	var l1Fee uint64
 	if result.L1Fee != nil {

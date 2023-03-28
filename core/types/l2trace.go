@@ -25,6 +25,8 @@ var (
 
 // BlockTrace contains block execution traces and results required for rollers.
 type BlockTrace struct {
+	ChainID          uint64             `json:"chainID"`
+	Version          string             `json:"version"`
 	Coinbase         *AccountWrapper    `json:"coinbase"`
 	Header           *Header            `json:"header"`
 	Transactions     []*TransactionData `json:"transactions"`
@@ -46,6 +48,10 @@ type StorageTrace struct {
 
 	// All storage proofs BEFORE execution
 	StorageProofs map[string]map[string][]hexutil.Bytes `json:"storageProofs,omitempty"`
+
+	// Node entries for deletion, no need to distinguish what it is from, just read them
+	// into the partial db
+	DeletionProofs []hexutil.Bytes `json:"deletionProofs,omitempty"`
 }
 
 // ExecutionResult groups all structured logs emitted by the EVM

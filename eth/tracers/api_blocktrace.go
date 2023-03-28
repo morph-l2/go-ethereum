@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"runtime"
 	"sync"
 
@@ -15,7 +14,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/core/vm"
 	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/rollup/fees"
+	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
 	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/rpc"
@@ -315,7 +314,7 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 			}
 			env.sMu.Unlock()
 
-			proof, err := state.GetStorageTrieProof(addr, key)
+			proof, sibling, err := state.GetStorageTrieProof(addr, key)
 			if err != nil {
 				log.Error("Storage proof not available", "error", err, "address", addrStr, "key", keyStr)
 				// but we still mark the proofs map with nil array
@@ -326,21 +325,23 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 			}
 			env.sMu.Lock()
 			m[keyStr] = wrappedProof
+			if sibling != nil {
+				env.DeletionProofs = append(env.DeletionProofs, sibling)
+			}
 			env.sMu.Unlock()
 		}
 	}
 
-	l1Fee := big.NewInt(0)
-	if vmenv.ChainConfig().UsingScroll {
-		l1Fee, _ = fees.CalculateL1MsgFee(msg, vmenv.StateDB)
+	var l1Fee uint64
+	if result.L1Fee != nil {
+		l1Fee = result.L1Fee.Uint64()
 	}
-
 	env.executionResults[index] = &types.ExecutionResult{
 		From:           sender,
 		To:             receiver,
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
-		L1Fee:          l1Fee.Uint64(),
+		L1Fee:          l1Fee,
 		Gas:            result.UsedGas,
 		Failed:         result.Failed(),
 		ReturnValue:    fmt.Sprintf("%x", returnVal),
@@ -360,6 +361,8 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 	}
 
 	blockTrace := &types.BlockTrace{
+		ChainID: api.backend.ChainConfig().ChainID.Uint64(),
+		Version: params.ArchiveVersion(params.CommitHash),
 		Coinbase: &types.AccountWrapper{
 			Address:          env.coinbase,
 			Nonce:            statedb.GetNonce(env.coinbase),

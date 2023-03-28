@@ -3,7 +3,7 @@ package fees
 import (
 	"bytes"
 	"errors"
-	"math"
+	"fmt"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -36,6 +36,7 @@ type Message interface {
 // required to compute the L1 fee
 type StateDB interface {
 	GetState(common.Address, common.Hash) common.Hash
+	GetBalance(addr common.Address) *big.Int
 }
 
 // CalculateL1MsgFee computes the L1 portion of the fee given
@@ -93,27 +94,18 @@ func rlpEncode(tx *types.Transaction) ([]byte, error) {
 	return b[:len(b)-3], nil
 }
 
-func readGPOStorageSlots(addr common.Address, state StateDB) (*big.Int, *big.Int, *big.Float) {
+func readGPOStorageSlots(addr common.Address, state StateDB) (*big.Int, *big.Int, *big.Int) {
 	l1BaseFee := state.GetState(addr, rcfg.L1BaseFeeSlot)
 	overhead := state.GetState(addr, rcfg.OverheadSlot)
 	scalar := state.GetState(addr, rcfg.ScalarSlot)
-	scaled := ScalePrecision(scalar.Big(), rcfg.Precision)
-	return l1BaseFee.Big(), overhead.Big(), scaled
-}
-
-// ScalePrecision will scale a value by precision
-func ScalePrecision(scalar, precision *big.Int) *big.Float {
-	fscalar := new(big.Float).SetInt(scalar)
-	fdivisor := new(big.Float).SetInt(precision)
-	// fscalar / fdivisor
-	return new(big.Float).Quo(fscalar, fdivisor)
+	return l1BaseFee.Big(), overhead.Big(), scalar.Big()
 }
 
 // CalculateL1Fee computes the L1 fee
-func CalculateL1Fee(data []byte, overhead, l1GasPrice *big.Int, scalar *big.Float) *big.Int {
+func CalculateL1Fee(data []byte, overhead, l1GasPrice *big.Int, scalar *big.Int) *big.Int {
 	l1GasUsed := CalculateL1GasUsed(data, overhead)
 	l1Fee := new(big.Int).Mul(l1GasUsed, l1GasPrice)
-	return mulByFloat(l1Fee, scalar)
+	return mulAndScale(l1Fee, scalar, rcfg.Precision)
 }
 
 // CalculateL1GasUsed computes the L1 gas used based on the calldata and
@@ -142,12 +134,75 @@ func zeroesAndOnes(data []byte) (uint64, uint64) {
 	return zeroes, ones
 }
 
-// mulByFloat multiplies a big.Int by a float and returns the
-// big.Int rounded upwards
-func mulByFloat(num *big.Int, float *big.Float) *big.Int {
-	n := new(big.Float).SetUint64(num.Uint64())
-	product := n.Mul(n, float)
-	pfloat, _ := product.Float64()
-	rounded := math.Ceil(pfloat)
-	return new(big.Int).SetUint64(uint64(rounded))
+// mulAndScale multiplies a big.Int by a big.Int and then scale it by precision,
+// rounded towards zero
+func mulAndScale(x *big.Int, y *big.Int, precision *big.Int) *big.Int {
+	z := new(big.Int).Mul(x, y)
+	return new(big.Int).Quo(z, precision)
+}
+
+// copyTransaction copies the transaction, removing the signature
+func copyTransaction(tx *types.Transaction) *types.Transaction {
+	if tx.To() == nil {
+		return types.NewContractCreation(
+			tx.Nonce(),
+			tx.Value(),
+			tx.Gas(),
+			tx.GasPrice(),
+			tx.Data(),
+		)
+	}
+	return types.NewTransaction(
+		tx.Nonce(),
+		*tx.To(),
+		tx.Value(),
+		tx.Gas(),
+		tx.GasPrice(),
+		tx.Data(),
+	)
+}
+
+func CalculateFees(tx *types.Transaction, state StateDB) (*big.Int, *big.Int, *big.Int, error) {
+	unsigned := copyTransaction(tx)
+	raw, err := rlpEncode(unsigned)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	l1BaseFee, overhead, scalar := readGPOStorageSlots(rcfg.L1GasPriceOracleAddress, state)
+	l1Fee := CalculateL1Fee(raw, overhead, l1BaseFee, scalar)
+
+	l2GasLimit := new(big.Int).SetUint64(tx.Gas())
+	l2Fee := new(big.Int).Mul(tx.GasPrice(), l2GasLimit)
+	fee := new(big.Int).Add(l1Fee, l2Fee)
+	return l1Fee, l2Fee, fee, nil
+}
+
+func VerifyFee(signer types.Signer, tx *types.Transaction, state StateDB) error {
+	from, err := types.Sender(signer, tx)
+	if err != nil {
+		return errors.New("invalid transaction: invalid sender")
+	}
+
+	balance := state.GetBalance(from)
+
+	l1Fee, l2Fee, _, err := CalculateFees(tx, state)
+	if err != nil {
+		return fmt.Errorf("invalid transaction: %w", err)
+	}
+
+	cost := tx.Value()
+	cost = cost.Add(cost, l2Fee)
+	if balance.Cmp(cost) < 0 {
+		return errors.New("invalid transaction: insufficient funds for gas * price + value")
+	}
+
+	cost = cost.Add(cost, l1Fee)
+	if balance.Cmp(cost) < 0 {
+		return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
+	}
+
+	// TODO: check GasPrice is in an expected range
+
+	return nil
 }

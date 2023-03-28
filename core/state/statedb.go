@@ -351,32 +351,38 @@ func (s *StateDB) GetRootHash() common.Hash {
 }
 
 // StorageTrieProof is not in Db interface and used explictily for reading proof in storage trie (not the dirty value)
-func (s *StateDB) GetStorageTrieProof(a common.Address, key common.Hash) ([][]byte, error) {
+// For zktrie it also provide required data for predict the deletion, else it just fallback to GetStorageProof
+func (s *StateDB) GetStorageTrieProof(a common.Address, key common.Hash) ([][]byte, []byte, error) {
 
 	// try the trie in stateObject first, else we would create one
 	stateObject := s.getStateObject(a)
 	if stateObject == nil {
-		return nil, errors.New("storage trie for requested address does not exist")
+		return nil, nil, errors.New("storage trie for requested address does not exist")
 	}
 
-	trie := stateObject.trie
+	trieS := stateObject.trie
 	var err error
-	if trie == nil {
+	if trieS == nil {
 		// use a new, temporary trie
-		trie, err = s.db.OpenStorageTrie(stateObject.addrHash, stateObject.data.Root)
+		trieS, err = s.db.OpenStorageTrie(stateObject.addrHash, stateObject.data.Root)
 		if err != nil {
-			return nil, fmt.Errorf("can't create storage trie on root %s: %v ", stateObject.data.Root, err)
+			return nil, nil, fmt.Errorf("can't create storage trie on root %s: %v ", stateObject.data.Root, err)
 		}
 	}
 
 	var proof proofList
+	var sibling []byte
 	if s.IsZktrie() {
+		zkTrie := trieS.(*trie.ZkTrie)
+		if zkTrie == nil {
+			panic("unexpected trie type for zktrie")
+		}
 		key_s, _ := zkt.ToSecureKeyBytes(key.Bytes())
-		err = trie.Prove(key_s.Bytes(), 0, &proof)
+		sibling, err = zkTrie.ProveWithDeletion(key_s.Bytes(), 0, &proof)
 	} else {
-		err = trie.Prove(crypto.Keccak256(key.Bytes()), 0, &proof)
+		err = trieS.Prove(crypto.Keccak256(key.Bytes()), 0, &proof)
 	}
-	return proof, err
+	return proof, sibling, err
 }
 
 // GetStorageProof returns the Merkle proof for given storage slot.
@@ -671,8 +677,8 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) 
 // CreateAccount is called during the EVM CREATE operation. The situation might arise that
 // a contract does the following:
 //
-//   1. sends funds to sha(account ++ (nonce + 1))
-//   2. tx_create(sha(account ++ nonce)) (note that this gets the address of 1)
+//  1. sends funds to sha(account ++ (nonce + 1))
+//  2. tx_create(sha(account ++ nonce)) (note that this gets the address of 1)
 //
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (s *StateDB) CreateAccount(addr common.Address) {

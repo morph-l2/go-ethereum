@@ -15,7 +15,7 @@ type L1MessageTx struct {
 	To     *common.Address `rlp:"nil"` // nil means contract creation
 	Value  *big.Int
 	Data   []byte
-	Sender *common.Address
+	Sender common.Address
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
@@ -26,7 +26,7 @@ func (tx *L1MessageTx) copy() TxData {
 		To:     copyAddressPtr(tx.To),
 		Value:  new(big.Int),
 		Data:   common.CopyBytes(tx.Data),
-		Sender: copyAddressPtr(tx.Sender),
+		Sender: tx.Sender,
 	}
 	return cpy
 }

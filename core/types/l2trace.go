@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/json"
 	"math/big"
 	"runtime"
 	"sync"
@@ -32,7 +31,6 @@ type BlockTrace struct {
 	Transactions     []*TransactionData `json:"transactions"`
 	StorageTrace     *StorageTrace      `json:"storageTrace"`
 	ExecutionResults []*ExecutionResult `json:"executionResults"`
-	MPTWitness       *json.RawMessage   `json:"mptwitness,omitempty"`
 	WithdrawTrieRoot common.Hash        `json:"withdraw_trie_root,omitempty"`
 }
 

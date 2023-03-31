@@ -214,8 +214,7 @@ func dumpConfig(ctx *cli.Context) error {
 }
 
 func applyTraceConfig(ctx *cli.Context, cfg *ethconfig.Config) {
-	subCfg := debug.ConfigTrace(ctx)
-	cfg.MPTWitness = subCfg.MPTWitness
+	_ = debug.ConfigTrace(ctx)
 }
 
 func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {

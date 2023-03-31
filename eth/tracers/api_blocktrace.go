@@ -18,7 +18,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
 	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/rpc"
-	"github.com/scroll-tech/go-ethereum/trie/zkproof"
 )
 
 type TraceBlock interface {
@@ -387,13 +386,6 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 			evmTrace.PoseidonCodeHash = &codeHash
 		} else if tx.To() == nil { // Contract is created.
 			evmTrace.ByteCode = hexutil.Encode(tx.Data())
-		}
-	}
-
-	// only zktrie model has the ability to get `mptwitness`.
-	if api.backend.ChainConfig().Zktrie {
-		if err := zkproof.FillBlockTraceForMPTWitness(zkproof.MPTWitnessType(api.backend.CacheConfig().MPTWitness), blockTrace); err != nil {
-			log.Error("fill mpt witness fail", "error", err)
 		}
 	}
 

@@ -241,8 +241,9 @@ func (st *StateTransition) preCheck() error {
 	if st.msg.IsL1MessageTx() {
 		// No fee fields to check, no nonce to check, and no need to check if EOA (L1 already verified it for us)
 		// Gas is free, but no refunds!
-		// TODO: subtract intrinsic gas from gas limit
-		return st.gp.SubGas(st.msg.GasLimit) // gas used by deposits may not be used by other txs
+		st.gas += st.msg.Gas()
+		st.initialGas = st.msg.Gas()
+		return st.gp.SubGas(st.msg.Gas()) // gas used by deposits may not be used by other txs
 	}
 
 	// Only check transactions that are not fake
@@ -365,10 +366,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
 	}
 
-	// if l1 messsage, just mark as using only intrinsic gas
+	// no refunds for l1 messages
 	if st.msg.IsL1MessageTx() {
 		return &ExecutionResult{
-			UsedGas: gas,
+			UsedGas: st.gasUsed(),
 			Err: vmerr,
 			ReturnData: ret,
 		}, nil

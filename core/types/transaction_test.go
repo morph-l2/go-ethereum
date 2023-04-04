@@ -491,10 +491,10 @@ func TestTransactionCoding(t *testing.T) {
 func TestTransactionUnmarshalJsonDeposit(t *testing.T) {
 	tx := NewTx(&L1MessageTx{
 		Nonce: 1,
-		Gas: 1000000,
+		Gas:   1000000,
 		// To: *testAddr,
-		Value: big.NewInt(0),
-		Data: []byte("0xdeadbeef"),
+		Value:  big.NewInt(0),
+		Data:   []byte("0xdeadbeef"),
 		Sender: testAddr,
 	})
 	json, err := tx.MarshalJSON()
@@ -511,7 +511,6 @@ func TestTransactionUnmarshalJsonDeposit(t *testing.T) {
 		t.Fatal("txs not equal")
 	}
 }
-
 
 func encodeDecodeJSON(tx *Transaction) (*Transaction, error) {
 	data, err := json.Marshal(tx)

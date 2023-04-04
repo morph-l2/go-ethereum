@@ -205,7 +205,7 @@ func (s londonSigner) Equal(s2 Signer) bool {
 
 func (s londonSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
 	if tx.Type() == L1MessageTxType {
-		return nil, nil, nil, fmt.Errorf("deposits do not have a signature")
+		return nil, nil, nil, fmt.Errorf("l1 message tx do not have a signature")
 	}
 	txdata, ok := tx.inner.(*DynamicFeeTx)
 	if !ok {

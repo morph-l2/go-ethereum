@@ -84,6 +84,7 @@ type Message interface {
 	IsFake() bool
 	Data() []byte
 	AccessList() types.AccessList
+	IsL1MessageTx() bool
 }
 
 // ExecutionResult includes all output after executing given evm
@@ -349,9 +350,21 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if contractCreation {
 		ret, _, st.gas, vmerr = st.evm.Create(sender, st.data, st.gas, st.value)
 	} else {
-		// Increment the nonce for the next transaction
-		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
+		// dont increment nonce for l1 messages
+		if !st.msg.IsL1MessageTx() {
+			// Increment the nonce for the next transaction
+			st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
+		}
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
+	}
+
+	// if l1 messsage, just use intrinsic gas
+	if st.msg.IsL1MessageTx() {
+		return &ExecutionResult{
+			UsedGas: gas,
+			Err: vmerr,
+			ReturnData: ret,
+		}, nil
 	}
 
 	if !london {

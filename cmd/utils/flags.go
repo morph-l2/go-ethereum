@@ -160,6 +160,14 @@ var (
 		Name:  "sepolia",
 		Usage: "Sepolia network: pre-configured proof-of-work test network",
 	}
+	ScrollAlphaFlag = cli.BoolFlag{
+		Name:  "scroll-alpha",
+		Usage: "Scroll Alpha test network",
+	}
+	ScrollStagingFlag = cli.BoolFlag{
+		Name:  "scroll-staging",
+		Usage: "Scroll staging test network",
+	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
 		Usage: "Ephemeral proof-of-authority network with a pre-funded developer account, mining enabled",
@@ -865,6 +873,10 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.RinkebyBootnodes
 	case ctx.GlobalBool(GoerliFlag.Name):
 		urls = params.GoerliBootnodes
+	case ctx.GlobalBool(ScrollAlphaFlag.Name):
+		urls = params.ScrollAlphaBootnodes
+	case ctx.GlobalBool(ScrollStagingFlag.Name):
+		urls = params.ScrollStagingBootnodes
 	case cfg.BootstrapNodes != nil:
 		return // already set, don't apply defaults.
 	}
@@ -1633,6 +1645,14 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		}
 		cfg.Genesis = core.DefaultGoerliGenesisBlock()
 		SetDNSDiscoveryDefaults(cfg, params.GoerliGenesisHash)
+	case ctx.GlobalBool(ScrollAlphaFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 534353 // TODO: do not hardcode this here
+		}
+	case ctx.GlobalBool(ScrollStagingFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 222222
+		}
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337

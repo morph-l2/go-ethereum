@@ -101,9 +101,9 @@ func (cs *chainSyncer) handlePeerEvent(peer *eth.Peer) bool {
 func (cs *chainSyncer) loop() {
 	defer cs.handler.wg.Done()
 
-	cs.handler.blockFetcher.Start()
+	//cs.handler.blockFetcher.Start()
 	cs.handler.txFetcher.Start()
-	defer cs.handler.blockFetcher.Stop()
+	//defer cs.handler.blockFetcher.Stop()
 	defer cs.handler.txFetcher.Stop()
 	defer cs.handler.downloader.Terminate()
 
@@ -113,9 +113,10 @@ func (cs *chainSyncer) loop() {
 	defer cs.force.Stop()
 
 	for {
-		if op := cs.nextSyncOp(); op != nil {
-			cs.startSync(op)
-		}
+		//disable the entire legacy sync
+		//if op := cs.nextSyncOp(); op != nil {
+		//	cs.startSync(op)
+		//}
 		select {
 		case <-cs.peerEventCh:
 			// Peer information changed, recheck.

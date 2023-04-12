@@ -401,9 +401,10 @@ func (h *handler) Start(maxPeers int) {
 	go h.txBroadcastLoop()
 
 	// broadcast mined blocks
-	h.wg.Add(1)
-	h.minedBlockSub = h.eventMux.Subscribe(core.NewMinedBlockEvent{})
-	go h.minedBroadcastLoop()
+	//disable block broadcast, using beacon sync instead
+	//h.wg.Add(1)
+	//h.minedBlockSub = h.eventMux.Subscribe(core.NewMinedBlockEvent{})
+	//go h.minedBroadcastLoop()
 
 	// start sync handlers
 	h.wg.Add(1)
@@ -411,8 +412,8 @@ func (h *handler) Start(maxPeers int) {
 }
 
 func (h *handler) Stop() {
-	h.txsSub.Unsubscribe()        // quits txBroadcastLoop
-	h.minedBlockSub.Unsubscribe() // quits blockBroadcastLoop
+	h.txsSub.Unsubscribe() // quits txBroadcastLoop
+	// h.minedBlockSub.Unsubscribe() // quits blockBroadcastLoop
 
 	// Quit chainSync and txsync64.
 	// After this is done, no new peers will be accepted.

@@ -157,7 +157,6 @@ var (
 		utils.GpoIgnoreGasPriceFlag,
 		utils.MinerNotifyFullFlag,
 		configFileFlag,
-		utils.CatalystFlag,
 	}
 
 	rpcFlags = []cli.Flag{
@@ -165,6 +164,10 @@ var (
 		utils.HTTPListenAddrFlag,
 		utils.HTTPPortFlag,
 		utils.HTTPCORSDomainFlag,
+		utils.AuthListenFlag,
+		utils.AuthPortFlag,
+		utils.AuthVirtualHostsFlag,
+		utils.JWTSecretFlag,
 		utils.HTTPVirtualHostsFlag,
 		utils.GraphQLEnabledFlag,
 		utils.GraphQLCORSDomainFlag,

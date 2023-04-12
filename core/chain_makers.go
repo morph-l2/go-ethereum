@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/trie"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -187,6 +188,18 @@ func (b *BlockGen) OffsetTime(seconds int64) {
 	b.header.Difficulty = b.engine.CalcDifficulty(chainreader, b.header.Time, b.parent.Header())
 }
 
+// GenerateChainWithGenesis is a wrapper of GenerateChain which will initialize
+// genesis block to database first according to the provided genesis specification
+// then generate chain on top.
+func GenerateChainWithGenesis(genesis *Genesis, engine consensus.Engine, db ethdb.Database, n int, gen func(int, *BlockGen)) (ethdb.Database, []*types.Block, []types.Receipts) {
+	gBlock, err := genesis.Commit(db)
+	if err != nil {
+		panic(err)
+	}
+	blocks, receipts := GenerateChain(genesis.Config, gBlock, engine, db, n, gen)
+	return db, blocks, receipts
+}
+
 // GenerateChain creates a chain of n blocks. The first block's
 // parent will be the provided parent. db is used to store
 // intermediate states and should contain the parent's state trie.
@@ -242,7 +255,9 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		return nil, nil
 	}
 	for i := 0; i < n; i++ {
-		statedb, err := state.New(parent.Root(), state.NewDatabase(db), nil)
+		statedb, err := state.New(parent.Root(), state.NewDatabaseWithConfig(db, &trie.Config{
+			Zktrie: config.Zktrie,
+		}), nil)
 		if err != nil {
 			panic(err)
 		}

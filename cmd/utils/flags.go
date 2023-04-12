@@ -20,6 +20,7 @@ package utils
 import (
 	"crypto/ecdsa"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 	"io"
 	"io/ioutil"
 	"math"
@@ -709,6 +710,27 @@ var (
 		Value: ethconfig.Defaults.GPO.IgnorePrice.Int64(),
 	}
 
+	// Authenticated RPC HTTP settings
+	AuthListenFlag = &cli.StringFlag{
+		Name:  "authrpc.addr",
+		Usage: "Listening address for authenticated APIs",
+		Value: node.DefaultConfig.AuthAddr,
+	}
+	AuthPortFlag = &cli.IntFlag{
+		Name:  "authrpc.port",
+		Usage: "Listening port for authenticated APIs",
+		Value: node.DefaultConfig.AuthPort,
+	}
+	AuthVirtualHostsFlag = &cli.StringFlag{
+		Name:  "authrpc.vhosts",
+		Usage: "Comma separated list of virtual hostnames from which to accept requests (server enforced). Accepts '*' wildcard.",
+		Value: strings.Join(node.DefaultConfig.AuthVirtualHosts, ","),
+	}
+	JWTSecretFlag = &flags.DirectoryFlag{
+		Name:  "authrpc.jwtsecret",
+		Usage: "Path to a JWT secret to use for authenticated RPC endpoints",
+	}
+
 	// Metrics flags
 	MetricsEnabledFlag = cli.BoolFlag{
 		Name:  "metrics",
@@ -788,11 +810,6 @@ var (
 		Name:  "metrics.influxdb.organization",
 		Usage: "InfluxDB organization name (v2 only)",
 		Value: metrics.DefaultConfig.InfluxDBOrganization,
-	}
-
-	CatalystFlag = cli.BoolFlag{
-		Name:  "catalyst",
-		Usage: "Catalyst mode (eth2 integration testing)",
 	}
 )
 
@@ -958,6 +975,18 @@ func setHTTP(ctx *cli.Context, cfg *node.Config) {
 
 	if ctx.GlobalIsSet(HTTPPortFlag.Name) {
 		cfg.HTTPPort = ctx.GlobalInt(HTTPPortFlag.Name)
+	}
+
+	if ctx.IsSet(AuthListenFlag.Name) {
+		cfg.AuthAddr = ctx.String(AuthListenFlag.Name)
+	}
+
+	if ctx.IsSet(AuthPortFlag.Name) {
+		cfg.AuthPort = ctx.Int(AuthPortFlag.Name)
+	}
+
+	if ctx.IsSet(AuthVirtualHostsFlag.Name) {
+		cfg.AuthVirtualHosts = SplitAndTrim(ctx.String(AuthVirtualHostsFlag.Name))
 	}
 
 	if ctx.GlobalIsSet(HTTPCORSDomainFlag.Name) {
@@ -1206,7 +1235,7 @@ func SetP2PConfig(ctx *cli.Context, cfg *p2p.Config) {
 		cfg.NetRestrict = list
 	}
 
-	if ctx.GlobalBool(DeveloperFlag.Name) || ctx.GlobalBool(CatalystFlag.Name) {
+	if ctx.GlobalBool(DeveloperFlag.Name) {
 		// --dev mode can't use p2p networking.
 		cfg.MaxPeers = 0
 		cfg.ListenAddr = ""
@@ -1226,6 +1255,10 @@ func SetNodeConfig(ctx *cli.Context, cfg *node.Config) {
 	setNodeUserIdent(ctx, cfg)
 	setDataDir(ctx, cfg)
 	setSmartCard(ctx, cfg)
+
+	if ctx.IsSet(JWTSecretFlag.Name) {
+		cfg.JWTSecret = ctx.String(JWTSecretFlag.Name)
+	}
 
 	if ctx.GlobalIsSet(ExternalSignerFlag.Name) {
 		cfg.ExternalSigner = ctx.GlobalString(ExternalSignerFlag.Name)
@@ -1741,6 +1774,9 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 		if err != nil {
 			Fatalf("Failed to create the LES server: %v", err)
 		}
+	}
+	if err := catalyst.RegisterL2Engine(stack, backend); err != nil {
+		Fatalf("Failed to register the Engine API service: %v", err)
 	}
 	stack.RegisterAPIs(tracers.APIs(backend.APIBackend))
 	return backend.APIBackend, backend

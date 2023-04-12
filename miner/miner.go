@@ -238,3 +238,14 @@ func (miner *Miner) DisablePreseal() {
 func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscription {
 	return miner.worker.pendingLogsFeed.Subscribe(ch)
 }
+
+func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp time.Time) (*types.Block, *state.StateDB, types.Receipts, error) {
+	return miner.worker.generateWork(&generateParams{
+		parentHash: parentHash,
+		timestamp:  uint64(timestamp.Unix()),
+	})
+}
+
+func (miner *Miner) MakeHeader(parent *types.Block, timestamp uint64, coinBase common.Address) (*types.Header, error) {
+	return miner.worker.makeHeader(parent, timestamp, coinBase)
+}

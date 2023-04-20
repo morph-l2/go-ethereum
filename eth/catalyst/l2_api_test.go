@@ -19,10 +19,10 @@ var testNonce uint64
 
 func l2ChainConfig() params.ChainConfig {
 	config := *params.AllEthashProtocolChanges
-	config.Zktrie = true
+	config.Scroll.UseZktrie = true
 	config.TerminalTotalDifficulty = common.Big0
-	config.EnableEIP2718 = true
-	config.EnableEIP1559 = true
+	config.Scroll.EnableEIP2718 = true
+	config.Scroll.EnableEIP1559 = true
 	return config
 }
 

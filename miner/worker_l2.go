@@ -66,7 +66,7 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 	}
 	// Set baseFee and GasLimit if we are on an EIP-1559 chain
 	if w.chainConfig.IsLondon(header.Number) {
-		if w.chainConfig.EnableEIP2718 && w.chainConfig.EnableEIP1559 {
+		if w.chainConfig.Scroll.BaseFeeEnabled() {
 			header.BaseFee = misc.CalcBaseFee(w.chainConfig, parent.Header())
 		} else {
 			// When disabling EIP-2718 or EIP-1559, we do not set baseFeePerGas in RPC response.

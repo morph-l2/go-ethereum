@@ -13,10 +13,12 @@
     "berlinBlock": 0,
     "londonBlock": 0,
     "terminalTotalDifficulty": 0,
-    "enableEIP2718": true,
-    "enableEIP1559": true,
-    "maxTxPerBlock": 1000,
-    "zktrie": true
+    "scroll": {
+      "enableEIP2718": true,
+      "enableEIP1559": true,
+      "maxTxPerBlock": 1000,
+      "useZktrie": true
+    }
   },
   "nonce": "0x0",
   "timestamp": "0x61bc34a0",

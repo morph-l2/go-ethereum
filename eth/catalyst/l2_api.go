@@ -214,7 +214,7 @@ func (api *l2ConsensusAPI) VerifyBlock(block *types.Block) error {
 		log.Warn("failed to verify header", "error", err)
 		return err
 	}
-	if !api.eth.BlockChain().Config().IsValidTxCount(len(block.Transactions())) {
+	if !api.eth.BlockChain().Config().Scroll.IsValidTxCount(len(block.Transactions())) {
 		return errors.New("invalid tx count")
 	}
 	return nil

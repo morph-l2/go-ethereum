@@ -2,16 +2,27 @@ package authclient
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 
+	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 )
 
 // AssembleL2Block assembles L2 Block used for L2 sequencer to propose a block in L2 consensus progress
-func (ec *Client) AssembleL2Block(ctx context.Context, number *big.Int) (*catalyst.ExecutableL2Data, error) {
+func (ec *Client) AssembleL2Block(ctx context.Context, number *big.Int, transactions types.Transactions) (*catalyst.ExecutableL2Data, error) {
+	txs := make([][]byte, 0, len(transactions))
+	for i, tx := range transactions {
+		bz, err := tx.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal tx, index: %d, error: %v", i, err)
+		}
+		txs = append(txs, bz)
+	}
 	var result catalyst.ExecutableL2Data
 	err := ec.c.CallContext(ctx, &result, "engine_assembleL2Block", &catalyst.AssembleL2BlockParams{
-		Number: number.Uint64(),
+		Number:       number.Uint64(),
+		Transactions: txs,
 	})
 	return &result, err
 }

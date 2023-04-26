@@ -3,6 +3,9 @@ package catalyst
 import (
 	"errors"
 	"fmt"
+	"math/big"
+	"time"
+
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
@@ -11,8 +14,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/node"
 	"github.com/scroll-tech/go-ethereum/rpc"
 	"github.com/scroll-tech/go-ethereum/trie"
-	"math/big"
-	"time"
 )
 
 func RegisterL2Engine(stack *node.Node, backend *eth.Ethereum) error {
@@ -60,8 +61,17 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
 		return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
 	}
+	transactions := make(types.Transactions, 0, len(params.Transactions))
+	for i, otx := range params.Transactions {
+		var tx types.Transaction
+		if err := tx.UnmarshalBinary(otx); err != nil {
+			return nil, fmt.Errorf("transaction %d is not valid: %v", i, err)
+		}
+		transactions = append(transactions, &tx)
+	}
+
 	start := time.Now()
-	block, state, receipts, err := api.eth.Miner().GetSealingBlockAndState(parent.Hash(), time.Now())
+	block, state, receipts, err := api.eth.Miner().GetSealingBlockAndState(parent.Hash(), time.Now(), transactions)
 	if err != nil {
 		return nil, err
 	}

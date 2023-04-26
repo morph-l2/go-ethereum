@@ -38,12 +38,14 @@ type assembleBlockParamsMarshaling struct {
 //go:generate go run github.com/fjl/gencodec -type AssembleL2BlockParams -field-override assembleL2BlockParamsMarshaling -out gen_l2blockparams.go
 
 type AssembleL2BlockParams struct {
-	Number uint64 `json:"number"        gencodec:"required"`
+	Number       uint64   `json:"number"        gencodec:"required"`
+	Transactions [][]byte `json:"transactions"`
 }
 
 // JSON type overrides for assembleL2BlockParams.
 type assembleL2BlockParamsMarshaling struct {
-	Number hexutil.Uint64
+	Number       hexutil.Uint64
+	Transactions []hexutil.Bytes
 }
 
 //go:generate go run github.com/fjl/gencodec -type executableData -field-override executableDataMarshaling -out gen_ed.go

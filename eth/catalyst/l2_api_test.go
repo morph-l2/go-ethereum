@@ -102,7 +102,7 @@ func TestValidateL2Block(t *testing.T) {
 	// generic case
 	err = sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now())
+	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
@@ -157,7 +157,7 @@ func TestNewL2Block(t *testing.T) {
 
 	err := sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now())
+	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := ExecutableL2Data{
 		ParentHash:   block.ParentHash(),

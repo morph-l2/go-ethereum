@@ -13,9 +13,10 @@ import (
 
 // generateParams wraps various of settings for generating sealing task.
 type generateParams struct {
-	timestamp  uint64         // The timstamp for sealing task
-	parentHash common.Hash    // Parent block hash, empty means the latest chain head
-	coinbase   common.Address // The fee recipient address for including transaction
+	timestamp    uint64             // The timstamp for sealing task
+	parentHash   common.Hash        // Parent block hash, empty means the latest chain head
+	coinbase     common.Address     // The fee recipient address for including transaction
+	transactions types.Transactions // L1Message transactions to include at the start of the block
 }
 
 // prepareWork constructs the sealing task according to the given parameters,
@@ -120,6 +121,17 @@ func (w *worker) generateWork(genParams *generateParams) (*types.Block, *state.S
 	defer work.discard()
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
+	}
+
+	for _, tx := range genParams.transactions {
+		from, _ := types.Sender(work.signer, tx)
+		// Start executing the transaction
+		work.state.Prepare(tx.Hash(), work.tcount)
+		_, err := w.commitTransaction(work, tx, work.header.Coinbase)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)
+		}
+		work.tcount++
 	}
 
 	w.fillTransactions(work)

@@ -85,6 +85,9 @@ type Header struct {
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
+
+	// BLSData was the field specified for morphism
+	BLSData BLSData `json:"blsData" rlp:"optional"`
 }
 
 // field type overrides for gencodec
@@ -102,7 +105,57 @@ type headerMarshaling struct {
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
 // RLP encoding.
 func (h *Header) Hash() common.Hash {
-	return rlpHash(h)
+	type headerNoBLS struct {
+		ParentHash  common.Hash
+		UncleHash   common.Hash
+		Coinbase    common.Address
+		Root        common.Hash
+		TxHash      common.Hash
+		ReceiptHash common.Hash
+		Bloom       Bloom
+		Difficulty  *big.Int
+		Number      *big.Int
+		GasLimit    uint64
+		GasUsed     uint64
+		Time        uint64
+		Extra       []byte
+		MixDigest   common.Hash
+		Nonce       BlockNonce
+
+		// BaseFee was added by EIP-1559 and is ignored in legacy headers.
+		BaseFee *big.Int `rlp:"optional"`
+	}
+	h2 := &headerNoBLS{
+		ParentHash:  h.ParentHash,
+		UncleHash:   h.UncleHash,
+		Coinbase:    h.Coinbase,
+		Root:        h.Root,
+		TxHash:      h.TxHash,
+		ReceiptHash: h.ReceiptHash,
+		Bloom:       h.Bloom,
+		Difficulty:  h.Difficulty,
+		Number:      h.Number,
+		GasLimit:    h.GasLimit,
+		GasUsed:     h.GasUsed,
+		Time:        h.Time,
+		Extra:       h.Extra,
+		MixDigest:   h.MixDigest,
+		Nonce:       h.Nonce,
+		BaseFee:     h.BaseFee,
+	}
+	return rlpHash(h2)
+}
+
+//go:generate go run github.com/fjl/gencodec -type BLSData -field-override blsDataMarshaling -out gen_bls.go
+
+type BLSData struct {
+	BLSSigners   [][]byte `json:"bls_signers"`
+	BLSSignature []byte   `json:"bls_signature"`
+}
+
+type blsDataMarshaling struct {
+	BLSSigners   []hexutil.Bytes
+	BLSSignature hexutil.Bytes
 }
 
 var headerSize = common.StorageSize(reflect.TypeOf(Header{}).Size())

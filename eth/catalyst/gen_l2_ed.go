@@ -27,7 +27,7 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 		GasUsed      hexutil.Uint64  `json:"gasUsed"`
 		ReceiptRoot  common.Hash     `json:"receiptsRoot"`
 		LogsBloom    hexutil.Bytes   `json:"logsBloom"`
-		Extra        []byte          `json:"extraData"`
+		Extra        hexutil.Bytes   `json:"extraData"`
 	}
 	var enc ExecutableL2Data
 	enc.ParentHash = e.ParentHash
@@ -64,7 +64,7 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 		GasUsed      *hexutil.Uint64 `json:"gasUsed"`
 		ReceiptRoot  *common.Hash    `json:"receiptsRoot"`
 		LogsBloom    *hexutil.Bytes  `json:"logsBloom"`
-		Extra        []byte          `json:"extraData"`
+		Extra        *hexutil.Bytes  `json:"extraData"`
 	}
 	var dec ExecutableL2Data
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -114,7 +114,7 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 		e.LogsBloom = *dec.LogsBloom
 	}
 	if dec.Extra != nil {
-		e.Extra = dec.Extra
+		e.Extra = *dec.Extra
 	}
 	return nil
 }

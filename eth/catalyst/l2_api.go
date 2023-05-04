@@ -114,7 +114,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.paramsToBlock(params)
+	block, err := api.paramsToBlock(params, types.BLSData{})
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 	}, nil
 }
 
-func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
+func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData) (err error) {
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
@@ -169,7 +169,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 		return fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.paramsToBlock(params)
+	block, err := api.paramsToBlock(params, bls)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
-func (api *l2ConsensusAPI) paramsToBlock(params ExecutableL2Data) (*types.Block, error) {
+func (api *l2ConsensusAPI) paramsToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, error) {
 	header := &types.Header{
 		ParentHash: params.ParentHash,
 		Number:     big.NewInt(int64(params.Number)),
@@ -204,6 +204,7 @@ func (api *l2ConsensusAPI) paramsToBlock(params ExecutableL2Data) (*types.Block,
 		Time:       params.Timestamp,
 		Coinbase:   params.Miner,
 		Extra:      params.Extra,
+		BLSData:    blsData,
 		BaseFee:    params.BaseFee,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)

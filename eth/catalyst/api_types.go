@@ -115,4 +115,17 @@ type executableL2DataMarshaling struct {
 	LogsBloom    hexutil.Bytes
 	Transactions []hexutil.Bytes
 	BaseFee      *hexutil.Big
+	Extra        hexutil.Bytes
+}
+
+//go:generate go run github.com/fjl/gencodec -type BLSData -field-override blsDataMarshaling -out gen_bls.go
+
+type BLSData struct {
+	BLSSigners   [][]byte `json:"bls_signers"`
+	BLSSignature []byte   `json:"bls_signature"`
+}
+
+type blsDataMarshaling struct {
+	BLSSigners   []hexutil.Bytes
+	BLSSignature hexutil.Bytes
 }

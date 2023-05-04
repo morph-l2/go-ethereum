@@ -174,7 +174,7 @@ func TestNewL2Block(t *testing.T) {
 		LogsBloom:   block.Bloom().Bytes(),
 	}
 
-	err = api.NewL2Block(l2Data)
+	err = api.NewL2Block(l2Data, types.BLSData{})
 	require.NoError(t, err)
 
 	currentState, err := ethService.BlockChain().State()
@@ -191,7 +191,7 @@ func TestNewL2Block(t *testing.T) {
 	validResp, err := api.ValidateL2Block(*resp)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
-	err = api.NewL2Block(*resp)
+	err = api.NewL2Block(*resp, types.BLSData{})
 	require.NoError(t, err)
 	currentState, err = ethService.BlockChain().State()
 	require.NoError(t, err)

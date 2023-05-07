@@ -274,6 +274,7 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 
 	// merge required proof data
 	proofAccounts := tracer.UpdatedAccounts()
+	proofAccounts[rcfg.L1GasPriceOracleAddress] = struct{}{}
 	for addr := range proofAccounts {
 		addrStr := addr.String()
 
@@ -298,6 +299,12 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 	}
 
 	proofStorages := tracer.UpdatedStorages()
+	proofStorages[rcfg.L1GasPriceOracleAddress] = vm.Storage(
+		map[common.Hash]common.Hash{
+			rcfg.L1BaseFeeSlot: {},
+			rcfg.OverheadSlot:  {},
+			rcfg.ScalarSlot:    {},
+		})
 	for addr, keys := range proofStorages {
 		for key := range keys {
 			addrStr := addr.String()
@@ -333,8 +340,14 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 	}
 
 	var l1Fee uint64
+	var l1FeeDetail *types.L1FeeFactors
 	if result.L1Fee != nil {
-		l1Fee = result.L1Fee.Uint64()
+		l1Fee = result.L1Fee.Fee.Uint64()
+		l1FeeDetail = &types.L1FeeFactors{
+			BaseFee:  result.L1Fee.BaseFee.Uint64(),
+			OverHead: result.L1Fee.OverHead.Uint64(),
+			Scalar:   result.L1Fee.Scalar.Uint64(),
+		}
 	}
 	env.executionResults[index] = &types.ExecutionResult{
 		From:           sender,
@@ -342,6 +355,7 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1Fee:          l1Fee,
+		L1FeeDetail:    l1FeeDetail,
 		Gas:            result.UsedGas,
 		Failed:         result.Failed(),
 		ReturnValue:    fmt.Sprintf("%x", returnVal),
@@ -358,6 +372,33 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 	txs := make([]*types.TransactionData, block.Transactions().Len())
 	for i, tx := range block.Transactions() {
 		txs[i] = types.NewTransactionData(tx, block.NumberU64(), api.backend.ChainConfig())
+	}
+
+	if _, existed := env.Proofs[rcfg.L2MessageQueueAddress.String()]; !existed {
+		if proof, err := statedb.GetProof(rcfg.L2MessageQueueAddress); err != nil {
+			log.Error("Proof for L2MessageQueueAddress not available", "error", err)
+		} else {
+			wrappedProof := make([]hexutil.Bytes, len(proof))
+			for i, bt := range proof {
+				wrappedProof[i] = bt
+			}
+			env.Proofs[rcfg.L2MessageQueueAddress.String()] = wrappedProof
+		}
+	}
+
+	if _, existed := env.StorageProofs[rcfg.L2MessageQueueAddress.String()]; !existed {
+		env.StorageProofs[rcfg.L2MessageQueueAddress.String()] = make(map[string][]hexutil.Bytes)
+	}
+	if _, existed := env.StorageProofs[rcfg.L2MessageQueueAddress.String()][rcfg.WithdrawTrieRootSlot.String()]; !existed {
+		if proof, _, err := statedb.GetStorageTrieProof(rcfg.L2MessageQueueAddress, rcfg.WithdrawTrieRootSlot); err != nil {
+			log.Error("Storage proof for WithdrawTrieRootSlot not available", "error", err)
+		} else {
+			wrappedProof := make([]hexutil.Bytes, len(proof))
+			for i, bt := range proof {
+				wrappedProof[i] = bt
+			}
+			env.StorageProofs[rcfg.L2MessageQueueAddress.String()][rcfg.WithdrawTrieRootSlot.String()] = wrappedProof
+		}
 	}
 
 	blockTrace := &types.BlockTrace{

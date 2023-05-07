@@ -340,14 +340,8 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 	}
 
 	var l1Fee uint64
-	var l1FeeDetail *types.L1FeeFactors
 	if result.L1Fee != nil {
-		l1Fee = result.L1Fee.Fee.Uint64()
-		l1FeeDetail = &types.L1FeeFactors{
-			BaseFee:  result.L1Fee.BaseFee.Uint64(),
-			OverHead: result.L1Fee.OverHead.Uint64(),
-			Scalar:   result.L1Fee.Scalar.Uint64(),
-		}
+		l1Fee = result.L1Fee.Uint64()
 	}
 	env.executionResults[index] = &types.ExecutionResult{
 		From:           sender,
@@ -355,7 +349,6 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1Fee:          l1Fee,
-		L1FeeDetail:    l1FeeDetail,
 		Gas:            result.UsedGas,
 		Failed:         result.Failed(),
 		ReturnValue:    fmt.Sprintf("%x", returnVal),

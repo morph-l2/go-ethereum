@@ -255,8 +255,9 @@ var (
 	}
 
 	// ScrollAlphaChainConfig contains the chain parameters to run a node on the Scroll Alpha test network.
-	ScrollFeeVaultAddress = common.HexToAddress("0x5300000000000000000000000000000000000005")
-	ScrollMaxTxPerBlock   = 44
+	ScrollFeeVaultAddress           = common.HexToAddress("0x5300000000000000000000000000000000000005")
+	ScrollMaxTxPerBlock             = 44
+	ScrollMaxTxPayloadBytesPerBlock = 120 * 1024
 
 	ScrollAlphaChainConfig = &ChainConfig{
 		ChainID:             big.NewInt(534353),
@@ -279,11 +280,12 @@ var (
 			Epoch:  30000,
 		},
 		Scroll: ScrollConfig{
-			UseZktrie:       true,
-			MaxTxPerBlock:   &ScrollMaxTxPerBlock,
-			FeeVaultAddress: &ScrollFeeVaultAddress,
-			EnableEIP2718:   false,
-			EnableEIP1559:   false,
+			UseZktrie:                 true,
+			MaxTxPerBlock:             &ScrollMaxTxPerBlock,
+			MaxTxPayloadBytesPerBlock: &ScrollMaxTxPayloadBytesPerBlock,
+			FeeVaultAddress:           &ScrollFeeVaultAddress,
+			EnableEIP2718:             false,
+			EnableEIP1559:             false,
 		},
 	}
 
@@ -431,6 +433,9 @@ type ScrollConfig struct {
 	// Maximum number of transactions per block [optional]
 	MaxTxPerBlock *int `json:"maxTxPerBlock,omitempty"`
 
+	// Maximum tx payload size of blocks that we produce [optional]
+	MaxTxPayloadBytesPerBlock *int `json:"maxTxPayloadBytesPerBlock,omitempty"`
+
 	// Transaction fee vault address [optional]
 	FeeVaultAddress *common.Address `json:"feeVaultAddress,omitempty"`
 
@@ -453,9 +458,24 @@ func (s ScrollConfig) ZktrieEnabled() bool {
 	return s.UseZktrie
 }
 
+func (s ScrollConfig) String() string {
+	if s.MaxTxPerBlock == nil {
+		return fmt.Sprintf("{useZktrie: %v, maxTxPerBlock: <nil>, feeVaultAddress: %v, enableEIP2718:%v, enableEIP1559:%v}",
+			s.UseZktrie, s.FeeVaultAddress, s.EnableEIP2718, s.EnableEIP1559)
+	}
+
+	return fmt.Sprintf("{useZktrie: %v, maxTxPerBlock: %v, feeVaultAddress: %v, enableEIP2718:%v, enableEIP1559:%v}",
+		s.UseZktrie, *s.MaxTxPerBlock, s.FeeVaultAddress, s.EnableEIP2718, s.EnableEIP1559)
+}
+
 // IsValidTxCount returns whether the given block's transaction count is below the limit.
 func (s ScrollConfig) IsValidTxCount(count int) bool {
 	return s.MaxTxPerBlock == nil || count <= *s.MaxTxPerBlock
+}
+
+// IsValidBlockSize returns whether the given block's transaction payload size is below the limit.
+func (s ScrollConfig) IsValidBlockSize(size common.StorageSize) bool {
+	return s.MaxTxPayloadBytesPerBlock == nil || size <= common.StorageSize(*s.MaxTxPayloadBytesPerBlock)
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -488,7 +508,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Engine: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Engine: %v, Scroll config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -505,6 +525,7 @@ func (c *ChainConfig) String() string {
 		c.LondonBlock,
 		c.ArrowGlacierBlock,
 		engine,
+		c.Scroll,
 	)
 }
 

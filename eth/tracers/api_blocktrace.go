@@ -427,8 +427,10 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 		env.StorageProofs[rcfg.L2MessageQueueAddress.String()] = make(map[string][]hexutil.Bytes)
 	}
 	if _, existed := env.StorageProofs[rcfg.L2MessageQueueAddress.String()][rcfg.WithdrawTrieRootSlot.String()]; !existed {
-		if proof, _, err := statedb.GetStorageTrieProof(rcfg.L2MessageQueueAddress, rcfg.WithdrawTrieRootSlot); err != nil {
+		if trie, err := statedb.GetStorageTrieForProof(rcfg.L2MessageQueueAddress); err != nil {
 			log.Error("Storage proof for WithdrawTrieRootSlot not available", "error", err)
+		} else if proof, _ := statedb.GetSecureTrieProof(trie, rcfg.WithdrawTrieRootSlot); err != nil {
+			log.Error("Get storage proof for WithdrawTrieRootSlot failed", "error", err)
 		} else {
 			wrappedProof := make([]hexutil.Bytes, len(proof))
 			for i, bt := range proof {

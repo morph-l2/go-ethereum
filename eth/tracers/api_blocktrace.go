@@ -487,6 +487,7 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 		Header:           block.Header(),
 		StorageTrace:     env.StorageTrace,
 		ExecutionResults: env.executionResults,
+		TxStorageTrace:   env.txStorageTrace,
 		Transactions:     txs,
 	}
 

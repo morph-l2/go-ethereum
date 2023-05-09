@@ -207,6 +207,13 @@ func (api *API) getBlockTrace(block *types.Block, env *traceEnv) (*types.BlockTr
 		}
 	}
 
+	// build dummy per-tx deletion proof
+	for _, txs := range env.txStorageTrace {
+		if txs != nil {
+			txs.DeletionProofs = env.DeletionProofs
+		}
+	}
+
 	// If execution failed in between, abort
 	select {
 	case err := <-errCh:

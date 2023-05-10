@@ -899,7 +899,9 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
 			txs.Pop()
 
-		// TODO: add an overflow error case for circuitsCapacityChecker and shift/pop/break?
+		case errors.Is(err, circuitscapacitychecker.ErrCircuitsCapacityOverflow):
+			log.Trace("Circuits capacity limit reached") // TODO: add more logs
+			break
 
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the

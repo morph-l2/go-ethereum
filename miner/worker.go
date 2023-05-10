@@ -32,9 +32,11 @@ import (
 	"github.com/scroll-tech/go-ethereum/core"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
+	"github.com/scroll-tech/go-ethereum/core/vm"
 	"github.com/scroll-tech/go-ethereum/event"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitscapacitychecker"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
 
@@ -185,6 +187,9 @@ type worker struct {
 	// External functions
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
 
+	// TODO: add comments
+	circuitsCapacityChecker *circuitscapacitychecker.CircuitsCapacityChecker
+
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
@@ -194,27 +199,28 @@ type worker struct {
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	worker := &worker{
-		config:             config,
-		chainConfig:        chainConfig,
-		engine:             engine,
-		eth:                eth,
-		mux:                mux,
-		chain:              eth.BlockChain(),
-		isLocalBlock:       isLocalBlock,
-		localUncles:        make(map[common.Hash]*types.Block),
-		remoteUncles:       make(map[common.Hash]*types.Block),
-		unconfirmed:        newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
-		pendingTasks:       make(map[common.Hash]*task),
-		txsCh:              make(chan core.NewTxsEvent, txChanSize),
-		chainHeadCh:        make(chan core.ChainHeadEvent, chainHeadChanSize),
-		chainSideCh:        make(chan core.ChainSideEvent, chainSideChanSize),
-		newWorkCh:          make(chan *newWorkReq),
-		taskCh:             make(chan *task),
-		resultCh:           make(chan *types.Block, resultQueueSize),
-		exitCh:             make(chan struct{}),
-		startCh:            make(chan struct{}, 1),
-		resubmitIntervalCh: make(chan time.Duration),
-		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
+		config:                  config,
+		chainConfig:             chainConfig,
+		engine:                  engine,
+		eth:                     eth,
+		mux:                     mux,
+		chain:                   eth.BlockChain(),
+		isLocalBlock:            isLocalBlock,
+		localUncles:             make(map[common.Hash]*types.Block),
+		remoteUncles:            make(map[common.Hash]*types.Block),
+		unconfirmed:             newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
+		pendingTasks:            make(map[common.Hash]*task),
+		txsCh:                   make(chan core.NewTxsEvent, txChanSize),
+		chainHeadCh:             make(chan core.ChainHeadEvent, chainHeadChanSize),
+		chainSideCh:             make(chan core.ChainSideEvent, chainSideChanSize),
+		newWorkCh:               make(chan *newWorkReq),
+		taskCh:                  make(chan *task),
+		resultCh:                make(chan *types.Block, resultQueueSize),
+		exitCh:                  make(chan struct{}),
+		startCh:                 make(chan struct{}, 1),
+		resubmitIntervalCh:      make(chan time.Duration),
+		resubmitAdjustCh:        make(chan *intervalAdjust, resubmitAdjustChanSize),
+		circuitsCapacityChecker: circuitscapacitychecker.NewCircuitsCapacityChecker(),
 	}
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
@@ -775,8 +781,16 @@ func (w *worker) updateSnapshot() {
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
+	// reset StructLogger in case of OOM
+	tracer := w.chain.GetVMConfig().Tracer.(*vm.StructLogger)
+	tracer.Reset()
+
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
+		w.current.state.RevertToSnapshot(snap)
+		return nil, err
+	}
+	if err := w.circuitsCapacityChecker.ApplyTransaction(receipt.Logs); err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
 	}
@@ -885,6 +899,8 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
 			txs.Pop()
 
+		// TODO: add an overflow error case for circuitsCapacityChecker and shift/pop/break?
+
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the
 			// nonce-too-high clause will prevent us from executing in vain).
@@ -923,6 +939,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
+	w.circuitsCapacityChecker.Reset()
 
 	if parent.Time() >= uint64(timestamp) {
 		timestamp = int64(parent.Time() + 1)

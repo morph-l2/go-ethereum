@@ -790,7 +790,11 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
 	}
-	if err := w.circuitsCapacityChecker.ApplyTransaction(receipt.Logs); err != nil {
+
+	// TODO:
+	traces := &types.BlockTrace{}
+
+	if err := w.circuitsCapacityChecker.ApplyTransaction(traces); err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
 	}

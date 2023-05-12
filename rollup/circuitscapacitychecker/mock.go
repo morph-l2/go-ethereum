@@ -15,6 +15,6 @@ func NewCircuitsCapacityChecker() *CircuitsCapacityChecker {
 func (ccc *CircuitsCapacityChecker) Reset() {
 }
 
-func (ccc *CircuitsCapacityChecker) ApplyTransaction(logs []*types.Log) error {
+func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
 	return nil
 }

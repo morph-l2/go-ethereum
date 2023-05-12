@@ -28,8 +28,8 @@ func (ccc *CircuitsCapacityChecker) Reset() {
 	C.reset_circuit_capacity_checker()
 }
 
-func (ccc *CircuitsCapacityChecker) ApplyTransaction(logs []*types.Log) error {
-	tracesByt, err := json.Marshal(logs)
+func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
+	tracesByt, err := json.Marshal(traces)
 	if err != nil {
 		return nil, err
 	}

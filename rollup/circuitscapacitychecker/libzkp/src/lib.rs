@@ -30,10 +30,10 @@ pub mod checker {
     #[no_mangle]
     pub unsafe extern "C" fn apply_tx(tx_traces: *const c_char) -> u8 {
         let tx_traces_vec = c_char_to_vec(tx_traces);
-        let traces = serde_json::from_slice::<Vec<BlockTrace>>(&tx_traces_vec).unwrap();
+        let traces = serde_json::from_slice::<BlockTrace>(&tx_traces_vec).unwrap();
         let ok = panic::catch_unwind(|| {
             CHECKER.get_mut().unwrap()
-                .estimate_circuit_capacity(traces.as_slice()).is_ok()
+                .estimate_circuit_capacity(&[traces]).is_ok()
         });
         ok.map_or(0, bool_to_int)
     }

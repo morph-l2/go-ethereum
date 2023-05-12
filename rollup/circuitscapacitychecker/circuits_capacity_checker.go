@@ -10,21 +10,40 @@ package circuitscapacitychecker
 import "C" //nolint:typecheck
 
 import (
+	"encoding/json"
+	"unsafe"
+
 	"github.com/scroll-tech/go-ethereum/core/types"
+	"github.com/scroll-tech/go-ethereum/log"
 )
 
 type CircuitsCapacityChecker struct{}
 
 func NewCircuitsCapacityChecker() *CircuitsCapacityChecker {
+	C.new_circuit_capacity_checker()
 	return &CircuitsCapacityChecker{}
 }
 
-// TODO:
 func (ccc *CircuitsCapacityChecker) Reset() {
-	// panic if call fails?
+	C.reset_circuit_capacity_checker()
 }
 
-// TODO:
 func (ccc *CircuitsCapacityChecker) ApplyTransaction(logs []*types.Log) error {
+	tracesByt, err := json.Marshal(logs)
+	if err != nil {
+		return nil, err
+	}
+
+	tracesStr := C.CString(string(tracesByt))
+	defer func() {
+		C.free(unsafe.Pointer(tracesStr))
+	}()
+
+	log.Info("start to check circuits capacity")
+	result := C.apply_tx(tracesStr)
+	log.Info("check circuits capacity done")
+
+	// TODO: fix type
+
 	return nil
 }

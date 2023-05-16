@@ -829,7 +829,11 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 	txStorageTrace.RootAfter = w.current.state.GetRootHash()
 
 	proofAccounts := tracer.UpdatedAccounts()
-	// proofAccounts[vmenv.FeeRecipient()] = struct{}{} // TODO:
+	if w.chainConfig.Scroll.FeeVaultEnabled() {
+		proofAccounts[*w.chainConfig.Scroll.FeeVaultAddress] = struct{}{}
+	} else {
+		proofAccounts[coinbase] = struct{}{}
+	}
 	proofAccounts[rcfg.L1GasPriceOracleAddress] = struct{}{}
 	for addr := range proofAccounts {
 		addrStr := addr.String()

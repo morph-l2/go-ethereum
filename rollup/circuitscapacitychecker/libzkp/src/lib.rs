@@ -13,8 +13,9 @@ pub mod checker {
     /// # Safety
     #[no_mangle]
     pub unsafe extern "C" fn new_circuit_capacity_checker() {
-        // TODO: better logger
-        env_logger::init();
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+            .format_timestamp_millis()
+            .init();
 
         let c = CircuitCapacityChecker::new();
         CHECKER.set(c).unwrap();

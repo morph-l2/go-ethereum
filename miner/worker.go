@@ -19,6 +19,7 @@ package miner
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,7 @@ import (
 	mapset "github.com/deckarep/golang-set"
 
 	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/consensus"
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
 	"github.com/scroll-tech/go-ethereum/core"
@@ -37,7 +39,10 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/circuitscapacitychecker"
+	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
+	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/trie"
+	"github.com/scroll-tech/go-ethereum/trie/zkproof"
 )
 
 const (
@@ -785,19 +790,115 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 	tracer := w.chain.GetVMConfig().Tracer.(*vm.StructLogger)
 	tracer.Reset()
 
+	from, _ := types.Sender(w.current.signer, tx)
+	to := tx.To()
+
+	sender := &types.AccountWrapper{
+		Address:          from,
+		Nonce:            w.current.state.GetNonce(from),
+		Balance:          (*hexutil.Big)(w.current.state.GetBalance(from)),
+		KeccakCodeHash:   w.current.state.GetKeccakCodeHash(from),
+		PoseidonCodeHash: w.current.state.GetPoseidonCodeHash(from),
+		CodeSize:         w.current.state.GetCodeSize(from),
+	}
+	var receiver *types.AccountWrapper
+	if to != nil {
+		receiver = &types.AccountWrapper{
+			Address:          *to,
+			Nonce:            w.current.state.GetNonce(*to),
+			Balance:          (*hexutil.Big)(w.current.state.GetBalance(*to)),
+			KeccakCodeHash:   w.current.state.GetKeccakCodeHash(*to),
+			PoseidonCodeHash: w.current.state.GetPoseidonCodeHash(*to),
+			CodeSize:         w.current.state.GetCodeSize(*to),
+		}
+	}
+
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
 	}
 
+	createdAcc := tracer.CreatedAccount()
+	if to == nil {
+		if createdAcc == nil {
+			return nil, errors.New("unexpected tx: address for created contract unavailable")
+		}
+		to = &createdAcc.Address
+	}
+	var after []*types.AccountWrapper
+	// collect affected account after tx being applied
+	for _, acc := range []common.Address{from, *to, coinbase} {
+		after = append(after, &types.AccountWrapper{
+			Address:          acc,
+			Nonce:            w.current.state.GetNonce(acc),
+			Balance:          (*hexutil.Big)(w.current.state.GetBalance(acc)),
+			KeccakCodeHash:   w.current.state.GetKeccakCodeHash(acc),
+			PoseidonCodeHash: w.current.state.GetPoseidonCodeHash(acc),
+			CodeSize:         w.current.state.GetCodeSize(acc),
+		})
+	}
+
 	// TODO:
-	traces := &types.BlockTrace{}
+	traces := &types.BlockTrace{
+		ChainID: w.chainConfig.ChainID.Uint64(),
+		Version: params.ArchiveVersion(params.CommitHash),
+		Header:  w.current.header,
+		Coinbase: &types.AccountWrapper{
+			Address:          coinbase,
+			Nonce:            w.current.state.GetNonce(coinbase),
+			Balance:          (*hexutil.Big)(w.current.state.GetBalance(coinbase)),
+			KeccakCodeHash:   w.current.state.GetKeccakCodeHash(coinbase),
+			PoseidonCodeHash: w.current.state.GetPoseidonCodeHash(coinbase),
+			CodeSize:         w.current.state.GetCodeSize(coinbase),
+		},
+		WithdrawTrieRoot: withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, w.current.state),
+		Transactions: []*types.TransactionData{
+			types.NewTransactionData(tx, w.current.header.Number.Uint64(), w.chainConfig),
+		},
+		ExecutionResults: []*types.ExecutionResult{
+			&types.ExecutionResult{
+				From:           sender,
+				To:             receiver,
+				AccountCreated: createdAcc,
+				AccountsAfter:  after,
+				Gas:            receipt.GasUsed,
+				Failed:         receipt.Status == types.ReceiptStatusFailed,
+				ReturnValue:    fmt.Sprintf("%x", common.CopyBytes(receipt.ReturnValue)),
+				StructLogs:     vm.FormatLogs(tracer.StructLogs()),
+			},
+		},
+
+		// StorageTrace     *StorageTrace      `json:"storageTrace"`
+		// TxStorageTrace   []*StorageTrace    `json:"txStorageTrace,omitempty"`
+	}
+
+	if receipt.L1Fee != nil {
+		traces.ExecutionResults[0].L1Fee = receipt.L1Fee.Uint64()
+	}
+
+	// probably a Contract Call
+	if len(tx.Data()) != 0 && tx.To() != nil {
+		traces.ExecutionResults[0].ByteCode = hexutil.Encode(w.current.state.GetCode(*tx.To()))
+		// Get tx.to address's code hash.
+		codeHash := w.current.state.GetPoseidonCodeHash(*tx.To())
+		traces.ExecutionResults[0].PoseidonCodeHash = &codeHash
+	} else if tx.To() == nil { // Contract is created.
+		traces.ExecutionResults[0].ByteCode = hexutil.Encode(tx.Data())
+	}
+
+	// only zktrie model has the ability to get `mptwitness`.
+	if w.chainConfig.Scroll.ZktrieEnabled() {
+		if err := zkproof.FillBlockTraceForMPTWitness(zkproof.MPTWitnessType(w.chain.CacheConfig().MPTWitness), traces); err != nil {
+			log.Error("fill mpt witness fail", "error", err)
+		}
+	}
 
 	if err := w.circuitsCapacityChecker.ApplyTransaction(traces); err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
 	}
+
 	w.current.txs = append(w.current.txs, tx)
 	w.current.receipts = append(w.current.receipts, receipt)
 

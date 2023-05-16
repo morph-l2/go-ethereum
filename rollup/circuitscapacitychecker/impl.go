@@ -31,7 +31,7 @@ func (ccc *CircuitsCapacityChecker) Reset() {
 func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
 	tracesByt, err := json.Marshal(traces)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	tracesStr := C.CString(string(tracesByt))

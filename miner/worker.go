@@ -42,7 +42,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
 	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/trie"
-	"github.com/scroll-tech/go-ethereum/trie/zkproof"
 )
 
 const (
@@ -885,13 +884,6 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 		traces.ExecutionResults[0].PoseidonCodeHash = &codeHash
 	} else if tx.To() == nil { // Contract is created.
 		traces.ExecutionResults[0].ByteCode = hexutil.Encode(tx.Data())
-	}
-
-	// only zktrie model has the ability to get `mptwitness`.
-	if w.chainConfig.Scroll.ZktrieEnabled() {
-		if err := zkproof.FillBlockTraceForMPTWitness(zkproof.MPTWitnessType(w.chain.CacheConfig().MPTWitness), traces); err != nil {
-			log.Error("fill mpt witness fail", "error", err)
-		}
 	}
 
 	if err := w.circuitsCapacityChecker.ApplyTransaction(traces); err != nil {

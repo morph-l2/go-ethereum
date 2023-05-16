@@ -1,4 +1,4 @@
-//go:build !placeholder
+//go:build !circuits_capacity_checker
 
 package circuitscapacitychecker
 

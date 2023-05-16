@@ -1,12 +1,12 @@
 #![feature(once_cell)]
 
 pub mod checker {
-    use crate::utils::{c_char_to_vec, bool_to_int};
+    use crate::utils::{bool_to_int, c_char_to_vec};
     use libc::c_char;
     use std::cell::OnceCell;
     use std::panic;
     use types::eth::BlockTrace;
-    use zkevm::{capacity_checker::CircuitCapacityChecker};
+    use zkevm::capacity_checker::CircuitCapacityChecker;
 
     static mut CHECKER: OnceCell<CircuitCapacityChecker> = OnceCell::new();
 
@@ -33,8 +33,11 @@ pub mod checker {
         let tx_traces_vec = c_char_to_vec(tx_traces);
         let traces = serde_json::from_slice::<BlockTrace>(&tx_traces_vec).unwrap();
         let ok = panic::catch_unwind(|| {
-            CHECKER.get_mut().unwrap()
-                .estimate_circuit_capacity(&[traces]).is_ok()
+            CHECKER
+                .get_mut()
+                .unwrap()
+                .estimate_circuit_capacity(&[traces])
+                .is_ok()
         });
         ok.unwrap_or(false) as c_char
     }

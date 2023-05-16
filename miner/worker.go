@@ -814,6 +814,21 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 		}
 	}
 
+	// currently still need to add storageTrace into the traces, but only with the coinbase proof
+	storageTrace := &types.StorageTrace{Proofs: make(map[string][]hexutil.Bytes)}
+	if _, exist := storageTrace.Proofs[coinbase.String()]; !exist {
+		proof, err := w.current.state.GetProof(coinbase)
+		if err != nil {
+			log.Error("Proof for coinbase not available", "coinbase", coinbase, "error", err)
+			// but we still mark the proofs map with nil array
+		}
+		wrappedProof := make([]hexutil.Bytes, len(proof))
+		for i, bt := range proof {
+			wrappedProof[i] = bt
+		}
+		storageTrace.Proofs[coinbase.String()] = wrappedProof
+	}
+
 	txStorageTrace := &types.StorageTrace{
 		RootBefore:    w.current.state.GetRootHash(),
 		Proofs:        make(map[string][]hexutil.Bytes),
@@ -950,7 +965,6 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 		})
 	}
 
-	// TODO:
 	traces := &types.BlockTrace{
 		ChainID: w.chainConfig.ChainID.Uint64(),
 		Version: params.ArchiveVersion(params.CommitHash),
@@ -979,8 +993,7 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 				StructLogs:     vm.FormatLogs(tracer.StructLogs()),
 			},
 		},
-
-		// StorageTrace     *StorageTrace      `json:"storageTrace"`
+		StorageTrace:   storageTrace,
 		TxStorageTrace: []*types.StorageTrace{txStorageTrace},
 	}
 

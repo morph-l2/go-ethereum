@@ -43,9 +43,14 @@ func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) e
 	result := C.apply_tx(tracesStr)
 	log.Info("check circuits capacity done")
 
-	if result == 0 {
-		return ErrCircuitsCapacityOverflow
+	switch result {
+	case 1:
+		return nil
+	case 2:
+		return ErrBlockRowUsageOverflow
+	case 3:
+		return ErrTxRowUsageOverflow
+	default:
+		return ErrUnknown
 	}
-
-	return nil
 }

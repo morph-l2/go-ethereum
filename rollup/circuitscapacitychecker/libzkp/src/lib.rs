@@ -32,14 +32,24 @@ pub mod checker {
     pub unsafe extern "C" fn apply_tx(tx_traces: *const c_char) -> c_char {
         let tx_traces_vec = c_char_to_vec(tx_traces);
         let traces = serde_json::from_slice::<BlockTrace>(&tx_traces_vec).unwrap();
-        let ok = panic::catch_unwind(|| {
+        let result = panic::catch_unwind(|| {
             CHECKER
                 .get_mut()
                 .unwrap()
                 .estimate_circuit_capacity(&[traces])
-                .is_ok()
+                .unwrap()
         });
-        ok.unwrap_or(false) as c_char
+        if result.is_err() {
+            return 0 as c_char; // other errors than circuits capacity overflow
+        }
+        let (acc_row_usage, tx_row_usage) = result.unwrap();
+        if acc_row_usage.is_ok {
+            return 1 as c_char; // row usage ok
+        } else if tx_row_usage.is_ok {
+            return 2 as c_char; // block row usage overflow, but tx row usage ok
+        } else {
+            return 3 as c_char; // tx row usage overflow
+        }
     }
 }
 

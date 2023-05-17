@@ -1122,9 +1122,18 @@ loop:
 			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
 			txs.Pop()
 
-		case errors.Is(err, circuitscapacitychecker.ErrCircuitsCapacityOverflow):
-			log.Trace("Circuits capacity limit reached") // TODO: add more logs
+		case errors.Is(err, circuitscapacitychecker.ErrBlockRowUsageOverflow):
+			log.Trace("Circuits capacity limit reached in a block") // TODO: add more logs
 			break loop
+
+		case errors.Is(err, circuitscapacitychecker.ErrTxRowUsageOverflow):
+			// Tx row usage too high, drop the tx
+			log.Trace("Circuits capacity limit reached for a single tx") // TODO: add more logs
+			txs.Shift()
+
+		case errors.Is(err, circuitscapacitychecker.ErrUnknown):
+			log.Trace("Unknown circuits capacity checker error") // TODO: add more logs
+			txs.Pop()
 
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the

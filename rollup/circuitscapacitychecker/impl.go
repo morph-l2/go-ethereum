@@ -31,7 +31,7 @@ func (ccc *CircuitsCapacityChecker) Reset() {
 func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
 	tracesByt, err := json.Marshal(traces)
 	if err != nil {
-		return err
+		return ErrUnknown
 	}
 
 	tracesStr := C.CString(string(tracesByt))
@@ -44,11 +44,11 @@ func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) e
 	log.Info("check circuits capacity done")
 
 	switch result {
-	case 1:
+	case 0:
 		return nil
-	case 2:
+	case 1:
 		return ErrBlockRowUsageOverflow
-	case 3:
+	case 2:
 		return ErrTxRowUsageOverflow
 	default:
 		return ErrUnknown

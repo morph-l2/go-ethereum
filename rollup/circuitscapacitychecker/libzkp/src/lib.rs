@@ -39,16 +39,17 @@ pub mod checker {
                 .estimate_circuit_capacity(&[traces])
                 .unwrap()
         });
-        if result.is_err() {
-            return 0 as c_char; // other errors than circuits capacity overflow
-        }
-        let (acc_row_usage, tx_row_usage) = result.unwrap();
-        if acc_row_usage.is_ok {
-            return 1 as c_char; // row usage ok
-        } else if tx_row_usage.is_ok {
-            return 2 as c_char; // block row usage overflow, but tx row usage ok
-        } else {
-            return 3 as c_char; // tx row usage overflow
+        match result {
+            Ok((acc_row_usage, tx_row_usage)) => {
+                if acc_row_usage.is_ok {
+                    return 0 as c_char; // row usage ok
+                } else if tx_row_usage.is_ok {
+                    return 1 as c_char; // block row usage overflow, but tx row usage ok
+                } else {
+                    return 2 as c_char; // tx row usage overflow
+                }
+            }
+            Err(_) => return 3 as c_char, // other errors than circuits capacity overflow
         }
     }
 }

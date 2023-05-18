@@ -20,7 +20,7 @@ geth \
 --http.vhosts="*" \
 --http.addr=0.0.0.0 \
 --http.port=8545 \
---http.api=web3,debug,eth,txpool,net,scroll,engine \
+--http.api=web3,debug,eth,txpool,net,scroll,engine,admin \
 --networkid=53077 \
 --authrpc.addr="0.0.0.0" \
 --authrpc.port="8551" \

@@ -785,7 +785,7 @@ func (w *worker) updateSnapshot() {
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
-	// reset StructLogger in case of OOM
+	// reset StructLogger to avoid OOM
 	tracer := w.chain.GetVMConfig().Tracer.(*vm.StructLogger)
 	tracer.Reset()
 
@@ -829,8 +829,8 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 		storageTrace.Proofs[coinbase.String()] = wrappedProof
 	}
 
+	// currently `RootBefore` & `RootAfter` are not used
 	txStorageTrace := &types.StorageTrace{
-		RootBefore:    w.current.state.GetRootHash(),
 		Proofs:        make(map[string][]hexutil.Bytes),
 		StorageProofs: make(map[string]map[string][]hexutil.Bytes),
 	}
@@ -841,8 +841,6 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 		return nil, err
 	}
 
-	txStorageTrace.RootAfter = w.current.state.GetRootHash()
-
 	proofAccounts := tracer.UpdatedAccounts()
 	if w.chainConfig.Scroll.FeeVaultEnabled() {
 		proofAccounts[*w.chainConfig.Scroll.FeeVaultAddress] = struct{}{}
@@ -852,8 +850,7 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 	proofAccounts[rcfg.L1GasPriceOracleAddress] = struct{}{}
 	for addr := range proofAccounts {
 		addrStr := addr.String()
-		_, existed := txStorageTrace.Proofs[addrStr]
-		if existed {
+		if _, existed := txStorageTrace.Proofs[addrStr]; existed {
 			continue
 		}
 		proof, err := w.current.state.GetProof(addr)

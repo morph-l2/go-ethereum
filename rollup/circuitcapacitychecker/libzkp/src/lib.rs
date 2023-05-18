@@ -49,7 +49,7 @@ pub mod checker {
                     return 2 as c_char; // tx row usage overflow
                 }
             }
-            Err(_) => return 3 as c_char, // other errors than circuits capacity overflow
+            Err(_) => return 3 as c_char, // other errors than circuit capacity overflow
         }
     }
 }

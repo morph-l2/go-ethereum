@@ -38,7 +38,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/event"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/circuitscapacitychecker"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
 	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/trie"
@@ -192,7 +192,7 @@ type worker struct {
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
 
 	// TODO: add comments
-	circuitsCapacityChecker *circuitscapacitychecker.CircuitsCapacityChecker
+	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
 
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
@@ -203,28 +203,28 @@ type worker struct {
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	worker := &worker{
-		config:                  config,
-		chainConfig:             chainConfig,
-		engine:                  engine,
-		eth:                     eth,
-		mux:                     mux,
-		chain:                   eth.BlockChain(),
-		isLocalBlock:            isLocalBlock,
-		localUncles:             make(map[common.Hash]*types.Block),
-		remoteUncles:            make(map[common.Hash]*types.Block),
-		unconfirmed:             newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
-		pendingTasks:            make(map[common.Hash]*task),
-		txsCh:                   make(chan core.NewTxsEvent, txChanSize),
-		chainHeadCh:             make(chan core.ChainHeadEvent, chainHeadChanSize),
-		chainSideCh:             make(chan core.ChainSideEvent, chainSideChanSize),
-		newWorkCh:               make(chan *newWorkReq),
-		taskCh:                  make(chan *task),
-		resultCh:                make(chan *types.Block, resultQueueSize),
-		exitCh:                  make(chan struct{}),
-		startCh:                 make(chan struct{}, 1),
-		resubmitIntervalCh:      make(chan time.Duration),
-		resubmitAdjustCh:        make(chan *intervalAdjust, resubmitAdjustChanSize),
-		circuitsCapacityChecker: circuitscapacitychecker.NewCircuitsCapacityChecker(),
+		config:                 config,
+		chainConfig:            chainConfig,
+		engine:                 engine,
+		eth:                    eth,
+		mux:                    mux,
+		chain:                  eth.BlockChain(),
+		isLocalBlock:           isLocalBlock,
+		localUncles:            make(map[common.Hash]*types.Block),
+		remoteUncles:           make(map[common.Hash]*types.Block),
+		unconfirmed:            newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
+		pendingTasks:           make(map[common.Hash]*task),
+		txsCh:                  make(chan core.NewTxsEvent, txChanSize),
+		chainHeadCh:            make(chan core.ChainHeadEvent, chainHeadChanSize),
+		chainSideCh:            make(chan core.ChainSideEvent, chainSideChanSize),
+		newWorkCh:              make(chan *newWorkReq),
+		taskCh:                 make(chan *task),
+		resultCh:               make(chan *types.Block, resultQueueSize),
+		exitCh:                 make(chan struct{}),
+		startCh:                make(chan struct{}, 1),
+		resubmitIntervalCh:     make(chan time.Duration),
+		resubmitAdjustCh:       make(chan *intervalAdjust, resubmitAdjustChanSize),
+		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(),
 	}
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
@@ -1011,7 +1011,7 @@ func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Addres
 		traces.ExecutionResults[0].ByteCode = hexutil.Encode(tx.Data())
 	}
 
-	if err := w.circuitsCapacityChecker.ApplyTransaction(traces); err != nil {
+	if err := w.circuitCapacityChecker.ApplyTransaction(traces); err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err
 	}
@@ -1122,17 +1122,17 @@ loop:
 			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
 			txs.Pop()
 
-		case errors.Is(err, circuitscapacitychecker.ErrBlockRowUsageOverflow):
-			log.Trace("Circuits capacity limit reached in a block") // TODO: add more logs
+		case errors.Is(err, circuitcapacitychecker.ErrBlockRowUsageOverflow):
+			log.Trace("Circuit capacity limit reached in a block") // TODO: add more logs
 			break loop
 
-		case errors.Is(err, circuitscapacitychecker.ErrTxRowUsageOverflow):
+		case errors.Is(err, circuitcapacitychecker.ErrTxRowUsageOverflow):
 			// Tx row usage too high, drop the tx
-			log.Trace("Circuits capacity limit reached for a single tx") // TODO: add more logs
+			log.Trace("Circuit capacity limit reached for a single tx") // TODO: add more logs
 			txs.Shift()
 
-		case errors.Is(err, circuitscapacitychecker.ErrUnknown):
-			log.Trace("Unknown circuits capacity checker error") // TODO: add more logs
+		case errors.Is(err, circuitcapacitychecker.ErrUnknown):
+			log.Trace("Unknown circuit capacity checker error") // TODO: add more logs
 			txs.Pop()
 
 		default:
@@ -1173,7 +1173,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
-	w.circuitsCapacityChecker.Reset()
+	w.circuitCapacityChecker.Reset()
 
 	if parent.Time() >= uint64(timestamp) {
 		timestamp = int64(parent.Time() + 1)

@@ -1,6 +1,6 @@
-//go:build circuits_capacity_checker
+//go:build circuit_capacity_checker
 
-package circuitscapacitychecker
+package circuitcapacitychecker
 
 /*
 #cgo LDFLAGS: -L${SRCDIR}/lib/ -lm -ldl -lzkp -lzktrie -L${SRCDIR}/libzkp/ -Wl,-rpath=${SRCDIR}/libzkp
@@ -17,18 +17,18 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 )
 
-type CircuitsCapacityChecker struct{}
+type CircuitCapacityChecker struct{}
 
-func NewCircuitsCapacityChecker() *CircuitsCapacityChecker {
+func NewCircuitCapacityChecker() *CircuitCapacityChecker {
 	C.new_circuit_capacity_checker()
-	return &CircuitsCapacityChecker{}
+	return &CircuitCapacityChecker{}
 }
 
-func (ccc *CircuitsCapacityChecker) Reset() {
+func (ccc *CircuitCapacityChecker) Reset() {
 	C.reset_circuit_capacity_checker()
 }
 
-func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
+func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
 	tracesByt, err := json.Marshal(traces)
 	if err != nil {
 		return ErrUnknown
@@ -39,9 +39,9 @@ func (ccc *CircuitsCapacityChecker) ApplyTransaction(traces *types.BlockTrace) e
 		C.free(unsafe.Pointer(tracesStr))
 	}()
 
-	log.Info("start to check circuits capacity")
+	log.Info("start to check circuit capacity")
 	result := C.apply_tx(tracesStr)
-	log.Info("check circuits capacity done")
+	log.Info("check circuit capacity done")
 
 	switch result {
 	case 0:

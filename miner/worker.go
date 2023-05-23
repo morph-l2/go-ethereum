@@ -1068,29 +1068,32 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 // commit runs any post-transaction state modifications, assembles the final block
 // and commits new work if consensus engine is running.
 func (w *worker) commit(uncles []*types.Header, interval func(), update bool, start time.Time) error {
-	// Deep copy receipts here to avoid interaction between different tasks.
-	receipts := copyReceipts(w.current.receipts)
-	s := w.current.state.Copy()
-	block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
-	if err != nil {
-		return err
-	}
 	if w.isRunning() {
 		if interval != nil {
 			interval()
 		}
-		select {
-		case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now()}:
-			w.unconfirmed.Shift(block.NumberU64() - 1)
-			log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
-				"uncles", len(uncles), "txs", w.current.tcount,
-				"gas", block.GasUsed(), "fees", totalFees(block, receipts),
-				"elapsed", common.PrettyDuration(time.Since(start)))
-
-		case <-w.exitCh:
-			log.Info("Worker has exited")
+		// Deep copy receipts here to avoid interaction between different tasks.
+		receipts := copyReceipts(w.current.receipts)
+		s := w.current.state.Copy()
+		_, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
+		if err != nil {
+			return err
 		}
+
+		// ignore it, as Morphism has its own consensus
+		//select {
+		//case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now()}:
+		//	w.unconfirmed.Shift(block.NumberU64() - 1)
+		//	log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
+		//		"uncles", len(uncles), "txs", w.current.tcount,
+		//		"gas", block.GasUsed(), "fees", totalFees(block, receipts),
+		//		"elapsed", common.PrettyDuration(time.Since(start)))
+		//
+		//case <-w.exitCh:
+		//	log.Info("Worker has exited")
+		//}
 	}
+
 	if update {
 		w.updateSnapshot()
 	}

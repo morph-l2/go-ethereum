@@ -877,8 +877,10 @@ func setNodeUserIdent(ctx *cli.Context, cfg *node.Config) {
 // setBootstrapNodes creates a list of bootstrap nodes from the command line
 // flags, reverting to pre-configured ones if none have been specified.
 func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
-	urls := params.MainnetBootnodes
+	var urls []string
 	switch {
+	case ctx.GlobalIsSet(MainnetFlag.Name):
+		urls = params.MainnetBootnodes
 	case ctx.GlobalIsSet(BootnodesFlag.Name):
 		urls = SplitAndTrim(ctx.GlobalString(BootnodesFlag.Name))
 	case ctx.GlobalBool(RopstenFlag.Name):
@@ -891,7 +893,7 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.GoerliBootnodes
 	case ctx.GlobalBool(ScrollAlphaFlag.Name):
 		urls = params.ScrollAlphaBootnodes
-	case cfg.BootstrapNodes != nil:
+	case cfg.BootstrapNodes != nil || len(urls) == 0:
 		return // already set, don't apply defaults.
 	}
 

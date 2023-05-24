@@ -131,13 +131,6 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		}, nil
 	}
 
-	if err := api.eth.BlockChain().Validator().ValidateBody(block); err != nil {
-		log.Error("error validating body", "error", err)
-		return &GenericResponse{
-			false,
-		}, nil
-	}
-
 	stateDB, receipts, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
 	if err != nil {
 		log.Error("error processing block", "error", err)
@@ -225,8 +218,9 @@ func (api *l2ConsensusAPI) VerifyBlock(block *types.Block) error {
 		log.Warn("failed to verify header", "error", err)
 		return err
 	}
-	if !api.eth.BlockChain().Config().Scroll.IsValidTxCount(len(block.Transactions())) {
-		return errors.New("invalid tx count")
+	if err := api.eth.BlockChain().Validator().ValidateBody(block); err != nil {
+		log.Error("error validating body", "error", err)
+		return err
 	}
 	return nil
 }

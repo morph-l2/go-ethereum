@@ -67,3 +67,6 @@ testnet-clean:
 	docker images -q morphism_geth:latest | xargs -r docker rmi
 	docker volume ls --filter "name=morph_data*" -q | xargs -r docker volume rm
 .PHONY: testnet-clean
+
+image:
+	docker build -f Dockerfile -t morphism-geth:latest .

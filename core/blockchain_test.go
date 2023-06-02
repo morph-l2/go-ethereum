@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/consensus"
 	"github.com/scroll-tech/go-ethereum/consensus/ethash"
 	"github.com/scroll-tech/go-ethereum/core/rawdb"
@@ -1013,6 +1014,10 @@ func TestLogReorgs(t *testing.T) {
 	if _, err := blockchain.InsertChain(chain); err != nil {
 		t.Fatalf("failed to insert forked chain: %v", err)
 	}
+
+	logs := makeLogs()
+	blockchain.rmLogsFeed.Send(RemovedLogsEvent{logs})
+
 	timeout := time.NewTimer(1 * time.Second)
 	defer timeout.Stop()
 	select {
@@ -1077,6 +1082,10 @@ func TestLogRebirth(t *testing.T) {
 	if _, err := blockchain.InsertChain(forkChain); err != nil {
 		t.Fatalf("failed to insert forked chain: %v", err)
 	}
+
+	logs := makeLogs()
+	blockchain.rmLogsFeed.Send(RemovedLogsEvent{logs})
+
 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 1)
 
 	// This chain segment is rooted in the original chain, but doesn't contain any logs.
@@ -1086,7 +1095,29 @@ func TestLogRebirth(t *testing.T) {
 	if _, err := blockchain.InsertChain(newBlocks); err != nil {
 		t.Fatalf("failed to insert forked chain: %v", err)
 	}
+	blockchain.logsFeed.Send(logs)
+	blockchain.rmLogsFeed.Send(RemovedLogsEvent{logs})
+
 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 1)
+}
+
+func makeLogs() []*types.Log {
+	var logs []*types.Log
+	log := &types.Log{
+		Address:     common.HexToAddress("0xecf8f87f810ecf450940c9f60066b4a7a501d6a7"),
+		BlockHash:   common.HexToHash("0x656c34545f90a730a19008c0e7a7cd4fb3895064b48d6d69761bd5abad681056"),
+		BlockNumber: 2019236,
+		Data:        hexutil.MustDecode("0x000000000000000000000000000000000000000000000001a055690d9db80000"),
+		Index:       2,
+		TxIndex:     3,
+		TxHash:      common.HexToHash("0x3b198bfd5d2907285af009e9ae84a0ecd63677110d89d7e030251acb87f6487e"),
+		Topics: []common.Hash{
+			common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"),
+			common.HexToHash("0x00000000000000000000000080b2c9d7cbbf30a1b0fc8983c647d754c6525615"),
+		},
+	}
+	logs = append(logs, log)
+	return logs
 }
 
 // This test is a variation of TestLogRebirth. It verifies that log events are emitted
@@ -1133,13 +1164,16 @@ func TestSideLogRebirth(t *testing.T) {
 	if _, err := blockchain.InsertChain(sideChain); err != nil {
 		t.Fatalf("failed to insert forked chain: %v", err)
 	}
-	checkLogEvents(t, newLogCh, rmLogsCh, 0, 0)
+	//Send logs in any status
+	checkLogEvents(t, newLogCh, rmLogsCh, 1, 0)
 
 	// Generate a new block based on side chain.
 	newBlocks, _ := GenerateChain(params.TestChainConfig, sideChain[len(sideChain)-1], ethash.NewFaker(), db, 1, func(i int, gen *BlockGen) {})
 	if _, err := blockchain.InsertChain(newBlocks); err != nil {
 		t.Fatalf("failed to insert forked chain: %v", err)
 	}
+	logs := makeLogs()
+	blockchain.logsFeed.Send(logs)
 	checkLogEvents(t, newLogCh, rmLogsCh, 1, 0)
 }
 
@@ -1215,6 +1249,8 @@ func TestReorgSideEvent(t *testing.T) {
 	timeout := time.NewTimer(timeoutDura)
 done:
 	for {
+		blockchain.chainSideFeed.Send(ChainSideEvent{Block: chain[0]})
+
 		select {
 		case ev := <-chainSideCh:
 			block := ev.Block
@@ -1747,8 +1783,8 @@ func TestInsertReceiptChainRollback(t *testing.T) {
 // overtake the 'canon' chain until after it's passed canon by about 200 blocks.
 //
 // Details at:
-//  - https://github.com/scroll-tech/go-ethereum/issues/18977
-//  - https://github.com/scroll-tech/go-ethereum/pull/18988
+//   - https://github.com/scroll-tech/go-ethereum/issues/18977
+//   - https://github.com/scroll-tech/go-ethereum/pull/18988
 func TestLowDiffLongChain(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -1867,7 +1903,8 @@ func testSideImport(t *testing.T, numCanonBlocksInSidechain, blocksBetweenCommon
 // That is: the sidechain for import contains some blocks already present in canon chain.
 // So the blocks are
 // [ Cn, Cn+1, Cc, Sn+3 ... Sm]
-//   ^    ^    ^  pruned
+//
+//	^    ^    ^  pruned
 func TestPrunedImportSide(t *testing.T) {
 	//glogger := log.NewGlogHandler(log.StreamHandler(os.Stdout, log.TerminalFormat(false)))
 	//glogger.Verbosity(3)
@@ -2083,11 +2120,12 @@ func TestReorgToShorterRemovesCanonMapping(t *testing.T) {
 		t.Fatalf("head wrong, expected %x got %x", head.Hash(), got)
 	}
 	// We have now inserted a sidechain.
-	if blockByNum := chain.GetBlockByNumber(canonNum); blockByNum != nil {
-		t.Errorf("expected block to be gone: %v", blockByNum.NumberU64())
+	// L2 Reorg change
+	if blockByNum := chain.GetBlockByNumber(canonNum); blockByNum == nil {
+		t.Errorf("expected block is loss: %v", blockByNum.NumberU64())
 	}
-	if headerByNum := chain.GetHeaderByNumber(canonNum); headerByNum != nil {
-		t.Errorf("expected header to be gone: %v", headerByNum.Number.Uint64())
+	if headerByNum := chain.GetHeaderByNumber(canonNum); headerByNum == nil {
+		t.Errorf("expected header is loss: %v", headerByNum.Number.Uint64())
 	}
 	if blockByHash := chain.GetBlockByHash(canonHash); blockByHash == nil {
 		t.Errorf("expected block to be present: %x", blockByHash.Hash())
@@ -2472,9 +2510,9 @@ func BenchmarkBlockChain_1x1000Executions(b *testing.B) {
 // This internally leads to a sidechain import, since the blocks trigger an
 // ErrPrunedAncestor error.
 // This may e.g. happen if
-//   1. Downloader rollbacks a batch of inserted blocks and exits
-//   2. Downloader starts to sync again
-//   3. The blocks fetched are all known and canonical blocks
+//  1. Downloader rollbacks a batch of inserted blocks and exits
+//  2. Downloader starts to sync again
+//  3. The blocks fetched are all known and canonical blocks
 func TestSideImportPrunedBlocks(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -2636,20 +2674,19 @@ func TestDeleteCreateRevert(t *testing.T) {
 
 // TestInitThenFailCreateContract tests a pretty notorious case that happened
 // on mainnet over blocks 7338108, 7338110 and 7338115.
-// - Block 7338108: address e771789f5cccac282f23bb7add5690e1f6ca467c is initiated
-//   with 0.001 ether (thus created but no code)
-// - Block 7338110: a CREATE2 is attempted. The CREATE2 would deploy code on
-//   the same address e771789f5cccac282f23bb7add5690e1f6ca467c. However, the
-//   deployment fails due to OOG during initcode execution
-// - Block 7338115: another tx checks the balance of
-//   e771789f5cccac282f23bb7add5690e1f6ca467c, and the snapshotter returned it as
-//   zero.
+//   - Block 7338108: address e771789f5cccac282f23bb7add5690e1f6ca467c is initiated
+//     with 0.001 ether (thus created but no code)
+//   - Block 7338110: a CREATE2 is attempted. The CREATE2 would deploy code on
+//     the same address e771789f5cccac282f23bb7add5690e1f6ca467c. However, the
+//     deployment fails due to OOG during initcode execution
+//   - Block 7338115: another tx checks the balance of
+//     e771789f5cccac282f23bb7add5690e1f6ca467c, and the snapshotter returned it as
+//     zero.
 //
 // The problem being that the snapshotter maintains a destructset, and adds items
 // to the destructset in case something is created "onto" an existing item.
 // We need to either roll back the snapDestructs, or not place it into snapDestructs
 // in the first place.
-//
 func TestInitThenFailCreateContract(t *testing.T) {
 	var (
 		// Generate a canonical chain to act as the main dataset
@@ -2838,13 +2875,13 @@ func TestEIP2718Transition(t *testing.T) {
 
 // TestEIP1559Transition tests the following:
 //
-// 1. A transaction whose gasFeeCap is greater than the baseFee is valid.
-// 2. Gas accounting for access lists on EIP-1559 transactions is correct.
-// 3. Only the transaction's tip will be received by the coinbase.
-// 4. The transaction sender pays for both the tip and baseFee.
-// 5. The coinbase receives only the partially realized tip when
-//    gasFeeCap - gasTipCap < baseFee.
-// 6. Legacy transaction behave as expected (e.g. gasPrice = gasFeeCap = gasTipCap).
+//  1. A transaction whose gasFeeCap is greater than the baseFee is valid.
+//  2. Gas accounting for access lists on EIP-1559 transactions is correct.
+//  3. Only the transaction's tip will be received by the coinbase.
+//  4. The transaction sender pays for both the tip and baseFee.
+//  5. The coinbase receives only the partially realized tip when
+//     gasFeeCap - gasTipCap < baseFee.
+//  6. Legacy transaction behave as expected (e.g. gasPrice = gasFeeCap = gasTipCap).
 func TestEIP1559Transition(t *testing.T) {
 	var (
 		aa = common.HexToAddress("0x000000000000000000000000000000000000aaaa")

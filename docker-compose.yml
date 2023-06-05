@@ -9,7 +9,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: morphism_geth:latest
+    image: go-ethereum-morph-geth:latest
     ports:
       - "8545:8545"
       - "8546:8546"

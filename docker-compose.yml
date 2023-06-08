@@ -15,9 +15,13 @@ services:
       - "8551:8551"
       - "30303:30303"
     volumes:
-      - "sequencer_geth_data:/db"
-      - "${PWD}/build/jwt-secret.txt:/config/jwt-secret.txt"
-      - "${PWD}/genesis_l2.json:/genesis.json"
+      - "sequencer_geth_data:${GETH_DATA_DIR}"
+      - "${PWD}/build/jwt-secret.txt:${JWT_SECRET_PATH}"
+      - "${PWD}/genesis_l2.json:${JWT_SECRET_PATH}"
+    environment:
+      - GETH_DATA_DIR=/db
+      - GENESIS_FILE_PATH=/genesis.json
+      - JWT_SECRET_PATH=/jwt-secret.txt
     entrypoint: # pass the L2 specific flags by overriding the entry-point and adding extra arguments
       - "/bin/sh"
       - "/entrypoint.sh"

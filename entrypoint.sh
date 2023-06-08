@@ -1,6 +1,7 @@
-GETH_DATA_DIR=/db
+GETH_DATA_DIR="${GETH_DATA_DIR:-/db}"
 GETH_CHAINDATA_DIR="$GETH_DATA_DIR/geth/chaindata"
 GENESIS_FILE_PATH="${GENESIS_FILE_PATH:-/genesis.json}"
+JWT_SECRET_PATH="${JWT_SECRET_PATH:-/jwt-secret.txt}"
 DEFAULE_MINER_ETHERBASE="0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
 
 if [[ ! -e "$GETH_CHAINDATA_DIR" ]]; then
@@ -32,7 +33,7 @@ COMMAND="geth \
 --authrpc.addr="0.0.0.0" \
 --authrpc.port="8551" \
 --authrpc.vhosts="*" \
---authrpc.jwtsecret=/config/jwt-secret.txt \
+--authrpc.jwtsecret=$JWT_SECRET_PATH \
 --gcmode=archive \
 --mine \
 --miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"

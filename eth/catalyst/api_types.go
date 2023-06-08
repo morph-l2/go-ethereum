@@ -96,14 +96,13 @@ type ExecutableL2Data struct {
 	BaseFee      *big.Int       `json:"baseFeePerGas"  gencodec:"required"`
 	Timestamp    uint64         `json:"timestamp"      gencodec:"required"`
 	Transactions [][]byte       `json:"transactions"   gencodec:"required"`
+	Extra        []byte         `json:"extraData"`
 
 	// execution result
 	StateRoot   common.Hash `json:"stateRoot"`
 	GasUsed     uint64      `json:"gasUsed"`
 	ReceiptRoot common.Hash `json:"receiptsRoot"`
 	LogsBloom   []byte      `json:"logsBloom"`
-
-	Extra []byte `json:"extraData"`
 }
 
 // JSON type overrides for executableL2Data.

@@ -77,9 +77,9 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	// Do not produce new block if no transaction is involved
-	if block.TxHash() == types.EmptyRootHash {
-		return nil, nil
-	}
+	// if block.TxHash() == types.EmptyRootHash {
+	//	 return nil, nil
+	// }
 	api.verified[block.Hash()] = executionResult{
 		block:    block,
 		state:    state,

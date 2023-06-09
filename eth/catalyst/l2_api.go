@@ -99,6 +99,8 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		GasUsed:     block.GasUsed(),
 		ReceiptRoot: block.ReceiptHash(),
 		LogsBloom:   block.Bloom().Bytes(),
+
+		Hash: block.Hash(),
 	}, nil
 }
 

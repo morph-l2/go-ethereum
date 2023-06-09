@@ -103,6 +103,8 @@ type ExecutableL2Data struct {
 	GasUsed     uint64      `json:"gasUsed"`
 	ReceiptRoot common.Hash `json:"receiptsRoot"`
 	LogsBloom   []byte      `json:"logsBloom"`
+
+	Hash common.Hash `json:"hash"` // cached value
 }
 
 // JSON type overrides for executableL2Data.

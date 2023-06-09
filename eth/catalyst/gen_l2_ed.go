@@ -23,7 +23,6 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"  gencodec:"required"`
 		Timestamp    hexutil.Uint64  `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
-		Extra        hexutil.Bytes   `json:"extraData"`
 		StateRoot    common.Hash     `json:"stateRoot"`
 		GasUsed      hexutil.Uint64  `json:"gasUsed"`
 		ReceiptRoot  common.Hash     `json:"receiptsRoot"`
@@ -43,7 +42,6 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 			enc.Transactions[k] = v
 		}
 	}
-	enc.Extra = e.Extra
 	enc.StateRoot = e.StateRoot
 	enc.GasUsed = hexutil.Uint64(e.GasUsed)
 	enc.ReceiptRoot = e.ReceiptRoot
@@ -62,7 +60,6 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"  gencodec:"required"`
 		Timestamp    *hexutil.Uint64 `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
-		Extra        *hexutil.Bytes  `json:"extraData"`
 		StateRoot    *common.Hash    `json:"stateRoot"`
 		GasUsed      *hexutil.Uint64 `json:"gasUsed"`
 		ReceiptRoot  *common.Hash    `json:"receiptsRoot"`
@@ -103,9 +100,6 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 	e.Transactions = make([][]byte, len(dec.Transactions))
 	for k, v := range dec.Transactions {
 		e.Transactions[k] = v
-	}
-	if dec.Extra != nil {
-		e.Extra = *dec.Extra
 	}
 	if dec.StateRoot != nil {
 		e.StateRoot = *dec.StateRoot

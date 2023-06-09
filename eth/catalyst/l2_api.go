@@ -198,7 +198,6 @@ func (api *l2ConsensusAPI) paramsToBlock(params ExecutableL2Data, blsData types.
 		GasLimit:   params.GasLimit,
 		Time:       params.Timestamp,
 		Coinbase:   params.Miner,
-		Extra:      params.Extra,
 		BLSData:    blsData,
 		BaseFee:    params.BaseFee,
 	}

@@ -96,7 +96,6 @@ type ExecutableL2Data struct {
 	BaseFee      *big.Int       `json:"baseFeePerGas"  gencodec:"required"`
 	Timestamp    uint64         `json:"timestamp"      gencodec:"required"`
 	Transactions [][]byte       `json:"transactions"   gencodec:"required"`
-	Extra        []byte         `json:"extraData"`
 
 	// execution result
 	StateRoot   common.Hash `json:"stateRoot"`
@@ -116,7 +115,6 @@ type executableL2DataMarshaling struct {
 	LogsBloom    hexutil.Bytes
 	Transactions []hexutil.Bytes
 	BaseFee      *hexutil.Big
-	Extra        hexutil.Bytes
 }
 
 //go:generate go run github.com/fjl/gencodec -type BLSData -field-override blsDataMarshaling -out gen_bls.go

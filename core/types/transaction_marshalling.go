@@ -49,6 +49,8 @@ type txJSON struct {
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
 
+	// L1 message transaction fields:
+	// >>>>>>> scroll/v4.1.0
 	Sender     common.Address  `json:"sender,omitempty"`
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 }

@@ -32,7 +32,7 @@ var (
 	// invocation of a data access operation.
 	errMemorydbClosed = errors.New("database closed")
 
-	// errMemorydbNotFound is returned if a key is requested that is not found in
+	// ErrMemorydbNotFound is returned if a key is requested that is not found in
 	// the provided memory database.
 	errMemorydbNotFound = errors.New("not found")
 

@@ -45,6 +45,8 @@ const (
 	LegacyTxType = iota
 	AccessListTxType
 	DynamicFeeTxType
+
+	L1MessageTxType = 0x7E
 )
 
 // Transaction is an Ethereum transaction.
@@ -298,11 +300,20 @@ func (tx *Transaction) IsL1MessageTx() bool {
 
 // AsL1MessageTx casts the tx into an L1 cross-domain tx.
 func (tx *Transaction) AsL1MessageTx() *L1MessageTx {
-	if tx.Type() != L1MessageTxType {
+	if !tx.IsL1MessageTx() {
 		return nil
 	}
-
 	return tx.inner.(*L1MessageTx)
+}
+
+// L1MessageQueueIndex returns the L1 queue index if `tx` is of type `L1MessageTx`.
+// It returns 0 otherwise.
+// >>>>>>> scroll/v4.1.0
+func (tx *Transaction) L1MessageQueueIndex() uint64 {
+	if !tx.IsL1MessageTx() {
+		return 0
+	}
+	return tx.AsL1MessageTx().QueueIndex
 }
 
 // Cost returns gas * gasPrice + value.
@@ -342,7 +353,7 @@ func (tx *Transaction) GasTipCapIntCmp(other *big.Int) int {
 // Note: if the effective gasTipCap is negative, this method returns both error
 // the actual negative value, _and_ ErrGasFeeCapTooLow
 func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
-	if tx.Type() == L1MessageTxType {
+	if tx.IsL1MessageTx() {
 		return new(big.Int), nil
 	}
 	if baseFee == nil {
@@ -584,34 +595,34 @@ func (t *TransactionsByPriceAndNonce) Pop() {
 //
 // NOTE: In a future PR this will be removed.
 type Message struct {
-	to         *common.Address
-	from       common.Address
-	nonce      uint64
-	amount     *big.Int
-	gasLimit   uint64
-	gasPrice   *big.Int
-	gasFeeCap  *big.Int
-	gasTipCap  *big.Int
-	data       []byte
-	accessList AccessList
-	isFake     bool
-
+	to            *common.Address
+	from          common.Address
+	nonce         uint64
+	amount        *big.Int
+	gasLimit      uint64
+	gasPrice      *big.Int
+	gasFeeCap     *big.Int
+	gasTipCap     *big.Int
+	data          []byte
+	accessList    AccessList
+	isFake        bool
 	isL1MessageTx bool
 }
 
 func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
 	return Message{
-		from:       from,
-		to:         to,
-		nonce:      nonce,
-		amount:     amount,
-		gasLimit:   gasLimit,
-		gasPrice:   gasPrice,
-		gasFeeCap:  gasFeeCap,
-		gasTipCap:  gasTipCap,
-		data:       data,
-		accessList: accessList,
-		isFake:     isFake,
+		from:          from,
+		to:            to,
+		nonce:         nonce,
+		amount:        amount,
+		gasLimit:      gasLimit,
+		gasPrice:      gasPrice,
+		gasFeeCap:     gasFeeCap,
+		gasTipCap:     gasTipCap,
+		data:          data,
+		accessList:    accessList,
+		isFake:        isFake,
+		isL1MessageTx: false,
 	}
 }
 

@@ -858,28 +858,8 @@ web3._extend({
 			name: 'getBlockTraceByNumberOrHash',
 			call: 'scroll_getBlockTraceByNumberOrHash',
 			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'getL1MessageByIndex',
-			call: 'scroll_getL1MessageByIndex',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'getFirstQueueIndexNotInL2Block',
-			call: 'scroll_getFirstQueueIndexNotInL2Block',
-			params: 1
 		})
 	],
-	properties:
-	[
-		new web3._extend.Property({
-			name: 'l1SyncHeight',
-			getter: 'scroll_getL1SyncHeight'
-		}),
-		new web3._extend.Property({
-			name: 'latestRelayedQueueIndex',
-			getter: 'scroll_getLatestRelayedQueueIndex'
-		})
-	]
+	properties:[]
 });
 `

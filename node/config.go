@@ -204,13 +204,6 @@ type Config struct {
 
 	// JWTSecret is the path to the hex-encoded jwt secret.
 	JWTSecret string `toml:",omitempty"`
-	// >>>>>>> scroll/v4.1.0
-	// Endpoint of L1 HTTP-RPC server
-	L1Endpoint string `toml:",omitempty"`
-	// Number of confirmations on L1 needed for finalization
-	L1Confirmations rpc.BlockNumber `toml:",omitempty"`
-	// L1 bridge deployment block number
-	L1DeploymentBlock uint64 `toml:",omitempty"`
 }
 
 // IPCEndpoint resolves an IPC endpoint based on a configured value, taking into

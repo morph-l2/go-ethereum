@@ -308,7 +308,6 @@ func (tx *Transaction) AsL1MessageTx() *L1MessageTx {
 
 // L1MessageQueueIndex returns the L1 queue index if `tx` is of type `L1MessageTx`.
 // It returns 0 otherwise.
-// >>>>>>> scroll/v4.1.0
 func (tx *Transaction) L1MessageQueueIndex() uint64 {
 	if !tx.IsL1MessageTx() {
 		return 0

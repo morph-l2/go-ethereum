@@ -1747,8 +1747,8 @@ func TestInsertReceiptChainRollback(t *testing.T) {
 // overtake the 'canon' chain until after it's passed canon by about 200 blocks.
 //
 // Details at:
-//  - https://github.com/scroll-tech/go-ethereum/issues/18977
-//  - https://github.com/scroll-tech/go-ethereum/pull/18988
+//   - https://github.com/scroll-tech/go-ethereum/issues/18977
+//   - https://github.com/scroll-tech/go-ethereum/pull/18988
 func TestLowDiffLongChain(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -1867,7 +1867,8 @@ func testSideImport(t *testing.T, numCanonBlocksInSidechain, blocksBetweenCommon
 // That is: the sidechain for import contains some blocks already present in canon chain.
 // So the blocks are
 // [ Cn, Cn+1, Cc, Sn+3 ... Sm]
-//   ^    ^    ^  pruned
+//
+//	^    ^    ^  pruned
 func TestPrunedImportSide(t *testing.T) {
 	//glogger := log.NewGlogHandler(log.StreamHandler(os.Stdout, log.TerminalFormat(false)))
 	//glogger.Verbosity(3)
@@ -2472,9 +2473,9 @@ func BenchmarkBlockChain_1x1000Executions(b *testing.B) {
 // This internally leads to a sidechain import, since the blocks trigger an
 // ErrPrunedAncestor error.
 // This may e.g. happen if
-//   1. Downloader rollbacks a batch of inserted blocks and exits
-//   2. Downloader starts to sync again
-//   3. The blocks fetched are all known and canonical blocks
+//  1. Downloader rollbacks a batch of inserted blocks and exits
+//  2. Downloader starts to sync again
+//  3. The blocks fetched are all known and canonical blocks
 func TestSideImportPrunedBlocks(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -2636,20 +2637,19 @@ func TestDeleteCreateRevert(t *testing.T) {
 
 // TestInitThenFailCreateContract tests a pretty notorious case that happened
 // on mainnet over blocks 7338108, 7338110 and 7338115.
-// - Block 7338108: address e771789f5cccac282f23bb7add5690e1f6ca467c is initiated
-//   with 0.001 ether (thus created but no code)
-// - Block 7338110: a CREATE2 is attempted. The CREATE2 would deploy code on
-//   the same address e771789f5cccac282f23bb7add5690e1f6ca467c. However, the
-//   deployment fails due to OOG during initcode execution
-// - Block 7338115: another tx checks the balance of
-//   e771789f5cccac282f23bb7add5690e1f6ca467c, and the snapshotter returned it as
-//   zero.
+//   - Block 7338108: address e771789f5cccac282f23bb7add5690e1f6ca467c is initiated
+//     with 0.001 ether (thus created but no code)
+//   - Block 7338110: a CREATE2 is attempted. The CREATE2 would deploy code on
+//     the same address e771789f5cccac282f23bb7add5690e1f6ca467c. However, the
+//     deployment fails due to OOG during initcode execution
+//   - Block 7338115: another tx checks the balance of
+//     e771789f5cccac282f23bb7add5690e1f6ca467c, and the snapshotter returned it as
+//     zero.
 //
 // The problem being that the snapshotter maintains a destructset, and adds items
 // to the destructset in case something is created "onto" an existing item.
 // We need to either roll back the snapDestructs, or not place it into snapDestructs
 // in the first place.
-//
 func TestInitThenFailCreateContract(t *testing.T) {
 	var (
 		// Generate a canonical chain to act as the main dataset
@@ -2838,13 +2838,13 @@ func TestEIP2718Transition(t *testing.T) {
 
 // TestEIP1559Transition tests the following:
 //
-// 1. A transaction whose gasFeeCap is greater than the baseFee is valid.
-// 2. Gas accounting for access lists on EIP-1559 transactions is correct.
-// 3. Only the transaction's tip will be received by the coinbase.
-// 4. The transaction sender pays for both the tip and baseFee.
-// 5. The coinbase receives only the partially realized tip when
-//    gasFeeCap - gasTipCap < baseFee.
-// 6. Legacy transaction behave as expected (e.g. gasPrice = gasFeeCap = gasTipCap).
+//  1. A transaction whose gasFeeCap is greater than the baseFee is valid.
+//  2. Gas accounting for access lists on EIP-1559 transactions is correct.
+//  3. Only the transaction's tip will be received by the coinbase.
+//  4. The transaction sender pays for both the tip and baseFee.
+//  5. The coinbase receives only the partially realized tip when
+//     gasFeeCap - gasTipCap < baseFee.
+//  6. Legacy transaction behave as expected (e.g. gasPrice = gasFeeCap = gasTipCap).
 func TestEIP1559Transition(t *testing.T) {
 	var (
 		aa = common.HexToAddress("0x000000000000000000000000000000000000aaaa")
@@ -3237,168 +3237,6 @@ func TestTransactionCountLimit(t *testing.T) {
 	if !errors.Is(err, consensus.ErrInvalidTxCount) {
 		t.Fatalf("error mismatch: have: %v, want: %v", err, consensus.ErrInvalidTxCount)
 	}
-}
-
-// TestInsertBlocksWithL1Messages tests that the chain accepts blocks with L1MessageTx transactions.
-func TestInsertBlocksWithL1Messages(t *testing.T) {
-	var (
-		db     = rawdb.NewMemoryDatabase()
-		engine = ethash.NewFaker()
-	)
-
-	// initialize genesis
-	config := params.AllEthashProtocolChanges
-	config.Scroll.L1Config.NumL1MessagesPerBlock = 1
-
-	genspec := &Genesis{
-		Config:  config,
-		BaseFee: big.NewInt(params.InitialBaseFee),
-	}
-	genesis := genspec.MustCommit(db)
-
-	// initialize L1 message DB
-	msgs := []types.L1MessageTx{
-		{QueueIndex: 0, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}},
-		{QueueIndex: 1, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}},
-		{QueueIndex: 2, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}},
-		{QueueIndex: 3, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}},
-	}
-	rawdb.WriteL1Messages(db, msgs)
-
-	// initialize blockchain
-	blockchain, _ := NewBlockChain(db, nil, config, engine, vm.Config{}, nil, nil)
-	defer blockchain.Stop()
-
-	// generate blocks with 1 L1 message in each
-	blocks, _ := GenerateChain(config, genesis, engine, db, len(msgs), func(i int, b *BlockGen) {
-		tx := types.NewTx(&msgs[i])
-		b.AddTxWithChain(blockchain, tx)
-	})
-
-	// insert blocks, validation should pass
-	index, err := blockchain.InsertChain(blocks)
-	assert.Nil(t, err)
-	assert.Equal(t, len(msgs), index)
-
-	// L1 message DB should be updated
-	queueIndex := rawdb.ReadFirstQueueIndexNotInL2Block(db, blocks[len(blocks)-1].Hash())
-	assert.NotNil(t, queueIndex)
-	assert.Equal(t, uint64(len(msgs)), *queueIndex)
-
-	// generate fork with 2 L1 messages in each block
-	blocks, _ = GenerateChain(config, genesis, engine, db, len(msgs)/2, func(i int, b *BlockGen) {
-		tx1 := types.NewTx(&msgs[2*i])
-		b.AddTxWithChain(blockchain, tx1)
-		tx2 := types.NewTx(&msgs[2*i+1])
-		b.AddTxWithChain(blockchain, tx2)
-	})
-
-	// insert blocks, validation should pass
-	index, err = blockchain.InsertChain(blocks)
-	assert.Nil(t, err)
-	assert.Equal(t, len(msgs)/2, index)
-
-	// L1 message DB should be updated
-	queueIndex = rawdb.ReadFirstQueueIndexNotInL2Block(db, blocks[len(blocks)-1].Hash())
-	assert.NotNil(t, queueIndex)
-	assert.Equal(t, uint64(len(msgs)), *queueIndex)
-}
-
-// TestL1MessageValidationFailure tests that the chain rejects blocks with incorrect L1MessageTx transactions.
-func TestL1MessageValidationFailure(t *testing.T) {
-	var (
-		db     = rawdb.NewMemoryDatabase()
-		engine = ethash.NewFaker()
-		key, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		addr   = crypto.PubkeyToAddress(key.PublicKey)
-		signer = new(types.HomesteadSigner)
-	)
-
-	// initialize genesis
-	config := params.AllEthashProtocolChanges
-	config.Scroll.L1Config.NumL1MessagesPerBlock = 1
-
-	genspec := &Genesis{
-		Config: config,
-		Alloc: map[common.Address]GenesisAccount{
-			addr: {Balance: big.NewInt(10000000000000000)},
-		},
-		BaseFee: big.NewInt(params.InitialBaseFee),
-	}
-	genesis := genspec.MustCommit(db)
-
-	// initialize L1 message DB
-	msgs := []types.L1MessageTx{
-		{QueueIndex: 0, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}},
-		{QueueIndex: 1, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}},
-		{QueueIndex: 2, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}},
-	}
-	rawdb.WriteL1Messages(db, msgs)
-
-	// initialize blockchain
-	blockchain, _ := NewBlockChain(db, nil, config, engine, vm.Config{}, nil, nil)
-	defer blockchain.Stop()
-
-	generateBlock := func(txs []*types.Transaction) ([]*types.Block, []types.Receipts) {
-		return GenerateChain(config, genesis, engine, db, 1, func(i int, b *BlockGen) {
-			for _, tx := range txs {
-				b.AddTxWithChain(blockchain, tx)
-			}
-		})
-	}
-
-	// skip #0
-	blocks, _ := generateBlock([]*types.Transaction{types.NewTx(&msgs[1])})
-	index, err := blockchain.InsertChain(blocks)
-	assert.Equal(t, 0, index)
-	assert.Equal(t, consensus.ErrInvalidL1MessageOrder, err)
-	assert.Equal(t, big.NewInt(0), blockchain.CurrentBlock().Number())
-
-	// skip #1
-	blocks, _ = generateBlock([]*types.Transaction{types.NewTx(&msgs[0]), types.NewTx(&msgs[2])})
-	index, err = blockchain.InsertChain(blocks)
-	assert.Equal(t, 0, index)
-	assert.Equal(t, consensus.ErrInvalidL1MessageOrder, err)
-	assert.Equal(t, big.NewInt(0), blockchain.CurrentBlock().Number())
-
-	// L2 tx precedes L1 message tx
-	tx, _ := types.SignTx(types.NewTransaction(0, common.Address{0x00}, new(big.Int), params.TxGas, genspec.BaseFee, nil), signer, key)
-	blocks, _ = generateBlock([]*types.Transaction{tx, types.NewTx(&msgs[0])})
-	index, err = blockchain.InsertChain(blocks)
-	assert.Equal(t, 0, index)
-	assert.Equal(t, consensus.ErrInvalidL1MessageOrder, err)
-	assert.Equal(t, big.NewInt(0), blockchain.CurrentBlock().Number())
-
-	// unknown message
-	unknown := types.L1MessageTx{QueueIndex: 1, Gas: 21016, To: &common.Address{1}, Data: []byte{0x02}, Sender: common.Address{2}}
-	blocks, _ = generateBlock([]*types.Transaction{types.NewTx(&msgs[0]), types.NewTx(&unknown)})
-	index, err = blockchain.InsertChain(blocks)
-	assert.Equal(t, 0, index)
-	assert.Equal(t, consensus.ErrUnknownL1Message, err)
-	assert.Equal(t, big.NewInt(0), blockchain.CurrentBlock().Number())
-
-	// missing message
-	msg := types.L1MessageTx{QueueIndex: 3, Gas: 21016, To: &common.Address{1}, Data: []byte{0x01}, Sender: common.Address{2}}
-	blocks, _ = generateBlock([]*types.Transaction{types.NewTx(&msgs[0]), types.NewTx(&msgs[1]), types.NewTx(&msgs[2]), types.NewTx(&msg)})
-	index, err = blockchain.InsertChain(blocks)
-	assert.Equal(t, 1, index)
-	assert.NoError(t, err)
-
-	// blocks is inserted into future blocks queue
-	assert.Equal(t, big.NewInt(0), blockchain.CurrentBlock().Number())
-
-	// insert missing message into DB
-	rawdb.WriteL1Message(db, msg)
-	blockchain.procFutureBlocks()
-
-	// the block is now processed
-	assert.Equal(t, big.NewInt(1), blockchain.CurrentBlock().Number())
-	assert.Equal(t, blocks[0].Hash(), blockchain.CurrentBlock().Hash())
-
-	// L1 message DB should be updated
-	queueIndex := rawdb.ReadFirstQueueIndexNotInL2Block(db, blocks[0].Hash())
-	assert.NotNil(t, queueIndex)
-	assert.Equal(t, uint64(4), *queueIndex)
 }
 
 func TestBlockPayloadSizeLimit(t *testing.T) {

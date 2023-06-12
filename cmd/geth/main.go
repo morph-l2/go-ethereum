@@ -159,9 +159,6 @@ var (
 		configFileFlag,
 		//>>>>>>> scroll/v4.1.0
 		utils.CatalystFlag,
-		utils.L1EndpointFlag,
-		utils.L1ConfirmationsFlag,
-		utils.L1DeploymentBlockFlag,
 	}
 
 	rpcFlags = []cli.Flag{

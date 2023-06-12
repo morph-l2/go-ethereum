@@ -324,8 +324,6 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		bloomBits       stat
 		beaconHeaders   stat
 		cliqueSnaps     stat
-		l1Messages      stat
-		lastL1Message   stat
 
 		// Ancient store statistics
 		ancientHeadersSize  common.StorageSize
@@ -387,10 +385,6 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 			beaconHeaders.Add(size)
 		case bytes.HasPrefix(key, []byte("clique-")) && len(key) == 7+common.HashLength:
 			cliqueSnaps.Add(size)
-		case bytes.HasPrefix(key, l1MessagePrefix) && len(key) == len(l1MessagePrefix)+8:
-			l1Messages.Add(size)
-		case bytes.HasPrefix(key, firstQueueIndexNotInL2BlockPrefix) && len(key) == len(firstQueueIndexNotInL2BlockPrefix)+common.HashLength:
-			lastL1Message.Add(size)
 		case bytes.HasPrefix(key, []byte("cht-")) ||
 			bytes.HasPrefix(key, []byte("chtIndexV2-")) ||
 			bytes.HasPrefix(key, []byte("chtRootV2-")): // Canonical hash trie
@@ -405,8 +399,7 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 				databaseVersionKey, headHeaderKey, headBlockKey, headFastBlockKey, lastPivotKey,
 				fastTrieProgressKey, snapshotDisabledKey, SnapshotRootKey, snapshotJournalKey,
 				snapshotGeneratorKey, snapshotRecoveryKey, txIndexTailKey, fastTxLookupLimitKey,
-				//>>>>>>> scroll/v4.1.0
-				uncleanShutdownKey, badBlockKey, syncedL1BlockNumberKey,
+				uncleanShutdownKey, badBlockKey,
 			} {
 				if bytes.Equal(key, meta) {
 					metadata.Add(size)
@@ -455,8 +448,6 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		{"Key-Value store", "Beacon sync headers", beaconHeaders.Size(), beaconHeaders.Count()},
 		{"Key-Value store", "Clique snapshots", cliqueSnaps.Size(), cliqueSnaps.Count()},
 		{"Key-Value store", "Singleton metadata", metadata.Size(), metadata.Count()},
-		{"Key-Value store", "L1 messages", l1Messages.Size(), l1Messages.Count()},
-		{"Key-Value store", "Last L1 message", lastL1Message.Size(), lastL1Message.Count()},
 		{"Ancient store", "Headers", ancientHeadersSize.String(), ancients.String()},
 		{"Ancient store", "Bodies", ancientBodiesSize.String(), ancients.String()},
 		{"Ancient store", "Receipt lists", ancientReceiptsSize.String(), ancients.String()},

@@ -43,7 +43,6 @@ func (tx *L1MessageTx) gasTipCap() *big.Int    { return new(big.Int) }
 func (tx *L1MessageTx) gasPrice() *big.Int     { return new(big.Int) }
 func (tx *L1MessageTx) value() *big.Int        { return tx.Value }
 func (tx *L1MessageTx) nonce() uint64          { return 0 }
-func (tx *L1MessageTx) queueIndex() uint64     { return tx.QueueIndex }
 func (tx *L1MessageTx) to() *common.Address    { return tx.To }
 
 func (tx *L1MessageTx) rawSignatureValues() (v, r, s *big.Int) {

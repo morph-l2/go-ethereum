@@ -77,9 +77,9 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	// Do not produce new block if no transaction is involved
-	if block.TxHash() == types.EmptyRootHash {
-		return nil, nil
-	}
+	// if block.TxHash() == types.EmptyRootHash {
+	//	 return nil, nil
+	// }
 	api.verified[block.Hash()] = executionResult{
 		block:    block,
 		state:    state,
@@ -99,6 +99,8 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		GasUsed:     block.GasUsed(),
 		ReceiptRoot: block.ReceiptHash(),
 		LogsBloom:   block.Bloom().Bytes(),
+
+		Hash: block.Hash(),
 	}, nil
 }
 
@@ -196,7 +198,6 @@ func (api *l2ConsensusAPI) paramsToBlock(params ExecutableL2Data, blsData types.
 		GasLimit:   params.GasLimit,
 		Time:       params.Timestamp,
 		Coinbase:   params.Miner,
-		Extra:      params.Extra,
 		BLSData:    blsData,
 		BaseFee:    params.BaseFee,
 	}

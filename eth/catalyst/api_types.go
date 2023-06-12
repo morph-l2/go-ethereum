@@ -103,7 +103,7 @@ type ExecutableL2Data struct {
 	ReceiptRoot common.Hash `json:"receiptsRoot"`
 	LogsBloom   []byte      `json:"logsBloom"`
 
-	Extra []byte `json:"extraData"`
+	Hash common.Hash `json:"hash"` // cached value
 }
 
 // JSON type overrides for executableL2Data.
@@ -115,7 +115,6 @@ type executableL2DataMarshaling struct {
 	LogsBloom    hexutil.Bytes
 	Transactions []hexutil.Bytes
 	BaseFee      *hexutil.Big
-	Extra        hexutil.Bytes
 }
 
 //go:generate go run github.com/fjl/gencodec -type BLSData -field-override blsDataMarshaling -out gen_bls.go

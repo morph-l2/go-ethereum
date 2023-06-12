@@ -29,17 +29,19 @@ var (
 	errInvalidNonce     = errors.New("invalid nonce")
 	errInvalidUncleHash = errors.New("invalid uncle hash")
 	errInvalidTimestamp = errors.New("invalid timestamp")
+	errInvalidCoinbase  = errors.New("invalid coinbase")
 )
 
 type Consensus struct {
 	ethone consensus.Engine // Original consensus engine used in eth1, e.g. ethash or clique
+	config *params.ChainConfig
 }
 
-func New(ethone consensus.Engine) *Consensus {
+func New(ethone consensus.Engine, cfg *params.ChainConfig) *Consensus {
 	if _, ok := ethone.(*Consensus); ok {
 		panic("nested consensus engine")
 	}
-	return &Consensus{ethone: ethone}
+	return &Consensus{ethone: ethone, config: cfg}
 }
 
 // Author implements consensus.Engine, returning the verified author of the block.
@@ -138,8 +140,8 @@ func (l2 *Consensus) VerifyUncles(chain consensus.ChainReader, block *types.Bloc
 // (c) the extradata is limited to 32 bytes
 func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, parent *types.Header) error {
 	// Ensure that the header's extra-data section is of a reasonable size
-	if len(header.Extra) > 32 {
-		return fmt.Errorf("extra-data longer than 32 bytes (%d)", len(header.Extra))
+	if len(header.Extra) > 0 {
+		return fmt.Errorf("extra-data must be empty")
 	}
 	// Verify the seal parts. Ensure the nonce and uncle hash are the expected value.
 	if header.Nonce != l2Nonce {
@@ -147,6 +149,10 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 	}
 	if header.UncleHash != types.EmptyUncleHash {
 		return errInvalidUncleHash
+	}
+
+	if l2.config.Scroll.FeeVaultEnabled() && header.Coinbase != types.EmptyAddress {
+		return errInvalidCoinbase
 	}
 	// Verify the timestamp
 	if header.Time <= parent.Time {
@@ -181,6 +187,11 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 	header.Difficulty = l2Difficulty
 	header.Nonce = l2Nonce
 	header.UncleHash = types.EmptyUncleHash
+	header.Extra = []byte{} // disable extra field filling with bytes
+	// set coinbase to empty address, if feeVault is enabled
+	if l2.config.Scroll.FeeVaultEnabled() {
+		header.Coinbase = types.EmptyAddress
+	}
 	return nil
 }
 

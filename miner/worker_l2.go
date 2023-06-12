@@ -63,7 +63,7 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 		GasLimit:   core.CalcGasLimit(parent.GasLimit(), w.config.GasCeil),
 		Extra:      w.extra,
 		Time:       timestamp,
-		Coinbase:   coinBase, // todo to be confirmed
+		Coinbase:   coinBase,
 	}
 	// Set baseFee and GasLimit if we are on an EIP-1559 chain
 	if w.chainConfig.IsLondon(header.Number) {

@@ -275,7 +275,7 @@ var (
 		BerlinBlock:         big.NewInt(0),
 		LondonBlock:         big.NewInt(0),
 		ArrowGlacierBlock:   nil,
-		ArchimedesBlock:     big.NewInt(2444711),
+		ArchimedesBlock:     big.NewInt(2646311),
 		ShanghaiBlock:       nil,
 		Clique: &CliqueConfig{
 			Period: 3,
@@ -477,12 +477,13 @@ func (s ScrollConfig) String() string {
 		maxTxPayloadBytesPerBlock = fmt.Sprintf("%v", *s.MaxTxPayloadBytesPerBlock)
 	}
 
-	return fmt.Sprintf("{useZktrie: %v, maxTxPerBlock: %v, MaxTxPayloadBytesPerBlock: %v, feeVaultAddress: %v, enableEIP2718:%v, enableEIP1559:%v}",
+	return fmt.Sprintf("{useZktrie: %v, maxTxPerBlock: %v, MaxTxPayloadBytesPerBlock: %v, feeVaultAddress: %v, enableEIP2718: %v, enableEIP1559: %v}",
 		s.UseZktrie, maxTxPerBlock, maxTxPayloadBytesPerBlock, s.FeeVaultAddress, s.EnableEIP2718, s.EnableEIP1559)
 }
 
-// IsValidTxCount returns whether the given block's transaction count is below the limit.
-func (s ScrollConfig) IsValidTxCount(count int) bool {
+// IsValidL2TxCount returns whether the given block's L2 transaction count is below the limit.
+// This limit corresponds to the number of ECDSA signature checks that we can fit into the zkEVM.
+func (s ScrollConfig) IsValidL2TxCount(count int) bool {
 	return s.MaxTxPerBlock == nil || count <= *s.MaxTxPerBlock
 }
 

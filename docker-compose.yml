@@ -17,7 +17,7 @@ services:
     volumes:
       - "sequencer_geth_data:${GETH_DATA_DIR}"
       - "${PWD}/build/jwt-secret.txt:${JWT_SECRET_PATH}"
-      - "${PWD}/genesis_l2.json:${JWT_SECRET_PATH}"
+      - "${PWD}/genesis_l2.json:${GENESIS_FILE_PATH}"
     env_file:
       - .env
     entrypoint: # pass the L2 specific flags by overriding the entry-point and adding extra arguments

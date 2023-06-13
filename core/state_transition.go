@@ -391,6 +391,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// no refunds for l1 messages
 	if st.msg.IsL1MessageTx() {
 		return &ExecutionResult{
+			// >>>>>>> scroll/v4.1.0
+			L1Fee:      big.NewInt(0),
 			UsedGas:    st.gasUsed(),
 			Err:        vmerr,
 			ReturnData: ret,

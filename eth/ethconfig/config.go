@@ -241,5 +241,5 @@ func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, co
 		engine.(*ethash.Ethash).SetThreads(-1) // Disable CPU mining
 	}
 
-	return l2.New(engine)
+	return l2.New(engine, chainConfig)
 }

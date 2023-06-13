@@ -88,6 +88,7 @@ type environment struct {
 	uncles    mapset.Set         // uncle set
 	tcount    int                // tx count in cycle
 	blockSize common.StorageSize // approximate size of tx payload in bytes
+	l1TxCount int                // l1 msg count in cycle
 	gasPool   *core.GasPool      // available gas used to pack transactions
 
 	header   *types.Header
@@ -217,8 +218,10 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
 	}
+
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
+
 	// Subscribe events for blockchain
 	worker.chainHeadSub = eth.BlockChain().SubscribeChainHeadEvent(worker.chainHeadCh)
 	worker.chainSideSub = eth.BlockChain().SubscribeChainSideEvent(worker.chainSideCh)
@@ -709,6 +712,7 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 	// Keep track of transactions which return errors so they can be removed
 	env.tcount = 0
 	env.blockSize = 0
+	env.l1TxCount = 0
 	return env, nil
 }
 
@@ -830,8 +834,8 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			return atomic.LoadInt32(interrupt) == commitInterruptNewHead
 		}
 		// If we have collected enough transactions then we're done
-		if !w.chainConfig.Scroll.IsValidTxCount(w.current.tcount + 1) {
-			log.Trace("Transaction count limit reached", "have", w.current.tcount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
+		if !w.chainConfig.Scroll.IsValidL2TxCount(w.current.tcount - w.current.l1TxCount + 1) {
+			log.Trace("Transaction count limit reached", "have", w.current.tcount-w.current.l1TxCount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
 			break
 		}
 		// If we don't have enough gas for any further transactions then we're done
@@ -885,9 +889,11 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		case errors.Is(err, nil):
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
+			if tx.IsL1MessageTx() {
+				w.current.l1TxCount++
+			}
 			env.tcount++
 			env.blockSize += tx.Size()
-
 			txs.Shift()
 
 		case errors.Is(err, core.ErrTxTypeNotSupported):
@@ -1026,7 +1032,6 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
 		w.commit(uncles, nil, false, tstart)
 	}
-
 	// Fill the block with all available pending transactions.
 	pending := w.eth.TxPool().Pending(true)
 	// Short circuit if there is no available pending transactions.

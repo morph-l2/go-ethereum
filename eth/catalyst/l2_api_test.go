@@ -29,7 +29,7 @@ func l2ChainConfig() params.ChainConfig {
 func generateTestL2Chain(n int) (*core.Genesis, []*types.Block) {
 	db := rawdb.NewMemoryDatabase()
 	config := l2ChainConfig()
-	engine := l2.New(nil)
+	engine := l2.New(nil, nil)
 	genesis := &core.Genesis{
 		Config:     &config,
 		Alloc:      core.GenesisAlloc{testAddr: {Balance: testBalance}},

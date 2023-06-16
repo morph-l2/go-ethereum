@@ -2,6 +2,9 @@ package core
 
 import (
 	"errors"
+	"math/big"
+	"time"
+
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/consensus"
 	"github.com/scroll-tech/go-ethereum/core/rawdb"
@@ -9,14 +12,12 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/ethdb"
 	"github.com/scroll-tech/go-ethereum/log"
-	"math/big"
-	"time"
 )
 
-func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header) (*state.StateDB, types.Receipts, time.Duration, error) {
+func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header) (*state.StateDB, types.Receipts, uint64, time.Duration, error) {
 	statedb, err := state.New(parent.Root, bc.stateCache, bc.snaps)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, 0, err
 	}
 	// Enable prefetching to pull in trie node paths while processing transactions
 	statedb.StartPrefetcher("chain")
@@ -26,7 +27,7 @@ func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header) (*s
 	receipts, _, usedGas, err := bc.processor.Process(block, statedb, bc.vmConfig)
 	if err != nil {
 		bc.reportBlock(block, receipts, err)
-		return nil, nil, 0, err
+		return nil, nil, 0, 0, err
 	}
 	// Update the metrics touched during block processing
 	accountReadTimer.Update(statedb.AccountReads)                 // Account reads are complete, we can mark them
@@ -45,17 +46,17 @@ func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header) (*s
 	substart := time.Now()
 	if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
 		bc.reportBlock(block, receipts, err)
-		return nil, nil, 0, err
+		return nil, nil, 0, 0, err
 	}
+	blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
+
 	proctime := time.Since(start)
 
 	// Update the metrics touched during block validation
 	accountHashTimer.Update(statedb.AccountHashes) // Account hashes are complete, we can mark them
 	storageHashTimer.Update(statedb.StorageHashes) // Storage hashes are complete, we can mark them
 
-	blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
-
-	return statedb, receipts, proctime, nil
+	return statedb, receipts, usedGas, proctime, nil
 }
 
 // writeBlockStateWithoutHead writes block, metadata and corresponding state data to the

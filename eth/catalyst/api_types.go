@@ -106,13 +106,34 @@ type ExecutableL2Data struct {
 	Hash common.Hash `json:"hash"` // cached value
 }
 
-// JSON type overrides for executableL2Data.
+// JSON type overrides for ExecutableL2Data.
 type executableL2DataMarshaling struct {
 	Number       hexutil.Uint64
 	GasLimit     hexutil.Uint64
 	GasUsed      hexutil.Uint64
 	Timestamp    hexutil.Uint64
 	LogsBloom    hexutil.Bytes
+	Transactions []hexutil.Bytes
+	BaseFee      *hexutil.Big
+}
+
+//go:generate go run github.com/fjl/gencodec -type SafeL2Data -field-override safeL2DataMarshaling -out gen_l2_sd.go
+
+// SafeL2Data is the block data which is approved in L1 and considered to be safe
+type SafeL2Data struct {
+	ParentHash   common.Hash `json:"parentHash"     gencodec:"required"`
+	Number       uint64      `json:"number"         gencodec:"required"`
+	GasLimit     uint64      `json:"gasLimit"       gencodec:"required"`
+	BaseFee      *big.Int    `json:"baseFeePerGas"  gencodec:"required"`
+	Timestamp    uint64      `json:"timestamp"      gencodec:"required"`
+	Transactions [][]byte    `json:"transactions"   gencodec:"required"`
+}
+
+// JSON type overrides for SafeL2Data.
+type safeL2DataMarshaling struct {
+	Number       hexutil.Uint64
+	GasLimit     hexutil.Uint64
+	Timestamp    hexutil.Uint64
 	Transactions []hexutil.Bytes
 	BaseFee      *hexutil.Big
 }

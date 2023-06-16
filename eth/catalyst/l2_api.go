@@ -116,7 +116,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.paramsToBlock(params, types.BLSData{})
+	block, err := api.executableDataToBlock(params, types.BLSData{})
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		}, nil
 	}
 
-	stateDB, receipts, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
+	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
 	if err != nil {
 		log.Error("error processing block", "error", err)
 		return &GenericResponse{
@@ -164,33 +164,89 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 		return fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.paramsToBlock(params, bls)
+	block, err := api.executableDataToBlock(params, bls)
 	if err != nil {
 		return err
 	}
 
+	defer func() {
+		if err == nil {
+			api.verified = make(map[common.Hash]executionResult) // clear cached pending block
+		}
+	}()
 	bas, verified := api.verified[block.Hash()]
 	if verified {
-		err = api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
-		if err == nil {
-			api.verified = make(map[common.Hash]executionResult)
-		}
-		return err
+		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
 
-	if err := api.VerifyBlock(block); err != nil {
+	if err = api.VerifyBlock(block); err != nil {
 		log.Error("failed to verify block", "error", err)
 		return err
 	}
 
-	stateDB, receipts, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
+	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
 	if err != nil {
 		return err
 	}
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
-func (api *l2ConsensusAPI) paramsToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, error) {
+func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) (blockHash common.Hash, err error) {
+	parent := api.eth.BlockChain().CurrentBlock()
+	expectedBlockNumber := parent.NumberU64() + 1
+	if params.Number != expectedBlockNumber {
+		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
+		return types.EmptyHash, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+	}
+	if params.ParentHash != parent.Hash() {
+		log.Warn("Wrong parent hash", "expected block hash", parent.Hash().Hex(), "actual block hash", params.ParentHash.Hex())
+		return types.EmptyHash, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
+	}
+	block, err := api.safeDataToBlock(params, bls)
+	if err != nil {
+		return types.EmptyHash, err
+	}
+	stateDB, receipts, usedGas, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
+	if err != nil {
+		return types.EmptyHash, err
+	}
+	// reconstruct the block with the execution result
+	header := block.Header()
+	header.GasUsed = usedGas
+	header.Bloom = types.CreateBloom(receipts)
+	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
+	header.Root = stateDB.IntermediateRoot(true)
+	block = types.NewBlockWithHeader(header).WithBody(block.Transactions(), nil)
+
+	// refill the receipts with real block hash
+	for _, receipt := range receipts {
+		receipt.BlockHash = block.Hash()
+		for _, txLog := range receipt.Logs {
+			txLog.BlockHash = block.Hash()
+		}
+	}
+	return block.Hash(), api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
+}
+
+func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSData) (*types.Block, error) {
+	header := &types.Header{
+		ParentHash: params.ParentHash,
+		Number:     big.NewInt(int64(params.Number)),
+		GasLimit:   params.GasLimit,
+		Time:       params.Timestamp,
+		BLSData:    blsData,
+		BaseFee:    params.BaseFee,
+	}
+	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
+	txs, err := decodeTransactions(params.Transactions)
+	if err != nil {
+		return nil, err
+	}
+	header.TxHash = types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))
+	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
+}
+
+func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, error) {
 	header := &types.Header{
 		ParentHash: params.ParentHash,
 		Number:     big.NewInt(int64(params.Number)),

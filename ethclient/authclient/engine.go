@@ -38,3 +38,10 @@ func (ec *Client) ValidateL2Block(ctx context.Context, executableL2Data *catalys
 func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, blsData *types.BLSData) error {
 	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data, blsData)
 }
+
+// NewSafeL2Block executes a safe L2 Block, and set the block to chain
+func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL2Data, blsData *types.BLSData) (*types.Header, error) {
+	var header types.Header
+	err := ec.c.CallContext(ctx, &header, "engine_newSafeL2Block", safeL2Data, blsData)
+	return &header, err
+}

@@ -191,27 +191,27 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
-func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) (blockHash common.Hash, err error) {
+func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) (header *types.Header, err error) {
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
 		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
-		return types.EmptyHash, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+		return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
 	}
 	if params.ParentHash != parent.Hash() {
 		log.Warn("Wrong parent hash", "expected block hash", parent.Hash().Hex(), "actual block hash", params.ParentHash.Hex())
-		return types.EmptyHash, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
+		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 	block, err := api.safeDataToBlock(params, bls)
 	if err != nil {
-		return types.EmptyHash, err
+		return nil, err
 	}
 	stateDB, receipts, usedGas, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
 	if err != nil {
-		return types.EmptyHash, err
+		return nil, err
 	}
 	// reconstruct the block with the execution result
-	header := block.Header()
+	header = block.Header()
 	header.GasUsed = usedGas
 	header.Bloom = types.CreateBloom(receipts)
 	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
@@ -225,7 +225,7 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) 
 			txLog.BlockHash = block.Hash()
 		}
 	}
-	return block.Hash(), api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
+	return header, api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
 func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSData) (*types.Block, error) {

@@ -174,6 +174,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	var (
 		vmConfig = vm.Config{
+			Debug: true,
 			EnablePreimageRecording: config.EnablePreimageRecording,
 			Tracer: vm.NewStructLogger(&vm.LogConfig{
 				EnableMemory:     false,

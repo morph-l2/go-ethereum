@@ -33,6 +33,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
+	"github.com/scroll-tech/go-ethereum/rollup/fees"
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
 	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 )
@@ -104,8 +105,13 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	txContext := NewEVMTxContext(msg)
 	evm.Reset(txContext, statedb)
 
+	l1DataFee, err := fees.CalculateL1DataFee(tx, statedb)
+	if err != nil {
+		return nil, err
+	}
+
 	// Apply the transaction to the current state (included in the env).
-	result, err := ApplyMessage(evm, msg, gp)
+	result, err := ApplyMessage(evm, msg, gp, l1DataFee)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +152,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	receipt.BlockHash = blockHash
 	receipt.BlockNumber = blockNumber
 	receipt.TransactionIndex = uint(statedb.TxIndex())
-	receipt.L1Fee = result.L1Fee
+	receipt.L1Fee = result.L1DataFee
 	return receipt, err
 }
 
@@ -202,8 +208,13 @@ func applyTransactionWithCircuitCheck(msg types.Message, config *params.ChainCon
 		}
 	}
 
+	l1DataFee, err := fees.CalculateL1DataFee(tx, statedb)
+	if err != nil {
+		return nil, err
+	}
+
 	// Apply the transaction to the current state (included in the env).
-	result, err := ApplyMessage(evm, msg, gp)
+	result, err := ApplyMessage(evm, msg, gp, l1DataFee)
 	if err != nil {
 		return nil, err
 	}
@@ -343,6 +354,7 @@ func applyTransactionWithCircuitCheck(msg types.Message, config *params.ChainCon
 				AccountCreated: createdAcc,
 				AccountsAfter:  after,
 				Gas:            result.UsedGas,
+				L1DataFee:      (*hexutil.Big)(result.L1DataFee),
 				Failed:         result.Failed(),
 				ReturnValue:    fmt.Sprintf("%x", common.CopyBytes(returnVal)),
 				StructLogs:     vm.FormatLogs(tracer.StructLogs()),
@@ -350,10 +362,6 @@ func applyTransactionWithCircuitCheck(msg types.Message, config *params.ChainCon
 		},
 		StorageTrace:   txStorageTrace,
 		TxStorageTrace: []*types.StorageTrace{txStorageTrace},
-	}
-
-	if result.L1Fee != nil {
-		traces.ExecutionResults[0].L1Fee = result.L1Fee.Uint64()
 	}
 
 	// probably a Contract Call
@@ -401,7 +409,7 @@ func applyTransactionWithCircuitCheck(msg types.Message, config *params.ChainCon
 	receipt.BlockHash = header.Hash()
 	receipt.BlockNumber = header.Number
 	receipt.TransactionIndex = uint(statedb.TxIndex())
-	receipt.L1Fee = result.L1Fee
+	receipt.L1Fee = result.L1DataFee
 	return receipt, err
 }
 

@@ -20,7 +20,7 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 		Miner        common.Address  `json:"miner"          gencodec:"required"`
 		Number       hexutil.Uint64  `json:"number"         gencodec:"required"`
 		GasLimit     hexutil.Uint64  `json:"gasLimit"       gencodec:"required"`
-		BaseFee      *hexutil.Big    `json:"baseFeePerGas"  gencodec:"required"`
+		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
 		Timestamp    hexutil.Uint64  `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
 		StateRoot    common.Hash     `json:"stateRoot"`
@@ -57,7 +57,7 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 		Miner        *common.Address `json:"miner"          gencodec:"required"`
 		Number       *hexutil.Uint64 `json:"number"         gencodec:"required"`
 		GasLimit     *hexutil.Uint64 `json:"gasLimit"       gencodec:"required"`
-		BaseFee      *hexutil.Big    `json:"baseFeePerGas"  gencodec:"required"`
+		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
 		Timestamp    *hexutil.Uint64 `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
 		StateRoot    *common.Hash    `json:"stateRoot"`
@@ -86,10 +86,9 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 		return errors.New("missing required field 'gasLimit' for ExecutableL2Data")
 	}
 	e.GasLimit = uint64(*dec.GasLimit)
-	if dec.BaseFee == nil {
-		return errors.New("missing required field 'baseFeePerGas' for ExecutableL2Data")
+	if dec.BaseFee != nil {
+		e.BaseFee = (*big.Int)(dec.BaseFee)
 	}
-	e.BaseFee = (*big.Int)(dec.BaseFee)
 	if dec.Timestamp == nil {
 		return errors.New("missing required field 'timestamp' for ExecutableL2Data")
 	}

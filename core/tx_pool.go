@@ -604,7 +604,6 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// No unauthenticated deposits allowed in the transaction pool.
-	// >>>>>>> scroll/v4.1.0
 	if tx.IsL1MessageTx() {
 		return ErrTxTypeNotSupported
 	}
@@ -696,7 +695,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 
 	if pool.chainconfig.Scroll.FeeVaultEnabled() {
 		if err := fees.VerifyFee(pool.signer, tx, pool.currentState); err != nil {
-			log.Trace("Discarding insufficient l1fee transaction", "hash", hash, "err", err)
+			log.Trace("Discarding insufficient l1DataFee transaction", "hash", hash, "err", err)
 			invalidTxMeter.Mark(1)
 			return false, err
 		}

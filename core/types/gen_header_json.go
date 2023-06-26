@@ -16,26 +16,25 @@ var _ = (*headerMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (h Header) MarshalJSON() ([]byte, error) {
 	type Header struct {
-		ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
-		UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
-		Coinbase    common.Address `json:"miner"            gencodec:"required"`
-		Root        common.Hash    `json:"stateRoot"        gencodec:"required"`
-		TxHash      common.Hash    `json:"transactionsRoot" gencodec:"required"`
-		ReceiptHash common.Hash    `json:"receiptsRoot"     gencodec:"required"`
-		Bloom       Bloom          `json:"logsBloom"        gencodec:"required"`
-		Difficulty  *hexutil.Big   `json:"difficulty"       gencodec:"required"`
-		Number      *hexutil.Big   `json:"number"           gencodec:"required"`
-		GasLimit    hexutil.Uint64 `json:"gasLimit"         gencodec:"required"`
-		GasUsed     hexutil.Uint64 `json:"gasUsed"          gencodec:"required"`
-		Time        hexutil.Uint64 `json:"timestamp"        gencodec:"required"`
-		Extra       hexutil.Bytes  `json:"extraData"        gencodec:"required"`
-		MixDigest   common.Hash    `json:"mixHash"`
-		Nonce       BlockNonce     `json:"nonce"`
-		BaseFee     *hexutil.Big   `json:"baseFeePerGas" rlp:"optional"`
-		BLSData     BLSData        `json:"blsData" rlp:"-"`
-		// >>>>>>> scroll/v4.1.0
-		WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`
-		Hash            common.Hash  `json:"hash"`
+		ParentHash      common.Hash    `json:"parentHash"       gencodec:"required"`
+		UncleHash       common.Hash    `json:"sha3Uncles"       gencodec:"required"`
+		Coinbase        common.Address `json:"miner"            gencodec:"required"`
+		Root            common.Hash    `json:"stateRoot"        gencodec:"required"`
+		TxHash          common.Hash    `json:"transactionsRoot" gencodec:"required"`
+		ReceiptHash     common.Hash    `json:"receiptsRoot"     gencodec:"required"`
+		Bloom           Bloom          `json:"logsBloom"        gencodec:"required"`
+		Difficulty      *hexutil.Big   `json:"difficulty"       gencodec:"required"`
+		Number          *hexutil.Big   `json:"number"           gencodec:"required"`
+		GasLimit        hexutil.Uint64 `json:"gasLimit"         gencodec:"required"`
+		GasUsed         hexutil.Uint64 `json:"gasUsed"          gencodec:"required"`
+		Time            hexutil.Uint64 `json:"timestamp"        gencodec:"required"`
+		Extra           hexutil.Bytes  `json:"extraData"        gencodec:"required"`
+		MixDigest       common.Hash    `json:"mixHash"`
+		Nonce           BlockNonce     `json:"nonce"`
+		BaseFee         *hexutil.Big   `json:"baseFeePerGas" rlp:"optional"`
+		BLSData         BLSData        `json:"blsData" rlp:"-"`
+		WithdrawalsHash *common.Hash   `json:"withdrawalsRoot" rlp:"optional"`
+		Hash            common.Hash    `json:"hash"`
 	}
 	var enc Header
 	enc.ParentHash = h.ParentHash

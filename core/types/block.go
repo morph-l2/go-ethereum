@@ -90,7 +90,7 @@ type Header struct {
 
 	// BLSData was the field specified for morphism
 	BLSData BLSData `json:"blsData" rlp:"optional"`
-	// >>>>>>> scroll/v4.1.0
+
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
 	// Included for Ethereum compatibility in Scroll SDK
 	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`

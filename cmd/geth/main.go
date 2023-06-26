@@ -157,7 +157,6 @@ var (
 		utils.GpoIgnoreGasPriceFlag,
 		utils.MinerNotifyFullFlag,
 		configFileFlag,
-		//>>>>>>> scroll/v4.1.0
 		utils.CatalystFlag,
 	}
 

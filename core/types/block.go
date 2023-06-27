@@ -85,11 +85,11 @@ type Header struct {
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
 
-	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
-	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
-
 	// BLSData was the field specified for morphism
 	BLSData BLSData `json:"blsData" rlp:"optional"`
+
+	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
+	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
 	// Included for Ethereum compatibility in Scroll SDK
@@ -129,25 +129,27 @@ func (h *Header) Hash() common.Hash {
 		Nonce       BlockNonce
 
 		// BaseFee was added by EIP-1559 and is ignored in legacy headers.
-		BaseFee *big.Int `rlp:"optional"`
+		BaseFee         *big.Int     `rlp:"optional"`
+		WithdrawalsHash *common.Hash `rlp:"optional"`
 	}
 	h2 := &headerNoBLS{
-		ParentHash:  h.ParentHash,
-		UncleHash:   h.UncleHash,
-		Coinbase:    h.Coinbase,
-		Root:        h.Root,
-		TxHash:      h.TxHash,
-		ReceiptHash: h.ReceiptHash,
-		Bloom:       h.Bloom,
-		Difficulty:  h.Difficulty,
-		Number:      h.Number,
-		GasLimit:    h.GasLimit,
-		GasUsed:     h.GasUsed,
-		Time:        h.Time,
-		Extra:       h.Extra,
-		MixDigest:   h.MixDigest,
-		Nonce:       h.Nonce,
-		BaseFee:     h.BaseFee,
+		ParentHash:      h.ParentHash,
+		UncleHash:       h.UncleHash,
+		Coinbase:        h.Coinbase,
+		Root:            h.Root,
+		TxHash:          h.TxHash,
+		ReceiptHash:     h.ReceiptHash,
+		Bloom:           h.Bloom,
+		Difficulty:      h.Difficulty,
+		Number:          h.Number,
+		GasLimit:        h.GasLimit,
+		GasUsed:         h.GasUsed,
+		Time:            h.Time,
+		Extra:           h.Extra,
+		MixDigest:       h.MixDigest,
+		Nonce:           h.Nonce,
+		BaseFee:         h.BaseFee,
+		WithdrawalsHash: h.WithdrawalsHash,
 	}
 	return rlpHash(h2)
 }

@@ -834,8 +834,8 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			return atomic.LoadInt32(interrupt) == commitInterruptNewHead
 		}
 		// If we have collected enough transactions then we're done
-		if !w.chainConfig.Scroll.IsValidL2TxCount(w.current.tcount - w.current.l1TxCount + 1) {
-			log.Trace("Transaction count limit reached", "have", w.current.tcount-w.current.l1TxCount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
+		if !w.chainConfig.Scroll.IsValidL2TxCount(env.tcount - env.l1TxCount + 1) {
+			log.Trace("Transaction count limit reached", "have", env.tcount-env.l1TxCount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
 			break
 		}
 		// If we don't have enough gas for any further transactions then we're done
@@ -848,8 +848,8 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		if tx == nil {
 			break
 		}
-		if !w.chainConfig.Scroll.IsValidBlockSize(w.current.blockSize + tx.Size()) {
-			log.Trace("Block size limit reached", "have", w.current.blockSize, "want", w.chainConfig.Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
+		if !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize + tx.Size()) {
+			log.Trace("Block size limit reached", "have", env.blockSize, "want", w.chainConfig.Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
 			continue
 		}
@@ -890,7 +890,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
 			if tx.IsL1MessageTx() {
-				w.current.l1TxCount++
+				env.l1TxCount++
 			}
 			env.tcount++
 			env.blockSize += tx.Size()

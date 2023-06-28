@@ -91,7 +91,23 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 // fillTransactions retrieves the pending transactions from the txpool and fills them
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
-func (w *worker) fillTransactions(env *environment) {
+func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions) {
+	if len(l1Transactions) > 0 {
+		l1Txs := make(map[common.Address]types.Transactions)
+		for _, tx := range l1Transactions {
+			sender, _ := types.Sender(env.signer, tx)
+			senderTxs, ok := l1Txs[sender]
+			if ok {
+				senderTxs = append(senderTxs, tx)
+				l1Txs[sender] = senderTxs
+			} else {
+				l1Txs[sender] = types.Transactions{tx}
+			}
+		}
+		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
+		w.commitTransactions(env, txs, env.header.Coinbase, nil)
+	}
+
 	// Split the pending transactions into locals and remotes
 	// Fill the block with all available pending transactions.
 	pending := w.eth.TxPool().Pending(true)
@@ -123,18 +139,19 @@ func (w *worker) generateWork(genParams *generateParams) (*types.Block, *state.S
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	for _, tx := range genParams.transactions {
-		from, _ := types.Sender(work.signer, tx)
-		// Start executing the transaction
-		work.state.Prepare(tx.Hash(), work.tcount)
-		_, err := w.commitTransaction(work, tx, work.header.Coinbase)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)
-		}
-		work.tcount++
-	}
+	//for _, tx := range genParams.transactions {
+	//
+	//	from, _ := types.Sender(work.signer, tx)
+	//	// Start executing the transaction
+	//	work.state.Prepare(tx.Hash(), work.tcount)
+	//	_, err := w.commitTransaction(work, tx, work.header.Coinbase)
+	//	if err != nil {
+	//		return nil, nil, nil, fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)
+	//	}
+	//	work.l1TxCount++
+	//}
 
-	w.fillTransactions(work)
+	w.fillTransactions(work, genParams.transactions)
 
 	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)
 	if err != nil {

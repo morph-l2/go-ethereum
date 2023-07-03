@@ -38,4 +38,4 @@ COMMAND="geth \
 --mine \
 --miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"
 
-nohub $COMMAND
+$COMMAND

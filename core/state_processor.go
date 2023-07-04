@@ -360,8 +360,8 @@ func applyTransactionWithCircuitCheck(msg types.Message, config *params.ChainCon
 				StructLogs:     vm.FormatLogs(tracer.StructLogs()),
 			},
 		},
-		StorageTrace:   txStorageTrace,
-		TxStorageTrace: []*types.StorageTrace{txStorageTrace},
+		StorageTrace:    txStorageTrace,
+		TxStorageTraces: []*types.StorageTrace{txStorageTrace},
 	}
 
 	// probably a Contract Call

@@ -44,7 +44,7 @@ type traceEnv struct {
 	// this lock is used to protect StorageTrace's read and write mutual exclusion.
 	sMu sync.Mutex
 	*types.StorageTrace
-	txStorageTrace []*types.StorageTrace
+	txStorageTraces []*types.StorageTrace
 	// zktrie tracer is used for zktrie storage to build additional deletion proof
 	zkTrieTracer     map[string]state.ZktrieProofTracer
 	executionResults []*types.ExecutionResult
@@ -126,7 +126,7 @@ func (api *API) createTraceEnv(ctx context.Context, config *TraceConfig, block *
 		},
 		zkTrieTracer:     make(map[string]state.ZktrieProofTracer),
 		executionResults: make([]*types.ExecutionResult, block.Transactions().Len()),
-		txStorageTrace:   make([]*types.StorageTrace, block.Transactions().Len()),
+		txStorageTraces:  make([]*types.StorageTrace, block.Transactions().Len()),
 	}
 
 	key := coinbase.String()
@@ -214,9 +214,9 @@ func (api *API) getBlockTrace(block *types.Block, env *traceEnv) (*types.BlockTr
 	}
 
 	// build dummy per-tx deletion proof
-	for _, txs := range env.txStorageTrace {
-		if txs != nil {
-			txs.DeletionProofs = env.DeletionProofs
+	for _, txStorageTrace := range env.txStorageTraces {
+		if txStorageTrace != nil {
+			txStorageTrace.DeletionProofs = env.DeletionProofs
 		}
 	}
 
@@ -357,7 +357,6 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 			rcfg.ScalarSlot:    {},
 		})
 	for addr, keys := range proofStorages {
-
 		if _, existed := txStorageTrace.StorageProofs[addr.String()]; !existed {
 			txStorageTrace.StorageProofs[addr.String()] = make(map[string][]hexutil.Bytes)
 		}
@@ -437,7 +436,7 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 		ReturnValue:    fmt.Sprintf("%x", returnVal),
 		StructLogs:     vm.FormatLogs(tracer.StructLogs()),
 	}
-	env.txStorageTrace[index] = txStorageTrace
+	env.txStorageTraces[index] = txStorageTrace
 
 	return nil
 }
@@ -494,7 +493,7 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 		Header:           block.Header(),
 		StorageTrace:     env.StorageTrace,
 		ExecutionResults: env.executionResults,
-		TxStorageTrace:   env.txStorageTrace,
+		TxStorageTraces:  env.txStorageTraces,
 		Transactions:     txs,
 	}
 

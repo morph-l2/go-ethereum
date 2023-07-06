@@ -240,5 +240,9 @@ func (v *BlockValidator) validateCircuitRowUsage(block *types.Block) error {
 	}
 
 	v.circuitCapacityChecker.Reset()
+	// TODO: ApplyBlockTraces
+	// return -1 if !is_ok
+	// return row_usage otherwise
 	return v.circuitCapacityChecker.ApplyTransaction(traces)
+	// TODO: also store row_usage if no error
 }

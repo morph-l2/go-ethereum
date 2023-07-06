@@ -17,6 +17,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/scroll-tech/go-ethereum/consensus"
@@ -24,6 +25,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
 
@@ -35,6 +37,8 @@ type BlockValidator struct {
 	config *params.ChainConfig // Chain configuration options
 	bc     *BlockChain         // Canonical block chain
 	engine consensus.Engine    // Consensus engine used for validating
+
+	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
 }
 
 // NewBlockValidator returns a new block validator which is safe for re-use
@@ -79,7 +83,10 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 		}
 		return consensus.ErrPrunedAncestor
 	}
-	return v.ValidateL1Messages(block)
+	if err := v.ValidateL1Messages(block); err != nil {
+		return err
+	}
+	return v.validateCircuitRowUsage(block)
 }
 
 // ValidateL1Messages validates L1 messages contained in a block.
@@ -201,4 +208,36 @@ func CalcGasLimit(parentGasLimit, desiredLimit uint64) uint64 {
 		}
 	}
 	return limit
+}
+
+func (v *BlockValidator) createTraceEnv(block *types.Block) (*TraceEnv, error) {
+	parent := v.bc.GetBlock(block.ParentHash(), block.NumberU64()-1)
+	if parent == nil {
+		return nil, errors.New("validateCircuitRowUsage: no parent block found")
+	}
+
+	statedb, err := v.bc.StateAt(parent.Hash())
+	if err != nil {
+		return nil, err
+	}
+
+	return CreateTraceEnv(v.config, v.bc, v.engine, statedb, parent, block)
+}
+
+func (v *BlockValidator) validateCircuitRowUsage(block *types.Block) error {
+	if v.circuitCapacityChecker == nil {
+		return nil
+	}
+
+	env, err := v.createTraceEnv(block)
+	if err != nil {
+		return err
+	}
+
+	_, err = env.GetBlockTrace(block)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

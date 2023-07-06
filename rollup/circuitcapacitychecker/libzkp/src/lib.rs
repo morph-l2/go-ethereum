@@ -38,7 +38,7 @@ pub mod checker {
 
     /// # Safety
     #[no_mangle]
-    pub unsafe extern "C" fn apply_tx(id: u64, tx_traces: *const c_char) -> c_char {
+    pub unsafe extern "C" fn apply_tx(id: u64, tx_traces: *const c_char) -> u8 {
         let tx_traces_vec = c_char_to_vec(tx_traces);
         let traces = serde_json::from_slice::<BlockTrace>(&tx_traces_vec).unwrap();
         let result = panic::catch_unwind(|| {
@@ -53,14 +53,40 @@ pub mod checker {
         match result {
             Ok((acc_row_usage, tx_row_usage)) => {
                 if acc_row_usage.is_ok {
-                    return 0 as c_char; // row usage ok
+                    return 0u8; // row usage ok
                 } else if tx_row_usage.is_ok {
-                    return 1 as c_char; // block row usage overflow, but tx row usage ok
+                    return 1u8; // block row usage overflow, but tx row usage ok
                 } else {
-                    return 2 as c_char; // tx row usage overflow
+                    return 2u8; // tx row usage overflow
                 }
             }
-            Err(_) => return 3 as c_char, // other errors than circuit capacity overflow
+            Err(_) => return 3u8, // other errors than circuit capacity overflow
+        }
+    }
+
+    /// # Safety
+    #[no_mangle]
+    pub unsafe extern "C" fn apply_block(id: u64, tx_traces: *const c_char) -> i64 {
+        let tx_traces_vec = c_char_to_vec(tx_traces);
+        let traces = serde_json::from_slice::<BlockTrace>(&tx_traces_vec).unwrap();
+        let result = panic::catch_unwind(|| {
+            CHECKERS
+                .get_mut()
+                .unwrap()
+                .get_mut(&id)
+                .unwrap()
+                .estimate_circuit_capacity(&[traces])
+                .unwrap()
+        });
+        match result {
+            Ok((acc_row_usage, tx_row_usage)) => {
+                if acc_row_usage.is_ok {
+                    return acc_row_usage.row_number as i64; // row usage ok
+                } else {
+                    return -1i64; // block row usage overflow
+                }
+            }
+            Err(_) => return 0i64, // other errors than circuit capacity overflow
         }
     }
 }

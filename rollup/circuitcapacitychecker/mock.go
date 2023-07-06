@@ -18,3 +18,7 @@ func (ccc *CircuitCapacityChecker) Reset() {
 func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
 	return nil
 }
+
+func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (uint64, error) {
+	return 0, nil
+}

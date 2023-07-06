@@ -60,3 +60,27 @@ func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) er
 		return ErrUnknown
 	}
 }
+
+func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (uint64, error) {
+	tracesByt, err := json.Marshal(traces)
+	if err != nil {
+		return 0, ErrUnknown
+	}
+
+	tracesStr := C.CString(string(tracesByt))
+	defer func() {
+		C.free(unsafe.Pointer(tracesStr))
+	}()
+
+	log.Info("start to check circuit capacity")
+	result := C.apply_block(C.uint64_t(ccc.id), tracesStr)
+	log.Info("check circuit capacity done")
+
+	if result == 0 {
+		return 0, ErrUnknown
+	}
+	if result < 0 {
+		return 0, ErrBlockRowUsageOverflow
+	}
+	return uint64(result), nil
+}

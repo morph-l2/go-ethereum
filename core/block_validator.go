@@ -234,10 +234,11 @@ func (v *BlockValidator) validateCircuitRowUsage(block *types.Block) error {
 		return err
 	}
 
-	_, err = env.GetBlockTrace(block)
+	traces, err := env.GetBlockTrace(block)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	v.circuitCapacityChecker.Reset()
+	return v.circuitCapacityChecker.ApplyTransaction(traces)
 }

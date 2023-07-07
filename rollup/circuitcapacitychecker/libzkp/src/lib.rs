@@ -52,7 +52,11 @@ pub mod checker {
         });
         match result {
             Ok((acc_row_usage, tx_row_usage)) => {
-                log::debug!("acc_row_usage: {:?}, tx_row_usage {:?}", acc_row_usage.row_number, tx_row_usage.row_number);
+                log::debug!(
+                    "acc_row_usage: {:?}, tx_row_usage {:?}",
+                    acc_row_usage.row_number,
+                    tx_row_usage.row_number
+                );
                 if acc_row_usage.is_ok {
                     return 0u8; // row usage ok
                 } else if tx_row_usage.is_ok {
@@ -82,7 +86,11 @@ pub mod checker {
         });
         match result {
             Ok((acc_row_usage, tx_row_usage)) => {
-                log::debug!("acc_row_usage: {:?}, tx_row_usage {:?}", acc_row_usage.row_number, tx_row_usage.row_number);
+                log::debug!(
+                    "acc_row_usage: {:?}, tx_row_usage {:?}",
+                    acc_row_usage.row_number,
+                    tx_row_usage.row_number
+                );
                 if acc_row_usage.is_ok {
                     return acc_row_usage.row_number as i64; // row usage ok
                 } else {

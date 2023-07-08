@@ -97,7 +97,7 @@ type environment struct {
 	txs      []*types.Transaction
 	receipts []*types.Receipt
 
-	proofCaches map[string]*circuitcapacitychecker.ProofCache
+	traceEnv *core.TraceEnv
 }
 
 // task contains all information for consensus engine sealing and result submitting.
@@ -193,7 +193,6 @@ type worker struct {
 	// External functions
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
 
-	// TODO: add comments
 	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
 
 	// Test hooks
@@ -721,16 +720,25 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	if err != nil {
 		return err
 	}
+
+	traceEnv, err := core.CreateTraceEnv(w.chainConfig, w.chain, w.engine, state, parent,
+		// new block with a placeholder tx, for traceEnv's ExecutionResults length & TxStorageTraces length
+		types.NewBlockWithHeader(header).WithBody([]*types.Transaction{types.NewTx(&types.LegacyTx{})}, nil),
+	)
+	if err != nil {
+		return err
+	}
+
 	state.StartPrefetcher("miner")
 
 	env := &environment{
-		signer:      types.MakeSigner(w.chainConfig, header.Number),
-		state:       state,
-		ancestors:   mapset.NewSet(),
-		family:      mapset.NewSet(),
-		uncles:      mapset.NewSet(),
-		header:      header,
-		proofCaches: make(map[string]*circuitcapacitychecker.ProofCache),
+		signer:    types.MakeSigner(w.chainConfig, header.Number),
+		state:     state,
+		ancestors: mapset.NewSet(),
+		family:    mapset.NewSet(),
+		uncles:    mapset.NewSet(),
+		header:    header,
+		traceEnv:  traceEnv,
 	}
 	// when 08 is processed ancestors contain 07 (quick block)
 	for _, ancestor := range w.chain.GetBlocksFromHash(parent.Hash(), 7) {
@@ -810,7 +818,25 @@ func (w *worker) updateSnapshot() {
 func (w *worker) commitTransaction(tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := w.current.state.Snapshot()
 
-	receipt, err := core.ApplyTransactionWithCircuitCheck(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, w.current.signer, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig(), w.current.proofCaches, w.circuitCapacityChecker)
+	// has to check circuit capacity before `core.ApplyTransaction`,
+	// because if the tx can be successfully executed but circuit capacity overflows, it will be inconvenient to revert
+	traces, err := w.current.traceEnv.GetBlockTrace(
+		types.NewBlockWithHeader(w.current.header).WithBody([]*types.Transaction{tx}, nil),
+	)
+	if err != nil {
+		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
+		w.current.state.RevertToSnapshot(snap)
+		return nil, err
+	}
+	if err := w.circuitCapacityChecker.ApplyTransaction(traces); err != nil {
+		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
+		w.current.state.RevertToSnapshot(snap)
+		return nil, err
+	}
+
+	// revert to snapshot to core.ApplyMessage (in core.ApplyTransaction) again
+	w.current.state.RevertToSnapshot(snap)
+	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, w.current.gasPool, w.current.state, w.current.header, tx, &w.current.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		w.current.state.RevertToSnapshot(snap)
 		return nil, err

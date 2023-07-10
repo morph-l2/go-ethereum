@@ -16,18 +16,19 @@ var _ = (*executableL2DataMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 	type ExecutableL2Data struct {
-		ParentHash   common.Hash     `json:"parentHash"     gencodec:"required"`
-		Miner        common.Address  `json:"miner"          gencodec:"required"`
-		Number       hexutil.Uint64  `json:"number"         gencodec:"required"`
-		GasLimit     hexutil.Uint64  `json:"gasLimit"       gencodec:"required"`
-		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
-		Timestamp    hexutil.Uint64  `json:"timestamp"      gencodec:"required"`
-		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
-		StateRoot    common.Hash     `json:"stateRoot"`
-		GasUsed      hexutil.Uint64  `json:"gasUsed"`
-		ReceiptRoot  common.Hash     `json:"receiptsRoot"`
-		LogsBloom    hexutil.Bytes   `json:"logsBloom"`
-		Hash         common.Hash     `json:"hash"`
+		ParentHash       common.Hash     `json:"parentHash"     gencodec:"required"`
+		Miner            common.Address  `json:"miner"          gencodec:"required"`
+		Number           hexutil.Uint64  `json:"number"         gencodec:"required"`
+		GasLimit         hexutil.Uint64  `json:"gasLimit"       gencodec:"required"`
+		BaseFee          *hexutil.Big    `json:"baseFeePerGas"`
+		Timestamp        hexutil.Uint64  `json:"timestamp"      gencodec:"required"`
+		Transactions     []hexutil.Bytes `json:"transactions"   gencodec:"required"`
+		StateRoot        common.Hash     `json:"stateRoot"`
+		GasUsed          hexutil.Uint64  `json:"gasUsed"`
+		ReceiptRoot      common.Hash     `json:"receiptsRoot"`
+		LogsBloom        hexutil.Bytes   `json:"logsBloom"`
+		WithdrawTrieRoot common.Hash     `json:"withdrawTrieRoot"`
+		Hash             common.Hash     `json:"hash"`
 	}
 	var enc ExecutableL2Data
 	enc.ParentHash = e.ParentHash
@@ -46,6 +47,7 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 	enc.GasUsed = hexutil.Uint64(e.GasUsed)
 	enc.ReceiptRoot = e.ReceiptRoot
 	enc.LogsBloom = e.LogsBloom
+	enc.WithdrawTrieRoot = e.WithdrawTrieRoot
 	enc.Hash = e.Hash
 	return json.Marshal(&enc)
 }
@@ -53,18 +55,19 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 	type ExecutableL2Data struct {
-		ParentHash   *common.Hash    `json:"parentHash"     gencodec:"required"`
-		Miner        *common.Address `json:"miner"          gencodec:"required"`
-		Number       *hexutil.Uint64 `json:"number"         gencodec:"required"`
-		GasLimit     *hexutil.Uint64 `json:"gasLimit"       gencodec:"required"`
-		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
-		Timestamp    *hexutil.Uint64 `json:"timestamp"      gencodec:"required"`
-		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
-		StateRoot    *common.Hash    `json:"stateRoot"`
-		GasUsed      *hexutil.Uint64 `json:"gasUsed"`
-		ReceiptRoot  *common.Hash    `json:"receiptsRoot"`
-		LogsBloom    *hexutil.Bytes  `json:"logsBloom"`
-		Hash         *common.Hash    `json:"hash"`
+		ParentHash       *common.Hash    `json:"parentHash"     gencodec:"required"`
+		Miner            *common.Address `json:"miner"          gencodec:"required"`
+		Number           *hexutil.Uint64 `json:"number"         gencodec:"required"`
+		GasLimit         *hexutil.Uint64 `json:"gasLimit"       gencodec:"required"`
+		BaseFee          *hexutil.Big    `json:"baseFeePerGas"`
+		Timestamp        *hexutil.Uint64 `json:"timestamp"      gencodec:"required"`
+		Transactions     []hexutil.Bytes `json:"transactions"   gencodec:"required"`
+		StateRoot        *common.Hash    `json:"stateRoot"`
+		GasUsed          *hexutil.Uint64 `json:"gasUsed"`
+		ReceiptRoot      *common.Hash    `json:"receiptsRoot"`
+		LogsBloom        *hexutil.Bytes  `json:"logsBloom"`
+		WithdrawTrieRoot *common.Hash    `json:"withdrawTrieRoot"`
+		Hash             *common.Hash    `json:"hash"`
 	}
 	var dec ExecutableL2Data
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -111,6 +114,9 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 	}
 	if dec.LogsBloom != nil {
 		e.LogsBloom = *dec.LogsBloom
+	}
+	if dec.WithdrawTrieRoot != nil {
+		e.WithdrawTrieRoot = *dec.WithdrawTrieRoot
 	}
 	if dec.Hash != nil {
 		e.Hash = *dec.Hash

@@ -17,9 +17,10 @@
 package catalyst
 
 import (
+	"math/big"
+
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
-	"math/big"
 )
 
 //go:generate go run github.com/fjl/gencodec -type assembleBlockParams -field-override assembleBlockParamsMarshaling -out gen_blockparams.go
@@ -98,10 +99,11 @@ type ExecutableL2Data struct {
 	Transactions [][]byte       `json:"transactions"   gencodec:"required"`
 
 	// execution result
-	StateRoot   common.Hash `json:"stateRoot"`
-	GasUsed     uint64      `json:"gasUsed"`
-	ReceiptRoot common.Hash `json:"receiptsRoot"`
-	LogsBloom   []byte      `json:"logsBloom"`
+	StateRoot        common.Hash `json:"stateRoot"`
+	GasUsed          uint64      `json:"gasUsed"`
+	ReceiptRoot      common.Hash `json:"receiptsRoot"`
+	LogsBloom        []byte      `json:"logsBloom"`
+	WithdrawTrieRoot common.Hash `json:"withdrawTrieRoot"`
 
 	Hash common.Hash `json:"hash"` // cached value
 }

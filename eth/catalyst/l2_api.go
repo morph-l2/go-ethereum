@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -12,6 +13,8 @@ import (
 	"github.com/scroll-tech/go-ethereum/eth"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/node"
+	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
+	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/rpc"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
@@ -35,26 +38,33 @@ func RegisterL2Engine(stack *node.Node, backend *eth.Ethereum) error {
 }
 
 type l2ConsensusAPI struct {
-	eth      *eth.Ethereum
-	verified map[common.Hash]executionResult // stored execution result of the next block that to be committed
+	eth               *eth.Ethereum
+	verified          map[common.Hash]executionResult // stored execution result of the next block that to be committed
+	verifiedMapLock   *sync.RWMutex
+	validateBlockLock *sync.Mutex
+	newBlockLock      *sync.Mutex
 }
 
 func newL2ConsensusAPI(eth *eth.Ethereum) *l2ConsensusAPI {
 	return &l2ConsensusAPI{
-		eth:      eth,
-		verified: make(map[common.Hash]executionResult),
+		eth:               eth,
+		verified:          make(map[common.Hash]executionResult),
+		verifiedMapLock:   &sync.RWMutex{},
+		validateBlockLock: &sync.Mutex{},
+		newBlockLock:      &sync.Mutex{},
 	}
 }
 
 type executionResult struct {
-	block    *types.Block
-	state    *state.StateDB
-	receipts types.Receipts
-	procTime time.Duration
+	block            *types.Block
+	state            *state.StateDB
+	receipts         types.Receipts
+	procTime         time.Duration
+	withdrawTrieRoot common.Hash
 }
 
 func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*ExecutableL2Data, error) {
-	log.Info("Producing block", "block number", params.Number)
+	log.Info("Assembling block", "block number", params.Number)
 	parent := api.eth.BlockChain().CurrentHeader()
 	expectedBlockNumber := parent.Number.Uint64() + 1
 	if params.Number != expectedBlockNumber {
@@ -80,12 +90,8 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	// if block.TxHash() == types.EmptyRootHash {
 	//	 return nil, nil
 	// }
-	api.verified[block.Hash()] = executionResult{
-		block:    block,
-		state:    state,
-		receipts: receipts,
-		procTime: time.Since(start),
-	}
+	procTime := time.Since(start)
+	withdrawTrieRoot := api.writeVerified(state, block, receipts, procTime)
 	return &ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -95,21 +101,43 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		BaseFee:      block.BaseFee(),
 		Transactions: encodeTransactions(block.Transactions()),
 
-		StateRoot:   block.Root(),
-		GasUsed:     block.GasUsed(),
-		ReceiptRoot: block.ReceiptHash(),
-		LogsBloom:   block.Bloom().Bytes(),
+		StateRoot:        block.Root(),
+		GasUsed:          block.GasUsed(),
+		ReceiptRoot:      block.ReceiptHash(),
+		LogsBloom:        block.Bloom().Bytes(),
+		WithdrawTrieRoot: withdrawTrieRoot,
 
 		Hash: block.Hash(),
 	}, nil
+}
+
+func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, procTime time.Duration) common.Hash {
+	withdrawTrieRoot := withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, state)
+	api.verifiedMapLock.Lock()
+	defer api.verifiedMapLock.Unlock()
+	api.verified[block.Hash()] = executionResult{
+		block:            block,
+		state:            state,
+		receipts:         receipts,
+		procTime:         procTime,
+		withdrawTrieRoot: withdrawTrieRoot,
+	}
+	return withdrawTrieRoot
+}
+
+func (api *l2ConsensusAPI) isVerified(blockHash common.Hash) (executionResult, bool) {
+	api.verifiedMapLock.RLock()
+	defer api.verifiedMapLock.RUnlock()
+	er, found := api.verified[blockHash]
+	return er, found
 }
 
 func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericResponse, error) {
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
-		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
-		return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+		log.Warn("Cannot validate block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
+		return nil, fmt.Errorf("cannot validate block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
 	}
 	if params.ParentHash != parent.Hash() {
 		log.Warn("Wrong parent hash", "expected block hash", parent.TxHash().Hex(), "actual block hash", params.ParentHash.Hex())
@@ -120,8 +148,18 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 	if err != nil {
 		return nil, err
 	}
-	_, verified := api.verified[block.Hash()]
+
+	api.validateBlockLock.Lock()
+	defer api.validateBlockLock.Unlock()
+
+	er, verified := api.isVerified(block.Hash())
 	if verified {
+		if (params.WithdrawTrieRoot != common.Hash{} && params.WithdrawTrieRoot != er.withdrawTrieRoot) {
+			log.Error("ValidateL2Block failed, wrong withdrawTrieRoot", "expected", er.withdrawTrieRoot.Hex(), "actual", params.WithdrawTrieRoot.Hex())
+			return &GenericResponse{
+				false,
+			}, nil
+		}
 		return &GenericResponse{
 			true,
 		}, nil
@@ -140,24 +178,31 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 			false,
 		}, nil
 	}
-
-	api.verified[block.Hash()] = executionResult{
-		block:    block,
-		state:    stateDB,
-		receipts: receipts,
-		procTime: procTime,
+	if (params.WithdrawTrieRoot != common.Hash{}) && params.WithdrawTrieRoot != withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB) {
+		log.Error("ValidateL2Block failed, wrong withdraw trie root")
+		return &GenericResponse{
+			false,
+		}, nil
 	}
+	api.writeVerified(stateDB, block, receipts, procTime)
 	return &GenericResponse{
 		true,
 	}, nil
 }
 
 func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData) (err error) {
+	api.newBlockLock.Lock()
+	defer api.newBlockLock.Unlock()
+
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
-		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
-		return fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+		if params.Number < expectedBlockNumber {
+			log.Warn("ignore the past block number", "block number", params.Number, "current block number", parent.NumberU64())
+			return nil
+		}
+		log.Warn("Cannot new block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
+		return fmt.Errorf("cannot new block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
 	}
 	if params.ParentHash != parent.Hash() {
 		log.Warn("Wrong parent hash", "expected block hash", parent.Hash().Hex(), "actual block hash", params.ParentHash.Hex())
@@ -174,7 +219,8 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 			api.verified = make(map[common.Hash]executionResult) // clear cached pending block
 		}
 	}()
-	bas, verified := api.verified[block.Hash()]
+
+	bas, verified := api.isVerified(block.Hash())
 	if verified {
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}

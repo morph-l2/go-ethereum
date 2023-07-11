@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/log"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -63,7 +64,9 @@ func EstimateL1DataFeeForMessage(msg Message, baseFee, chainID *big.Int, signer 
 	}
 
 	l1BaseFee, overhead, scalar := readGPOStorageSlots(rcfg.L1GasPriceOracleAddress, state)
+	log.Info("[log4Debug] readGPOStorageSlots", "l1BaseFee", l1BaseFee.String(), "overhead", overhead.String(), "scalar", scalar.String(), "raw length", len(raw))
 	l1DataFee := calculateEncodedL1DataFee(raw, overhead, l1BaseFee, scalar)
+	log.Info("[log4Debug] calculateEncodedL1DataFee", "l1DataFee", l1DataFee.String())
 	return l1DataFee, nil
 }
 

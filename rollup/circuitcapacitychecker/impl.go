@@ -11,6 +11,7 @@ import "C" //nolint:typecheck
 
 import (
 	"encoding/json"
+	"sync"
 	"unsafe"
 
 	"github.com/scroll-tech/go-ethereum/core/types"
@@ -22,19 +23,29 @@ func init() {
 }
 
 type CircuitCapacityChecker struct {
+	*sync.Mutex
 	id uint64
 }
 
 func NewCircuitCapacityChecker() *CircuitCapacityChecker {
 	id := C.new_circuit_capacity_checker()
-	return &CircuitCapacityChecker{id: uint64(id)}
+	return &CircuitCapacityChecker{
+		Mutex: &sync.Mutex{},
+		id:    uint64(id),
+	}
 }
 
 func (ccc *CircuitCapacityChecker) Reset() {
+	ccc.Lock()
+	defer ccc.Unlock()
+
 	C.reset_circuit_capacity_checker(C.uint64_t(ccc.id))
 }
 
 func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) error {
+	ccc.Lock()
+	defer ccc.Unlock()
+
 	tracesByt, err := json.Marshal(traces)
 	if err != nil {
 		return ErrUnknown
@@ -62,6 +73,9 @@ func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) er
 }
 
 func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (uint64, error) {
+	ccc.Lock()
+	defer ccc.Unlock()
+
 	tracesByt, err := json.Marshal(traces)
 	if err != nil {
 		return 0, ErrUnknown

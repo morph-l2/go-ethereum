@@ -1151,7 +1151,16 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		}
 		if l1DataFee.Cmp(available) >= 0 {
 			log.Error("[log4Debug] Error happens here", "l1DataFee", l1DataFee.String(), "available", available.String())
-			log.Error("[log4Debug] Balance tracking", "blockNrOrHash", blockNrOrHash.String(), "balance", balance.String(), "args.value", args.Value.ToInt().String())
+			log.Error("[log4Debug] Balance tracking", "blockNrOrHash", blockNrOrHash.String(), "balance", balance.String())
+			if state == nil {
+				log.Error("[log4Debug]state is nil")
+			}
+			balance2 := state.GetBalance(*args.From)
+			log.Error("[log4Debug]query balance again", "from", (*args.From).String(), "balance", balance2.String())
+			if balance2.Cmp(big.NewInt(0)) == 0 {
+				log.Error("[log4Debug]the address is empty?", "empty", state.Empty(*args.From))
+			}
+
 			return 0, errors.New("insufficient funds for l1 fee")
 		}
 		available.Sub(available, l1DataFee)

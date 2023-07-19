@@ -35,6 +35,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/event"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
 
@@ -94,6 +95,8 @@ type environment struct {
 	header   *types.Header
 	txs      []*types.Transaction
 	receipts []*types.Receipt
+
+	traceEnv *core.TraceEnv
 }
 
 // task contains all information for consensus engine sealing and result submitting.
@@ -187,6 +190,8 @@ type worker struct {
 	// External functions
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
 
+	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
+
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
@@ -196,27 +201,28 @@ type worker struct {
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	worker := &worker{
-		config:             config,
-		chainConfig:        chainConfig,
-		engine:             engine,
-		eth:                eth,
-		mux:                mux,
-		chain:              eth.BlockChain(),
-		isLocalBlock:       isLocalBlock,
-		localUncles:        make(map[common.Hash]*types.Block),
-		remoteUncles:       make(map[common.Hash]*types.Block),
-		unconfirmed:        newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
-		pendingTasks:       make(map[common.Hash]*task),
-		txsCh:              make(chan core.NewTxsEvent, txChanSize),
-		chainHeadCh:        make(chan core.ChainHeadEvent, chainHeadChanSize),
-		chainSideCh:        make(chan core.ChainSideEvent, chainSideChanSize),
-		newWorkCh:          make(chan *newWorkReq),
-		taskCh:             make(chan *task),
-		resultCh:           make(chan *types.Block, resultQueueSize),
-		exitCh:             make(chan struct{}),
-		startCh:            make(chan struct{}, 1),
-		resubmitIntervalCh: make(chan time.Duration),
-		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
+		config:                 config,
+		chainConfig:            chainConfig,
+		engine:                 engine,
+		eth:                    eth,
+		mux:                    mux,
+		chain:                  eth.BlockChain(),
+		isLocalBlock:           isLocalBlock,
+		localUncles:            make(map[common.Hash]*types.Block),
+		remoteUncles:           make(map[common.Hash]*types.Block),
+		unconfirmed:            newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
+		pendingTasks:           make(map[common.Hash]*task),
+		txsCh:                  make(chan core.NewTxsEvent, txChanSize),
+		chainHeadCh:            make(chan core.ChainHeadEvent, chainHeadChanSize),
+		chainSideCh:            make(chan core.ChainSideEvent, chainSideChanSize),
+		newWorkCh:              make(chan *newWorkReq),
+		taskCh:                 make(chan *task),
+		resultCh:               make(chan *types.Block, resultQueueSize),
+		exitCh:                 make(chan struct{}),
+		startCh:                make(chan struct{}, 1),
+		resubmitIntervalCh:     make(chan time.Duration),
+		resubmitAdjustCh:       make(chan *intervalAdjust, resubmitAdjustChanSize),
+		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(),
 	}
 
 	// Subscribe NewTxsEvent for tx pool
@@ -691,6 +697,15 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 	if err != nil {
 		return nil, err
 	}
+
+	traceEnv, err := core.CreateTraceEnv(w.chainConfig, w.chain, w.engine, state, parent,
+		// new block with a placeholder tx, for traceEnv's ExecutionResults length & TxStorageTraces length
+		types.NewBlockWithHeader(header).WithBody([]*types.Transaction{types.NewTx(&types.LegacyTx{})}, nil),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	state.StartPrefetcher("miner")
 
 	env := &environment{
@@ -700,6 +715,7 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 		family:    mapset.NewSet(),
 		uncles:    mapset.NewSet(),
 		header:    header,
+		traceEnv:  traceEnv,
 	}
 	// when 08 is processed ancestors contain 07 (quick block)
 	for _, ancestor := range w.chain.GetBlocksFromHash(parent.Hash(), 7) {
@@ -788,11 +804,30 @@ func (w *worker) updateSnapshot() {
 func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
 	snap := env.state.Snapshot()
 
+	// has to check circuit capacity before `core.ApplyTransaction`,
+	// because if the tx can be successfully executed but circuit capacity overflows, it will be inconvenient to revert
+	traces, err := env.traceEnv.GetBlockTrace(
+		types.NewBlockWithHeader(env.header).WithBody([]*types.Transaction{tx}, nil),
+	)
+	if err != nil {
+		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
+		env.state.RevertToSnapshot(snap)
+		return nil, err
+	}
+	if err := w.circuitCapacityChecker.ApplyTransaction(traces); err != nil {
+		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
+		env.state.RevertToSnapshot(snap)
+		return nil, err
+	}
+
+	// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
+	env.state.RevertToSnapshot(snap)
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		env.state.RevertToSnapshot(snap)
 		return nil, err
 	}
+
 	env.txs = append(env.txs, tx)
 	env.receipts = append(env.receipts, receipt)
 
@@ -812,6 +847,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 
 	var coalescedLogs []*types.Log
 
+loop:
 	for {
 		// In the following three cases, we will interrupt the execution of the transaction.
 		// (1) new head block event arrival, the interrupt signal is 1
@@ -901,6 +937,19 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
 			txs.Pop()
 
+		case errors.Is(err, circuitcapacitychecker.ErrBlockRowUsageOverflow):
+			log.Trace("Circuit capacity limit reached in a block") // TODO: add more logs
+			break loop
+
+		case errors.Is(err, circuitcapacitychecker.ErrTxRowUsageOverflow):
+			// Tx row usage too high, drop the tx
+			log.Trace("Circuit capacity limit reached for a single tx") // TODO: add more logs
+			txs.Shift()
+
+		case errors.Is(err, circuitcapacitychecker.ErrUnknown):
+			log.Trace("Unknown circuit capacity checker error") // TODO: add more logs
+			txs.Pop()
+
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the
 			// nonce-too-high clause will prevent us from executing in vain).
@@ -939,6 +988,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
+	w.circuitCapacityChecker.Reset()
 
 	if parent.Time() >= uint64(timestamp) {
 		timestamp = int64(parent.Time() + 1)

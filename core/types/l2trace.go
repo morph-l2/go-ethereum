@@ -17,6 +17,7 @@ type BlockTrace struct {
 	Header           *Header            `json:"header"`
 	Transactions     []*TransactionData `json:"transactions"`
 	StorageTrace     *StorageTrace      `json:"storageTrace"`
+	TxStorageTraces  []*StorageTrace    `json:"txStorageTraces,omitempty"`
 	ExecutionResults []*ExecutionResult `json:"executionResults"`
 	MPTWitness       *json.RawMessage   `json:"mptwitness,omitempty"`
 	WithdrawTrieRoot common.Hash        `json:"withdraw_trie_root,omitempty"`
@@ -189,4 +190,13 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, config *params.Chai
 		S:        (*hexutil.Big)(s),
 	}
 	return result
+}
+
+// WrapProof turn the bytes array into proof type (array of hexutil.Bytes)
+func WrapProof(proofBytes [][]byte) (wrappedProof []hexutil.Bytes) {
+	wrappedProof = make([]hexutil.Bytes, len(proofBytes))
+	for i, bt := range proofBytes {
+		wrappedProof[i] = bt
+	}
+	return
 }

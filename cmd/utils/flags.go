@@ -816,6 +816,12 @@ var (
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
 	}
+
+	// Circuit capacity check settings
+	CircuitCapacityCheckEnabledFlag = cli.BoolFlag{
+		Name:  "checkcircuitcapacity",
+		Usage: "Enable circuitcapacity check in block validation",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -1478,6 +1484,12 @@ func setWhitelist(ctx *cli.Context, cfg *ethconfig.Config) {
 	}
 }
 
+func setCircuitCapacityCheck(ctx *cli.Context, cfg *ethconfig.Config) {
+	if ctx.GlobalIsSet(CircuitCapacityCheckEnabledFlag.Name) {
+		cfg.CheckCircuitCapacity = ctx.GlobalBool(CircuitCapacityCheckEnabledFlag.Name)
+	}
+}
+
 // CheckExclusive verifies that only a single instance of the provided flags was
 // set by the user. Each flag might optionally be followed by a string type to
 // specialize it further.
@@ -1543,6 +1555,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	setMiner(ctx, &cfg.Miner)
 	setWhitelist(ctx, cfg)
 	setLes(ctx, cfg)
+	setCircuitCapacityCheck(ctx, cfg)
 
 	// Cap the cache allowance and tune the garbage collector
 	mem, err := gopsutil.VirtualMemory()
@@ -1979,7 +1992,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 
 	// TODO(rjl493456442) disable snapshot generation/wiping if the chain is read only.
 	// Disable transaction indexing/unindexing by default.
-	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil)
+	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil, false)
 	if err != nil {
 		Fatalf("Can't create BlockChain: %v", err)
 	}

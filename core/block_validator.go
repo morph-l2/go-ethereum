@@ -17,12 +17,14 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/scroll-tech/go-ethereum/consensus"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
 
@@ -34,14 +36,19 @@ type BlockValidator struct {
 	config *params.ChainConfig // Chain configuration options
 	bc     *BlockChain         // Canonical block chain
 	engine consensus.Engine    // Consensus engine used for validating
+
+	checkCircuitCapacity   bool
+	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
 }
 
 // NewBlockValidator returns a new block validator which is safe for re-use
-func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engine consensus.Engine) *BlockValidator {
+func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engine consensus.Engine, checkCircuitCapacity bool) *BlockValidator {
 	validator := &BlockValidator{
-		config: config,
-		engine: engine,
-		bc:     blockchain,
+		config:                 config,
+		engine:                 engine,
+		bc:                     blockchain,
+		checkCircuitCapacity:   checkCircuitCapacity,
+		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(),
 	}
 	return validator
 }
@@ -78,6 +85,9 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 			return consensus.ErrUnknownAncestor
 		}
 		return consensus.ErrPrunedAncestor
+	}
+	if v.checkCircuitCapacity {
+		return v.validateCircuitRowUsage(block)
 	}
 	return nil
 }
@@ -134,4 +144,38 @@ func CalcGasLimit(parentGasLimit, desiredLimit uint64) uint64 {
 		}
 	}
 	return limit
+}
+
+func (v *BlockValidator) createTraceEnv(block *types.Block) (*TraceEnv, error) {
+	parent := v.bc.GetBlock(block.ParentHash(), block.NumberU64()-1)
+	if parent == nil {
+		return nil, errors.New("validateCircuitRowUsage: no parent block found")
+	}
+
+	statedb, err := v.bc.StateAt(parent.Hash())
+	if err != nil {
+		return nil, err
+	}
+
+	return CreateTraceEnv(v.config, v.bc, v.engine, statedb, parent, block)
+}
+
+func (v *BlockValidator) validateCircuitRowUsage(block *types.Block) error {
+	env, err := v.createTraceEnv(block)
+	if err != nil {
+		return err
+	}
+
+	traces, err := env.GetBlockTrace(block)
+	if err != nil {
+		return err
+	}
+
+	v.circuitCapacityChecker.Reset()
+	_, err = v.circuitCapacityChecker.ApplyBlock(traces)
+	if err != nil {
+		return err
+	}
+	// TODO: store row_usage if no error
+	return nil
 }

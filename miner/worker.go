@@ -1077,13 +1077,15 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		if interval != nil {
 			interval()
 		}
+		// Skip executing FinalizeAndAssemble, as it may commit the state to database based on current trie database strategy
+
 		// Deep copy receipts here to avoid interaction between different tasks.
-		receipts := copyReceipts(w.current.receipts)
-		s := w.current.state.Copy()
-		_, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
-		if err != nil {
-			return err
-		}
+		// receipts := copyReceipts(w.current.receipts)
+		// s := w.current.state.Copy()
+		// _, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
+		// if err != nil {
+		// 	return err
+		// }
 
 		// ignore it, as Morphism has its own consensus
 		//select {

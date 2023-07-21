@@ -14,7 +14,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 )
 
-func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header) (*state.StateDB, types.Receipts, uint64, time.Duration, error) {
+func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header, safe bool) (*state.StateDB, types.Receipts, uint64, time.Duration, error) {
 	statedb, err := state.New(parent.Root, bc.stateCache, bc.snaps)
 	if err != nil {
 		return nil, nil, 0, 0, err
@@ -42,16 +42,17 @@ func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header) (*s
 
 	blockExecutionTimer.Update(time.Since(start) - trieproc - triehash)
 
-	// Validate the state using the default validator
-	substart := time.Now()
-	if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
-		bc.reportBlock(block, receipts, err)
-		return nil, nil, 0, 0, err
+	if !safe {
+		// Validate the state using the default validator
+		substart := time.Now()
+		if err := bc.validator.ValidateState(block, statedb, receipts, usedGas); err != nil {
+			bc.reportBlock(block, receipts, err)
+			return nil, nil, 0, 0, err
+		}
+		blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
 	}
-	blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
 
 	proctime := time.Since(start)
-
 	// Update the metrics touched during block validation
 	accountHashTimer.Update(statedb.AccountHashes) // Account hashes are complete, we can mark them
 	storageHashTimer.Update(statedb.StorageHashes) // Storage hashes are complete, we can mark them

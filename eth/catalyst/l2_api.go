@@ -171,7 +171,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		}, nil
 	}
 
-	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
+	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), false)
 	if err != nil {
 		log.Error("error processing block", "error", err)
 		return &GenericResponse{
@@ -230,7 +230,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 		return err
 	}
 
-	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
+	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), false)
 	if err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) 
 	if err != nil {
 		return nil, err
 	}
-	stateDB, receipts, usedGas, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header())
+	stateDB, receipts, usedGas, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), true)
 	if err != nil {
 		return nil, err
 	}

@@ -19,7 +19,7 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 		ParentHash   common.Hash     `json:"parentHash"     gencodec:"required"`
 		Number       hexutil.Uint64  `json:"number"         gencodec:"required"`
 		GasLimit     hexutil.Uint64  `json:"gasLimit"       gencodec:"required"`
-		BaseFee      *hexutil.Big    `json:"baseFeePerGas"  gencodec:"required"`
+		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
 		Timestamp    hexutil.Uint64  `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
 	}
@@ -44,7 +44,7 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 		ParentHash   *common.Hash    `json:"parentHash"     gencodec:"required"`
 		Number       *hexutil.Uint64 `json:"number"         gencodec:"required"`
 		GasLimit     *hexutil.Uint64 `json:"gasLimit"       gencodec:"required"`
-		BaseFee      *hexutil.Big    `json:"baseFeePerGas"  gencodec:"required"`
+		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
 		Timestamp    *hexutil.Uint64 `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
 	}
@@ -64,10 +64,9 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 		return errors.New("missing required field 'gasLimit' for SafeL2Data")
 	}
 	s.GasLimit = uint64(*dec.GasLimit)
-	if dec.BaseFee == nil {
-		return errors.New("missing required field 'baseFeePerGas' for SafeL2Data")
+	if dec.BaseFee != nil {
+		s.BaseFee = (*big.Int)(dec.BaseFee)
 	}
-	s.BaseFee = (*big.Int)(dec.BaseFee)
 	if dec.Timestamp == nil {
 		return errors.New("missing required field 'timestamp' for SafeL2Data")
 	}

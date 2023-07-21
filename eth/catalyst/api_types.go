@@ -126,7 +126,7 @@ type SafeL2Data struct {
 	ParentHash   common.Hash `json:"parentHash"     gencodec:"required"`
 	Number       uint64      `json:"number"         gencodec:"required"`
 	GasLimit     uint64      `json:"gasLimit"       gencodec:"required"`
-	BaseFee      *big.Int    `json:"baseFeePerGas"  gencodec:"required"`
+	BaseFee      *big.Int    `json:"baseFeePerGas"`
 	Timestamp    uint64      `json:"timestamp"      gencodec:"required"`
 	Transactions [][]byte    `json:"transactions"   gencodec:"required"`
 }

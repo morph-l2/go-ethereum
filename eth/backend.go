@@ -343,6 +343,11 @@ func (s *Ethereum) APIs() []rpc.API {
 			Version:   "1.0",
 			Service:   s.netRPCService,
 			Public:    true,
+		}, {
+			Namespace: "scroll",
+			Version:   "1.0",
+			Service:   NewScrollAPI(s),
+			Public:    false,
 		},
 	}...)
 }

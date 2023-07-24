@@ -855,10 +855,22 @@ web3._extend({
 	property: 'scroll',
 	methods: [
 		new web3._extend.Method({
-			name: 'getBlockTraceByNumberOrHash',
+			name: 'getBlockTraceByNumber',
+			call: 'scroll_getBlockTraceByNumberOrHash',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getBlockTraceByHash',
 			call: 'scroll_getBlockTraceByNumberOrHash',
 			params: 1
-		})
+		}),
+		new web3._extend.Method({
+			name: 'getBlockByHash',
+			call: 'scroll_getBlockByHash',
+			params: 2,
+			inputFormatter: [null, function (val) { return !!val; }]
+		}),
 	],
 	properties:[]
 });

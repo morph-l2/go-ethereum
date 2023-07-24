@@ -20,8 +20,12 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+
+	leveldb "github.com/syndtr/goleveldb/leveldb/errors"
 
 	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/scroll-tech/go-ethereum/ethdb/memorydb"
 	"github.com/scroll-tech/go-ethereum/metrics"
 )
 
@@ -102,6 +106,9 @@ var (
 
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)
+
+	// Row consumption
+	rowConsumptionPrefix = []byte("rc") // rowConsumptionPrefix + hash -> row consumption by block
 )
 
 const (
@@ -238,4 +245,13 @@ func IsCodeKey(key []byte) (bool, []byte) {
 // configKey = configPrefix + hash
 func configKey(hash common.Hash) []byte {
 	return append(configPrefix, hash.Bytes()...)
+}
+
+// rowConsumptionKey = rowConsumptionPrefix + hash
+func rowConsumptionKey(hash common.Hash) []byte {
+	return append(rowConsumptionPrefix, hash.Bytes()...)
+}
+
+func isNotFoundErr(err error) bool {
+	return errors.Is(err, leveldb.ErrNotFound) || errors.Is(err, memorydb.ErrMemorydbNotFound)
 }

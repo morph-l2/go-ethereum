@@ -7,7 +7,6 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 )
 
@@ -16,7 +15,6 @@ var _ = (*safeL2DataMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 	type SafeL2Data struct {
-		ParentHash   common.Hash     `json:"parentHash"     gencodec:"required"`
 		Number       hexutil.Uint64  `json:"number"         gencodec:"required"`
 		GasLimit     hexutil.Uint64  `json:"gasLimit"       gencodec:"required"`
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
@@ -24,7 +22,6 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
 	}
 	var enc SafeL2Data
-	enc.ParentHash = s.ParentHash
 	enc.Number = hexutil.Uint64(s.Number)
 	enc.GasLimit = hexutil.Uint64(s.GasLimit)
 	enc.BaseFee = (*hexutil.Big)(s.BaseFee)
@@ -41,7 +38,6 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 	type SafeL2Data struct {
-		ParentHash   *common.Hash    `json:"parentHash"     gencodec:"required"`
 		Number       *hexutil.Uint64 `json:"number"         gencodec:"required"`
 		GasLimit     *hexutil.Uint64 `json:"gasLimit"       gencodec:"required"`
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
@@ -52,10 +48,6 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 	if err := json.Unmarshal(input, &dec); err != nil {
 		return err
 	}
-	if dec.ParentHash == nil {
-		return errors.New("missing required field 'parentHash' for SafeL2Data")
-	}
-	s.ParentHash = *dec.ParentHash
 	if dec.Number == nil {
 		return errors.New("missing required field 'number' for SafeL2Data")
 	}

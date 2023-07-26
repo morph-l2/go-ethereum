@@ -244,10 +244,7 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) 
 		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
 		return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
 	}
-	if params.ParentHash != parent.Hash() {
-		log.Warn("Wrong parent hash", "expected block hash", parent.Hash().Hex(), "actual block hash", params.ParentHash.Hex())
-		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
-	}
+
 	block, err := api.safeDataToBlock(params, bls)
 	if err != nil {
 		return nil, err
@@ -258,6 +255,7 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) 
 	}
 	// reconstruct the block with the execution result
 	header = block.Header()
+	header.ParentHash = parent.Hash()
 	header.GasUsed = usedGas
 	header.Bloom = types.CreateBloom(receipts)
 	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
@@ -276,12 +274,11 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) 
 
 func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSData) (*types.Block, error) {
 	header := &types.Header{
-		ParentHash: params.ParentHash,
-		Number:     big.NewInt(int64(params.Number)),
-		GasLimit:   params.GasLimit,
-		Time:       params.Timestamp,
-		BLSData:    blsData,
-		BaseFee:    params.BaseFee,
+		Number:   big.NewInt(int64(params.Number)),
+		GasLimit: params.GasLimit,
+		Time:     params.Timestamp,
+		BLSData:  blsData,
+		BaseFee:  params.BaseFee,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
 	txs, err := decodeTransactions(params.Transactions)

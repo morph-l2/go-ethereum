@@ -214,7 +214,6 @@ func TestNewSafeL2Block(t *testing.T) {
 	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := SafeL2Data{
-		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
 		Timestamp:    block.Time(),
 		GasLimit:     block.GasLimit(),

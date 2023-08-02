@@ -4,7 +4,6 @@ DEFAULE_MINER_ETHERBASE="0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
 CHAIN_ID="${CHAIN_ID:-2710}"
 GETH_LOG_FILE="${GETH_LOG_FILE:-/data/logs/geth.log}"
 
-
 if [[ -z "$MINER_ETHERBASE" ]]; then
   # the environment variable is missing, set a default value
   MINER_ETHERBASE=$DEFAULE_MINER_ETHERBASE

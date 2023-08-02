@@ -1,8 +1,8 @@
-GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morphism/setup/morph-geth-data}"
-GETH_CHAINDATA_DIR="$GETH_DATA_DIR/geth/chaindata"
+GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morphism/setup/geth-data}"
 JWT_SECRET_PATH="${JWT_SECRET_PATH:-/data/morphism/setup/jwt-secret.txt}"
 DEFAULE_MINER_ETHERBASE="0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
 CHAIN_ID="${CHAIN_ID:-2710}"
+GETH_LOG_FILE="${GETH_LOG_FILE:-/data/logs/geth.log}"
 
 
 if [[ -z "$MINER_ETHERBASE" ]]; then
@@ -36,4 +36,4 @@ COMMAND="geth \
 --mine \
 --miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"
 
-nohup $COMMAND > /dev/null &
+nohup $COMMAND >> $GETH_LOG_FILE 2>&1 &

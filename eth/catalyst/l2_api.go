@@ -222,6 +222,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 
 	bas, verified := api.isVerified(block.Hash())
 	if verified {
+		api.eth.BlockChain().UpdateBlockProcessMetrics(bas.state, bas.procTime)
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
 

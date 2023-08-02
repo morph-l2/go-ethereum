@@ -250,6 +250,7 @@ type TxPool struct {
 	chainconfig *params.ChainConfig
 	chain       blockChain
 	gasPrice    *big.Int
+	txMaxSize   int
 	txFeed      event.Feed
 	scope       event.SubscriptionScope
 	signer      types.Signer
@@ -298,11 +299,18 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
+	// Using MaxTxPayloadBytesPerBlock as max tx bytes if it exists and smaller than 128K
+	poolTxMaxSize := txMaxSize
+	if configSize := chainconfig.Scroll.MaxTxPayloadBytesPerBlock; configSize != nil && *configSize < txMaxSize {
+		poolTxMaxSize = *configSize
+	}
+
 	// Create the transaction pool with its initial settings
 	pool := &TxPool{
 		config:          config,
 		chainconfig:     chainconfig,
 		chain:           chain,
+		txMaxSize:       poolTxMaxSize,
 		signer:          types.LatestSigner(chainconfig),
 		pending:         make(map[common.Address]*txList),
 		queue:           make(map[common.Address]*txList),
@@ -616,8 +624,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if !pool.eip1559 && tx.Type() == types.DynamicFeeTxType {
 		return ErrTxTypeNotSupported
 	}
+
 	// Reject transactions over defined size to prevent DOS attacks
-	if uint64(tx.Size()) > txMaxSize {
+	if uint64(tx.Size()) > uint64(pool.txMaxSize) {
 		return ErrOversizedData
 	}
 	// Check whether the init code size has been exceeded.

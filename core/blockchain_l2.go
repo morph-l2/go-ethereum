@@ -14,6 +14,22 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 )
 
+func (bc *BlockChain) UpdateBlockProcessMetrics(statedb *state.StateDB, procTime time.Duration) {
+	// Update the metrics touched during block processing
+	accountReadTimer.Update(statedb.AccountReads)                 // Account reads are complete, we can mark them
+	storageReadTimer.Update(statedb.StorageReads)                 // Storage reads are complete, we can mark them
+	accountUpdateTimer.Update(statedb.AccountUpdates)             // Account updates are complete, we can mark them
+	storageUpdateTimer.Update(statedb.StorageUpdates)             // Storage updates are complete, we can mark them
+	snapshotAccountReadTimer.Update(statedb.SnapshotAccountReads) // Account reads are complete, we can mark them
+	snapshotStorageReadTimer.Update(statedb.SnapshotStorageReads) // Storage reads are complete, we can mark them
+	triehash := statedb.AccountHashes + statedb.StorageHashes     // Save to not double count in validation
+	trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates
+	trieproc += statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
+
+	blockExecutionTimer.Update(procTime - trieproc - triehash)
+
+}
+
 func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header, safe bool) (*state.StateDB, types.Receipts, uint64, time.Duration, error) {
 	statedb, err := state.New(parent.Root, bc.stateCache, bc.snaps)
 	if err != nil {
@@ -29,19 +45,9 @@ func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header, saf
 		bc.reportBlock(block, receipts, err)
 		return nil, nil, 0, 0, err
 	}
-	// Update the metrics touched during block processing
-	accountReadTimer.Update(statedb.AccountReads)                 // Account reads are complete, we can mark them
-	storageReadTimer.Update(statedb.StorageReads)                 // Storage reads are complete, we can mark them
-	accountUpdateTimer.Update(statedb.AccountUpdates)             // Account updates are complete, we can mark them
-	storageUpdateTimer.Update(statedb.StorageUpdates)             // Storage updates are complete, we can mark them
-	snapshotAccountReadTimer.Update(statedb.SnapshotAccountReads) // Account reads are complete, we can mark them
-	snapshotStorageReadTimer.Update(statedb.SnapshotStorageReads) // Storage reads are complete, we can mark them
-	triehash := statedb.AccountHashes + statedb.StorageHashes     // Save to not double count in validation
-	trieproc := statedb.SnapshotAccountReads + statedb.AccountReads + statedb.AccountUpdates
-	trieproc += statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
 
-	blockExecutionTimer.Update(time.Since(start) - trieproc - triehash)
-
+	bc.UpdateBlockProcessMetrics(statedb, time.Since(start))
+	triehash := statedb.AccountHashes + statedb.StorageHashes
 	if !safe {
 		// Validate the state using the default validator
 		substart := time.Now()

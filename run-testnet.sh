@@ -35,4 +35,4 @@ COMMAND="geth \
 --mine \
 --miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"
 
-nohup $COMMAND >> $GETH_LOG_FILE 2>&1 &
+nohup $COMMAND > $GETH_LOG_FILE 2>&1 &

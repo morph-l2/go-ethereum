@@ -848,7 +848,10 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		if tx == nil {
 			break
 		}
-		if !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize + tx.Size()) {
+
+		// in case the block size exceed a single batch limit.
+		// add txHash length, since it will be rollup as well
+		if !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize + tx.Size() + common.HashLength) {
 			log.Trace("Block size limit reached", "have", env.blockSize, "want", w.chainConfig.Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
 			continue
@@ -893,7 +896,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 				env.l1TxCount++
 			}
 			env.tcount++
-			env.blockSize += tx.Size()
+			env.blockSize += tx.Size() + common.HashLength
 			txs.Shift()
 
 		case errors.Is(err, core.ErrTxTypeNotSupported):

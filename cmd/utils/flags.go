@@ -165,6 +165,10 @@ var (
 		Name:  "scroll-alpha",
 		Usage: "Scroll Alpha test network",
 	}
+	ScrollSepoliaFlag = cli.BoolFlag{
+		Name:  "scroll-sepolia",
+		Usage: "Scroll Sepolia test network",
+	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
 		Usage: "Ephemeral proof-of-authority network with a pre-funded developer account, mining enabled",
@@ -816,6 +820,12 @@ var (
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
 	}
+
+	// Circuit capacity check settings
+	CircuitCapacityCheckEnabledFlag = cli.BoolFlag{
+		Name:  "ccc",
+		Usage: "Enable circuit capacity check during block validation",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -839,6 +849,9 @@ func MakeDataDir(ctx *cli.Context) string {
 		}
 		if ctx.GlobalBool(ScrollAlphaFlag.Name) {
 			return filepath.Join(path, "scroll-alpha")
+		}
+		if ctx.GlobalBool(ScrollSepoliaFlag.Name) {
+			return filepath.Join(path, "scroll-sepolia")
 		}
 		return path
 	}
@@ -898,6 +911,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.GoerliBootnodes
 	case ctx.GlobalBool(ScrollAlphaFlag.Name):
 		urls = params.ScrollAlphaBootnodes
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
+		urls = params.ScrollSepoliaBootnodes
 	case cfg.BootstrapNodes != nil || len(urls) == 0:
 		return // already set, don't apply defaults.
 	}
@@ -1337,6 +1352,9 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "sepolia")
 	case ctx.GlobalBool(ScrollAlphaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-alpha")
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
+		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-sepolia")
+
 	}
 }
 
@@ -1478,6 +1496,12 @@ func setWhitelist(ctx *cli.Context, cfg *ethconfig.Config) {
 	}
 }
 
+func setCircuitCapacityCheck(ctx *cli.Context, cfg *ethconfig.Config) {
+	if ctx.GlobalIsSet(CircuitCapacityCheckEnabledFlag.Name) {
+		cfg.CheckCircuitCapacity = ctx.GlobalBool(CircuitCapacityCheckEnabledFlag.Name)
+	}
+}
+
 // CheckExclusive verifies that only a single instance of the provided flags was
 // set by the user. Each flag might optionally be followed by a string type to
 // specialize it further.
@@ -1522,7 +1546,7 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, ScrollAlphaFlag)
+	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, ScrollAlphaFlag, ScrollSepoliaFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	if ctx.GlobalString(GCModeFlag.Name) == "archive" && ctx.GlobalUint64(TxLookupLimitFlag.Name) != 0 {
@@ -1543,6 +1567,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	setMiner(ctx, &cfg.Miner)
 	setWhitelist(ctx, cfg)
 	setLes(ctx, cfg)
+	setCircuitCapacityCheck(ctx, cfg)
 
 	// Cap the cache allowance and tune the garbage collector
 	mem, err := gopsutil.VirtualMemory()
@@ -1690,6 +1715,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		}
 		cfg.Genesis = core.DefaultScrollAlphaGenesisBlock()
 		// SetDNSDiscoveryDefaults(cfg, params.ScrollAlphaGenesisHash)
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 534351
+		}
+		cfg.Genesis = core.DefaultScrollSepoliaGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -1918,6 +1948,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultGoerliGenesisBlock()
 	case ctx.GlobalBool(ScrollAlphaFlag.Name):
 		genesis = core.DefaultScrollAlphaGenesisBlock()
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
+		genesis = core.DefaultScrollSepoliaGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}
@@ -1979,7 +2011,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 
 	// TODO(rjl493456442) disable snapshot generation/wiping if the chain is read only.
 	// Disable transaction indexing/unindexing by default.
-	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil)
+	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil, false)
 	if err != nil {
 		Fatalf("Can't create BlockChain: %v", err)
 	}

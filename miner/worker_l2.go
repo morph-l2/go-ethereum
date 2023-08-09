@@ -93,6 +93,7 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
 func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions) {
+	var circuitCapacityReached bool
 	if len(l1Transactions) > 0 {
 		l1Txs := make(map[common.Address]types.Transactions)
 		for _, tx := range l1Transactions {
@@ -106,7 +107,10 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		w.commitTransactions(env, txs, env.header.Coinbase, nil)
+		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, nil)
+		if circuitCapacityReached {
+			return
+		}
 	}
 
 	// Split the pending transactions into locals and remotes
@@ -121,7 +125,10 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
+		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, nil)
+		if circuitCapacityReached {
+			return
+		}
 	}
 	if len(remoteTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
@@ -139,18 +146,6 @@ func (w *worker) generateWork(genParams *generateParams) (*types.Block, *state.S
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
-
-	//for _, tx := range genParams.transactions {
-	//
-	//	from, _ := types.Sender(work.signer, tx)
-	//	// Start executing the transaction
-	//	work.state.Prepare(tx.Hash(), work.tcount)
-	//	_, err := w.commitTransaction(work, tx, work.header.Coinbase)
-	//	if err != nil {
-	//		return nil, nil, nil, fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)
-	//	}
-	//	work.l1TxCount++
-	//}
 
 	w.fillTransactions(work, genParams.transactions)
 

@@ -322,11 +322,6 @@ var (
 			FeeVaultAddress:           &rcfg.ScrollFeeVaultAddress,
 			EnableEIP2718:             false,
 			EnableEIP1559:             false,
-			L1Config: &L1Config{
-				L1ChainId:             11155111,
-				L1MessageQueueAddress: common.HexToAddress("0xF0B2293F5D834eAe920c6974D50957A1732de763"),
-				NumL1MessagesPerBlock: 10,
-			},
 		},
 	}
 

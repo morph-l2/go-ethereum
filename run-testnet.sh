@@ -32,6 +32,7 @@ COMMAND="geth \
 --authrpc.vhosts="*" \
 --authrpc.jwtsecret=$JWT_SECRET_PATH \
 --gcmode=archive \
+--nodiscover \
 --mine \
 --miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"
 

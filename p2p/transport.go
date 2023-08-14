@@ -124,7 +124,7 @@ func (t *rlpxTransport) close(err error) {
 				// Connection supports write deadline.
 				t.wbuf.Reset()
 				rlp.Encode(&t.wbuf, []DiscReason{r})
-				fmt.Println("-------send discMsg to pper")
+				log.Info("------>send discMsg to peer")
 				t.conn.Write(discMsg, t.wbuf.Bytes())
 			}
 		}

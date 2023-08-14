@@ -32,6 +32,7 @@ import (
 	"io"
 	mrand "math/rand"
 	"net"
+	"runtime/debug"
 	"time"
 
 	"github.com/golang/snappy"
@@ -231,6 +232,8 @@ func (c *Conn) Write(code uint64, data []byte) (uint32, error) {
 		fmt.Println("=============================================================")
 		fmt.Printf("write discMsg to dest peer \ndest addr: %s \ndest publicKey: %s \n",
 			c.conn.RemoteAddr(), hexutil.Encode(crypto.CompressPubkey(c.dialDest)))
+		fmt.Println()
+		debug.PrintStack()
 		fmt.Println("=============================================================")
 		fmt.Println()
 	}

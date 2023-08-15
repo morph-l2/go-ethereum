@@ -873,6 +873,9 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		env.state.Prepare(tx.Hash(), env.tcount)
 
 		logs, err := w.commitTransaction(env, tx, coinbase)
+		if err != nil {
+			log.Error("failed to commitTransaction", "tx hash", tx.Hash(), "tx queueIndex", tx.L1MessageQueueIndex(), "error", err)
+		}
 		switch {
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account

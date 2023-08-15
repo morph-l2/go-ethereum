@@ -473,7 +473,6 @@ func (hc *HeaderChain) GetHeaderByHash(hash common.Hash) *types.Header {
 	if number == nil {
 		return nil
 	}
-	log.Info("======>got the number", "number", *number, "blockHash", hash.Hex())
 	return hc.GetHeader(hash, *number)
 }
 

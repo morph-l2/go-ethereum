@@ -26,7 +26,6 @@ import (
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/crypto"
 	"github.com/scroll-tech/go-ethereum/ethdb"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
@@ -290,7 +289,13 @@ func ReadHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValu
 		// the canonical data.
 		data, _ = reader.Ancient(freezerHeaderTable, number)
 		log.Info("======>reader.Ancient", "datalength", len(data))
-		if len(data) > 0 && crypto.Keccak256Hash(data) == hash {
+
+		// crypto.Keccak256Hash(data) does not make sense here, as we use different way to make the block hash
+		// we have instant finality strategy, so we do NOT need hash check here
+		// if len(data) > 0 && crypto.Keccak256Hash(data) == hash {
+		// 	return nil
+		// }
+		if len(data) > 0 {
 			return nil
 		}
 		// If not, try reading from leveldb

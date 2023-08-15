@@ -230,8 +230,12 @@ func (c *Conn) Write(code uint64, data []byte) (uint32, error) {
 	if code == 1 {
 		fmt.Println()
 		fmt.Println("=============================================================")
+		dialDestPK := "empty"
+		if c.dialDest != nil {
+			dialDestPK = hexutil.Encode(crypto.CompressPubkey(c.dialDest))
+		}
 		fmt.Printf("write discMsg to dest peer \ndest addr: %s \ndest publicKey: %s \n",
-			c.conn.RemoteAddr(), hexutil.Encode(crypto.CompressPubkey(c.dialDest)))
+			c.conn.RemoteAddr(), dialDestPK)
 		fmt.Println()
 		debug.PrintStack()
 		fmt.Println("=============================================================")

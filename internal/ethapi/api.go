@@ -1721,6 +1721,7 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 		if err != nil {
 			return nil, err
 		}
+		log.Info("=========>debug HeaderByHash", "blockHash", blockHash.Hex(), "blockNumber", blockNumber, "header", header)
 
 		baseFee := header.BaseFee
 		if baseFee == nil {

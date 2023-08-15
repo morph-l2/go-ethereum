@@ -19,7 +19,6 @@ package eth
 import (
 	"context"
 	"errors"
-	"github.com/scroll-tech/go-ethereum/log"
 	"math/big"
 	"time"
 
@@ -147,7 +146,6 @@ func (b *EthAPIBackend) StateAndHeaderByNumber(ctx context.Context, number rpc.B
 	// Pending state is only known by the miner
 	if number == rpc.PendingBlockNumber {
 		block, state := b.eth.miner.Pending()
-		log.Info("[log4Debug]StateAndHeaderByNumber pending data", "blockNumber", block.NumberU64(), "state is null?", state == nil)
 		return state, block.Header(), nil
 	}
 	// Otherwise resolve the block number and return its state

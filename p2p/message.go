@@ -104,8 +104,10 @@ func Send(w MsgWriter, msgcode uint64, data interface{}) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("#########Print Send method stack")
-	log.Info("----------->Send message", "msg.Code", msgcode)
+	if msgcode == 1 {
+		fmt.Println("#########Print Send method stack")
+		log.Info("----------->Send message", "msg.Code", msgcode)
+	}
 	debug.PrintStack()
 
 	return w.WriteMsg(Msg{Code: msgcode, Size: uint32(size), Payload: r})

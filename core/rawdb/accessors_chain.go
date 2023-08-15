@@ -37,11 +37,9 @@ func ReadCanonicalHash(db ethdb.Reader, number uint64) common.Hash {
 	var data []byte
 	db.ReadAncients(func(reader ethdb.AncientReader) error {
 		data, _ = reader.Ancient(freezerHashTable, number)
-		log.Info("======>ReadCanonicalHash reader.Ancient", "number", number, "data length", len(data))
 		if len(data) == 0 {
 			// Get it by hash from leveldb
 			data, _ = db.Get(headerHashKey(number))
-			log.Info("======>ReadCanonicalHash from leveldb", "number", number, "data length", len(data))
 		}
 		return nil
 	})
@@ -288,7 +286,6 @@ func ReadHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValu
 		// comparison is necessary since ancient database only maintains
 		// the canonical data.
 		data, _ = reader.Ancient(freezerHeaderTable, number)
-		log.Info("======>reader.Ancient", "datalength", len(data))
 
 		// crypto.Keccak256Hash(data) does not make sense here, as we use different way to make the block hash
 		// we have instant finality strategy, so we do NOT need hash check here
@@ -300,7 +297,6 @@ func ReadHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValu
 		}
 		// If not, try reading from leveldb
 		data, _ = db.Get(headerKey(number, hash))
-		log.Info("======>reading from leveldb", "datalength", len(data))
 		return nil
 	})
 	return data

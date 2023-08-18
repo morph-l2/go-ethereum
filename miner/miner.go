@@ -54,6 +54,8 @@ type Config struct {
 	GasPrice   *big.Int       // Minimum gas price for mining a transaction
 	Recommit   time.Duration  // The time interval for miner to re-create mining work.
 	Noverify   bool           // Disable remote mining solution verification(only useful in ethash).
+
+	NewBlockTimeout time.Duration // The maximum time allowance for creating a new block
 }
 
 // Miner creates blocks and searches for proof-of-work values.
@@ -246,7 +248,11 @@ func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp ti
 		parentHash:   parentHash,
 		timestamp:    uint64(timestamp.Unix()),
 		transactions: transactions,
-	})
+	}, nil)
+}
+
+func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, error) {
+	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions)
 }
 
 func (miner *Miner) MakeHeader(parent *types.Block, timestamp uint64, coinBase common.Address) (*types.Header, error) {

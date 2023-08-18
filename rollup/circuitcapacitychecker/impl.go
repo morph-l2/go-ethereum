@@ -4,6 +4,7 @@ package circuitcapacitychecker
 
 /*
 #cgo LDFLAGS: -lm -ldl -lzkp -lzktrie
+#cgo LDFLAGS: -L${SRCDIR}/libzkp
 #include <stdlib.h>
 #include "./libzkp/libzkp.h"
 */

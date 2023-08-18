@@ -14,6 +14,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef as zkp-builder
 COPY ./rollup/circuitcapacitychecker/libzkp/rust-toolchain ./
 COPY --from=planner /app/recipe.json recipe.json
+ENV RUST_BACKTRACE=full
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY ./rollup/circuitcapacitychecker/libzkp .

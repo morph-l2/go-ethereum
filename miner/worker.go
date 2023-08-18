@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"github.com/scroll-tech/go-ethereum/core/rawdb"
+	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -104,12 +105,11 @@ type environment struct {
 
 // task contains all information for consensus engine sealing and result submitting.
 type task struct {
-	receipts       []*types.Receipt
-	state          *state.StateDB
-	block          *types.Block
-	createdAt      time.Time
-	accRows        *types.RowConsumption // accumulated row consumption in the circuit side
-	nextL1MsgIndex uint64                // next L1 queue index to be processed
+	receipts  []*types.Receipt
+	state     *state.StateDB
+	block     *types.Block
+	createdAt time.Time
+	accRows   *types.RowConsumption // accumulated row consumption in the circuit side
 }
 
 const (
@@ -155,6 +155,7 @@ type worker struct {
 
 	// Channels
 	newWorkCh          chan *newWorkReq
+	getWorkCh          chan *getWorkReq
 	taskCh             chan *task
 	resultCh           chan *types.Block
 	startCh            chan struct{}
@@ -192,9 +193,16 @@ type worker struct {
 	// non-stop and no real transaction will be included.
 	noempty uint32
 
+	// newpayloadTimeout is the maximum timeout allowance for creating block.
+	// The default value is 3 seconds but node operator can set it to arbitrary
+	// large value. A large timeout allowance may cause Geth to fail creating
+	// a non-empty block within the specified time and eventually miss the chance to be a proposer
+	// in case there are some computation expensive transactions in txpool.
+	newBlockTimeout time.Duration
+
 	// External functions
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
-
+	// Make sure the checker here is used by a single block one time, and must be reset for another block.
 	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
 
 	// Test hooks
@@ -221,6 +229,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		chainHeadCh:            make(chan core.ChainHeadEvent, chainHeadChanSize),
 		chainSideCh:            make(chan core.ChainSideEvent, chainSideChanSize),
 		newWorkCh:              make(chan *newWorkReq),
+		getWorkCh:              make(chan *getWorkReq),
 		taskCh:                 make(chan *task),
 		resultCh:               make(chan *types.Block, resultQueueSize),
 		exitCh:                 make(chan struct{}),
@@ -244,6 +253,17 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		log.Warn("Sanitizing miner recommit interval", "provided", recommit, "updated", minRecommitInterval)
 		recommit = minRecommitInterval
 	}
+
+	// Sanitize the timeout config for creating block.
+	newBlockTimeout := worker.config.NewBlockTimeout
+	if newBlockTimeout == 0 {
+		log.Warn("Sanitizing new block timeout to default", "provided", newBlockTimeout, "updated", ethconfig.Defaults.Miner.NewBlockTimeout)
+		newBlockTimeout = ethconfig.Defaults.Miner.NewBlockTimeout
+	}
+	if newBlockTimeout < time.Millisecond*100 {
+		log.Warn("Low block timeout may cause high amount of non-full blocks", "provided", newBlockTimeout, "default", ethconfig.Defaults.Miner.NewBlockTimeout)
+	}
+	worker.newBlockTimeout = newBlockTimeout
 
 	worker.wg.Add(4)
 	go worker.mainLoop()
@@ -390,7 +410,11 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 		case <-w.exitCh:
 			return
 		}
-		timer.Reset(recommit)
+		// we do not need this resubmit loop to acquire higher price transactions here in our cases
+		// todo use morphism config instead later
+		if !w.chainConfig.Scroll.UseZktrie {
+			timer.Reset(recommit)
+		}
 		atomic.StoreInt32(&w.newTxs, 0)
 	}
 	// clearPending cleans the stale pending tasks.
@@ -482,6 +506,15 @@ func (w *worker) mainLoop() {
 			w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
 			// new block created.
 
+		case req := <-w.getWorkCh:
+			block, stateDB, receipt, err := w.generateWork(req.params, req.interrupt)
+			req.result <- &newBlockResult{
+				err:      err,
+				block:    block,
+				state:    stateDB,
+				receipts: receipt,
+			}
+
 		case ev := <-w.chainSideCh:
 			// Short circuit for duplicate side blocks
 			if _, exist := w.localUncles[ev.Block.Hash()]; exist {
@@ -543,6 +576,8 @@ func (w *worker) mainLoop() {
 				}
 				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs, w.current.header.BaseFee)
 				tcount := w.current.tcount
+				// reset circuitCapacityChecker
+				w.circuitCapacityChecker.Reset()
 				w.commitTransactions(w.current, txset, coinbase, nil)
 				// Only update the snapshot if any new transactons were added
 				// to the pending block
@@ -928,7 +963,7 @@ loop:
 			break
 		}
 
-		if !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize + tx.Size() + common.HashLength) {
+		if !tx.IsL1MessageTx() && !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize+tx.Size()+common.HashLength) {
 			log.Trace("Block size limit reached", "have", env.blockSize, "want", w.chainConfig.Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
 			continue
@@ -1179,6 +1214,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		w.updateSnapshot()
 		return
 	}
+
 	// Split the pending transactions into locals and remotes
 	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
 	for _, account := range w.eth.TxPool().Locals() {
@@ -1202,11 +1238,6 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		if skipCommit {
 			return
 		}
-	}
-
-	// do not produce empty blocks
-	if w.current.tcount == 0 {
-		return
 	}
 
 	w.commit(uncles, w.fullTaskHook, true, tstart)
@@ -1251,31 +1282,42 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 			interval()
 		}
 
-		// Skip executing FinalizeAndAssemble, as it may commit the state to database based on current trie database strategy
+		// If we use zkTrie, then skip executing FinalizeAndAssemble, as it may commit the state data to database that would cause some state data produced by the transactions that has not been confirmed being flushed to disk.
+		if !w.chainConfig.Scroll.UseZktrie {
+			// Deep copy receipts here to avoid interaction between different tasks.
+			receipts := copyReceipts(w.current.receipts)
+			s := w.current.state.Copy()
+			block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
+			if err != nil {
+				return err
+			}
+			// If we're post merge, just ignore
+			if !w.isTTDReached(block.Header()) {
+				select {
+				case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now(), accRows: w.current.accRows}:
+					w.unconfirmed.Shift(block.NumberU64() - 1)
+					log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
+						"uncles", len(uncles), "txs", w.current.tcount,
+						"gas", block.GasUsed(), "fees", totalFees(block, receipts),
+						"elapsed", common.PrettyDuration(time.Since(start)))
 
-		//// Deep copy receipts here to avoid interaction between different tasks.
-		//receipts := copyReceipts(w.current.receipts)
-		//s := w.current.state.Copy()
-		//block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
-		//if err != nil {
-		//	return err
-		//}
-		//select {
-		//case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now(), accRows: w.current.accRows, nextL1MsgIndex: w.current.nextL1MsgIndex}:
-		//	w.unconfirmed.Shift(block.NumberU64() - 1)
-		//	log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
-		//		"uncles", len(uncles), "txs", w.current.tcount,
-		//		"gas", block.GasUsed(), "fees", totalFees(block, receipts),
-		//		"elapsed", common.PrettyDuration(time.Since(start)))
-		//
-		//case <-w.exitCh:
-		//	log.Info("Worker has exited")
-		//}
+				case <-w.exitCh:
+					log.Info("Worker has exited")
+				}
+			}
+		}
 	}
 	if update {
 		w.updateSnapshot()
 	}
 	return nil
+}
+
+// isTTDReached returns the indicator if the given block has reached the total
+// terminal difficulty for The Merge transition.
+func (w *worker) isTTDReached(header *types.Header) bool {
+	td, ttd := w.chain.GetTd(header.ParentHash, header.Number.Uint64()-1), w.chain.Config().TerminalTotalDifficulty
+	return td != nil && ttd != nil && td.Cmp(ttd) >= 0
 }
 
 // copyReceipts makes a deep copy of the given receipts.

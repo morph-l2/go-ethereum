@@ -483,6 +483,11 @@ var (
 		Name:  "miner.noverify",
 		Usage: "Disable remote sealing verification",
 	}
+	MinerNewBlockTimeout = &cli.DurationFlag{
+		Name:  "miner.newblock-timeout",
+		Usage: "Specify the maximum time allowance for creating a new block",
+		Value: ethconfig.Defaults.Miner.NewBlockTimeout,
+	}
 	// Account settings
 	UnlockedAccountFlag = cli.StringFlag{
 		Name:  "unlock",
@@ -1470,6 +1475,9 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	}
 	if ctx.GlobalIsSet(LegacyMinerGasTargetFlag.Name) {
 		log.Warn("The generic --miner.gastarget flag is deprecated and will be removed in the future!")
+	}
+	if ctx.IsSet(MinerNewBlockTimeout.Name) {
+		cfg.NewBlockTimeout = ctx.Duration(MinerNewBlockTimeout.Name)
 	}
 }
 

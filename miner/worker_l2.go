@@ -1,7 +1,10 @@
 package miner
 
 import (
+	"errors"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
@@ -11,6 +14,20 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
 )
+
+// getWorkReq represents a request for getting a new sealing work with provided parameters.
+type getWorkReq struct {
+	interrupt *int32
+	params    *generateParams
+	result    chan *newBlockResult // non-blocking channel
+}
+
+type newBlockResult struct {
+	block    *types.Block
+	state    *state.StateDB
+	receipts types.Receipts
+	err      error
+}
 
 // generateParams wraps various of settings for generating sealing task.
 type generateParams struct {
@@ -92,7 +109,7 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 // fillTransactions retrieves the pending transactions from the txpool and fills them
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
-func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions) {
+func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) {
 	var circuitCapacityReached bool
 	if len(l1Transactions) > 0 {
 		l1Txs := make(map[common.Address]types.Transactions)
@@ -107,7 +124,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, nil)
+		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if circuitCapacityReached {
 			return
 		}
@@ -125,7 +142,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, nil)
+		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if circuitCapacityReached {
 			return
 		}
@@ -137,7 +154,11 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 }
 
 // generateWork generates a sealing block based on the given parameters.
-func (w *worker) generateWork(genParams *generateParams) (*types.Block, *state.StateDB, types.Receipts, error) {
+// TODO the produced state data by the transactions will be commit to database, whether the block is confirmed or not.
+// TODO this issue will persist until the current zktrie based database optimizes its strategy.
+func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (*types.Block, *state.StateDB, types.Receipts, error) {
+	// reset circuitCapacityChecker for a new block
+	w.circuitCapacityChecker.Reset()
 	work, err := w.prepareWork(genParams)
 	if err != nil {
 		return nil, nil, nil, err
@@ -147,7 +168,7 @@ func (w *worker) generateWork(genParams *generateParams) (*types.Block, *state.S
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	w.fillTransactions(work, genParams.transactions)
+	w.fillTransactions(work, genParams.transactions, interrupt)
 
 	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)
 	if err != nil {
@@ -161,4 +182,33 @@ func (env *environment) discard() {
 		return
 	}
 	env.state.StopPrefetcher()
+}
+
+// getSealingBlockAndState sealing a new block based on parentHash.
+func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, error) {
+	interrupt := new(int32)
+	timer := time.AfterFunc(w.newBlockTimeout, func() {
+		atomic.StoreInt32(interrupt, commitInterruptTimeout)
+	})
+	defer timer.Stop()
+
+	req := &getWorkReq{
+		interrupt: interrupt,
+		params: &generateParams{
+			parentHash:   parentHash,
+			timestamp:    uint64(timestamp.Unix()),
+			transactions: transactions,
+		},
+		result: make(chan *newBlockResult, 1),
+	}
+	select {
+	case w.getWorkCh <- req:
+		result := <-req.result
+		if result.err != nil {
+			return nil, nil, nil, result.err
+		}
+		return result.block, result.state, result.receipts, nil
+	case <-w.exitCh:
+		return nil, nil, nil, errors.New("miner closed")
+	}
 }

@@ -79,7 +79,7 @@ image:
 	docker build -f Dockerfile -t morphism-geth:latest .
 
 docker:
-	docker build --platform linux/x86_64 -t scrolltech/l2geth:latest ./ -f Dockerfile
+	docker build -t scrolltech/l2geth:latest ./ -f Dockerfile
 
 mockccc_docker:
 	docker build --platform linux/x86_64 -t scrolltech/l2geth:latest ./ -f Dockerfile.mockccc

@@ -278,6 +278,12 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	return worker
 }
 
+// getCCC returns a pointer to this worker's CCC instance.
+// Only used in tests.
+func (w *worker) getCCC() *circuitcapacitychecker.CircuitCapacityChecker {
+	return w.circuitCapacityChecker
+}
+
 // setEtherbase sets the etherbase used to initialize the block coinbase field.
 func (w *worker) setEtherbase(addr common.Address) {
 	w.mu.Lock()
@@ -753,7 +759,7 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 	// don't commit the state during tracing for circuit capacity checker, otherwise we cannot revert.
 	// and even if we don't commit the state, the `refund` value will still be correct, as explained in `CommitTransaction`
 	commitStateAfterApply := false
-	traceEnv, err := core.CreateTraceEnv(w.chainConfig, w.chain, w.engine, state, parent,
+	traceEnv, err := core.CreateTraceEnv(w.chainConfig, w.chain, w.engine, w.eth.ChainDb(), state, parent,
 		// new block with a placeholder tx, for traceEnv's ExecutionResults length & TxStorageTraces length
 		types.NewBlockWithHeader(header).WithBody([]*types.Transaction{types.NewTx(&types.LegacyTx{})}, nil),
 		commitStateAfterApply)
@@ -1044,14 +1050,23 @@ loop:
 			queueIndex := tx.AsL1MessageTx().QueueIndex
 			log.Trace("Circuit capacity limit reached for a single tx", "tx", tx.Hash().String(), "queueIndex", queueIndex)
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "row consumption overflow")
-			//env.nextL1MsgIndex = queueIndex + 1
-			txs.Shift()
+
+			// after `ErrTxRowConsumptionOverflow`, ccc might not revert updates
+			// associated with this transaction so we cannot pack more transactions.
+			// TODO: fix this in ccc and change these lines back to `txs.Shift()`
+			circuitCapacityReached = true
+			break loop
 
 		case errors.Is(err, circuitcapacitychecker.ErrTxRowConsumptionOverflow) && !tx.IsL1MessageTx():
 			// Circuit capacity check: L2MessageTx row consumption too high, skip the account.
 			// This is also useful for skipping "problematic" L2MessageTxs.
 			log.Trace("Circuit capacity limit reached for a single tx", "tx", tx.Hash().String())
-			txs.Pop()
+
+			// after `ErrTxRowConsumptionOverflow`, ccc might not revert updates
+			// associated with this transaction so we cannot pack more transactions.
+			// TODO: fix this in ccc and change these lines back to `txs.Pop()`
+			circuitCapacityReached = true
+			break loop
 
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && tx.IsL1MessageTx():
 			// Circuit capacity check: unknown circuit capacity checker error for L1MessageTx,
@@ -1059,13 +1074,22 @@ loop:
 			queueIndex := tx.AsL1MessageTx().QueueIndex
 			log.Trace("Unknown circuit capacity checker error for L1MessageTx", "tx", tx.Hash().String(), "queueIndex", queueIndex)
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "unknown row consumption error")
-			//env.nextL1MsgIndex = queueIndex + 1
-			txs.Shift()
+
+			// after `ErrUnknown`, ccc might not revert updates associated
+			// with this transaction so we cannot pack more transactions.
+			// TODO: fix this in ccc and change these lines back to `txs.Shift()`
+			circuitCapacityReached = true
+			break loop
 
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && !tx.IsL1MessageTx():
 			// Circuit capacity check: unknown circuit capacity checker error for L2MessageTx, skip the account
 			log.Trace("Unknown circuit capacity checker error for L2MessageTx", "tx", tx.Hash().String())
-			txs.Pop()
+
+			// after `ErrUnknown`, ccc might not revert updates associated
+			// with this transaction so we cannot pack more transactions.
+			// TODO: fix this in ccc and change these lines back to `txs.Pop()`
+			circuitCapacityReached = true
+			break loop
 
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the

@@ -1,6 +1,6 @@
 #!/bin/sh
 #script for validator entrypoint
-set -exu
+set -ex
 
 GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morphism/setup/geth-data}"
 JWT_SECRET_PATH="${JWT_SECRET_PATH:-/data/morphism/setup/jwt-secret.txt}"

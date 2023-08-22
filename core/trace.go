@@ -10,7 +10,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/core/vm"
@@ -89,11 +88,11 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext ChainContext, 
 	// block `C`.
 	// `ReadFirstQueueIndexNotInL1Block(B)` will return the correct value
 	// `10` on follower nodes.
-	startL1QueueIndex := rawdb.ReadFirstQueueIndexNotInL2Block(chaindb, parent.Hash())
-	if startL1QueueIndex == nil {
-		log.Error("missing FirstQueueIndexNotInL2Block for block during trace call", "number", parent.NumberU64(), "hash", parent.Hash())
-		return nil, fmt.Errorf("missing FirstQueueIndexNotInL2Block for block during trace call: hash=%v, parentHash=%vv", block.Hash(), parent.Hash())
-	}
+	//	startL1QueueIndex := rawdb.ReadFirstQueueIndexNotInL2Block(chaindb, parent.Hash())
+	//	if startL1QueueIndex == nil {
+	//		log.Error("missing FirstQueueIndexNotInL2Block for block during trace call", "number", parent.NumberU64(), "hash", parent.Hash())
+	//		return nil, fmt.Errorf("missing FirstQueueIndexNotInL2Block for block during trace call: hash=%v, parentHash=%vv", block.Hash(), parent.Hash())
+	//	}
 
 	env := &TraceEnv{
 		logConfig: &vm.LogConfig{
@@ -112,10 +111,10 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext ChainContext, 
 			Proofs:        make(map[string][]hexutil.Bytes),
 			StorageProofs: make(map[string]map[string][]hexutil.Bytes),
 		},
-		ZkTrieTracer:      make(map[string]state.ZktrieProofTracer),
-		ExecutionResults:  make([]*types.ExecutionResult, block.Transactions().Len()),
-		TxStorageTraces:   make([]*types.StorageTrace, block.Transactions().Len()),
-		StartL1QueueIndex: *startL1QueueIndex,
+		ZkTrieTracer:     make(map[string]state.ZktrieProofTracer),
+		ExecutionResults: make([]*types.ExecutionResult, block.Transactions().Len()),
+		TxStorageTraces:  make([]*types.StorageTrace, block.Transactions().Len()),
+		//StartL1QueueIndex: *startL1QueueIndex,
 	}
 
 	key := coinbase.String()

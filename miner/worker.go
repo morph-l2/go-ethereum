@@ -19,8 +19,7 @@ package miner
 import (
 	"bytes"
 	"errors"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
+	"fmt"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -32,6 +31,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/consensus"
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
 	"github.com/scroll-tech/go-ethereum/core"
+	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/event"
@@ -81,7 +81,14 @@ const (
 	staleThreshold = 7
 )
 
-// environment is the worker's current environment and holds all of the current state information.
+var (
+	errBlockInterruptedByNewHead  = errors.New("new head arrived while building block")
+	errBlockInterruptedByRecommit = errors.New("recommit interrupt while building block")
+	errBlockInterruptedByTimeout  = errors.New("timeout while building block")
+)
+
+// environment is the worker's current environment and holds all
+// information of the sealing block generation.
 type environment struct {
 	signer types.Signer
 
@@ -257,11 +264,11 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	// Sanitize the timeout config for creating block.
 	newBlockTimeout := worker.config.NewBlockTimeout
 	if newBlockTimeout == 0 {
-		log.Warn("Sanitizing new block timeout to default", "provided", newBlockTimeout, "updated", ethconfig.Defaults.Miner.NewBlockTimeout)
-		newBlockTimeout = ethconfig.Defaults.Miner.NewBlockTimeout
+		log.Warn("Sanitizing new block timeout to default", "provided", newBlockTimeout, "updated", 3*time.Second)
+		newBlockTimeout = 3 * time.Second
 	}
 	if newBlockTimeout < time.Millisecond*100 {
-		log.Warn("Low block timeout may cause high amount of non-full blocks", "provided", newBlockTimeout, "default", ethconfig.Defaults.Miner.NewBlockTimeout)
+		log.Warn("Low block timeout may cause high amount of non-full blocks", "provided", newBlockTimeout, "default", 3*time.Second)
 	}
 	worker.newBlockTimeout = newBlockTimeout
 
@@ -513,12 +520,13 @@ func (w *worker) mainLoop() {
 			// new block created.
 
 		case req := <-w.getWorkCh:
-			block, stateDB, receipt, err := w.generateWork(req.params, req.interrupt)
+			block, stateDB, receipt, rowConsumption, err := w.generateWork(req.params, req.interrupt)
 			req.result <- &newBlockResult{
-				err:      err,
-				block:    block,
-				state:    stateDB,
-				receipts: receipt,
+				err:            err,
+				block:          block,
+				state:          stateDB,
+				receipts:       receipt,
+				rowConsumption: rowConsumption,
 			}
 
 		case ev := <-w.chainSideCh:
@@ -803,8 +811,8 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 
 	// Swap out the old work with the new one, terminating any leftover prefetcher
 	// processes in the mean time and starting a new one.
-	if w.current != nil && w.current.state != nil {
-		w.current.state.StopPrefetcher()
+	if w.current != nil {
+		w.current.discard()
 	}
 	w.current = env
 	return nil
@@ -916,12 +924,12 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 	return receipt.Logs, nil
 }
 
-func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) (bool, bool) {
+func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) (error, bool) {
 	var circuitCapacityReached bool
 
 	// Short circuit if current is nil
 	if env == nil {
-		return true, circuitCapacityReached
+		return errors.New("no env found"), circuitCapacityReached
 	}
 
 	gasLimit := env.header.GasLimit
@@ -939,19 +947,24 @@ loop:
 		// (3) worker recreate the mining block with any newly arrived transactions, the interrupt signal is 2.
 		// For the first two cases, the semi-finished work will be discarded.
 		// For the third case, the semi-finished work will be submitted to the consensus engine.
-		if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
-			// Notify resubmit loop to increase resubmitting interval due to too frequent commits.
-			if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
-				ratio := float64(gasLimit-env.gasPool.Gas()) / float64(gasLimit)
-				if ratio < 0.1 {
-					ratio = 0.1
-				}
-				w.resubmitAdjustCh <- &intervalAdjust{
-					ratio: ratio,
-					inc:   true,
-				}
+		//if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
+		//	// Notify resubmit loop to increase resubmitting interval due to too frequent commits.
+		//	if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
+		//		ratio := float64(gasLimit-env.gasPool.Gas()) / float64(gasLimit)
+		//		if ratio < 0.1 {
+		//			ratio = 0.1
+		//		}
+		//		w.resubmitAdjustCh <- &intervalAdjust{
+		//			ratio: ratio,
+		//			inc:   true,
+		//		}
+		//	}
+		//	return atomic.LoadInt32(interrupt) == commitInterruptNewHead, circuitCapacityReached
+		//}
+		if interrupt != nil {
+			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
+				return signalToErr(signal), circuitCapacityReached
 			}
-			return atomic.LoadInt32(interrupt) == commitInterruptNewHead, circuitCapacityReached
 		}
 		// If we have collected enough transactions then we're done
 		if !w.chainConfig.Scroll.IsValidL2TxCount(env.tcount - env.l1TxCount + 1) {
@@ -1123,7 +1136,7 @@ loop:
 	if interrupt != nil {
 		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
 	}
-	return false, circuitCapacityReached
+	return nil, circuitCapacityReached
 }
 
 // commitNewWork generates several new sealing tasks based on the parent block.
@@ -1229,39 +1242,33 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		w.commit(uncles, nil, false, tstart)
 	}
 
-	// Fill the block with all available pending transactions.
-	pending := w.eth.TxPool().Pending(true)
-	// Short circuit if there is no available pending transactions.
-	// But if we disable empty precommit already, ignore it. Since
-	// empty block is necessary to keep the liveness of the network.
-	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
-		w.updateSnapshot()
+	err = w.fillTransactions(w.current, nil, interrupt)
+	switch {
+	case err == nil:
+		// The entire block is filled, decrease resubmit interval in case
+		// of current interval is larger than the user-specified one.
+		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
+
+	case errors.Is(err, errBlockInterruptedByRecommit):
+		// Notify resubmit loop to increase resubmitting interval if the
+		// interruption is due to frequent commits.
+		gaslimit := w.current.header.GasLimit
+		ratio := float64(gaslimit-w.current.gasPool.Gas()) / float64(gaslimit)
+		if ratio < 0.1 {
+			ratio = 0.1
+		}
+		w.resubmitAdjustCh <- &intervalAdjust{
+			ratio: ratio,
+			inc:   true,
+		}
+
+	case errors.Is(err, errBlockInterruptedByNewHead):
+		// If the block building is interrupted by newhead event, discard it
+		// totally. Committing the interrupted block introduces unnecessary
+		// delay, and possibly causes miner to mine on the previous head,
+		// which could result in higher uncle rate.
+		w.current.discard()
 		return
-	}
-
-	// Split the pending transactions into locals and remotes
-	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-	for _, account := range w.eth.TxPool().Locals() {
-		if txs := remoteTxs[account]; len(txs) > 0 {
-			delete(remoteTxs, account)
-			localTxs[account] = txs
-		}
-	}
-	var skipCommit, circuitCapacityReached bool
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs, header.BaseFee)
-		skipCommit, circuitCapacityReached = w.commitTransactions(w.current, txs, w.coinbase, interrupt)
-		if skipCommit {
-			return
-		}
-	}
-
-	if len(remoteTxs) > 0 && !circuitCapacityReached {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs, header.BaseFee)
-		skipCommit, _ = w.commitTransactions(w.current, txs, w.coinbase, interrupt)
-		if skipCommit {
-			return
-		}
 	}
 
 	w.commit(uncles, w.fullTaskHook, true, tstart)
@@ -1370,4 +1377,19 @@ func totalFees(block *types.Block, receipts []*types.Receipt) *big.Float {
 		feesWei.Add(feesWei, new(big.Int).Mul(new(big.Int).SetUint64(receipts[i].GasUsed), minerFee))
 	}
 	return new(big.Float).Quo(new(big.Float).SetInt(feesWei), new(big.Float).SetInt(big.NewInt(params.Ether)))
+}
+
+// signalToErr converts the interruption signal to a concrete error type for return.
+// The given signal must be a valid interruption signal.
+func signalToErr(signal int32) error {
+	switch signal {
+	case commitInterruptNewHead:
+		return errBlockInterruptedByNewHead
+	case commitInterruptResubmit:
+		return errBlockInterruptedByRecommit
+	case commitInterruptTimeout:
+		return errBlockInterruptedByTimeout
+	default:
+		panic(fmt.Errorf("undefined signal %d", signal))
+	}
 }

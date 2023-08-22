@@ -23,10 +23,11 @@ type getWorkReq struct {
 }
 
 type newBlockResult struct {
-	block    *types.Block
-	state    *state.StateDB
-	receipts types.Receipts
-	err      error
+	block          *types.Block
+	state          *state.StateDB
+	receipts       types.Receipts
+	rowConsumption *types.RowConsumption
+	err            error
 }
 
 // generateParams wraps various of settings for generating sealing task.
@@ -109,8 +110,11 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 // fillTransactions retrieves the pending transactions from the txpool and fills them
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
-func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) {
-	var circuitCapacityReached bool
+func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) error {
+	var (
+		err                    error
+		circuitCapacityReached bool
+	)
 	if len(l1Transactions) > 0 {
 		l1Txs := make(map[common.Address]types.Transactions)
 		for _, tx := range l1Transactions {
@@ -124,9 +128,9 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
-		if circuitCapacityReached {
-			return
+		err, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		if err != nil || circuitCapacityReached {
+			return err
 		}
 	}
 
@@ -142,39 +146,49 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		_, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
-		if circuitCapacityReached {
-			return
+		err, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		if err != nil || circuitCapacityReached {
+			return err
 		}
 	}
 	if len(remoteTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
+		err, _ = w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
 	}
+	return err
 }
 
 // generateWork generates a sealing block based on the given parameters.
 // TODO the produced state data by the transactions will be commit to database, whether the block is confirmed or not.
 // TODO this issue will persist until the current zktrie based database optimizes its strategy.
-func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (*types.Block, *state.StateDB, types.Receipts, error) {
+func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
 	// reset circuitCapacityChecker for a new block
 	w.circuitCapacityChecker.Reset()
 	work, err := w.prepareWork(genParams)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	defer work.discard()
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	w.fillTransactions(work, genParams.transactions, interrupt)
+	fillTxErr := w.fillTransactions(work, genParams.transactions, interrupt)
+	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
+		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(w.newBlockTimeout))
+	}
+
+	// make an error if the first L1Message is excluded from the sealed block
+	// which means it will never be involved
+	if genParams.transactions.Len() > 0 && work.tcount == 0 {
+		return nil, nil, nil, nil, fmt.Errorf("the fist pre transaction cannot be involved in the block, L1MessageQueueIndex: %d", genParams.transactions[0].L1MessageQueueIndex())
+	}
 
 	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return block, work.state, work.receipts, nil
+	return block, work.state, work.receipts, work.accRows, nil
 }
 
 func (env *environment) discard() {
@@ -185,7 +199,7 @@ func (env *environment) discard() {
 }
 
 // getSealingBlockAndState sealing a new block based on parentHash.
-func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, error) {
+func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
 	interrupt := new(int32)
 	timer := time.AfterFunc(w.newBlockTimeout, func() {
 		atomic.StoreInt32(interrupt, commitInterruptTimeout)
@@ -204,11 +218,8 @@ func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.
 	select {
 	case w.getWorkCh <- req:
 		result := <-req.result
-		if result.err != nil {
-			return nil, nil, nil, result.err
-		}
-		return result.block, result.state, result.receipts, nil
+		return result.block, result.state, result.receipts, result.rowConsumption, result.err
 	case <-w.exitCh:
-		return nil, nil, nil, errors.New("miner closed")
+		return nil, nil, nil, nil, errors.New("miner closed")
 	}
 }

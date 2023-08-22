@@ -243,7 +243,7 @@ func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscript
 	return miner.worker.pendingLogsFeed.Subscribe(ch)
 }
 
-func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, error) {
+func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
 	return miner.worker.generateWork(&generateParams{
 		parentHash:   parentHash,
 		timestamp:    uint64(timestamp.Unix()),
@@ -251,7 +251,7 @@ func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp ti
 	}, nil)
 }
 
-func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, error) {
+func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
 	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions)
 }
 

@@ -3,6 +3,7 @@ package catalyst
 import (
 	"errors"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"math/big"
 	"sync"
 	"time"
@@ -59,6 +60,7 @@ type executionResult struct {
 	block            *types.Block
 	state            *state.StateDB
 	receipts         types.Receipts
+	rc               *types.RowConsumption
 	procTime         time.Duration
 	withdrawTrieRoot common.Hash
 }
@@ -81,7 +83,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	block, state, receipts, err := api.eth.Miner().GetSealingBlockAndState(parent.Hash(), time.Now(), transactions)
+	block, state, receipts, rc, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +93,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	//	 return nil, nil
 	// }
 	procTime := time.Since(start)
-	withdrawTrieRoot := api.writeVerified(state, block, receipts, procTime)
+	withdrawTrieRoot := api.writeVerified(state, block, receipts, rc, procTime)
 	return &ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -111,7 +113,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}, nil
 }
 
-func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, procTime time.Duration) common.Hash {
+func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, rc *types.RowConsumption, procTime time.Duration) common.Hash {
 	withdrawTrieRoot := withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, state)
 	api.verifiedMapLock.Lock()
 	defer api.verifiedMapLock.Unlock()
@@ -119,6 +121,7 @@ func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Bloc
 		block:            block,
 		state:            state,
 		receipts:         receipts,
+		rc:               rc,
 		procTime:         procTime,
 		withdrawTrieRoot: withdrawTrieRoot,
 	}
@@ -184,7 +187,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 			false,
 		}, nil
 	}
-	api.writeVerified(stateDB, block, receipts, procTime)
+	api.writeVerified(stateDB, block, receipts, nil, procTime)
 	return &GenericResponse{
 		true,
 	}, nil
@@ -223,6 +226,11 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 	bas, verified := api.isVerified(block.Hash())
 	if verified {
 		api.eth.BlockChain().UpdateBlockProcessMetrics(bas.state, bas.procTime)
+		if bas.rc != nil {
+			if rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), block.Hash()) == nil {
+				rawdb.WriteBlockRowConsumption(api.eth.ChainDb(), block.Hash(), bas.rc)
+			}
+		}
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
 

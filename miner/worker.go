@@ -872,46 +872,53 @@ func (w *worker) updateSnapshot() {
 }
 
 func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
+	var accRows *types.RowConsumption
+
+	// do not do CCC checks on follower nodes
+	if w.isRunning() {
+		snap := env.state.Snapshot()
+
+		log.Trace(
+			"Worker apply ccc for tx",
+			"id", w.circuitCapacityChecker.ID,
+			"txhash", tx.Hash(),
+		)
+
+		// 1. we have to check circuit capacity before `core.ApplyTransaction`,
+		// because if the tx can be successfully executed but circuit capacity overflows, it will be inconvenient to revert.
+		// 2. even if we don't commit to the state during the tracing (which means `clearJournalAndRefund` is not called during the tracing),
+		// the `refund` value will still be correct, because:
+		// 2.1 when starting handling the first tx, `state.refund` is 0 by default,
+		// 2.2 after tracing, the state is either committed in `core.ApplyTransaction`, or reverted, so the `state.refund` can be cleared,
+		// 2.3 when starting handling the following txs, `state.refund` comes as 0
+		traces, err := env.traceEnv.GetBlockTrace(
+			types.NewBlockWithHeader(env.header).WithBody([]*types.Transaction{tx}, nil),
+		)
+		if err != nil {
+			// `env.traceEnv.State` & `env.state` share a same pointer to the state, so only need to revert `env.state`
+			env.state.RevertToSnapshot(snap)
+			return nil, err
+		}
+		accRows, err = w.circuitCapacityChecker.ApplyTransaction(traces)
+		if err != nil {
+			// `env.traceEnv.State` & `env.state` share a same pointer to the state, so only need to revert `env.state`
+			env.state.RevertToSnapshot(snap)
+			return nil, err
+		}
+		log.Trace(
+			"Worker apply ccc for tx result",
+			"id", w.circuitCapacityChecker.ID,
+			"txhash", tx.Hash(),
+			"accRows", accRows,
+		)
+
+		// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
+		env.state.RevertToSnapshot(snap)
+	}
+
+	// create new snapshot for `core.ApplyTransaction`
 	snap := env.state.Snapshot()
 
-	log.Trace(
-		"Worker apply ccc for tx",
-		"id", w.circuitCapacityChecker.ID,
-		"txhash", tx.Hash(),
-	)
-
-	// 1. we have to check circuit capacity before `core.ApplyTransaction`,
-	// because if the tx can be successfully executed but circuit capacity overflows, it will be inconvenient to revert.
-	// 2. even if we don't commit to the state during the tracing (which means `clearJournalAndRefund` is not called during the tracing),
-	// the `refund` value will still be correct, because:
-	// 2.1 when starting handling the first tx, `state.refund` is 0 by default,
-	// 2.2 after tracing, the state is either committed in `core.ApplyTransaction`, or reverted, so the `state.refund` can be cleared,
-	// 2.3 when starting handling the following txs, `state.refund` comes as 0
-	traces, err := env.traceEnv.GetBlockTrace(
-		types.NewBlockWithHeader(env.header).WithBody([]*types.Transaction{tx}, nil),
-	)
-	if err != nil {
-		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
-		env.state.RevertToSnapshot(snap)
-		return nil, err
-	}
-	accRows, err := w.circuitCapacityChecker.ApplyTransaction(traces)
-	if err != nil {
-		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
-		env.state.RevertToSnapshot(snap)
-		return nil, err
-	}
-	log.Trace(
-		"Worker apply ccc for tx result",
-		"id", w.circuitCapacityChecker.ID,
-		"txhash", tx.Hash(),
-		"accRows", accRows,
-	)
-
-	// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
-	env.state.RevertToSnapshot(snap)
-	// create new snapshot for `core.ApplyTransaction`
-	snap = env.state.Snapshot()
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		env.state.RevertToSnapshot(snap)
@@ -1279,7 +1286,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 func (w *worker) commit(uncles []*types.Header, interval func(), update bool, start time.Time) error {
 	// set w.current.accRows for empty-but-not-genesis block
 	if (w.current.header.Number.Uint64() != 0) &&
-		(w.current.accRows == nil || len(*w.current.accRows) == 0) {
+		(w.current.accRows == nil || len(*w.current.accRows) == 0) && w.isRunning() {
 		log.Trace(
 			"Worker apply ccc for empty block",
 			"id", w.circuitCapacityChecker.ID,

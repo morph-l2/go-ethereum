@@ -1,3 +1,7 @@
+#!/bin/sh
+#script for validator entrypoint
+set -exu
+
 GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morphism/setup/geth-data}"
 JWT_SECRET_PATH="${JWT_SECRET_PATH:-/data/morphism/setup/jwt-secret.txt}"
 DEFAULE_MINER_ETHERBASE="0x0e87cd091e091562F25CB1cf4641065dA2C049F5"

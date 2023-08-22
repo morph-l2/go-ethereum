@@ -1,5 +1,5 @@
 #!/bin/sh
-#script for sentry entrypoint
+#script for validator entrypoint
 set -exu
 
 GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morphism/setup/geth-data}"

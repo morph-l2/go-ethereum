@@ -90,14 +90,14 @@ func TestValidateL2Block(t *testing.T) {
 	config := l2ChainConfig()
 
 	// wrong block number
-	_, err := api.ValidateL2Block(ExecutableL2Data{Number: 2})
+	_, err := api.ValidateL2Block(ExecutableL2Data{Number: 2}, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "discontinuous block number")
 
 	// wrong parent hash
 	currentBlockHash := api.eth.BlockChain().CurrentHeader().Hash()
 	currentBlockHash[0] = 0
-	_, err = api.ValidateL2Block(ExecutableL2Data{Number: 1, ParentHash: currentBlockHash})
+	_, err = api.ValidateL2Block(ExecutableL2Data{Number: 1, ParentHash: currentBlockHash}, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "wrong parent hash")
 
@@ -124,17 +124,17 @@ func TestValidateL2Block(t *testing.T) {
 	wrongL2Data := l2Data
 	wrongL2Data.BaseFee = big.NewInt(333)
 
-	validResp, err := api.ValidateL2Block(wrongL2Data)
+	validResp, err := api.ValidateL2Block(wrongL2Data, nil)
 	require.NoError(t, err)
 	require.False(t, validResp.Success)
 
 	wrongL2Data = l2Data
 	wrongL2Data.StateRoot[0] = wrongL2Data.StateRoot[0] + 1
-	validResp, err = api.ValidateL2Block(wrongL2Data)
+	validResp, err = api.ValidateL2Block(wrongL2Data, nil)
 	require.NoError(t, err)
 	require.False(t, validResp.Success)
 
-	validResp, err = api.ValidateL2Block(l2Data)
+	validResp, err = api.ValidateL2Block(l2Data, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
 
@@ -144,7 +144,7 @@ func TestValidateL2Block(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, len(l2Data.Transactions))
 
-	validResp, err = api.ValidateL2Block(*resp)
+	validResp, err = api.ValidateL2Block(*resp, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
 }
@@ -190,7 +190,7 @@ func TestNewL2Block(t *testing.T) {
 	resp, err := api.AssembleL2Block(AssembleL2BlockParams{Number: 2})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, len(resp.Transactions))
-	validResp, err := api.ValidateL2Block(*resp)
+	validResp, err := api.ValidateL2Block(*resp, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
 	err = api.NewL2Block(*resp, types.BLSData{})

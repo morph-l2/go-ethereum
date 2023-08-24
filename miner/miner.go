@@ -251,8 +251,8 @@ func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp ti
 	}, nil)
 }
 
-func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
-	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions)
+func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions, noTxs bool) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
+	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions, noTxs)
 }
 
 func (miner *Miner) MakeHeader(parent *types.Block, timestamp uint64, coinBase common.Address) (*types.Header, error) {

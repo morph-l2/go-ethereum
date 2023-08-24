@@ -3,10 +3,11 @@ package catalyst
 import (
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"math/big"
 	"sync"
 	"time"
+
+	"github.com/scroll-tech/go-ethereum/core/rawdb"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/state"
@@ -83,7 +84,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	block, state, receipts, rc, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
+	block, state, receipts, rc, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions, false)
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +104,12 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		BaseFee:      block.BaseFee(),
 		Transactions: encodeTransactions(block.Transactions()),
 
-		StateRoot:        block.Root(),
-		GasUsed:          block.GasUsed(),
-		ReceiptRoot:      block.ReceiptHash(),
-		LogsBloom:        block.Bloom().Bytes(),
-		WithdrawTrieRoot: withdrawTrieRoot,
+		StateRoot:          block.Root(),
+		GasUsed:            block.GasUsed(),
+		ReceiptRoot:        block.ReceiptHash(),
+		LogsBloom:          block.Bloom().Bytes(),
+		NextL1MessageIndex: block.Header().NextL1MsgIndex,
+		WithdrawTrieRoot:   withdrawTrieRoot,
 
 		Hash: block.Hash(),
 	}, nil
@@ -135,7 +137,7 @@ func (api *l2ConsensusAPI) isVerified(blockHash common.Hash) (executionResult, b
 	return er, found
 }
 
-func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericResponse, error) {
+func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages []types.L1MessageTx) (*GenericResponse, error) {
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
@@ -147,7 +149,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.executableDataToBlock(params, types.BLSData{})
+	block, l1MessagesRoot, err := api.executableDataToBlock(params, types.BLSData{})
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +174,29 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		return &GenericResponse{
 			false,
 		}, nil
+	}
+
+	if len(l1Messages) > 0 {
+		l1MsgTxs := make(types.Transactions, len(l1Messages))
+		for i, l1Msg := range l1Messages {
+			l1MsgTxs[i] = types.NewTx(&l1Msg)
+		}
+
+		if l1MessagesRoot != types.DeriveSha(l1MsgTxs, trie.NewStackTrie(nil)) { // found the some l1Messages from collected messages are ignored.
+			block, _, _, _, err := api.eth.Miner().BuildBlock(params.ParentHash, time.Now(), l1MsgTxs, true)
+			if err != nil {
+				log.Error("error building block with only L1Messages", "error", err)
+				return &GenericResponse{
+					false,
+				}, nil
+			}
+			if block.TxHash() != l1MessagesRoot {
+				log.Error("the involved L1Messages from block is not expected")
+				return &GenericResponse{
+					false,
+				}, nil
+			}
+		}
 	}
 
 	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), false)
@@ -212,7 +237,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 		return fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.executableDataToBlock(params, bls)
+	block, _, err := api.executableDataToBlock(params, bls)
 	if err != nil {
 		return err
 	}
@@ -290,7 +315,7 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSD
 		BaseFee:  params.BaseFee,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
-	txs, err := decodeTransactions(params.Transactions)
+	txs, _, err := decodeTransactions(params.Transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -298,28 +323,29 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSD
 	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
 }
 
-func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, error) {
+func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, common.Hash, error) {
 	header := &types.Header{
-		ParentHash: params.ParentHash,
-		Number:     big.NewInt(int64(params.Number)),
-		GasUsed:    params.GasUsed,
-		GasLimit:   params.GasLimit,
-		Time:       params.Timestamp,
-		Coinbase:   params.Miner,
-		BLSData:    blsData,
-		BaseFee:    params.BaseFee,
+		ParentHash:     params.ParentHash,
+		Number:         big.NewInt(int64(params.Number)),
+		GasUsed:        params.GasUsed,
+		GasLimit:       params.GasLimit,
+		Time:           params.Timestamp,
+		Coinbase:       params.Miner,
+		BLSData:        blsData,
+		BaseFee:        params.BaseFee,
+		NextL1MsgIndex: params.NextL1MessageIndex,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
 
-	txs, err := decodeTransactions(params.Transactions)
+	txs, l1MsgRoot, err := decodeTransactions(params.Transactions)
 	if err != nil {
-		return nil, err
+		return nil, l1MsgRoot, err
 	}
 	header.TxHash = types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))
 	header.ReceiptHash = params.ReceiptRoot
 	header.Root = params.StateRoot
 	header.Bloom = types.BytesToBloom(params.LogsBloom)
-	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
+	return types.NewBlockWithHeader(header).WithBody(txs, nil), l1MsgRoot, nil
 }
 
 func (api *l2ConsensusAPI) VerifyBlock(block *types.Block) error {

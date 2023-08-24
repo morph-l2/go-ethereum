@@ -233,20 +233,33 @@ func encodeTransactions(txs []*types.Transaction) [][]byte {
 	return enc
 }
 
-func decodeTransactions(enc [][]byte) ([]*types.Transaction, error) {
-	var txs = make([]*types.Transaction, len(enc))
+func decodeTransactions(enc [][]byte) ([]*types.Transaction, common.Hash, error) {
+	var (
+		txs            = make([]*types.Transaction, len(enc))
+		l1Txs          = make([]*types.Transaction, 0)
+		l1MessagesRoot common.Hash
+	)
 	for i, encTx := range enc {
 		var tx types.Transaction
 		if err := tx.UnmarshalBinary(encTx); err != nil {
-			return nil, fmt.Errorf("invalid transaction %d: %v", i, err)
+			return nil, common.Hash{}, fmt.Errorf("invalid transaction %d: %v", i, err)
 		}
 		txs[i] = &tx
+
+		if tx.IsL1MessageTx() {
+			l1Txs = append(l1Txs, &tx)
+		}
 	}
-	return txs, nil
+
+	if len(l1Txs) > 0 {
+		l1MessagesRoot = types.DeriveSha(types.Transactions(l1Txs), trie.NewStackTrie(nil))
+	}
+
+	return txs, l1MessagesRoot, nil
 }
 
 func insertBlockParamsToBlock(config *chainParams.ChainConfig, parent *types.Header, params executableData) (*types.Block, error) {
-	txs, err := decodeTransactions(params.Transactions)
+	txs, _, err := decodeTransactions(params.Transactions)
 	if err != nil {
 		return nil, err
 	}

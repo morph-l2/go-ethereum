@@ -106,8 +106,9 @@ type environment struct {
 	receipts []*types.Receipt
 
 	// circuit capacity check related fields
-	traceEnv *core.TraceEnv        // env for tracing
-	accRows  *types.RowConsumption // accumulated row consumption for a block
+	traceEnv       *core.TraceEnv        // env for tracing
+	accRows        *types.RowConsumption // accumulated row consumption for a block
+	nextL1MsgIndex uint64                // next L1 queue index to be processed
 }
 
 // task contains all information for consensus engine sealing and result submitting.
@@ -778,14 +779,15 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 	state.StartPrefetcher("miner")
 
 	env := &environment{
-		signer:    types.MakeSigner(w.chainConfig, header.Number),
-		state:     state,
-		ancestors: mapset.NewSet(),
-		family:    mapset.NewSet(),
-		uncles:    mapset.NewSet(),
-		header:    header,
-		traceEnv:  traceEnv,
-		accRows:   nil,
+		signer:         types.MakeSigner(w.chainConfig, header.Number),
+		state:          state,
+		ancestors:      mapset.NewSet(),
+		family:         mapset.NewSet(),
+		uncles:         mapset.NewSet(),
+		header:         header,
+		traceEnv:       traceEnv,
+		accRows:        nil,
+		nextL1MsgIndex: parent.Header().NextL1MsgIndex,
 	}
 	// when 08 is processed ancestors contain 07 (quick block)
 	for _, ancestor := range w.chain.GetBlocksFromHash(parent.Hash(), 7) {
@@ -988,7 +990,14 @@ loop:
 		if tx == nil {
 			break
 		}
-
+		if tx.IsL1MessageTx() && tx.AsL1MessageTx().QueueIndex != env.nextL1MsgIndex {
+			log.Error(
+				"Unexpected L1 message queue index in worker",
+				"expected", env.nextL1MsgIndex,
+				"got", tx.AsL1MessageTx().QueueIndex,
+			)
+			break
+		}
 		if !tx.IsL1MessageTx() && !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize+tx.Size()+common.HashLength) {
 			log.Trace("Block size limit reached", "have", env.blockSize, "want", w.chainConfig.Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
@@ -1021,7 +1030,7 @@ loop:
 			// A single L1 message leads to out-of-gas. Skip it.
 			queueIndex := tx.AsL1MessageTx().QueueIndex
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "gas limit exceeded")
-			//env.nextL1MsgIndex = queueIndex + 1
+			env.nextL1MsgIndex = queueIndex + 1
 			txs.Shift()
 
 		case errors.Is(err, core.ErrGasLimitReached):
@@ -1043,7 +1052,10 @@ loop:
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
 			if tx.IsL1MessageTx() {
+				queueIndex := tx.AsL1MessageTx().QueueIndex
+				log.Debug("Including L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String())
 				env.l1TxCount++
+				env.nextL1MsgIndex = queueIndex + 1
 			}
 			env.tcount++
 			env.blockSize += tx.Size() + common.HashLength
@@ -1070,7 +1082,7 @@ loop:
 			queueIndex := tx.AsL1MessageTx().QueueIndex
 			log.Trace("Circuit capacity limit reached for a single tx", "tx", tx.Hash().String(), "queueIndex", queueIndex)
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "row consumption overflow")
-
+			env.nextL1MsgIndex = queueIndex + 1
 			// after `ErrTxRowConsumptionOverflow`, ccc might not revert updates
 			// associated with this transaction so we cannot pack more transactions.
 			// TODO: fix this in ccc and change these lines back to `txs.Shift()`
@@ -1094,6 +1106,7 @@ loop:
 			queueIndex := tx.AsL1MessageTx().QueueIndex
 			log.Trace("Unknown circuit capacity checker error for L1MessageTx", "tx", tx.Hash().String(), "queueIndex", queueIndex)
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "unknown row consumption error")
+			env.nextL1MsgIndex = queueIndex + 1
 
 			// after `ErrUnknown`, ccc might not revert updates associated
 			// with this transaction so we cannot pack more transactions.
@@ -1118,6 +1131,7 @@ loop:
 			if tx.IsL1MessageTx() {
 				queueIndex := tx.AsL1MessageTx().QueueIndex
 				log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "strange error", "err", err)
+				env.nextL1MsgIndex = queueIndex + 1
 			}
 			txs.Shift()
 		}
@@ -1249,7 +1263,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		w.commit(uncles, nil, false, tstart)
 	}
 
-	err = w.fillTransactions(w.current, nil, interrupt)
+	err = w.fillTransactions(w.current, nil, false, interrupt)
 	switch {
 	case err == nil:
 		// The entire block is filled, decrease resubmit interval in case

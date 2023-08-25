@@ -30,6 +30,12 @@ func (m KvMap) Put(k, v []byte) {
 	m[sha256.Sum256(k)] = KV{k, v}
 }
 
+func (m KvMap) AddFrom(src KvMap) {
+	for k, v := range src {
+		m[k] = KV{v.K, v.V}
+	}
+}
+
 // Concat concatenates arrays of bytes
 func Concat(vs ...[]byte) []byte {
 	var b bytes.Buffer

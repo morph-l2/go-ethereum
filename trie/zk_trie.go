@@ -124,8 +124,9 @@ func (t *ZkTrie) GetKey(kHashBytes []byte) []byte {
 // Committing flushes nodes from memory. Subsequent Get calls will load nodes
 // from the database.
 func (t *ZkTrie) Commit(LeafCallback) (common.Hash, int, error) {
-	// in current implmentation, every update of trie already writes into database
-	// so Commmit does nothing
+	// in current implementation, every update of trie writes into zkTrieDatabase cached map,
+	// so we need ZktrieDatabase.Commit() to flush them into storage
+	t.db.Commit()
 	return t.Hash(), 0, nil
 }
 

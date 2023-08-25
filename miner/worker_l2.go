@@ -3,6 +3,7 @@ package miner
 import (
 	"errors"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/trie"
 	"sync/atomic"
 	"time"
 
@@ -228,4 +229,37 @@ func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.
 	case <-w.exitCh:
 		return nil, nil, nil, nil, errors.New("miner closed")
 	}
+}
+
+func (w *worker) settleFromCollectedL1Messages(genParams *generateParams, transactions types.Transactions) (common.Hash, uint64, error) {
+	if transactions.Len() == 0 {
+		return common.Hash{}, 0, nil
+	}
+
+	env, err := w.prepareWork(genParams)
+	if err != nil {
+		return common.Hash{}, 0, err
+	}
+
+	l1Txs := make(map[common.Address]types.Transactions)
+	for _, tx := range transactions {
+		sender, _ := types.Sender(env.signer, tx)
+		senderTxs, ok := l1Txs[sender]
+		if ok {
+			senderTxs = append(senderTxs, tx)
+			l1Txs[sender] = senderTxs
+		} else {
+			l1Txs[sender] = types.Transactions{tx}
+		}
+	}
+
+	txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
+	w.commitTransactions(env, txs, env.header.Coinbase, nil)
+
+	var txRoot common.Hash
+	if len(env.txs) > 0 {
+		txRoot = types.DeriveSha(types.Transactions(env.txs), trie.NewStackTrie(nil))
+	}
+
+	return txRoot, env.nextL1MsgIndex, nil
 }

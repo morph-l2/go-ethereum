@@ -258,3 +258,11 @@ func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, tran
 func (miner *Miner) MakeHeader(parent *types.Block, timestamp uint64, coinBase common.Address) (*types.Header, error) {
 	return miner.worker.makeHeader(parent, timestamp, coinBase)
 }
+
+func (miner *Miner) SettleTxsFromCollectedL1Messages(parentHash common.Hash, transactions types.Transactions) (common.Hash, uint64, error) {
+	return miner.worker.settleFromCollectedL1Messages(&generateParams{
+		parentHash:   parentHash,
+		timestamp:    uint64(time.Now().Unix()),
+		transactions: transactions,
+	}, transactions)
+}

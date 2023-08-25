@@ -115,28 +115,6 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}, nil
 }
 
-func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, rc *types.RowConsumption, procTime time.Duration) common.Hash {
-	withdrawTrieRoot := withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, state)
-	api.verifiedMapLock.Lock()
-	defer api.verifiedMapLock.Unlock()
-	api.verified[block.Hash()] = executionResult{
-		block:            block,
-		state:            state,
-		receipts:         receipts,
-		rc:               rc,
-		procTime:         procTime,
-		withdrawTrieRoot: withdrawTrieRoot,
-	}
-	return withdrawTrieRoot
-}
-
-func (api *l2ConsensusAPI) isVerified(blockHash common.Hash) (executionResult, bool) {
-	api.verifiedMapLock.RLock()
-	defer api.verifiedMapLock.RUnlock()
-	er, found := api.verified[blockHash]
-	return er, found
-}
-
 func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages []types.L1MessageTx) (*GenericResponse, error) {
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
@@ -149,7 +127,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, l1MessagesRoot, err := api.executableDataToBlock(params, types.BLSData{})
+	block, actualL1MsgsRoot, err := api.executableDataToBlock(params, types.BLSData{})
 	if err != nil {
 		return nil, err
 	}
@@ -181,21 +159,32 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 		for i, l1Msg := range l1Messages {
 			l1MsgTxs[i] = types.NewTx(&l1Msg)
 		}
-
-		if l1MessagesRoot != types.DeriveSha(l1MsgTxs, trie.NewStackTrie(nil)) { // found the some l1Messages from collected messages are ignored.
-			block, _, _, _, err := api.eth.Miner().BuildBlock(params.ParentHash, time.Now(), l1MsgTxs, true)
+		collectedL1MsgsRoot := types.DeriveSha(l1MsgTxs, trie.NewStackTrie(nil))
+		if actualL1MsgsRoot != collectedL1MsgsRoot { // found some l1Messages from collected messages are ignored.
+			settledL1TxRoot, nextL1MsgIndex, err := api.eth.Miner().SettleTxsFromCollectedL1Messages(params.ParentHash, l1MsgTxs)
 			if err != nil {
-				log.Error("error building block with only L1Messages", "error", err)
+				log.Error("failed to SettleTxsFromCollectedL1Messages", "error", err)
 				return &GenericResponse{
 					false,
 				}, nil
 			}
-			if block.TxHash() != l1MessagesRoot {
+			if settledL1TxRoot != actualL1MsgsRoot {
 				log.Error("the involved L1Messages from block is not expected")
 				return &GenericResponse{
 					false,
 				}, nil
 			}
+			if nextL1MsgIndex != block.Header().NextL1MsgIndex {
+				log.Error("unexpected nextL1MsgIndex", "expected", nextL1MsgIndex, "got", block.Header().NextL1MsgIndex)
+				return &GenericResponse{
+					false,
+				}, nil
+			}
+		} else if parent.Header().NextL1MsgIndex+uint64(len(l1Messages)) != block.Header().NextL1MsgIndex {
+			log.Error("unexpected nextL1MsgIndex", "expected", parent.Header().NextL1MsgIndex+uint64(len(l1Messages)), "got", block.Header().NextL1MsgIndex)
+			return &GenericResponse{
+				false,
+			}, nil
 		}
 	}
 
@@ -358,4 +347,26 @@ func (api *l2ConsensusAPI) VerifyBlock(block *types.Block) error {
 		return err
 	}
 	return nil
+}
+
+func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, rc *types.RowConsumption, procTime time.Duration) common.Hash {
+	withdrawTrieRoot := withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, state)
+	api.verifiedMapLock.Lock()
+	defer api.verifiedMapLock.Unlock()
+	api.verified[block.Hash()] = executionResult{
+		block:            block,
+		state:            state,
+		receipts:         receipts,
+		rc:               rc,
+		procTime:         procTime,
+		withdrawTrieRoot: withdrawTrieRoot,
+	}
+	return withdrawTrieRoot
+}
+
+func (api *l2ConsensusAPI) isVerified(blockHash common.Hash) (executionResult, bool) {
+	api.verifiedMapLock.RLock()
+	defer api.verifiedMapLock.RUnlock()
+	er, found := api.verified[blockHash]
+	return er, found
 }

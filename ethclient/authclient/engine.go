@@ -28,9 +28,9 @@ func (ec *Client) AssembleL2Block(ctx context.Context, number *big.Int, transact
 }
 
 // ValidateL2Block validates a L2 Block
-func (ec *Client) ValidateL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data) (bool, error) {
+func (ec *Client) ValidateL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, l1Messages []types.L1MessageTx) (bool, error) {
 	var result catalyst.GenericResponse
-	err := ec.c.CallContext(ctx, &result, "engine_validateL2Block", executableL2Data)
+	err := ec.c.CallContext(ctx, &result, "engine_validateL2Block", executableL2Data, l1Messages)
 	return result.Success, err
 }
 

@@ -1012,6 +1012,7 @@ loop:
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "gas limit exceeded")
 			env.nextL1MsgIndex = queueIndex + 1
 			txs.Shift()
+			rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, "gas limit exceeded", env.header.Number.Uint64(), nil)
 
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account
@@ -1080,6 +1081,9 @@ loop:
 				w.circuitCapacityChecker.Reset()
 				log.Trace("Worker reset ccc", "id", w.circuitCapacityChecker.ID)
 				circuitCapacityReached = false
+
+				// Store skipped transaction in local db
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, "row consumption overflow", env.header.Number.Uint64(), nil)
 			}
 
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && tx.IsL1MessageTx():
@@ -1089,6 +1093,8 @@ loop:
 			log.Trace("Unknown circuit capacity checker error for L1MessageTx", "tx", tx.Hash().String(), "queueIndex", queueIndex)
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "unknown row consumption error")
 			env.nextL1MsgIndex = queueIndex + 1
+			// TODO: propagate more info about the error from CCC
+			rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, "unknown circuit capacity checker error", env.header.Number.Uint64(), nil)
 
 			// Normally we would do `txs.Shift()` here.
 			// However, after `ErrUnknown`, ccc might remain in an
@@ -1114,6 +1120,7 @@ loop:
 				queueIndex := tx.AsL1MessageTx().QueueIndex
 				log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "strange error", "err", err)
 				env.nextL1MsgIndex = queueIndex + 1
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, fmt.Sprintf("strange error: %v", err), env.header.Number.Uint64(), nil)
 			}
 			txs.Shift()
 		}

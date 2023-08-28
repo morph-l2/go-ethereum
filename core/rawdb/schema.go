@@ -109,6 +109,11 @@ var (
 
 	// Row consumption
 	rowConsumptionPrefix = []byte("rc") // rowConsumptionPrefix + hash -> row consumption by block
+
+	// Skipped transactions
+	numSkippedTransactionsKey    = []byte("NumberOfSkippedTransactions")
+	skippedTransactionPrefix     = []byte("skip") // skippedTransactionPrefix + tx hash -> skipped transaction
+	skippedTransactionHashPrefix = []byte("sh")   // skippedTransactionHashPrefix + index -> tx hash
 )
 
 const (
@@ -247,6 +252,13 @@ func configKey(hash common.Hash) []byte {
 	return append(configPrefix, hash.Bytes()...)
 }
 
+// encodeBigEndian encodes an index as big endian uint64
+func encodeBigEndian(index uint64) []byte {
+	enc := make([]byte, 8)
+	binary.BigEndian.PutUint64(enc, index)
+	return enc
+}
+
 // rowConsumptionKey = rowConsumptionPrefix + hash
 func rowConsumptionKey(hash common.Hash) []byte {
 	return append(rowConsumptionPrefix, hash.Bytes()...)
@@ -254,4 +266,14 @@ func rowConsumptionKey(hash common.Hash) []byte {
 
 func isNotFoundErr(err error) bool {
 	return errors.Is(err, leveldb.ErrNotFound) || errors.Is(err, memorydb.ErrMemorydbNotFound)
+}
+
+// SkippedTransactionKey = skippedTransactionPrefix + tx hash
+func SkippedTransactionKey(txHash common.Hash) []byte {
+	return append(skippedTransactionPrefix, txHash.Bytes()...)
+}
+
+// SkippedTransactionHashKey = skippedTransactionHashPrefix + index (uint64 big endian)
+func SkippedTransactionHashKey(index uint64) []byte {
+	return append(skippedTransactionHashPrefix, encodeBigEndian(index)...)
 }

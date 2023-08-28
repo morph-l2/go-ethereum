@@ -37,7 +37,6 @@ type generateParams struct {
 	parentHash   common.Hash        // Parent block hash, empty means the latest chain head
 	coinbase     common.Address     // The fee recipient address for including transaction
 	transactions types.Transactions // L1Message transactions to include at the start of the block
-	noTxs        bool               // Flag whether an empty block without any transaction is expected
 }
 
 // prepareWork constructs the sealing task according to the given parameters,
@@ -112,7 +111,7 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 // fillTransactions retrieves the pending transactions from the txpool and fills them
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
-func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, noTxs bool, interrupt *int32) error {
+func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) error {
 	var (
 		err                    error
 		circuitCapacityReached bool
@@ -143,28 +142,26 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 		}
 	}
 
-	if !noTxs {
-		// Split the pending transactions into locals and remotes
-		// Fill the block with all available pending transactions.
-		pending := w.eth.TxPool().Pending(true)
-		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-		for _, account := range w.eth.TxPool().Locals() {
-			if txs := remoteTxs[account]; len(txs) > 0 {
-				delete(remoteTxs, account)
-				localTxs[account] = txs
-			}
+	// Split the pending transactions into locals and remotes
+	// Fill the block with all available pending transactions.
+	pending := w.eth.TxPool().Pending(true)
+	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+	for _, account := range w.eth.TxPool().Locals() {
+		if txs := remoteTxs[account]; len(txs) > 0 {
+			delete(remoteTxs, account)
+			localTxs[account] = txs
 		}
-		if len(localTxs) > 0 {
-			txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-			err, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
-			if err != nil || circuitCapacityReached {
-				return err
-			}
+	}
+	if len(localTxs) > 0 {
+		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
+		err, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		if err != nil || circuitCapacityReached {
+			return err
 		}
-		if len(remoteTxs) > 0 {
-			txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-			err, _ = w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
-		}
+	}
+	if len(remoteTxs) > 0 {
+		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
+		err, _ = w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
 	}
 
 	return err
@@ -185,7 +182,7 @@ func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (*typ
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	fillTxErr := w.fillTransactions(work, genParams.transactions, genParams.noTxs, interrupt)
+	fillTxErr := w.fillTransactions(work, genParams.transactions, interrupt)
 	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(w.newBlockTimeout))
 	}
@@ -205,7 +202,7 @@ func (env *environment) discard() {
 }
 
 // getSealingBlockAndState sealing a new block based on parentHash.
-func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions, noTxs bool) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
+func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
 	interrupt := new(int32)
 	timer := time.AfterFunc(w.newBlockTimeout, func() {
 		atomic.StoreInt32(interrupt, commitInterruptTimeout)
@@ -218,7 +215,6 @@ func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.
 			parentHash:   parentHash,
 			timestamp:    uint64(timestamp.Unix()),
 			transactions: transactions,
-			noTxs:        noTxs,
 		},
 		result: make(chan *newBlockResult, 1),
 	}

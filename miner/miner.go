@@ -19,6 +19,7 @@ package miner
 
 import (
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"math/big"
 	"sync"
 	"time"
@@ -251,8 +252,12 @@ func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp ti
 	}, nil)
 }
 
-func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions, noTxs bool) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
-	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions, noTxs)
+func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
+	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions)
+}
+
+func (miner *Miner) GetCCC() *circuitcapacitychecker.CircuitCapacityChecker {
+	return miner.worker.circuitCapacityChecker
 }
 
 func (miner *Miner) MakeHeader(parent *types.Block, timestamp uint64, coinBase common.Address) (*types.Header, error) {

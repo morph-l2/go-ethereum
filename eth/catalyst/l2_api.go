@@ -84,7 +84,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	block, state, receipts, rc, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions, false)
+	block, state, receipts, rc, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 				}, nil
 			}
 			if settledL1TxRoot != actualL1MsgsRoot {
-				log.Error("the involved L1Messages from block is not expected")
+				log.Error("the involved L1Messages in the block is not expected")
 				return &GenericResponse{
 					false,
 				}, nil

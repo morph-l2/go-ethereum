@@ -898,7 +898,7 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 		)
 		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
 		// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
-		w.current.state.RevertToSnapshot(snap)
+		env.state.RevertToSnapshot(snap)
 		if err != nil {
 			return nil, err
 		}
@@ -1245,7 +1245,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		w.commit(uncles, nil, false, tstart)
 	}
 
-	err = w.fillTransactions(w.current, nil, false, interrupt)
+	err = w.fillTransactions(w.current, nil, interrupt)
 	switch {
 	case err == nil:
 		// The entire block is filled, decrease resubmit interval in case

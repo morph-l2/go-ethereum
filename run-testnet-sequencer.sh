@@ -1,3 +1,7 @@
+#!/bin/sh
+#script for sequencer entrypoint
+set -ex
+
 GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morphism/setup/geth-data}"
 JWT_SECRET_PATH="${JWT_SECRET_PATH:-/data/morphism/setup/jwt-secret.txt}"
 DEFAULE_MINER_ETHERBASE="0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
@@ -32,7 +36,8 @@ COMMAND="geth \
 --authrpc.vhosts="*" \
 --authrpc.jwtsecret=$JWT_SECRET_PATH \
 --gcmode=archive \
+--nodiscover \
 --mine \
 --miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"
 
-nohup $COMMAND > $GETH_LOG_FILE 2>&1 &
+$COMMAND

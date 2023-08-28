@@ -16,6 +16,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/vm"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/fees"
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
 	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/rpc"
@@ -43,6 +44,7 @@ type traceEnv struct {
 	// this lock is used to protect StorageTrace's read and write mutual exclusion.
 	sMu sync.Mutex
 	*types.StorageTrace
+	txStorageTraces []*types.StorageTrace
 	// zktrie tracer is used for zktrie storage to build additional deletion proof
 	zkTrieTracer     map[string]state.ZktrieProofTracer
 	executionResults []*types.ExecutionResult
@@ -124,6 +126,7 @@ func (api *API) createTraceEnv(ctx context.Context, config *TraceConfig, block *
 		},
 		zkTrieTracer:     make(map[string]state.ZktrieProofTracer),
 		executionResults: make([]*types.ExecutionResult, block.Transactions().Len()),
+		txStorageTraces:  make([]*types.StorageTrace, block.Transactions().Len()),
 	}
 
 	key := coinbase.String()
@@ -182,7 +185,12 @@ func (api *API) getBlockTrace(block *types.Block, env *traceEnv) (*types.BlockTr
 		msg, _ := tx.AsMessage(env.signer, block.BaseFee())
 		env.state.Prepare(tx.Hash(), i)
 		vmenv := vm.NewEVM(env.blockCtx, core.NewEVMTxContext(msg), env.state, api.backend.ChainConfig(), vm.Config{})
-		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas())); err != nil {
+		l1DataFee, err := fees.CalculateL1DataFee(tx, env.state)
+		if err != nil {
+			failed = err
+			break
+		}
+		if _, err = core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), l1DataFee); err != nil {
 			failed = err
 			break
 		}
@@ -202,6 +210,13 @@ func (api *API) getBlockTrace(block *types.Block, env *traceEnv) (*types.BlockTr
 			for _, proof := range delProofs {
 				env.DeletionProofs = append(env.DeletionProofs, proof)
 			}
+		}
+	}
+
+	// build dummy per-tx deletion proof
+	for _, txStorageTrace := range env.txStorageTraces {
+		if txStorageTrace != nil {
+			txStorageTrace.DeletionProofs = env.DeletionProofs
 		}
 	}
 
@@ -258,7 +273,11 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 	state.Prepare(txctx.TxHash, txctx.TxIndex)
 
 	// Computes the new state by applying the given message.
-	result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()))
+	l1DataFee, err := fees.CalculateL1DataFee(tx, state)
+	if err != nil {
+		return fmt.Errorf("tracing failed: %w", err)
+	}
+	result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), l1DataFee)
 	if err != nil {
 		return fmt.Errorf("tracing failed: %w", err)
 	}
@@ -288,13 +307,28 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 		})
 	}
 
+	txStorageTrace := &types.StorageTrace{
+		Proofs:        make(map[string][]hexutil.Bytes),
+		StorageProofs: make(map[string]map[string][]hexutil.Bytes),
+	}
+	// still we have no state root for per tx, only set the head and tail
+	if index == 0 {
+		txStorageTrace.RootBefore = state.GetRootHash()
+	} else if index == len(block.Transactions())-1 {
+		txStorageTrace.RootAfter = block.Root()
+	}
+
 	// merge required proof data
 	proofAccounts := tracer.UpdatedAccounts()
+	proofAccounts[vmenv.FeeRecipient()] = struct{}{}
 	for addr := range proofAccounts {
 		addrStr := addr.String()
 
 		env.pMu.Lock()
-		_, existed := env.Proofs[addrStr]
+		checkedProof, existed := env.Proofs[addrStr]
+		if existed {
+			txStorageTrace.Proofs[addrStr] = checkedProof
+		}
 		env.pMu.Unlock()
 		if existed {
 			continue
@@ -310,11 +344,16 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 		}
 		env.pMu.Lock()
 		env.Proofs[addrStr] = wrappedProof
+		txStorageTrace.Proofs[addrStr] = wrappedProof
 		env.pMu.Unlock()
 	}
 
 	proofStorages := tracer.UpdatedStorages()
 	for addr, keys := range proofStorages {
+		if _, existed := txStorageTrace.StorageProofs[addr.String()]; !existed {
+			txStorageTrace.StorageProofs[addr.String()] = make(map[string][]hexutil.Bytes)
+		}
+
 		env.sMu.Lock()
 		trie, err := state.GetStorageTrieForProof(addr)
 		if err != nil {
@@ -331,15 +370,17 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 			keyStr := key.String()
 			isDelete := bytes.Equal(values.Bytes(), common.Hash{}.Bytes())
 
+			txm := txStorageTrace.StorageProofs[addrStr]
 			env.sMu.Lock()
 			m, existed := env.StorageProofs[addrStr]
 			if !existed {
 				m = make(map[string][]hexutil.Bytes)
 				env.StorageProofs[addrStr] = m
 				if zktrieTracer.Available() {
-					env.zkTrieTracer[addrStr] = zktrieTracer
+					env.zkTrieTracer[addrStr] = state.NewProofTracer(trie)
 				}
-			} else if _, existed := m[keyStr]; existed {
+			} else if proof, existed := m[keyStr]; existed {
+				txm[keyStr] = proof
 				// still need to touch tracer for deletion
 				if isDelete && zktrieTracer.Available() {
 					env.zkTrieTracer[addrStr].MarkDeletion(key)
@@ -365,6 +406,7 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 				wrappedProof[i] = bt
 			}
 			env.sMu.Lock()
+			txm[keyStr] = wrappedProof
 			m[keyStr] = wrappedProof
 			if zktrieTracer.Available() {
 				if isDelete {
@@ -376,21 +418,18 @@ func (api *API) getTxResult(env *traceEnv, state *state.StateDB, index int, bloc
 		}
 	}
 
-	var l1Fee uint64
-	if result.L1Fee != nil {
-		l1Fee = result.L1Fee.Uint64()
-	}
 	env.executionResults[index] = &types.ExecutionResult{
 		From:           sender,
 		To:             receiver,
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
-		L1Fee:          l1Fee,
+		L1DataFee:      (*hexutil.Big)(result.L1DataFee),
 		Gas:            result.UsedGas,
 		Failed:         result.Failed(),
 		ReturnValue:    fmt.Sprintf("%x", returnVal),
 		StructLogs:     vm.FormatLogs(tracer.StructLogs()),
 	}
+	env.txStorageTraces[index] = txStorageTrace
 
 	return nil
 }
@@ -402,6 +441,49 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 	txs := make([]*types.TransactionData, block.Transactions().Len())
 	for i, tx := range block.Transactions() {
 		txs[i] = types.NewTransactionData(tx, block.NumberU64(), api.backend.ChainConfig())
+	}
+
+	intrinsicStorageProofs := map[common.Address][]common.Hash{
+		rcfg.L2MessageQueueAddress: {rcfg.WithdrawTrieRootSlot},
+		rcfg.L1GasPriceOracleAddress: {
+			rcfg.L1BaseFeeSlot,
+			rcfg.OverheadSlot,
+			rcfg.ScalarSlot,
+		},
+	}
+
+	for addr, storages := range intrinsicStorageProofs {
+		if _, existed := env.Proofs[addr.String()]; !existed {
+			if proof, err := statedb.GetProof(addr); err != nil {
+				log.Error("Proof for intrinstic address not available", "error", err, "address", addr)
+			} else {
+				wrappedProof := make([]hexutil.Bytes, len(proof))
+				for i, bt := range proof {
+					wrappedProof[i] = bt
+				}
+				env.Proofs[addr.String()] = wrappedProof
+			}
+		}
+
+		if _, existed := env.StorageProofs[addr.String()]; !existed {
+			env.StorageProofs[addr.String()] = make(map[string][]hexutil.Bytes)
+		}
+
+		for _, slot := range storages {
+			if _, existed := env.StorageProofs[addr.String()][slot.String()]; !existed {
+				if trie, err := statedb.GetStorageTrieForProof(addr); err != nil {
+					log.Error("Storage proof for intrinstic address not available", "error", err, "address", addr)
+				} else if proof, _ := statedb.GetSecureTrieProof(trie, slot); err != nil {
+					log.Error("Get storage proof for intrinstic address failed", "error", err, "address", addr, "slot", slot)
+				} else {
+					wrappedProof := make([]hexutil.Bytes, len(proof))
+					for i, bt := range proof {
+						wrappedProof[i] = bt
+					}
+					env.StorageProofs[addr.String()][slot.String()] = wrappedProof
+				}
+			}
+		}
 	}
 
 	blockTrace := &types.BlockTrace{
@@ -418,6 +500,7 @@ func (api *API) fillBlockTrace(env *traceEnv, block *types.Block) (*types.BlockT
 		Header:           block.Header(),
 		StorageTrace:     env.StorageTrace,
 		ExecutionResults: env.executionResults,
+		TxStorageTraces:  env.txStorageTraces,
 		Transactions:     txs,
 	}
 

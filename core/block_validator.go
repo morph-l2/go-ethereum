@@ -51,11 +51,16 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engin
 // validated at this point.
 func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	// Check whether the block's known, and if not, that it's linkable
-	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) {
+	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) &&
+		len(block.Transactions()) > 0 { // we allow the same state root when a block with no transactions
 		return ErrKnownBlock
 	}
-	if !v.config.Scroll.IsValidTxCount(len(block.Transactions())) {
+	if !v.config.Scroll.IsValidL2TxCount(block.CountL2Tx()) {
 		return consensus.ErrInvalidTxCount
+	}
+	// Check if block payload size is smaller than the max size
+	if !v.config.Scroll.IsValidBlockSize(block.PayloadSize()) {
+		return ErrInvalidBlockPayloadSize
 	}
 	// Header validity is known at this point, check the uncles and transactions
 	header := block.Header()

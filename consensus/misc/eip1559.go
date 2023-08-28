@@ -57,6 +57,10 @@ func VerifyEip1559Header(config *params.ChainConfig, parent, header *types.Heade
 		expectedBaseFee = big.NewInt(0)
 	}
 
+	// prevent nil pointer error
+	if expectedBaseFee == nil {
+		expectedBaseFee = common.Big0
+	}
 	if header.BaseFee.Cmp(expectedBaseFee) != 0 {
 		return fmt.Errorf("invalid baseFee: have %s, want %s, parentBaseFee %s, parentGasUsed %d",
 			expectedBaseFee, header.BaseFee, parent.BaseFee, parent.GasUsed)

@@ -521,13 +521,14 @@ func (w *worker) mainLoop() {
 			// new block created.
 
 		case req := <-w.getWorkCh:
-			block, stateDB, receipt, rowConsumption, err := w.generateWork(req.params, req.interrupt)
+			block, stateDB, receipt, rowConsumption, skippedTxs, err := w.generateWork(req.params, req.interrupt)
 			req.result <- &newBlockResult{
 				err:            err,
 				block:          block,
 				state:          stateDB,
 				receipts:       receipt,
 				rowConsumption: rowConsumption,
+				skippedTxs:     skippedTxs,
 			}
 
 		case ev := <-w.chainSideCh:
@@ -929,12 +930,16 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 	return receipt.Logs, nil
 }
 
-func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) (error, bool) {
+// commitTransactions returns
+// error: any error occurs when execute transactions
+// circuitCapacityReached: boolean value indicates whether reaches the circuit capacity
+// skipped transactions: the skipped L1Message transactions with reasons
+func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) (error, bool, []*types.SkippedTransaction) {
 	var circuitCapacityReached bool
 
 	// Short circuit if current is nil
 	if env == nil {
-		return errors.New("no env found"), circuitCapacityReached
+		return errors.New("no env found"), circuitCapacityReached, nil
 	}
 
 	gasLimit := env.header.GasLimit
@@ -942,13 +947,16 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		env.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
-	var coalescedLogs []*types.Log
+	var (
+		coalescedLogs []*types.Log
+		skippedTxs    = make([]*types.SkippedTransaction, 0)
+	)
 
 loop:
 	for {
 		if interrupt != nil {
 			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
-				return signalToErr(signal), circuitCapacityReached
+				return signalToErr(signal), circuitCapacityReached, skippedTxs
 			}
 		}
 		if env.gasPool.Gas() < params.TxGas {
@@ -1012,7 +1020,10 @@ loop:
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "gas limit exceeded")
 			env.nextL1MsgIndex = queueIndex + 1
 			txs.Shift()
-			rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, "gas limit exceeded", env.header.Number.Uint64(), nil)
+			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+				Tx:     *tx,
+				Reason: "gas limit exceeded",
+			})
 
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account
@@ -1082,8 +1093,10 @@ loop:
 				log.Trace("Worker reset ccc", "id", w.circuitCapacityChecker.ID)
 				circuitCapacityReached = false
 
-				// Store skipped transaction in local db
-				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, "row consumption overflow", env.header.Number.Uint64(), nil)
+				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+					Tx:     *tx,
+					Reason: "row consumption overflow",
+				})
 			}
 
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && tx.IsL1MessageTx():
@@ -1094,7 +1107,10 @@ loop:
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "unknown row consumption error")
 			env.nextL1MsgIndex = queueIndex + 1
 			// TODO: propagate more info about the error from CCC
-			rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, "unknown circuit capacity checker error", env.header.Number.Uint64(), nil)
+			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+				Tx:     *tx,
+				Reason: "unknown circuit capacity checker error",
+			})
 
 			// Normally we would do `txs.Shift()` here.
 			// However, after `ErrUnknown`, ccc might remain in an
@@ -1120,7 +1136,10 @@ loop:
 				queueIndex := tx.AsL1MessageTx().QueueIndex
 				log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "strange error", "err", err)
 				env.nextL1MsgIndex = queueIndex + 1
-				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, fmt.Sprintf("strange error: %v", err), env.header.Number.Uint64(), nil)
+				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+					Tx:     *tx,
+					Reason: fmt.Sprintf("strange error: %v", err),
+				})
 			}
 			txs.Shift()
 		}
@@ -1146,7 +1165,7 @@ loop:
 	if interrupt != nil {
 		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
 	}
-	return nil, circuitCapacityReached
+	return nil, circuitCapacityReached, skippedTxs
 }
 
 // commitNewWork generates several new sealing tasks based on the parent block.
@@ -1252,7 +1271,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		w.commit(uncles, nil, false, tstart)
 	}
 
-	err = w.fillTransactions(w.current, nil, interrupt)
+	err, _ = w.fillTransactions(w.current, nil, interrupt)
 	switch {
 	case err == nil:
 		// The entire block is filled, decrease resubmit interval in case

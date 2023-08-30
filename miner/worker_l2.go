@@ -3,7 +3,6 @@ package miner
 import (
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/trie"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +27,7 @@ type newBlockResult struct {
 	state          *state.StateDB
 	receipts       types.Receipts
 	rowConsumption *types.RowConsumption
+	skippedTxs     []*types.SkippedTransaction
 	err            error
 }
 
@@ -111,10 +111,11 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 // fillTransactions retrieves the pending transactions from the txpool and fills them
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
-func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) error {
+func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) (error, []*types.SkippedTransaction) {
 	var (
 		err                    error
 		circuitCapacityReached bool
+		skippedTxs             []*types.SkippedTransaction
 	)
 
 	defer func(env *environment) {
@@ -136,9 +137,9 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		err, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		err, circuitCapacityReached, skippedTxs = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err
+			return err, skippedTxs
 		}
 	}
 
@@ -154,44 +155,46 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		err, circuitCapacityReached = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		err, circuitCapacityReached, _ = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err
+			return err, skippedTxs
 		}
 	}
 	if len(remoteTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		err, _ = w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
+		err, _, _ = w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
 	}
 
-	return err
+	return err, skippedTxs
 }
 
 // generateWork generates a sealing block based on the given parameters.
 // TODO the produced state data by the transactions will be commit to database, whether the block is confirmed or not.
 // TODO this issue will persist until the current zktrie based database optimizes its strategy.
-func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
+func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (block *types.Block, state *state.StateDB, receipts types.Receipts, rc *types.RowConsumption, skippedTxs []*types.SkippedTransaction, err error) {
 	// reset circuitCapacityChecker for a new block
 	w.circuitCapacityChecker.Reset()
-	work, err := w.prepareWork(genParams)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	work, prepareErr := w.prepareWork(genParams)
+	if prepareErr != nil {
+		err = prepareErr
+		return
 	}
 	defer work.discard()
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	fillTxErr := w.fillTransactions(work, genParams.transactions, interrupt)
+	fillTxErr, skippedTxs := w.fillTransactions(work, genParams.transactions, interrupt)
 	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(w.newBlockTimeout))
 	}
 
-	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	block, finalizeErr := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)
+	if finalizeErr != nil {
+		err = finalizeErr
+		return
 	}
-	return block, work.state, work.receipts, work.accRows, nil
+	return block, work.state, work.receipts, work.accRows, skippedTxs, nil
 }
 
 func (env *environment) discard() {
@@ -202,7 +205,7 @@ func (env *environment) discard() {
 }
 
 // getSealingBlockAndState sealing a new block based on parentHash.
-func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
+func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, []*types.SkippedTransaction, error) {
 	interrupt := new(int32)
 	timer := time.AfterFunc(w.newBlockTimeout, func() {
 		atomic.StoreInt32(interrupt, commitInterruptTimeout)
@@ -221,20 +224,20 @@ func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.
 	select {
 	case w.getWorkCh <- req:
 		result := <-req.result
-		return result.block, result.state, result.receipts, result.rowConsumption, result.err
+		return result.block, result.state, result.receipts, result.rowConsumption, result.skippedTxs, result.err
 	case <-w.exitCh:
-		return nil, nil, nil, nil, errors.New("miner closed")
+		return nil, nil, nil, nil, nil, errors.New("miner closed")
 	}
 }
 
-func (w *worker) settleFromCollectedL1Messages(genParams *generateParams, transactions types.Transactions) (common.Hash, uint64, error) {
+func (w *worker) simulateL1Messages(genParams *generateParams, transactions types.Transactions) ([]*types.Transaction, []*types.SkippedTransaction, error) {
 	if transactions.Len() == 0 {
-		return common.Hash{}, 0, nil
+		return nil, nil, nil
 	}
 
 	env, err := w.prepareWork(genParams)
 	if err != nil {
-		return common.Hash{}, 0, err
+		return nil, nil, err
 	}
 
 	l1Txs := make(map[common.Address]types.Transactions)
@@ -250,12 +253,7 @@ func (w *worker) settleFromCollectedL1Messages(genParams *generateParams, transa
 	}
 
 	txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-	w.commitTransactions(env, txs, env.header.Coinbase, nil)
+	_, _, skippedTxs := w.commitTransactions(env, txs, env.header.Coinbase, nil)
 
-	var txRoot common.Hash
-	if len(env.txs) > 0 {
-		txRoot = types.DeriveSha(types.Transactions(env.txs), trie.NewStackTrie(nil))
-	}
-
-	return txRoot, env.nextL1MsgIndex, nil
+	return env.txs, skippedTxs, nil
 }

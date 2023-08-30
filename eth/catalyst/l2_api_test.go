@@ -105,7 +105,7 @@ func TestValidateL2Block(t *testing.T) {
 	// generic case
 	err = sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	block, _, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
@@ -160,7 +160,7 @@ func TestNewL2Block(t *testing.T) {
 
 	err := sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	block, _, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
@@ -177,7 +177,7 @@ func TestNewL2Block(t *testing.T) {
 		LogsBloom:   block.Bloom().Bytes(),
 	}
 
-	err = api.NewL2Block(l2Data, types.BLSData{})
+	err = api.NewL2Block(l2Data, types.BLSData{}, nil)
 	require.NoError(t, err)
 
 	currentState, err := ethService.BlockChain().State()
@@ -194,7 +194,7 @@ func TestNewL2Block(t *testing.T) {
 	validResp, err := api.ValidateL2Block(*resp, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
-	err = api.NewL2Block(*resp, types.BLSData{})
+	err = api.NewL2Block(*resp, types.BLSData{}, nil)
 	require.NoError(t, err)
 	currentState, err = ethService.BlockChain().State()
 	require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestNewSafeL2Block(t *testing.T) {
 
 	err := sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	block, _, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := SafeL2Data{
 		Number:       block.NumberU64(),
@@ -239,7 +239,7 @@ func TestValidateL1Message(t *testing.T) {
 	l1Txs, l1Messages := makeL1Txs(0, 10)
 	// case: include #0, #1, fail on #2, and seal the block
 	ccc.ScheduleError(3, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
-	block, _, _, _, err := api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
+	block, _, _, _, _, err := api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, block.Transactions().Len())
 	l2Data := ExecutableL2Data{
@@ -270,11 +270,11 @@ func TestValidateL1Message(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 	// generated block 1
-	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}))
+	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
 
 	// case: skip #3, include the rest, and seal the block
 	ccc.ScheduleError(1, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
-	block, _, _, _, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs[2:])
+	block, _, _, _, _, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs[2:])
 	require.NoError(t, err)
 	require.EqualValues(t, 7, block.Transactions().Len())
 	l2Data = ExecutableL2Data{
@@ -302,11 +302,11 @@ func TestValidateL1Message(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 	require.EqualValues(t, 10, block.Header().NextL1MsgIndex)
-	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}))
+	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
 
 	// case: includes all l1messages from #10
 	l1Txs, l1Messages = makeL1Txs(10, 5)
-	block, _, _, _, err = api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
+	block, _, _, _, _, err = api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
 	require.NoError(t, err)
 	l2Data = ExecutableL2Data{
 		ParentHash:   block.ParentHash(),

@@ -244,7 +244,7 @@ func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscript
 	return miner.worker.pendingLogsFeed.Subscribe(ch)
 }
 
-func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
+func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, []*types.SkippedTransaction, error) {
 	return miner.worker.generateWork(&generateParams{
 		parentHash:   parentHash,
 		timestamp:    uint64(timestamp.Unix()),
@@ -252,7 +252,7 @@ func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp ti
 	}, nil)
 }
 
-func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, error) {
+func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, []*types.SkippedTransaction, error) {
 	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions)
 }
 
@@ -264,8 +264,8 @@ func (miner *Miner) MakeHeader(parent *types.Block, timestamp uint64, coinBase c
 	return miner.worker.makeHeader(parent, timestamp, coinBase)
 }
 
-func (miner *Miner) SettleTxsFromCollectedL1Messages(parentHash common.Hash, transactions types.Transactions) (common.Hash, uint64, error) {
-	return miner.worker.settleFromCollectedL1Messages(&generateParams{
+func (miner *Miner) SimulateL1Messages(parentHash common.Hash, transactions types.Transactions) ([]*types.Transaction, []*types.SkippedTransaction, error) {
+	return miner.worker.simulateL1Messages(&generateParams{
 		parentHash:   parentHash,
 		timestamp:    uint64(time.Now().Unix()),
 		transactions: transactions,

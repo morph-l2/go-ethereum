@@ -62,6 +62,7 @@ type executionResult struct {
 	state            *state.StateDB
 	receipts         types.Receipts
 	rc               *types.RowConsumption
+	skippedTxs       []*types.SkippedTransaction
 	procTime         time.Duration
 	withdrawTrieRoot common.Hash
 }
@@ -84,7 +85,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	block, state, receipts, rc, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
+	block, state, receipts, rc, skippedTxs, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +95,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	//	 return nil, nil
 	// }
 	procTime := time.Since(start)
-	withdrawTrieRoot := api.writeVerified(state, block, receipts, rc, procTime)
+	withdrawTrieRoot := api.writeVerified(state, block, receipts, rc, skippedTxs, procTime)
 	return &ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -127,7 +128,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, actualL1MsgsRoot, err := api.executableDataToBlock(params, types.BLSData{})
+	block, err := api.executableDataToBlock(params, types.BLSData{})
 	if err != nil {
 		return nil, err
 	}
@@ -148,44 +149,54 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 		}, nil
 	}
 
-	if err := api.VerifyBlock(block); err != nil {
+	if err := api.verifyBlock(block); err != nil {
 		return &GenericResponse{
 			false,
 		}, nil
 	}
 
-	if len(l1Messages) > 0 {
-		l1MsgTxs := make(types.Transactions, len(l1Messages))
-		for i, l1Msg := range l1Messages {
-			l1MsgTxs[i] = types.NewTx(&l1Msg)
+	// get the skipped L1Message queue indexes, and check whether the nextL1MessageIndex is valid.
+	skippedL1Indexes, err := extractSkippedQueueIndexes(block, parent.Header().NextL1MsgIndex)
+	if err != nil {
+		log.Error("failed to acquire skipped L1 messages", "error", err)
+		return &GenericResponse{
+			false,
+		}, nil
+	}
+
+	// check whether the skipped transactions should be skipped.
+	var skippedTransactions []*types.SkippedTransaction
+	if len(skippedL1Indexes) > 0 {
+		l1MsgMap := make(map[uint64]types.L1MessageTx)
+		for _, l1Message := range l1Messages {
+			l1MsgMap[l1Message.QueueIndex] = l1Message
 		}
-		collectedL1MsgsRoot := types.DeriveSha(l1MsgTxs, trie.NewStackTrie(nil))
-		if actualL1MsgsRoot != collectedL1MsgsRoot { // found some l1Messages from collected messages are ignored.
-			settledL1TxRoot, nextL1MsgIndex, err := api.eth.Miner().SettleTxsFromCollectedL1Messages(params.ParentHash, l1MsgTxs)
-			if err != nil {
-				log.Error("failed to SettleTxsFromCollectedL1Messages", "error", err)
+
+		skippedL1MessageTxs := make(types.Transactions, len(skippedL1Indexes))
+		for i, skippedL1Index := range skippedL1Indexes {
+			l1Message, ok := l1MsgMap[skippedL1Index]
+			if !ok {
+				log.Error("no l1message found from parameter", "queue index", skippedL1Index)
 				return &GenericResponse{
 					false,
 				}, nil
 			}
-			if settledL1TxRoot != actualL1MsgsRoot {
-				log.Error("the involved L1Messages in the block is not expected")
-				return &GenericResponse{
-					false,
-				}, nil
-			}
-			if nextL1MsgIndex != block.Header().NextL1MsgIndex {
-				log.Error("unexpected nextL1MsgIndex", "expected", nextL1MsgIndex, "got", block.Header().NextL1MsgIndex)
-				return &GenericResponse{
-					false,
-				}, nil
-			}
-		} else if parent.Header().NextL1MsgIndex+uint64(len(l1Messages)) != block.Header().NextL1MsgIndex {
-			log.Error("unexpected nextL1MsgIndex", "expected", parent.Header().NextL1MsgIndex+uint64(len(l1Messages)), "got", block.Header().NextL1MsgIndex)
+			skippedL1MessageTxs[i] = types.NewTx(&l1Message)
+		}
+		involvedTxs, realSkipped, err := api.eth.Miner().SimulateL1Messages(params.ParentHash, skippedL1MessageTxs)
+		if err != nil {
+			log.Error("failed to simulate L1Messages", "error", err)
 			return &GenericResponse{
 				false,
 			}, nil
 		}
+		if len(involvedTxs) > 0 {
+			log.Error("found the skipped transactions that should not be skipped", "involved tx count", len(involvedTxs))
+			return &GenericResponse{
+				false,
+			}, nil
+		}
+		skippedTransactions = realSkipped
 	}
 
 	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), false)
@@ -201,13 +212,13 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 			false,
 		}, nil
 	}
-	api.writeVerified(stateDB, block, receipts, nil, procTime)
+	api.writeVerified(stateDB, block, receipts, nil, skippedTransactions, procTime)
 	return &GenericResponse{
 		true,
 	}, nil
 }
 
-func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData) (err error) {
+func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData, l1Messages []types.L1MessageTx) (err error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
@@ -226,7 +237,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 		return fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, _, err := api.executableDataToBlock(params, bls)
+	block, err := api.executableDataToBlock(params, bls)
 	if err != nil {
 		return err
 	}
@@ -245,10 +256,14 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 				rawdb.WriteBlockRowConsumption(api.eth.ChainDb(), block.Hash(), bas.rc)
 			}
 		}
+		for _, skipped := range bas.skippedTxs {
+			bh := block.Hash()
+			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), &skipped.Tx, skipped.Reason, block.NumberU64(), &bh)
+		}
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
 
-	if err = api.VerifyBlock(block); err != nil {
+	if err = api.verifyBlock(block); err != nil {
 		log.Error("failed to verify block", "error", err)
 		return err
 	}
@@ -257,6 +272,25 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 	if err != nil {
 		return err
 	}
+
+	skippedQueueIndexes, err := extractSkippedQueueIndexes(block, parent.Header().NextL1MsgIndex)
+	if err != nil {
+		return err
+	}
+	l1MsgMap := make(map[uint64]types.L1MessageTx)
+	for _, l1Message := range l1Messages {
+		l1MsgMap[l1Message.QueueIndex] = l1Message
+	}
+	for _, queueIndex := range skippedQueueIndexes {
+		l1Message, ok := l1MsgMap[queueIndex]
+		if !ok {
+			log.Error("no l1message found from parameter", "queue index", queueIndex)
+			return errors.New("unexpected l1Messages")
+		}
+		bh := block.Hash()
+		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), types.NewTx(&l1Message), "", block.NumberU64(), &bh)
+	}
+
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
@@ -304,7 +338,7 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSD
 		BaseFee:  params.BaseFee,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
-	txs, _, err := decodeTransactions(params.Transactions)
+	txs, err := decodeTransactions(params.Transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +346,7 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSD
 	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
 }
 
-func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, common.Hash, error) {
+func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, error) {
 	header := &types.Header{
 		ParentHash:     params.ParentHash,
 		Number:         big.NewInt(int64(params.Number)),
@@ -326,18 +360,43 @@ func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsDat
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
 
-	txs, l1MsgRoot, err := decodeTransactions(params.Transactions)
+	txs, err := decodeTransactions(params.Transactions)
 	if err != nil {
-		return nil, l1MsgRoot, err
+		return nil, err
 	}
 	header.TxHash = types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))
 	header.ReceiptHash = params.ReceiptRoot
 	header.Root = params.StateRoot
 	header.Bloom = types.BytesToBloom(params.LogsBloom)
-	return types.NewBlockWithHeader(header).WithBody(txs, nil), l1MsgRoot, nil
+	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
 }
 
-func (api *l2ConsensusAPI) VerifyBlock(block *types.Block) error {
+func extractSkippedQueueIndexes(block *types.Block, parentNextIndex uint64) ([]uint64, error) {
+	nextIndex := parentNextIndex
+	skipped := make([]uint64, 0)
+	for _, tx := range block.Transactions() {
+		if tx.IsL1MessageTx() {
+			txQueueIndex := tx.L1MessageQueueIndex()
+			if txQueueIndex < nextIndex {
+				return nil, errors.New("wrong L1Message order")
+			}
+			for queueIndex := nextIndex; queueIndex < txQueueIndex; queueIndex++ {
+				skipped = append(skipped, queueIndex)
+			}
+			nextIndex = txQueueIndex + 1
+		}
+	}
+
+	if block.Header().NextL1MsgIndex < nextIndex {
+		return nil, errors.New("wrong next L1Message index in the block header")
+	}
+	for queueIndex := nextIndex; queueIndex < block.Header().NextL1MsgIndex; queueIndex++ {
+		skipped = append(skipped, queueIndex)
+	}
+	return skipped, nil
+}
+
+func (api *l2ConsensusAPI) verifyBlock(block *types.Block) error {
 	if err := api.eth.Engine().VerifyHeader(api.eth.BlockChain(), block.Header(), false); err != nil {
 		log.Warn("failed to verify header", "error", err)
 		return err
@@ -349,7 +408,7 @@ func (api *l2ConsensusAPI) VerifyBlock(block *types.Block) error {
 	return nil
 }
 
-func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, rc *types.RowConsumption, procTime time.Duration) common.Hash {
+func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, rc *types.RowConsumption, skipped []*types.SkippedTransaction, procTime time.Duration) common.Hash {
 	withdrawTrieRoot := withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, state)
 	api.verifiedMapLock.Lock()
 	defer api.verifiedMapLock.Unlock()
@@ -358,6 +417,7 @@ func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Bloc
 		state:            state,
 		receipts:         receipts,
 		rc:               rc,
+		skippedTxs:       skipped,
 		procTime:         procTime,
 		withdrawTrieRoot: withdrawTrieRoot,
 	}

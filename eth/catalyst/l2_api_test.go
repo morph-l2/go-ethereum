@@ -1,7 +1,6 @@
 package catalyst
 
 import (
-	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"math/big"
 	"testing"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/eth"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -237,11 +237,12 @@ func TestValidateL1Message(t *testing.T) {
 	ccc := api.eth.Miner().GetCCC()
 
 	l1Txs, l1Messages := makeL1Txs(0, 10)
-	// case: include #0, #1, fail on #2, and seal the block
-	ccc.ScheduleError(3, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
+	// case: include #0, #1, fail on #2, skip it and seal the block
+	ccc.ScheduleError(3, circuitcapacitychecker.ErrUnknown)
 	block, _, _, _, _, err := api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, block.Transactions().Len())
+	require.EqualValues(t, 3, block.Header().NextL1MsgIndex)
 	l2Data := ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -265,18 +266,28 @@ func TestValidateL1Message(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, resp.Success)
 	// should be true, the ccc during the `ValidateL2Block` behaviors the same with the ccc during `BuildBlock`
-	ccc.ScheduleError(3, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
+	ccc.ScheduleError(1, circuitcapacitychecker.ErrUnknown)
 	resp, err = api.ValidateL2Block(l2Data, l1Messages)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 	// generated block 1
 	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
 
-	// case: skip #3, include the rest, and seal the block
-	ccc.ScheduleError(1, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
-	block, _, _, _, _, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs[2:])
+	// case: #2 - #9, error nextL1MessageIndex
+	// expected: Unexpected L1 message queue index, build none transaction
+	restL1Txs := l1Txs[2:]
+	restL1Messages := l1Messages[2:]
+	block, _, _, _, _, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), restL1Txs)
 	require.NoError(t, err)
-	require.EqualValues(t, 7, block.Transactions().Len())
+	require.EqualValues(t, 0, block.Transactions().Len())
+
+	// case: #3 - #9, skip #3, includes the rest
+	restL1Txs = restL1Txs[1:]
+	restL1Messages = restL1Messages[1:]
+	ccc.ScheduleError(1, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
+	block, _, _, _, _, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), restL1Txs)
+	require.NoError(t, err)
+	require.EqualValues(t, 6, block.Transactions().Len())
 	l2Data = ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -294,14 +305,15 @@ func TestValidateL1Message(t *testing.T) {
 
 		Hash: block.Hash(),
 	}
-	resp, err = api.ValidateL2Block(l2Data, l1Messages[2:])
+	resp, err = api.ValidateL2Block(l2Data, restL1Messages)
 	require.NoError(t, err)
-	require.False(t, resp.Success)
+	require.False(t, resp.Success) // false, skipped tx that should not be skipped
+
 	ccc.ScheduleError(1, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
-	resp, err = api.ValidateL2Block(l2Data, l1Messages[2:])
+	resp, err = api.ValidateL2Block(l2Data, restL1Messages)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
-	require.EqualValues(t, 10, block.Header().NextL1MsgIndex)
+
 	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
 
 	// case: includes all l1messages from #10

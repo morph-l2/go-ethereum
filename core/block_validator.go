@@ -19,10 +19,10 @@ package core
 import (
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"sync"
 
 	"github.com/scroll-tech/go-ethereum/consensus"
+	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/ethdb"

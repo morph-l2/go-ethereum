@@ -239,6 +239,7 @@ func (w *worker) simulateL1Messages(genParams *generateParams, transactions type
 	if err != nil {
 		return nil, nil, err
 	}
+	env.isSimulate = true
 
 	l1Txs := make(map[common.Address]types.Transactions)
 	for _, tx := range transactions {

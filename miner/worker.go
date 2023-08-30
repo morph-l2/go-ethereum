@@ -109,6 +109,7 @@ type environment struct {
 	traceEnv       *core.TraceEnv        // env for tracing
 	accRows        *types.RowConsumption // accumulated row consumption for a block
 	nextL1MsgIndex uint64                // next L1 queue index to be processed
+	isSimulate     bool
 }
 
 // task contains all information for consensus engine sealing and result submitting.
@@ -978,7 +979,7 @@ loop:
 			log.Trace("Transaction count limit reached", "have", env.tcount-env.l1TxCount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
 			break
 		}
-		if tx.IsL1MessageTx() && tx.AsL1MessageTx().QueueIndex != env.nextL1MsgIndex {
+		if tx.IsL1MessageTx() && !env.isSimulate && tx.AsL1MessageTx().QueueIndex != env.nextL1MsgIndex {
 			log.Error(
 				"Unexpected L1 message queue index in worker",
 				"expected", env.nextL1MsgIndex,

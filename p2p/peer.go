@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -207,6 +208,9 @@ func (p *Peer) Disconnect(reason DiscReason) {
 		p.testPipe.Close()
 	}
 
+	fmt.Println()
+	p.log.Debug("==========>Peer Disconnect", "reason", reason.String())
+	debug.PrintStack()
 	select {
 	case p.disc <- reason:
 	case <-p.closed:
@@ -233,7 +237,7 @@ func newPeer(log log.Logger, conn *conn, protocols []Protocol) *Peer {
 		disc:     make(chan DiscReason),
 		protoErr: make(chan error, len(protomap)+1), // protocols + pingLoop
 		closed:   make(chan struct{}),
-		log:      log.New("id", conn.node.ID(), "conn", conn.flags),
+		log:      log.New("id", conn.node.ID(), "conn", conn.flags, "node", conn.node.String(), "node", conn.node.IP()),
 	}
 	return p
 }
@@ -271,6 +275,7 @@ loop:
 			writeStart <- struct{}{}
 		case err = <-readErr:
 			if r, ok := err.(DiscReason); ok {
+				p.log.Debug("==========>gotcha readErr from peer", "err", err)
 				remoteRequested = true
 				reason = r
 			} else {
@@ -332,6 +337,7 @@ func (p *Peer) handle(msg Msg) error {
 		msg.Discard()
 		go SendItems(p.rw, pongMsg)
 	case msg.Code == discMsg:
+		p.log.Debug("==========>gotcha discMsg from peer", "msg", msg.String())
 		// This is the last message. We don't need to discard or
 		// check errors because, the connection will be closed after it.
 		var m struct{ R DiscReason }

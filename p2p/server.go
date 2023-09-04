@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -333,6 +334,9 @@ func (srv *Server) RemovePeer(node *enode.Node) {
 		ch  chan *PeerEvent
 		sub event.Subscription
 	)
+	fmt.Println()
+	log.Debug("=================>enter RemovePeer, below prints the stack: ")
+	debug.PrintStack()
 	// Disconnect the peer on the main loop.
 	srv.doPeerOp(func(peers map[enode.ID]*Peer) {
 		srv.dialsched.removeStatic(node)
@@ -1037,6 +1041,12 @@ func (srv *Server) runPeer(p *Peer) {
 
 	// Run the per-peer main loop.
 	remoteRequested, err := p.run()
+
+	if DiscRequested == discReasonForError(err) {
+		fmt.Println()
+		srv.log.Debug("=======>gotcha 'disconnect requested'")
+		debug.PrintStack()
+	}
 
 	// Announce disconnect on the main loop to update the peer set.
 	// The main loop waits for existing peers to be sent on srv.delpeer

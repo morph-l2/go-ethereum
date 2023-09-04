@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/bitutil"
+	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/p2p/rlpx"
 	"github.com/scroll-tech/go-ethereum/rlp"
@@ -114,11 +116,15 @@ func (t *rlpxTransport) close(err error) {
 	// setting a timeout tough.
 	if t.conn != nil {
 		if r, ok := err.(DiscReason); ok && r != DiscNetworkError {
+			fmt.Println("----->rlpxTransport.close()")
+			log.Info("------>rlpxTransport close", "err", err)
+			debug.PrintStack()
 			deadline := time.Now().Add(discWriteTimeout)
 			if err := t.conn.SetWriteDeadline(deadline); err == nil {
 				// Connection supports write deadline.
 				t.wbuf.Reset()
 				rlp.Encode(&t.wbuf, []DiscReason{r})
+				log.Info("------>send discMsg to peer")
 				t.conn.Write(discMsg, t.wbuf.Bytes())
 			}
 		}

@@ -32,11 +32,13 @@ import (
 	"io"
 	mrand "math/rand"
 	"net"
+	"runtime/debug"
 	"time"
 
 	"github.com/golang/snappy"
 	"golang.org/x/crypto/sha3"
 
+	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/crypto"
 	"github.com/scroll-tech/go-ethereum/crypto/ecies"
 	"github.com/scroll-tech/go-ethereum/rlp"
@@ -225,6 +227,17 @@ func (c *Conn) Write(code uint64, data []byte) (uint32, error) {
 	}
 
 	wireSize := uint32(len(data))
+	if code == 1 {
+		dialDestPK := "empty"
+		if c.dialDest != nil {
+			dialDestPK = hexutil.Encode(crypto.CompressPubkey(c.dialDest))
+		}
+		fmt.Printf("\n=============================================================\n write discMsg to dest peer \ndest addr: %s \ndest publicKey: %s \n ============================================================= \n\n",
+			c.conn.RemoteAddr(), dialDestPK)
+		debug.PrintStack()
+		fmt.Println()
+		fmt.Println("=============================================================")
+	}
 	err := c.session.writeFrame(c.conn, code, data)
 	return wireSize, err
 }

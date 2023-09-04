@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
 	"github.com/scroll-tech/go-ethereum/event"
+	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/p2p/enode"
 	"github.com/scroll-tech/go-ethereum/rlp"
 )
@@ -102,18 +104,23 @@ func Send(w MsgWriter, msgcode uint64, data interface{}) error {
 	if err != nil {
 		return err
 	}
+	if msgcode == 1 {
+		fmt.Println("#########Print Send method stack")
+		log.Info("----------->Send message", "msg.Code", msgcode)
+	}
+	debug.PrintStack()
+
 	return w.WriteMsg(Msg{Code: msgcode, Size: uint32(size), Payload: r})
 }
 
 // SendItems writes an RLP with the given code and data elements.
 // For a call such as:
 //
-//    SendItems(w, code, e1, e2, e3)
+//	SendItems(w, code, e1, e2, e3)
 //
 // the message payload will be an RLP list containing the items:
 //
-//    [e1, e2, e3]
-//
+//	[e1, e2, e3]
 func SendItems(w MsgWriter, msgcode uint64, elems ...interface{}) error {
 	return Send(w, msgcode, elems)
 }

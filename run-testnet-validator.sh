@@ -18,7 +18,7 @@ optional_bootnodes=${BOOT_NODES:+"--bootnodes=$BOOT_NODES"}
 # shellcheck disable=SC2125
 COMMAND="geth \
 --datadir="$GETH_DATA_DIR" \
---verbosity=3 \
+--verbosity=5 \
 --http \
 --http.corsdomain="*" \
 --http.vhosts="*" \

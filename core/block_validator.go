@@ -71,7 +71,7 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 		len(block.Transactions()) > 0 { // we allow the same state root when a block with no transactions
 		return ErrKnownBlock
 	}
-	if !v.config.Scroll.IsValidL2TxCount(block.CountL2Tx()) {
+	if !v.config.Scroll.IsValidTxCount(len(block.Transactions())) {
 		return consensus.ErrInvalidTxCount
 	}
 	// Check if block payload size is smaller than the max size

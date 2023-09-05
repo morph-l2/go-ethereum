@@ -488,10 +488,16 @@ var (
 		Name:  "miner.noverify",
 		Usage: "Disable remote sealing verification",
 	}
+<<<<<<< HEAD
 	MinerNewBlockTimeout = &cli.DurationFlag{
 		Name:  "miner.newblock-timeout",
 		Usage: "Specify the maximum time allowance for creating a new block",
 		Value: ethconfig.Defaults.Miner.NewBlockTimeout,
+=======
+	MinerStoreSkippedTxTracesFlag = cli.BoolFlag{
+		Name:  "miner.storeskippedtxtraces",
+		Usage: "Store the wrapped traces when storing a skipped tx",
+>>>>>>> scroll/v4.3.63
 	}
 	// Account settings
 	UnlockedAccountFlag = cli.StringFlag{
@@ -1477,6 +1483,9 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	}
 	if ctx.GlobalIsSet(MinerNoVerifyFlag.Name) {
 		cfg.Noverify = ctx.GlobalBool(MinerNoVerifyFlag.Name)
+	}
+	if ctx.GlobalIsSet(MinerStoreSkippedTxTracesFlag.Name) {
+		cfg.StoreSkippedTxTraces = ctx.GlobalBool(MinerStoreSkippedTxTracesFlag.Name)
 	}
 	if ctx.GlobalIsSet(LegacyMinerGasTargetFlag.Name) {
 		log.Warn("The generic --miner.gastarget flag is deprecated and will be removed in the future!")

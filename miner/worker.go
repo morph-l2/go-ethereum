@@ -36,6 +36,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/event"
 	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/trie"
@@ -85,10 +86,17 @@ var (
 	errBlockInterruptedByNewHead  = errors.New("new head arrived while building block")
 	errBlockInterruptedByRecommit = errors.New("recommit interrupt while building block")
 	errBlockInterruptedByTimeout  = errors.New("timeout while building block")
+
+	// Metrics for the skipped txs
+	l1TxGasLimitExceededCounter       = metrics.NewRegisteredCounter("miner/skipped_txs/l1/gas_limit_exceeded", nil)
+	l1TxRowConsumptionOverflowCounter = metrics.NewRegisteredCounter("miner/skipped_txs/l1/row_consumption_overflow", nil)
+	l2TxRowConsumptionOverflowCounter = metrics.NewRegisteredCounter("miner/skipped_txs/l2/row_consumption_overflow", nil)
+	l1TxCccUnknownErrCounter          = metrics.NewRegisteredCounter("miner/skipped_txs/l1/ccc_unknown_err", nil)
+	l2TxCccUnknownErrCounter          = metrics.NewRegisteredCounter("miner/skipped_txs/l2/ccc_unknown_err", nil)
+	l1TxStrangeErrCounter             = metrics.NewRegisteredCounter("miner/skipped_txs/l1/strange_err", nil)
 )
 
-// environment is the worker's current environment and holds all
-// information of the sealing block generation.
+// environment is the worker's current environment and holds all of the current state information.
 type environment struct {
 	signer types.Signer
 
@@ -875,8 +883,10 @@ func (w *worker) updateSnapshot() {
 	w.snapshotState = w.current.state.Copy()
 }
 
-func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
+func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) ([]*types.Log, *types.BlockTrace, error) {
 	var accRows *types.RowConsumption
+	var traces *types.BlockTrace
+	var err error
 
 	// do not do CCC checks on follower nodes
 	if w.isRunning() {
@@ -902,11 +912,11 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 		// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
 		env.state.RevertToSnapshot(snap)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		accRows, err = w.circuitCapacityChecker.ApplyTransaction(traces)
 		if err != nil {
-			return nil, err
+			return nil, traces, err
 		}
 		log.Trace(
 			"Worker apply ccc for tx result",
@@ -922,13 +932,13 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		env.state.RevertToSnapshot(snap)
-		return nil, err
+		return nil, traces, err
 	}
 	env.txs = append(env.txs, tx)
 	env.receipts = append(env.receipts, receipt)
 	env.accRows = accRows
 
-	return receipt.Logs, nil
+	return receipt.Logs, traces, nil
 }
 
 // commitTransactions returns
@@ -971,12 +981,9 @@ loop:
 		}
 
 		// If we have collected enough transactions then we're done
-		l2TxCount := env.tcount - env.l1TxCount
-		if !tx.IsL1MessageTx() { // If the next tx is not L1MessageTx type then +1.
-			l2TxCount++
-		}
-		if !w.chainConfig.Scroll.IsValidL2TxCount(l2TxCount) {
-			log.Trace("Transaction count limit reached", "have", env.tcount-env.l1TxCount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
+		// Originally we only limit l2txs count, but now strictly limit total txs number.
+		if !w.chainConfig.Scroll.IsValidTxCount(env.tcount + 1) {
+			log.Trace("Transaction count limit reached", "have", env.tcount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
 			break
 		}
 		if tx.IsL1MessageTx() && !env.isSimulate && tx.AsL1MessageTx().QueueIndex != env.nextL1MsgIndex {
@@ -1008,7 +1015,7 @@ loop:
 		// Start executing the transaction
 		env.state.Prepare(tx.Hash(), env.tcount)
 
-		logs, err := w.commitTransaction(env, tx, coinbase)
+		logs, traces, err := w.commitTransaction(env, tx, coinbase)
 		switch {
 		case errors.Is(err, core.ErrGasLimitReached) && tx.IsL1MessageTx():
 			// If this block already contains some L1 messages,
@@ -1021,10 +1028,17 @@ loop:
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "gas limit exceeded")
 			env.nextL1MsgIndex = queueIndex + 1
 			txs.Shift()
+
+			var storeTraces *types.BlockTrace
+			if w.config.StoreSkippedTxTraces {
+				storeTraces = traces
+			}
 			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
 				Tx:     *tx,
 				Reason: "gas limit exceeded",
+				Trace:  storeTraces,
 			})
+			l1TxGasLimitExceededCounter.Inc(1)
 
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account
@@ -1070,6 +1084,8 @@ loop:
 				// though it might still be possible to add some "smaller" txs,
 				// but it's a trade-off between tracing overhead & block usage rate
 				log.Trace("Circuit capacity limit reached in a block", "acc_rows", env.accRows, "tx", tx.Hash().String())
+				log.Info("Skipping message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "accumulated row consumption overflow")
+
 				circuitCapacityReached = true
 				break loop
 			} else {
@@ -1084,9 +1100,13 @@ loop:
 					queueIndex := tx.AsL1MessageTx().QueueIndex
 					log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "row consumption overflow")
 					env.nextL1MsgIndex = queueIndex + 1
+					l1TxRowConsumptionOverflowCounter.Inc(1)
 				} else {
 					// Skip L2 transaction and all other transactions from the same sender account
+					log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "first tx row consumption overflow")
 					txs.Pop()
+					w.eth.TxPool().RemoveTx(tx.Hash(), true)
+					l2TxRowConsumptionOverflowCounter.Inc(1)
 				}
 
 				// Reset ccc so that we can process other transactions for this block
@@ -1094,9 +1114,14 @@ loop:
 				log.Trace("Worker reset ccc", "id", w.circuitCapacityChecker.ID)
 				circuitCapacityReached = false
 
+				var storeTraces *types.BlockTrace
+				if w.config.StoreSkippedTxTraces {
+					storeTraces = traces
+				}
 				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
 					Tx:     *tx,
 					Reason: "row consumption overflow",
+					Trace:  storeTraces,
 				})
 			}
 
@@ -1108,10 +1133,16 @@ loop:
 			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "unknown row consumption error")
 			env.nextL1MsgIndex = queueIndex + 1
 			// TODO: propagate more info about the error from CCC
+			var storeTraces *types.BlockTrace
+			if w.config.StoreSkippedTxTraces {
+				storeTraces = traces
+			}
 			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
 				Tx:     *tx,
 				Reason: "unknown circuit capacity checker error",
+				Trace:  storeTraces,
 			})
+			l1TxCccUnknownErrCounter.Inc(1)
 
 			// Normally we would do `txs.Shift()` here.
 			// However, after `ErrUnknown`, ccc might remain in an
@@ -1122,10 +1153,19 @@ loop:
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && !tx.IsL1MessageTx():
 			// Circuit capacity check: unknown circuit capacity checker error for L2MessageTx, skip the account
 			log.Trace("Unknown circuit capacity checker error for L2MessageTx", "tx", tx.Hash().String())
+			log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "unknown row consumption error")
+			// TODO: propagate more info about the error from CCC
+			if w.config.StoreSkippedTxTraces {
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, traces, "unknown circuit capacity checker error", w.current.header.Number.Uint64(), nil)
+			} else {
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, nil, "unknown circuit capacity checker error", w.current.header.Number.Uint64(), nil)
+			}
+			l2TxCccUnknownErrCounter.Inc(1)
 
 			// Normally we would do `txs.Pop()` here.
 			// However, after `ErrUnknown`, ccc might remain in an
 			// inconsistent state, so we cannot pack more transactions.
+			w.eth.TxPool().RemoveTx(tx.Hash(), true)
 			circuitCapacityReached = true
 			break loop
 
@@ -1137,10 +1177,17 @@ loop:
 				queueIndex := tx.AsL1MessageTx().QueueIndex
 				log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "strange error", "err", err)
 				env.nextL1MsgIndex = queueIndex + 1
+
+				var storeTraces *types.BlockTrace
+				if w.config.StoreSkippedTxTraces {
+					storeTraces = traces
+				}
 				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
 					Tx:     *tx,
 					Reason: fmt.Sprintf("strange error: %v", err),
+					Trace:  storeTraces,
 				})
+				l1TxStrangeErrCounter.Inc(1)
 			}
 			txs.Shift()
 		}

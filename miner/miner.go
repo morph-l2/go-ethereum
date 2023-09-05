@@ -19,10 +19,11 @@ package miner
 
 import (
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"math/big"
 	"sync"
 	"time"
+
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
@@ -56,7 +57,8 @@ type Config struct {
 	Recommit   time.Duration  // The time interval for miner to re-create mining work.
 	Noverify   bool           // Disable remote mining solution verification(only useful in ethash).
 
-	NewBlockTimeout time.Duration // The maximum time allowance for creating a new block
+	NewBlockTimeout      time.Duration // The maximum time allowance for creating a new block
+	StoreSkippedTxTraces bool          // Whether store the wrapped traces when storing a skipped tx
 }
 
 // Miner creates blocks and searches for proof-of-work values.

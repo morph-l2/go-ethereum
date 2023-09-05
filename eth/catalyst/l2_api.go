@@ -258,7 +258,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 		}
 		for _, skipped := range bas.skippedTxs {
 			bh := block.Hash()
-			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), &skipped.Tx, skipped.Reason, block.NumberU64(), &bh)
+			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), &skipped.Tx, skipped.Trace, skipped.Reason, block.NumberU64(), &bh)
 		}
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
@@ -288,7 +288,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 			return errors.New("unexpected l1Messages")
 		}
 		bh := block.Hash()
-		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), types.NewTx(&l1Message), "", block.NumberU64(), &bh)
+		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), types.NewTx(&l1Message), nil, "", block.NumberU64(), &bh)
 	}
 
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)

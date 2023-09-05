@@ -20,7 +20,6 @@ package utils
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 	"io"
 	"io/ioutil"
 	"math"
@@ -33,6 +32,8 @@ import (
 	"text/tabwriter"
 	"text/template"
 	"time"
+
+	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 
 	pcsclite "github.com/gballet/go-libpcsclite"
 	gopsutil "github.com/shirou/gopsutil/mem"
@@ -488,16 +489,16 @@ var (
 		Name:  "miner.noverify",
 		Usage: "Disable remote sealing verification",
 	}
-<<<<<<< HEAD
+
 	MinerNewBlockTimeout = &cli.DurationFlag{
 		Name:  "miner.newblock-timeout",
 		Usage: "Specify the maximum time allowance for creating a new block",
 		Value: ethconfig.Defaults.Miner.NewBlockTimeout,
-=======
+	}
+
 	MinerStoreSkippedTxTracesFlag = cli.BoolFlag{
 		Name:  "miner.storeskippedtxtraces",
 		Usage: "Store the wrapped traces when storing a skipped tx",
->>>>>>> scroll/v4.3.63
 	}
 	// Account settings
 	UnlockedAccountFlag = cli.StringFlag{

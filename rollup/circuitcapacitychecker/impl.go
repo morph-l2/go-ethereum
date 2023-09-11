@@ -12,6 +12,7 @@ import "C" //nolint:typecheck
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"unsafe"
 
@@ -32,6 +33,7 @@ type CircuitCapacityChecker struct {
 	ID uint64
 }
 
+// NewCircuitCapacityChecker creates a new CircuitCapacityChecker
 func NewCircuitCapacityChecker() *CircuitCapacityChecker {
 	creationMu.Lock()
 	defer creationMu.Unlock()
@@ -40,6 +42,7 @@ func NewCircuitCapacityChecker() *CircuitCapacityChecker {
 	return &CircuitCapacityChecker{ID: uint64(id)}
 }
 
+// Reset resets a CircuitCapacityChecker
 func (ccc *CircuitCapacityChecker) Reset() {
 	ccc.Lock()
 	defer ccc.Unlock()
@@ -47,6 +50,7 @@ func (ccc *CircuitCapacityChecker) Reset() {
 	C.reset_circuit_capacity_checker(C.uint64_t(ccc.ID))
 }
 
+// ApplyTransaction appends a tx's wrapped BlockTrace into the ccc, and return the accumulated RowConsumption
 func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) (*types.RowConsumption, error) {
 	ccc.Lock()
 	defer ccc.Unlock()
@@ -101,6 +105,7 @@ func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) (*
 	return (*types.RowConsumption)(&result.AccRowUsage.RowUsageDetails), nil
 }
 
+// ApplyBlock gets a block's RowConsumption
 func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (*types.RowConsumption, error) {
 	ccc.Lock()
 	defer ccc.Unlock()
@@ -141,4 +146,27 @@ func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (*types.
 		return nil, ErrBlockRowConsumptionOverflow
 	}
 	return (*types.RowConsumption)(&result.AccRowUsage.RowUsageDetails), nil
+}
+
+// CheckTxNum compares whether the tx_count in ccc match the expected
+func (ccc *CircuitCapacityChecker) CheckTxNum(expected int) (bool, uint64, error) {
+	ccc.Lock()
+	defer ccc.Unlock()
+
+	log.Debug("ccc get_tx_num start", "id", ccc.ID)
+	rawResult := C.get_tx_num(C.uint64_t(ccc.ID))
+	defer func() {
+		C.free(unsafe.Pointer(rawResult))
+	}()
+	log.Debug("ccc get_tx_num end", "id", ccc.ID)
+
+	result := &WrappedTxNum{}
+	if err := json.Unmarshal([]byte(C.GoString(rawResult)), result); err != nil {
+		return false, 0, fmt.Errorf("fail to json unmarshal get_tx_num result, id: %d, err: %w", ccc.ID, err)
+	}
+	if result.Error != "" {
+		return false, 0, fmt.Errorf("fail to get_tx_num in CircuitCapacityChecker, id: %d, err: %w", ccc.ID, result.Error)
+	}
+
+	return result.TxNum == uint64(expected), result.TxNum, nil
 }

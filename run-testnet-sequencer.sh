@@ -37,6 +37,9 @@ COMMAND="geth \
 --authrpc.jwtsecret=$JWT_SECRET_PATH \
 --gcmode=archive \
 --nodiscover \
+--metrics \
+--metrics.addr=0.0.0.0 \
+--metrics.port=6060 \
 --mine \
 --miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"
 

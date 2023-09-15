@@ -157,7 +157,7 @@ func (h *Header) Hash() common.Hash {
 //go:generate go run github.com/fjl/gencodec -type BLSData -field-override blsDataMarshaling -out gen_bls.go
 
 type BLSData struct {
-	Version      uint64
+	Version      uint64   `json:"version"`
 	BLSSigners   []uint64 `json:"bls_signers"`
 	BLSSignature []byte   `json:"bls_signature"`
 }

@@ -13,14 +13,16 @@ var _ = (*blsDataMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (b BLSData) MarshalJSON() ([]byte, error) {
 	type BLSData struct {
-		BLSSigners   []hexutil.Bytes `json:"bls_signers"`
-		BLSSignature hexutil.Bytes   `json:"bls_signature"`
+		Version      hexutil.Uint64
+		BLSSigners   []hexutil.Uint64 `json:"bls_signers"`
+		BLSSignature hexutil.Bytes    `json:"bls_signature"`
 	}
 	var enc BLSData
+	enc.Version = hexutil.Uint64(b.Version)
 	if b.BLSSigners != nil {
-		enc.BLSSigners = make([]hexutil.Bytes, len(b.BLSSigners))
+		enc.BLSSigners = make([]hexutil.Uint64, len(b.BLSSigners))
 		for k, v := range b.BLSSigners {
-			enc.BLSSigners[k] = v
+			enc.BLSSigners[k] = hexutil.Uint64(v)
 		}
 	}
 	enc.BLSSignature = b.BLSSignature
@@ -30,17 +32,21 @@ func (b BLSData) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (b *BLSData) UnmarshalJSON(input []byte) error {
 	type BLSData struct {
-		BLSSigners   []hexutil.Bytes `json:"bls_signers"`
-		BLSSignature *hexutil.Bytes  `json:"bls_signature"`
+		Version      *hexutil.Uint64
+		BLSSigners   []hexutil.Uint64 `json:"bls_signers"`
+		BLSSignature *hexutil.Bytes   `json:"bls_signature"`
 	}
 	var dec BLSData
 	if err := json.Unmarshal(input, &dec); err != nil {
 		return err
 	}
+	if dec.Version != nil {
+		b.Version = uint64(*dec.Version)
+	}
 	if dec.BLSSigners != nil {
-		b.BLSSigners = make([][]byte, len(dec.BLSSigners))
+		b.BLSSigners = make([]uint64, len(dec.BLSSigners))
 		for k, v := range dec.BLSSigners {
-			b.BLSSigners[k] = v
+			b.BLSSigners[k] = uint64(v)
 		}
 	}
 	if dec.BLSSignature != nil {

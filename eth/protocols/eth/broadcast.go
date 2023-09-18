@@ -90,6 +90,7 @@ func (p *Peer) broadcastTransactions() {
 
 			// If there's anything available to transfer, fire up an async writer
 			if len(txs) > 0 {
+				p.Log().Info("[DebugTest]Start to send transactions", "count", len(txs))
 				done = make(chan struct{})
 				go func() {
 					if err := p.SendTransactions(txs); err != nil {
@@ -97,7 +98,7 @@ func (p *Peer) broadcastTransactions() {
 						return
 					}
 					close(done)
-					p.Log().Trace("Sent transactions", "count", len(txs))
+					p.Log().Info("[DebugTest]Sent transactions", "count", len(txs))
 				}()
 			}
 		}
@@ -164,7 +165,7 @@ func (p *Peer) announceTransactions() {
 						return
 					}
 					close(done)
-					p.Log().Trace("Sent transaction announcements", "count", len(pending))
+					p.Log().Info("Sent transaction announcements", "count", len(pending))
 				}()
 			}
 		}

@@ -569,10 +569,12 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		numDirect := int(math.Sqrt(float64(len(peers))))
 		for _, peer := range peers[:numDirect] {
 			txset[peer] = append(txset[peer], tx.Hash())
+			log.Info("[DebugTest]Tx send directly to peer: ", "peer", peer.RemoteAddr().String(), "txHash", tx.Hash().Hex())
 		}
 		// For the remaining peers, send announcement only
 		for _, peer := range peers[numDirect:] {
 			annos[peer] = append(annos[peer], tx.Hash())
+			log.Info("[DebugTest]Tx send annos to peer: ", "peer", peer.RemoteAddr().String(), "txHash", tx.Hash().Hex())
 		}
 	}
 	for peer, hashes := range txset {
@@ -585,7 +587,7 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		annoCount += len(hashes)
 		peer.AsyncSendPooledTransactionHashes(hashes)
 	}
-	log.Debug("Transaction broadcast", "txs", len(txs),
+	log.Info("Transaction broadcast", "txs", len(txs),
 		"announce packs", annoPeers, "announced hashes", annoCount,
 		"tx packs", directPeers, "broadcast txs", directCount)
 }

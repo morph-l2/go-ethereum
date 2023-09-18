@@ -368,6 +368,7 @@ func handleNewPooledTransactionHashes(backend Backend, msg Decoder, peer *Peer) 
 	// Schedule all the unknown hashes for retrieval
 	for _, hash := range *ann {
 		peer.markTransaction(hash)
+		log.Info("[DebugTest]P2P received tx hash", "peer", peer.RemoteAddr().String(), "txHash", hash.Hex())
 	}
 	return backend.Handle(peer, ann)
 }
@@ -426,6 +427,7 @@ func handleTransactions(backend Backend, msg Decoder, peer *Peer) error {
 			return fmt.Errorf("%w: transaction %d is nil", errDecode, i)
 		}
 		peer.markTransaction(tx.Hash())
+		log.Info("[DebugTest]P2P received transactionsPacket", "peer", peer.RemoteAddr().String(), "txHash", tx.Hash().Hex())
 	}
 	return backend.Handle(peer, &txs)
 }
@@ -446,6 +448,7 @@ func handlePooledTransactions66(backend Backend, msg Decoder, peer *Peer) error 
 			return fmt.Errorf("%w: transaction %d is nil", errDecode, i)
 		}
 		peer.markTransaction(tx.Hash())
+		log.Info("[DebugTest]P2P received pooledTransactionsPacket", "peer", peer.RemoteAddr().String(), "txHash", tx.Hash().Hex())
 	}
 	requestTracker.Fulfil(peer.id, peer.version, PooledTransactionsMsg, txs.RequestId)
 

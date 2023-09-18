@@ -194,6 +194,7 @@ func (p *Peer) SendTransactions(txs types.Transactions) error {
 	// Mark all the transactions as known, but ensure we don't overflow our limits
 	for _, tx := range txs {
 		p.knownTxs.Add(tx.Hash())
+		p.Log().Info("[DebugTest]Peer SendTransactions", "txHash", tx.Hash().Hex())
 	}
 	return p2p.Send(p.rw, TransactionsMsg, txs)
 }
@@ -220,6 +221,9 @@ func (p *Peer) AsyncSendTransactions(hashes []common.Hash) {
 func (p *Peer) sendPooledTransactionHashes(hashes []common.Hash) error {
 	// Mark all the transactions as known, but ensure we don't overflow our limits
 	p.knownTxs.Add(hashes...)
+	for _, hash := range hashes {
+		p.Log().Info("[DebugTest]Peer sendPooledTransactionHashes", "txHash", hash.Hex())
+	}
 	return p2p.Send(p.rw, NewPooledTransactionHashesMsg, NewPooledTransactionHashesPacket(hashes))
 }
 
@@ -240,6 +244,10 @@ func (p *Peer) AsyncSendPooledTransactionHashes(hashes []common.Hash) {
 func (p *Peer) ReplyPooledTransactionsRLP(id uint64, hashes []common.Hash, txs []rlp.RawValue) error {
 	// Mark all the transactions as known, but ensure we don't overflow our limits
 	p.knownTxs.Add(hashes...)
+
+	for _, hash := range hashes {
+		p.Log().Info("[DebugTest]P2P received GetPooledTransactionsPacket and reply", "hash", hash.Hex())
+	}
 
 	// Not packed into PooledTransactionsPacket to avoid RLP decoding
 	return p2p.Send(p.rw, PooledTransactionsMsg, PooledTransactionsRLPPacket66{
@@ -478,7 +486,10 @@ func (p *Peer) RequestReceipts(hashes []common.Hash, sink chan *Response) (*Requ
 
 // RequestTxs fetches a batch of transactions from a remote node.
 func (p *Peer) RequestTxs(hashes []common.Hash) error {
-	p.Log().Debug("Fetching batch of transactions", "count", len(hashes))
+	for _, hash := range hashes {
+		p.Log().Info("[DebugTest]fetch tx from peer", "txHash", hash.Hex())
+	}
+	p.Log().Info("Fetching batch of transactions", "count", len(hashes))
 	id := rand.Uint64()
 
 	requestTracker.Track(p.id, p.version, GetPooledTransactionsMsg, PooledTransactionsMsg, id)

@@ -913,7 +913,7 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 		traces, err := env.traceEnv.GetBlockTrace(
 			types.NewBlockWithHeader(env.header).WithBody([]*types.Transaction{tx}, nil),
 		)
-		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
+		// `env.traceEnv.State` & `env.state` share a same pointer to the state, so only need to revert `env.state`
 		// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
 		env.state.RevertToSnapshot(snap)
 		if err != nil {
@@ -1122,7 +1122,7 @@ loop:
 					l1TxRowConsumptionOverflowCounter.Inc(1)
 				} else {
 					// Skip L2 transaction and all other transactions from the same sender account
-					log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "first tx row consumption overflow")
+					log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "first tx row consumption overflow")
 					txs.Pop()
 					w.eth.TxPool().RemoveTx(tx.Hash(), true)
 					l2TxRowConsumptionOverflowCounter.Inc(1)
@@ -1173,12 +1173,12 @@ loop:
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && !tx.IsL1MessageTx():
 			// Circuit capacity check: unknown circuit capacity checker error for L2MessageTx, skip the account
 			log.Trace("Unknown circuit capacity checker error for L2MessageTx", "tx", tx.Hash().String())
-			log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", w.current.header.Number, "reason", "unknown row consumption error")
+			log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "unknown row consumption error")
 			// TODO: propagate more info about the error from CCC
 			if w.config.StoreSkippedTxTraces {
-				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, traces, "unknown circuit capacity checker error", w.current.header.Number.Uint64(), nil)
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, traces, "unknown circuit capacity checker error", env.header.Number.Uint64(), nil)
 			} else {
-				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, nil, "unknown circuit capacity checker error", w.current.header.Number.Uint64(), nil)
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, nil, "unknown circuit capacity checker error", env.header.Number.Uint64(), nil)
 			}
 			l2TxCccUnknownErrCounter.Inc(1)
 
@@ -1244,7 +1244,7 @@ func (w *worker) checkCurrentTxNumWithCCC(expected int) {
 		return
 	}
 	if !match {
-		log.Error("tx count in miner is different with CCC", "w.current.tcount", w.current.tcount, "got", got)
+		log.Error("tx count in miner is different with CCC", "current env tcount", expected, "got", got)
 	}
 }
 

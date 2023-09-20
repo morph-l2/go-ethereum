@@ -85,11 +85,11 @@ type Header struct {
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
 
-	// the start index of L1Message needs to be processed
-	NextL1MsgIndex uint64 `json:"next_l1_msg_index" gencodec:"required"`
-
 	// BLSData was the field specified for morphism
 	BLSData BLSData `json:"blsData" rlp:"optional"`
+
+	// the start index of L1Message needs to be processed
+	NextL1MsgIndex uint64 `json:"nextL1MsgIndex" rlp:"optional" gencodec:"required"`
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`

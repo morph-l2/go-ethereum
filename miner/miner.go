@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
+
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/consensus"
@@ -54,6 +56,9 @@ type Config struct {
 	GasPrice   *big.Int       // Minimum gas price for mining a transaction
 	Recommit   time.Duration  // The time interval for miner to re-create mining work.
 	Noverify   bool           // Disable remote mining solution verification(only useful in ethash).
+
+	NewBlockTimeout      time.Duration // The maximum time allowance for creating a new block
+	StoreSkippedTxTraces bool          // Whether store the wrapped traces when storing a skipped tx
 }
 
 // Miner creates blocks and searches for proof-of-work values.
@@ -241,14 +246,30 @@ func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscript
 	return miner.worker.pendingLogsFeed.Subscribe(ch)
 }
 
-func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, error) {
+func (miner *Miner) GetSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, []*types.SkippedTransaction, error) {
 	return miner.worker.generateWork(&generateParams{
 		parentHash:   parentHash,
 		timestamp:    uint64(timestamp.Unix()),
 		transactions: transactions,
-	})
+	}, nil)
+}
+
+func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, []*types.SkippedTransaction, error) {
+	return miner.worker.getSealingBlockAndState(parentHash, timestamp, transactions)
+}
+
+func (miner *Miner) GetCCC() *circuitcapacitychecker.CircuitCapacityChecker {
+	return miner.worker.circuitCapacityChecker
 }
 
 func (miner *Miner) MakeHeader(parent *types.Block, timestamp uint64, coinBase common.Address) (*types.Header, error) {
 	return miner.worker.makeHeader(parent, timestamp, coinBase)
+}
+
+func (miner *Miner) SimulateL1Messages(parentHash common.Hash, transactions types.Transactions) ([]*types.Transaction, []*types.SkippedTransaction, error) {
+	return miner.worker.simulateL1Messages(&generateParams{
+		parentHash:   parentHash,
+		timestamp:    uint64(time.Now().Unix()),
+		transactions: transactions,
+	}, transactions)
 }

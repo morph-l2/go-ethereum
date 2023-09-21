@@ -1,18 +1,15 @@
 package types
 
-import (
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
-)
-
-//go:generate gencodec -type SubCircuitRowConsumption -field-override subCircuitRowConsumptionMarshaling -out gen_row_consumption_json.go
-type SubCircuitRowConsumption struct {
-	CircuitName string `json:"circuitName" gencodec:"required"`
-	Rows        uint64 `json:"rows" gencodec:"required"`
+type RowUsage struct {
+	IsOk            bool                 `json:"is_ok"`
+	RowNumber       uint64               `json:"row_number"`
+	RowUsageDetails []SubCircuitRowUsage `json:"row_usage_details"`
 }
 
-type RowConsumption []SubCircuitRowConsumption
-
-// field type overrides for gencodec
-type subCircuitRowConsumptionMarshaling struct {
-	Rows hexutil.Uint64
+//go:generate gencodec -type SubCircuitRowUsage -out gen_row_consumption_json.go
+type SubCircuitRowUsage struct {
+	Name      string `json:"name" gencodec:"required"`
+	RowNumber uint64 `json:"row_number" gencodec:"required"`
 }
+
+type RowConsumption []SubCircuitRowUsage

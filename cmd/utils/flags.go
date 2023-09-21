@@ -20,7 +20,6 @@ package utils
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 	"io"
 	"io/ioutil"
 	"math"
@@ -33,6 +32,8 @@ import (
 	"text/tabwriter"
 	"text/template"
 	"time"
+
+	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 
 	pcsclite "github.com/gballet/go-libpcsclite"
 	gopsutil "github.com/shirou/gopsutil/mem"
@@ -101,6 +102,11 @@ func printHelp(out io.Writer, templ string, data interface{}) {
 	w.Flush()
 }
 
+const (
+	GCModeFull    = "full"
+	GCModeArchive = "archive"
+)
+
 // These are all the command line flags we support.
 // If you add to this list, please remember to include the
 // flag in the appropriate command definition.
@@ -165,6 +171,10 @@ var (
 		Name:  "scroll-alpha",
 		Usage: "Scroll Alpha test network",
 	}
+	ScrollSepoliaFlag = cli.BoolFlag{
+		Name:  "scroll-sepolia",
+		Usage: "Scroll Sepolia test network",
+	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
 		Usage: "Ephemeral proof-of-authority network with a pre-funded developer account, mining enabled",
@@ -226,7 +236,7 @@ var (
 	GCModeFlag = cli.StringFlag{
 		Name:  "gcmode",
 		Usage: `Blockchain garbage collection mode ("full", "archive")`,
-		Value: "full",
+		Value: GCModeArchive,
 	}
 	SnapshotFlag = cli.BoolTFlag{
 		Name:  "snapshot",
@@ -478,6 +488,17 @@ var (
 	MinerNoVerifyFlag = cli.BoolFlag{
 		Name:  "miner.noverify",
 		Usage: "Disable remote sealing verification",
+	}
+
+	MinerNewBlockTimeout = &cli.DurationFlag{
+		Name:  "miner.newblock-timeout",
+		Usage: "Specify the maximum time allowance for creating a new block",
+		Value: ethconfig.Defaults.Miner.NewBlockTimeout,
+	}
+
+	MinerStoreSkippedTxTracesFlag = cli.BoolFlag{
+		Name:  "miner.storeskippedtxtraces",
+		Usage: "Store the wrapped traces when storing a skipped tx",
 	}
 	// Account settings
 	UnlockedAccountFlag = cli.StringFlag{
@@ -816,6 +837,12 @@ var (
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
 	}
+
+	// Circuit capacity check settings
+	CircuitCapacityCheckEnabledFlag = cli.BoolFlag{
+		Name:  "ccc",
+		Usage: "Enable circuit capacity check during block validation",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -839,6 +866,9 @@ func MakeDataDir(ctx *cli.Context) string {
 		}
 		if ctx.GlobalBool(ScrollAlphaFlag.Name) {
 			return filepath.Join(path, "scroll-alpha")
+		}
+		if ctx.GlobalBool(ScrollSepoliaFlag.Name) {
+			return filepath.Join(path, "scroll-sepolia")
 		}
 		return path
 	}
@@ -898,6 +928,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.GoerliBootnodes
 	case ctx.GlobalBool(ScrollAlphaFlag.Name):
 		urls = params.ScrollAlphaBootnodes
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
+		urls = params.ScrollSepoliaBootnodes
 	case cfg.BootstrapNodes != nil || len(urls) == 0:
 		return // already set, don't apply defaults.
 	}
@@ -1337,6 +1369,9 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "sepolia")
 	case ctx.GlobalBool(ScrollAlphaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-alpha")
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
+		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-sepolia")
+
 	}
 }
 
@@ -1450,8 +1485,14 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.GlobalIsSet(MinerNoVerifyFlag.Name) {
 		cfg.Noverify = ctx.GlobalBool(MinerNoVerifyFlag.Name)
 	}
+	if ctx.GlobalIsSet(MinerStoreSkippedTxTracesFlag.Name) {
+		cfg.StoreSkippedTxTraces = ctx.GlobalBool(MinerStoreSkippedTxTracesFlag.Name)
+	}
 	if ctx.GlobalIsSet(LegacyMinerGasTargetFlag.Name) {
 		log.Warn("The generic --miner.gastarget flag is deprecated and will be removed in the future!")
+	}
+	if ctx.IsSet(MinerNewBlockTimeout.Name) {
+		cfg.NewBlockTimeout = ctx.Duration(MinerNewBlockTimeout.Name)
 	}
 }
 
@@ -1475,6 +1516,12 @@ func setWhitelist(ctx *cli.Context, cfg *ethconfig.Config) {
 			Fatalf("Invalid whitelist hash %s: %v", parts[1], err)
 		}
 		cfg.Whitelist[number] = hash
+	}
+}
+
+func setCircuitCapacityCheck(ctx *cli.Context, cfg *ethconfig.Config) {
+	if ctx.GlobalIsSet(CircuitCapacityCheckEnabledFlag.Name) {
+		cfg.CheckCircuitCapacity = ctx.GlobalBool(CircuitCapacityCheckEnabledFlag.Name)
 	}
 }
 
@@ -1522,10 +1569,10 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, ScrollAlphaFlag)
+	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, ScrollAlphaFlag, ScrollSepoliaFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
-	if ctx.GlobalString(GCModeFlag.Name) == "archive" && ctx.GlobalUint64(TxLookupLimitFlag.Name) != 0 {
+	if ctx.GlobalString(GCModeFlag.Name) == GCModeArchive && ctx.GlobalUint64(TxLookupLimitFlag.Name) != 0 {
 		ctx.GlobalSet(TxLookupLimitFlag.Name, "0")
 		log.Warn("Disable transaction unindexing for archive node")
 	}
@@ -1543,6 +1590,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	setMiner(ctx, &cfg.Miner)
 	setWhitelist(ctx, cfg)
 	setLes(ctx, cfg)
+	setCircuitCapacityCheck(ctx, cfg)
 
 	// Cap the cache allowance and tune the garbage collector
 	mem, err := gopsutil.VirtualMemory()
@@ -1578,11 +1626,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		cfg.DatabaseFreezer = ctx.GlobalString(AncientFlag.Name)
 	}
 
-	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
+	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != GCModeFull && gcmode != GCModeArchive {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
 	}
 	if ctx.GlobalIsSet(GCModeFlag.Name) {
-		cfg.NoPruning = ctx.GlobalString(GCModeFlag.Name) == "archive"
+		cfg.NoPruning = ctx.GlobalString(GCModeFlag.Name) == GCModeArchive
 	}
 	if ctx.GlobalIsSet(CacheNoPrefetchFlag.Name) {
 		cfg.NoPrefetch = ctx.GlobalBool(CacheNoPrefetchFlag.Name)
@@ -1690,6 +1738,20 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		}
 		cfg.Genesis = core.DefaultScrollAlphaGenesisBlock()
 		// SetDNSDiscoveryDefaults(cfg, params.ScrollAlphaGenesisHash)
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 534351
+		}
+		cfg.Genesis = core.DefaultScrollSepoliaGenesisBlock()
+		// disable pruning
+		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
+			log.Crit("Must use --gcmode=archive")
+		}
+		log.Info("Pruning disabled")
+		cfg.NoPruning = true
+		// disable prefetch
+		log.Info("Prefetch disabled")
+		cfg.NoPrefetch = true
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -1918,6 +1980,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultGoerliGenesisBlock()
 	case ctx.GlobalBool(ScrollAlphaFlag.Name):
 		genesis = core.DefaultScrollAlphaGenesisBlock()
+	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
+		genesis = core.DefaultScrollSepoliaGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}
@@ -1950,14 +2014,14 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 			}, nil, false)
 		}
 	}
-	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
+	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != GCModeFull && gcmode != GCModeArchive {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
 	}
 	cache := &core.CacheConfig{
 		TrieCleanLimit:      ethconfig.Defaults.TrieCleanCache,
 		TrieCleanNoPrefetch: ctx.GlobalBool(CacheNoPrefetchFlag.Name),
 		TrieDirtyLimit:      ethconfig.Defaults.TrieDirtyCache,
-		TrieDirtyDisabled:   ctx.GlobalString(GCModeFlag.Name) == "archive",
+		TrieDirtyDisabled:   ctx.GlobalString(GCModeFlag.Name) == GCModeArchive,
 		TrieTimeLimit:       ethconfig.Defaults.TrieTimeout,
 		SnapshotLimit:       ethconfig.Defaults.SnapshotCache,
 		Preimages:           ctx.GlobalBool(CachePreimagesFlag.Name),
@@ -1979,7 +2043,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 
 	// TODO(rjl493456442) disable snapshot generation/wiping if the chain is read only.
 	// Disable transaction indexing/unindexing by default.
-	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil)
+	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil, false)
 	if err != nil {
 		Fatalf("Can't create BlockChain: %v", err)
 	}

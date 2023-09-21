@@ -19,6 +19,7 @@ package miner
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -30,11 +31,14 @@ import (
 	"github.com/scroll-tech/go-ethereum/consensus"
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
 	"github.com/scroll-tech/go-ethereum/core"
+	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/event"
 	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
 
@@ -78,6 +82,20 @@ const (
 	staleThreshold = 7
 )
 
+var (
+	errBlockInterruptedByNewHead  = errors.New("new head arrived while building block")
+	errBlockInterruptedByRecommit = errors.New("recommit interrupt while building block")
+	errBlockInterruptedByTimeout  = errors.New("timeout while building block")
+
+	// Metrics for the skipped txs
+	l1TxGasLimitExceededCounter       = metrics.NewRegisteredCounter("miner/skipped_txs/l1/gas_limit_exceeded", nil)
+	l1TxRowConsumptionOverflowCounter = metrics.NewRegisteredCounter("miner/skipped_txs/l1/row_consumption_overflow", nil)
+	l2TxRowConsumptionOverflowCounter = metrics.NewRegisteredCounter("miner/skipped_txs/l2/row_consumption_overflow", nil)
+	l1TxCccUnknownErrCounter          = metrics.NewRegisteredCounter("miner/skipped_txs/l1/ccc_unknown_err", nil)
+	l2TxCccUnknownErrCounter          = metrics.NewRegisteredCounter("miner/skipped_txs/l2/ccc_unknown_err", nil)
+	l1TxStrangeErrCounter             = metrics.NewRegisteredCounter("miner/skipped_txs/l1/strange_err", nil)
+)
+
 // environment is the worker's current environment and holds all of the current state information.
 type environment struct {
 	signer types.Signer
@@ -94,6 +112,12 @@ type environment struct {
 	header   *types.Header
 	txs      []*types.Transaction
 	receipts []*types.Receipt
+
+	// circuit capacity check related fields
+	traceEnv       *core.TraceEnv        // env for tracing
+	accRows        *types.RowConsumption // accumulated row consumption for a block
+	nextL1MsgIndex uint64                // next L1 queue index to be processed
+	isSimulate     bool
 }
 
 // task contains all information for consensus engine sealing and result submitting.
@@ -102,6 +126,7 @@ type task struct {
 	state     *state.StateDB
 	block     *types.Block
 	createdAt time.Time
+	accRows   *types.RowConsumption // accumulated row consumption in the circuit side
 }
 
 const (
@@ -147,6 +172,7 @@ type worker struct {
 
 	// Channels
 	newWorkCh          chan *newWorkReq
+	getWorkCh          chan *getWorkReq
 	taskCh             chan *task
 	resultCh           chan *types.Block
 	startCh            chan struct{}
@@ -184,8 +210,17 @@ type worker struct {
 	// non-stop and no real transaction will be included.
 	noempty uint32
 
+	// newpayloadTimeout is the maximum timeout allowance for creating block.
+	// The default value is 3 seconds but node operator can set it to arbitrary
+	// large value. A large timeout allowance may cause Geth to fail creating
+	// a non-empty block within the specified time and eventually miss the chance to be a proposer
+	// in case there are some computation expensive transactions in txpool.
+	newBlockTimeout time.Duration
+
 	// External functions
 	isLocalBlock func(block *types.Block) bool // Function used to determine whether the specified block is mined by local miner.
+	// Make sure the checker here is used by a single block one time, and must be reset for another block.
+	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
 
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
@@ -196,28 +231,31 @@ type worker struct {
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
 	worker := &worker{
-		config:             config,
-		chainConfig:        chainConfig,
-		engine:             engine,
-		eth:                eth,
-		mux:                mux,
-		chain:              eth.BlockChain(),
-		isLocalBlock:       isLocalBlock,
-		localUncles:        make(map[common.Hash]*types.Block),
-		remoteUncles:       make(map[common.Hash]*types.Block),
-		unconfirmed:        newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
-		pendingTasks:       make(map[common.Hash]*task),
-		txsCh:              make(chan core.NewTxsEvent, txChanSize),
-		chainHeadCh:        make(chan core.ChainHeadEvent, chainHeadChanSize),
-		chainSideCh:        make(chan core.ChainSideEvent, chainSideChanSize),
-		newWorkCh:          make(chan *newWorkReq),
-		taskCh:             make(chan *task),
-		resultCh:           make(chan *types.Block, resultQueueSize),
-		exitCh:             make(chan struct{}),
-		startCh:            make(chan struct{}, 1),
-		resubmitIntervalCh: make(chan time.Duration),
-		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
+		config:                 config,
+		chainConfig:            chainConfig,
+		engine:                 engine,
+		eth:                    eth,
+		mux:                    mux,
+		chain:                  eth.BlockChain(),
+		isLocalBlock:           isLocalBlock,
+		localUncles:            make(map[common.Hash]*types.Block),
+		remoteUncles:           make(map[common.Hash]*types.Block),
+		unconfirmed:            newUnconfirmedBlocks(eth.BlockChain(), miningLogAtDepth),
+		pendingTasks:           make(map[common.Hash]*task),
+		txsCh:                  make(chan core.NewTxsEvent, txChanSize),
+		chainHeadCh:            make(chan core.ChainHeadEvent, chainHeadChanSize),
+		chainSideCh:            make(chan core.ChainSideEvent, chainSideChanSize),
+		newWorkCh:              make(chan *newWorkReq),
+		getWorkCh:              make(chan *getWorkReq),
+		taskCh:                 make(chan *task),
+		resultCh:               make(chan *types.Block, resultQueueSize),
+		exitCh:                 make(chan struct{}),
+		startCh:                make(chan struct{}, 1),
+		resubmitIntervalCh:     make(chan time.Duration),
+		resubmitAdjustCh:       make(chan *intervalAdjust, resubmitAdjustChanSize),
+		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(),
 	}
+	log.Info("created new worker", "CircuitCapacityChecker ID", worker.circuitCapacityChecker.ID)
 
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
@@ -233,6 +271,17 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		recommit = minRecommitInterval
 	}
 
+	// Sanitize the timeout config for creating block.
+	newBlockTimeout := worker.config.NewBlockTimeout
+	if newBlockTimeout == 0 {
+		log.Warn("Sanitizing new block timeout to default", "provided", newBlockTimeout, "updated", 3*time.Second)
+		newBlockTimeout = 3 * time.Second
+	}
+	if newBlockTimeout < time.Millisecond*100 {
+		log.Warn("Low block timeout may cause high amount of non-full blocks", "provided", newBlockTimeout, "default", 3*time.Second)
+	}
+	worker.newBlockTimeout = newBlockTimeout
+
 	worker.wg.Add(4)
 	go worker.mainLoop()
 	go worker.newWorkLoop(recommit)
@@ -244,6 +293,12 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		worker.startCh <- struct{}{}
 	}
 	return worker
+}
+
+// getCCC returns a pointer to this worker's CCC instance.
+// Only used in tests.
+func (w *worker) getCCC() *circuitcapacitychecker.CircuitCapacityChecker {
+	return w.circuitCapacityChecker
 }
 
 // setEtherbase sets the etherbase used to initialize the block coinbase field.
@@ -378,7 +433,11 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 		case <-w.exitCh:
 			return
 		}
-		timer.Reset(recommit)
+		// we do not need this resubmit loop to acquire higher price transactions here in our cases
+		// todo use morphism config instead later
+		if !w.chainConfig.Scroll.UseZktrie {
+			timer.Reset(recommit)
+		}
 		atomic.StoreInt32(&w.newTxs, 0)
 	}
 	// clearPending cleans the stale pending tasks.
@@ -470,6 +529,17 @@ func (w *worker) mainLoop() {
 			w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
 			// new block created.
 
+		case req := <-w.getWorkCh:
+			block, stateDB, receipt, rowConsumption, skippedTxs, err := w.generateWork(req.params, req.interrupt)
+			req.result <- &newBlockResult{
+				err:            err,
+				block:          block,
+				state:          stateDB,
+				receipts:       receipt,
+				rowConsumption: rowConsumption,
+				skippedTxs:     skippedTxs,
+			}
+
 		case ev := <-w.chainSideCh:
 			// Short circuit for duplicate side blocks
 			if _, exist := w.localUncles[ev.Block.Hash()]; exist {
@@ -531,6 +601,8 @@ func (w *worker) mainLoop() {
 				}
 				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs, w.current.header.BaseFee)
 				tcount := w.current.tcount
+				// reset circuitCapacityChecker
+				w.circuitCapacityChecker.Reset()
 				w.commitTransactions(w.current, txset, coinbase, nil)
 				// Only update the snapshot if any new transactons were added
 				// to the pending block
@@ -630,6 +702,7 @@ func (w *worker) resultLoop() {
 				sealhash = w.engine.SealHash(block.Header())
 				hash     = block.Hash()
 			)
+
 			w.pendingMu.RLock()
 			task, exist := w.pendingTasks[sealhash]
 			w.pendingMu.RUnlock()
@@ -663,6 +736,16 @@ func (w *worker) resultLoop() {
 				}
 				logs = append(logs, receipt.Logs...)
 			}
+
+			// Store circuit row consumption.
+			log.Trace(
+				"Worker write block row consumption",
+				"id", w.circuitCapacityChecker.ID,
+				"number", block.Number(),
+				"hash", hash.String(),
+				"accRows", task.accRows,
+			)
+			rawdb.WriteBlockRowConsumption(w.eth.ChainDb(), hash, task.accRows)
 			// Commit block and state to database.
 			_, err := w.chain.WriteBlockWithState(block, receipts, logs, task.state, true)
 			if err != nil {
@@ -691,15 +774,30 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 	if err != nil {
 		return nil, err
 	}
+
+	// don't commit the state during tracing for circuit capacity checker, otherwise we cannot revert.
+	// and even if we don't commit the state, the `refund` value will still be correct, as explained in `CommitTransaction`
+	commitStateAfterApply := false
+	traceEnv, err := core.CreateTraceEnv(w.chainConfig, w.chain, w.engine, w.eth.ChainDb(), state, parent,
+		// new block with a placeholder tx, for traceEnv's ExecutionResults length & TxStorageTraces length
+		types.NewBlockWithHeader(header).WithBody([]*types.Transaction{types.NewTx(&types.LegacyTx{})}, nil),
+		commitStateAfterApply)
+	if err != nil {
+		return nil, err
+	}
+
 	state.StartPrefetcher("miner")
 
 	env := &environment{
-		signer:    types.MakeSigner(w.chainConfig, header.Number),
-		state:     state,
-		ancestors: mapset.NewSet(),
-		family:    mapset.NewSet(),
-		uncles:    mapset.NewSet(),
-		header:    header,
+		signer:         types.MakeSigner(w.chainConfig, header.Number),
+		state:          state,
+		ancestors:      mapset.NewSet(),
+		family:         mapset.NewSet(),
+		uncles:         mapset.NewSet(),
+		header:         header,
+		traceEnv:       traceEnv,
+		accRows:        nil,
+		nextL1MsgIndex: parent.Header().NextL1MsgIndex,
 	}
 	// when 08 is processed ancestors contain 07 (quick block)
 	for _, ancestor := range w.chain.GetBlocksFromHash(parent.Hash(), 7) {
@@ -725,8 +823,8 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 
 	// Swap out the old work with the new one, terminating any leftover prefetcher
 	// processes in the mean time and starting a new one.
-	if w.current != nil && w.current.state != nil {
-		w.current.state.StopPrefetcher()
+	if w.current != nil {
+		w.current.discard()
 	}
 	w.current = env
 	return nil
@@ -785,24 +883,93 @@ func (w *worker) updateSnapshot() {
 	w.snapshotState = w.current.state.Copy()
 }
 
-func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) ([]*types.Log, error) {
+func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) ([]*types.Log, *types.BlockTrace, error) {
+	var accRows *types.RowConsumption
+	var traces *types.BlockTrace
+	var err error
+
+	// do not do CCC checks on follower nodes
+	if w.isRunning() {
+		// do gas limit check up-front and do not run CCC if it fails
+		if env.gasPool.Gas() < tx.Gas() {
+			return nil, nil, core.ErrGasLimitReached
+		}
+
+		snap := env.state.Snapshot()
+
+		log.Trace(
+			"Worker apply ccc for tx",
+			"id", w.circuitCapacityChecker.ID,
+			"txHash", tx.Hash().Hex(),
+		)
+
+		// 1. we have to check circuit capacity before `core.ApplyTransaction`,
+		// because if the tx can be successfully executed but circuit capacity overflows, it will be inconvenient to revert.
+		// 2. even if we don't commit to the state during the tracing (which means `clearJournalAndRefund` is not called during the tracing),
+		// the `refund` value will still be correct, because:
+		// 2.1 when starting handling the first tx, `state.refund` is 0 by default,
+		// 2.2 after tracing, the state is either committed in `core.ApplyTransaction`, or reverted, so the `state.refund` can be cleared,
+		// 2.3 when starting handling the following txs, `state.refund` comes as 0
+		traces, err := env.traceEnv.GetBlockTrace(
+			types.NewBlockWithHeader(env.header).WithBody([]*types.Transaction{tx}, nil),
+		)
+		// `env.traceEnv.State` & `env.state` share a same pointer to the state, so only need to revert `env.state`
+		// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
+		env.state.RevertToSnapshot(snap)
+		if err != nil {
+			return nil, nil, err
+		}
+		accRows, err = w.circuitCapacityChecker.ApplyTransaction(traces)
+		if err != nil {
+			return nil, traces, err
+		}
+		log.Trace(
+			"Worker apply ccc for tx result",
+			"id", w.circuitCapacityChecker.ID,
+			"txHash", tx.Hash().Hex(),
+			"accRows", accRows,
+		)
+	}
+
+	// create new snapshot for `core.ApplyTransaction`
 	snap := env.state.Snapshot()
 
 	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
 	if err != nil {
 		env.state.RevertToSnapshot(snap)
-		return nil, err
+
+		if accRows != nil {
+			// At this point, we have called CCC but the transaction failed in `ApplyTransaction`.
+			// If we skip this tx and continue to pack more, the next tx will likely fail with
+			// `circuitcapacitychecker.ErrUnknown`. However, at this point we cannot decide whether
+			// we should seal the block or skip the tx and continue, so we simply return the error.
+			log.Error(
+				"GetBlockTrace passed but ApplyTransaction failed, ccc is left in inconsistent state",
+				"blockNumber", env.header.Number,
+				"txHash", tx.Hash().Hex(),
+				"err", err,
+			)
+		}
+
+		return nil, traces, err
 	}
 	env.txs = append(env.txs, tx)
 	env.receipts = append(env.receipts, receipt)
+	env.accRows = accRows
 
-	return receipt.Logs, nil
+	return receipt.Logs, traces, nil
 }
 
-func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) bool {
+// commitTransactions returns
+// error: any error occurs when execute transactions
+// circuitCapacityReached: boolean value indicates whether reaches the circuit capacity
+// skipped transactions: the skipped L1Message transactions with reasons
+func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) (error, bool, []*types.SkippedTransaction) {
+	var circuitCapacityReached bool
+
 	// Short circuit if current is nil
 	if env == nil {
-		return true
+		return errors.New("no env found"), circuitCapacityReached, nil
 	}
 
 	gasLimit := env.header.GasLimit
@@ -810,35 +977,18 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		env.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
-	var coalescedLogs []*types.Log
+	var (
+		coalescedLogs []*types.Log
+		skippedTxs    = make([]*types.SkippedTransaction, 0)
+	)
 
+loop:
 	for {
-		// In the following three cases, we will interrupt the execution of the transaction.
-		// (1) new head block event arrival, the interrupt signal is 1
-		// (2) worker start or restart, the interrupt signal is 1
-		// (3) worker recreate the mining block with any newly arrived transactions, the interrupt signal is 2.
-		// For the first two cases, the semi-finished work will be discarded.
-		// For the third case, the semi-finished work will be submitted to the consensus engine.
-		if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
-			// Notify resubmit loop to increase resubmitting interval due to too frequent commits.
-			if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
-				ratio := float64(gasLimit-env.gasPool.Gas()) / float64(gasLimit)
-				if ratio < 0.1 {
-					ratio = 0.1
-				}
-				w.resubmitAdjustCh <- &intervalAdjust{
-					ratio: ratio,
-					inc:   true,
-				}
+		if interrupt != nil {
+			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
+				return signalToErr(signal), circuitCapacityReached, skippedTxs
 			}
-			return atomic.LoadInt32(interrupt) == commitInterruptNewHead
 		}
-		// If we have collected enough transactions then we're done
-		if !w.chainConfig.Scroll.IsValidL2TxCount(env.tcount - env.l1TxCount + 1) {
-			log.Trace("Transaction count limit reached", "have", env.tcount-env.l1TxCount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
-			break
-		}
-		// If we don't have enough gas for any further transactions then we're done
 		if env.gasPool.Gas() < params.TxGas {
 			log.Trace("Not enough gas for further transactions", "have", env.gasPool, "want", params.TxGas)
 			break
@@ -849,15 +999,27 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			break
 		}
 
-		// in case the block size exceed a single batch limit.
-		// add txHash length, since it will be rollup as well
-		if !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize + tx.Size() + common.HashLength) {
+		// If we have collected enough transactions then we're done
+		// Originally we only limit l2txs count, but now strictly limit total txs number.
+		if !w.chainConfig.Scroll.IsValidTxCount(env.tcount + 1) {
+			log.Trace("Transaction count limit reached", "have", env.tcount, "want", w.chainConfig.Scroll.MaxTxPerBlock)
+			break
+		}
+		if tx.IsL1MessageTx() && !env.isSimulate && tx.AsL1MessageTx().QueueIndex != env.nextL1MsgIndex {
+			log.Error(
+				"Unexpected L1 message queue index in worker",
+				"expected", env.nextL1MsgIndex,
+				"got", tx.AsL1MessageTx().QueueIndex,
+			)
+			break
+		}
+		if !tx.IsL1MessageTx() && !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize+tx.Size()+common.HashLength) {
 			log.Trace("Block size limit reached", "have", env.blockSize, "want", w.chainConfig.Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
 			continue
 		}
 		// Error may be ignored here. The error has already been checked
-		// during transaction acceptance is the transaction pool.
+		// during transaction acceptance in the transaction pool.
 		//
 		// We use the eip155 signer regardless of the current hf.
 		from, _ := types.Sender(env.signer, tx)
@@ -872,8 +1034,31 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		// Start executing the transaction
 		env.state.Prepare(tx.Hash(), env.tcount)
 
-		logs, err := w.commitTransaction(env, tx, coinbase)
+		logs, traces, err := w.commitTransaction(env, tx, coinbase)
 		switch {
+		case errors.Is(err, core.ErrGasLimitReached) && tx.IsL1MessageTx():
+			// If this block already contains some L1 messages,
+			// terminate here and try again in the next block.
+			if env.l1TxCount > 0 {
+				break loop
+			}
+			// A single L1 message leads to out-of-gas. Skip it.
+			queueIndex := tx.AsL1MessageTx().QueueIndex
+			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "gas limit exceeded")
+			env.nextL1MsgIndex = queueIndex + 1
+			txs.Shift()
+
+			var storeTraces *types.BlockTrace
+			if w.config.StoreSkippedTxTraces {
+				storeTraces = traces
+			}
+			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+				Tx:     *tx,
+				Reason: "gas limit exceeded",
+				Trace:  storeTraces,
+			})
+			l1TxGasLimitExceededCounter.Inc(1)
+
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account
 			log.Trace("Gas limit exceeded for current block", "sender", from)
@@ -892,22 +1077,139 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		case errors.Is(err, nil):
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
-			if tx.IsL1MessageTx() {
-				env.l1TxCount++
-			}
 			env.tcount++
-			env.blockSize += tx.Size() + common.HashLength
 			txs.Shift()
+
+			if tx.IsL1MessageTx() {
+				queueIndex := tx.AsL1MessageTx().QueueIndex
+				log.Debug("Including L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String())
+				env.l1TxCount++
+				env.nextL1MsgIndex = queueIndex + 1
+			} else {
+				// only consider block size limit for L2 transactions
+				env.blockSize += tx.Size()
+			}
 
 		case errors.Is(err, core.ErrTxTypeNotSupported):
 			// Pop the unsupported transaction without shifting in the next from the account
 			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
 			txs.Pop()
 
+		// Circuit capacity check
+		case errors.Is(err, circuitcapacitychecker.ErrBlockRowConsumptionOverflow):
+			if env.tcount >= 1 {
+				// 1. Circuit capacity limit reached in a block, and it's not the first tx:
+				// don't pop or shift, just quit the loop immediately;
+				// though it might still be possible to add some "smaller" txs,
+				// but it's a trade-off between tracing overhead & block usage rate
+				log.Trace("Circuit capacity limit reached in a block", "acc_rows", env.accRows, "tx", tx.Hash().String())
+				log.Info("Skipping message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "accumulated row consumption overflow")
+
+				circuitCapacityReached = true
+				break loop
+			} else {
+				// 2. Circuit capacity limit reached in a block, and it's the first tx: skip the tx
+				log.Trace("Circuit capacity limit reached for a single tx", "tx", tx.Hash().String())
+
+				if tx.IsL1MessageTx() {
+					// Skip L1 message transaction,
+					// shift to the next from the account because we shouldn't skip the entire txs from the same account
+					txs.Shift()
+
+					queueIndex := tx.AsL1MessageTx().QueueIndex
+					log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "row consumption overflow")
+					env.nextL1MsgIndex = queueIndex + 1
+					l1TxRowConsumptionOverflowCounter.Inc(1)
+				} else {
+					// Skip L2 transaction and all other transactions from the same sender account
+					log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "first tx row consumption overflow")
+					txs.Pop()
+					w.eth.TxPool().RemoveTx(tx.Hash(), true)
+					l2TxRowConsumptionOverflowCounter.Inc(1)
+				}
+
+				// Reset ccc so that we can process other transactions for this block
+				w.circuitCapacityChecker.Reset()
+				log.Trace("Worker reset ccc", "id", w.circuitCapacityChecker.ID)
+				circuitCapacityReached = false
+
+				var storeTraces *types.BlockTrace
+				if w.config.StoreSkippedTxTraces {
+					storeTraces = traces
+				}
+				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+					Tx:     *tx,
+					Reason: "row consumption overflow",
+					Trace:  storeTraces,
+				})
+			}
+
+		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && tx.IsL1MessageTx():
+			// Circuit capacity check: unknown circuit capacity checker error for L1MessageTx,
+			// shift to the next from the account because we shouldn't skip the entire txs from the same account
+			queueIndex := tx.AsL1MessageTx().QueueIndex
+			log.Trace("Unknown circuit capacity checker error for L1MessageTx", "tx", tx.Hash().String(), "queueIndex", queueIndex)
+			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "unknown row consumption error")
+			env.nextL1MsgIndex = queueIndex + 1
+			// TODO: propagate more info about the error from CCC
+			var storeTraces *types.BlockTrace
+			if w.config.StoreSkippedTxTraces {
+				storeTraces = traces
+			}
+			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+				Tx:     *tx,
+				Reason: "unknown circuit capacity checker error",
+				Trace:  storeTraces,
+			})
+			l1TxCccUnknownErrCounter.Inc(1)
+
+			// Normally we would do `txs.Shift()` here.
+			// However, after `ErrUnknown`, ccc might remain in an
+			// inconsistent state, so we cannot pack more transactions.
+			circuitCapacityReached = true
+			w.checkCurrentTxNumWithCCC(env.tcount)
+			break loop
+
+		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && !tx.IsL1MessageTx():
+			// Circuit capacity check: unknown circuit capacity checker error for L2MessageTx, skip the account
+			log.Trace("Unknown circuit capacity checker error for L2MessageTx", "tx", tx.Hash().String())
+			log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "unknown row consumption error")
+			// TODO: propagate more info about the error from CCC
+			if w.config.StoreSkippedTxTraces {
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, traces, "unknown circuit capacity checker error", env.header.Number.Uint64(), nil)
+			} else {
+				rawdb.WriteSkippedTransaction(w.eth.ChainDb(), tx, nil, "unknown circuit capacity checker error", env.header.Number.Uint64(), nil)
+			}
+			l2TxCccUnknownErrCounter.Inc(1)
+
+			// Normally we would do `txs.Pop()` here.
+			// However, after `ErrUnknown`, ccc might remain in an
+			// inconsistent state, so we cannot pack more transactions.
+			w.eth.TxPool().RemoveTx(tx.Hash(), true)
+			circuitCapacityReached = true
+			w.checkCurrentTxNumWithCCC(env.tcount)
+			break loop
+
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the
 			// nonce-too-high clause will prevent us from executing in vain).
-			log.Debug("Transaction failed, account skipped", "hash", tx.Hash(), "err", err)
+			log.Debug("Transaction failed, account skipped", "hash", tx.Hash().String(), "err", err)
+			if tx.IsL1MessageTx() {
+				queueIndex := tx.AsL1MessageTx().QueueIndex
+				log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "strange error", "err", err)
+				env.nextL1MsgIndex = queueIndex + 1
+
+				var storeTraces *types.BlockTrace
+				if w.config.StoreSkippedTxTraces {
+					storeTraces = traces
+				}
+				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+					Tx:     *tx,
+					Reason: fmt.Sprintf("strange error: %v", err),
+					Trace:  storeTraces,
+				})
+				l1TxStrangeErrCounter.Inc(1)
+			}
 			txs.Shift()
 		}
 	}
@@ -932,7 +1234,18 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 	if interrupt != nil {
 		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
 	}
-	return false
+	return nil, circuitCapacityReached, skippedTxs
+}
+
+func (w *worker) checkCurrentTxNumWithCCC(expected int) {
+	match, got, err := w.circuitCapacityChecker.CheckTxNum(expected)
+	if err != nil {
+		log.Error("failed to CheckTxNum in ccc", "err", err)
+		return
+	}
+	if !match {
+		log.Error("tx count in miner is different with CCC", "current env tcount", expected, "got", got)
+	}
 }
 
 // commitNewWork generates several new sealing tasks based on the parent block.
@@ -942,6 +1255,8 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
+	w.circuitCapacityChecker.Reset()
+	log.Trace("Worker reset ccc", "id", w.circuitCapacityChecker.ID)
 
 	if parent.Time() >= uint64(timestamp) {
 		timestamp = int64(parent.Time() + 1)
@@ -1035,38 +1350,33 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
 		w.commit(uncles, nil, false, tstart)
 	}
-	// Fill the block with all available pending transactions.
-	pending := w.eth.TxPool().Pending(true)
-	// Short circuit if there is no available pending transactions.
-	// But if we disable empty precommit already, ignore it. Since
-	// empty block is necessary to keep the liveness of the network.
-	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
-		w.updateSnapshot()
-		return
-	}
-	// Split the pending transactions into locals and remotes
-	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-	for _, account := range w.eth.TxPool().Locals() {
-		if txs := remoteTxs[account]; len(txs) > 0 {
-			delete(remoteTxs, account)
-			localTxs[account] = txs
-		}
-	}
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs, header.BaseFee)
-		if w.commitTransactions(w.current, txs, w.coinbase, interrupt) {
-			return
-		}
-	}
-	if len(remoteTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs, header.BaseFee)
-		if w.commitTransactions(w.current, txs, w.coinbase, interrupt) {
-			return
-		}
-	}
 
-	// do not produce empty blocks
-	if w.current.tcount == 0 {
+	err, _ = w.fillTransactions(w.current, nil, interrupt)
+	switch {
+	case err == nil:
+		// The entire block is filled, decrease resubmit interval in case
+		// of current interval is larger than the user-specified one.
+		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
+
+	case errors.Is(err, errBlockInterruptedByRecommit):
+		// Notify resubmit loop to increase resubmitting interval if the
+		// interruption is due to frequent commits.
+		gaslimit := w.current.header.GasLimit
+		ratio := float64(gaslimit-w.current.gasPool.Gas()) / float64(gaslimit)
+		if ratio < 0.1 {
+			ratio = 0.1
+		}
+		w.resubmitAdjustCh <- &intervalAdjust{
+			ratio: ratio,
+			inc:   true,
+		}
+
+	case errors.Is(err, errBlockInterruptedByNewHead):
+		// If the block building is interrupted by newhead event, discard it
+		// totally. Committing the interrupted block introduces unnecessary
+		// delay, and possibly causes miner to mine on the previous head,
+		// which could result in higher uncle rate.
+		w.current.discard()
 		return
 	}
 
@@ -1076,38 +1386,78 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 // commit runs any post-transaction state modifications, assembles the final block
 // and commits new work if consensus engine is running.
 func (w *worker) commit(uncles []*types.Header, interval func(), update bool, start time.Time) error {
+	// set w.current.accRows for empty-but-not-genesis block
+	if (w.current.header.Number.Uint64() != 0) &&
+		(w.current.accRows == nil || len(*w.current.accRows) == 0) && w.isRunning() {
+		log.Trace(
+			"Worker apply ccc for empty block",
+			"id", w.circuitCapacityChecker.ID,
+			"number", w.current.header.Number,
+			"hash", w.current.header.Hash().String(),
+		)
+		traces, err := w.current.traceEnv.GetBlockTrace(types.NewBlockWithHeader(w.current.header))
+		if err != nil {
+			return err
+		}
+		// truncate ExecutionResults&TxStorageTraces, because we declare their lengths with a dummy tx before;
+		// however, we need to clean it up for an empty block
+		traces.ExecutionResults = traces.ExecutionResults[:0]
+		traces.TxStorageTraces = traces.TxStorageTraces[:0]
+		accRows, err := w.circuitCapacityChecker.ApplyBlock(traces)
+		if err != nil {
+			return err
+		}
+		log.Trace(
+			"Worker apply ccc for empty block result",
+			"id", w.circuitCapacityChecker.ID,
+			"number", w.current.header.Number,
+			"hash", w.current.header.Hash().String(),
+			"accRows", accRows,
+		)
+		w.current.accRows = accRows
+	}
+
 	if w.isRunning() {
 		if interval != nil {
 			interval()
 		}
-		// Skip executing FinalizeAndAssemble, as it may commit the state to database based on current trie database strategy
 
-		// Deep copy receipts here to avoid interaction between different tasks.
-		// receipts := copyReceipts(w.current.receipts)
-		// s := w.current.state.Copy()
-		// _, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
-		// if err != nil {
-		// 	return err
-		// }
+		// If we use zkTrie, then skip executing FinalizeAndAssemble, as it may commit the state data to database that would cause some state data produced by the transactions that has not been confirmed being flushed to disk.
+		if !w.chainConfig.Scroll.UseZktrie {
+			// Deep copy receipts here to avoid interaction between different tasks.
+			receipts := copyReceipts(w.current.receipts)
+			s := w.current.state.Copy()
+			block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
+			if err != nil {
+				return err
+			}
+			// If we're post merge, just ignore
+			if !w.isTTDReached(block.Header()) {
+				select {
+				case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now(), accRows: w.current.accRows}:
+					w.unconfirmed.Shift(block.NumberU64() - 1)
+					log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
+						"uncles", len(uncles), "txs", w.current.tcount,
+						"gas", block.GasUsed(), "fees", totalFees(block, receipts),
+						"elapsed", common.PrettyDuration(time.Since(start)))
 
-		// ignore it, as Morphism has its own consensus
-		//select {
-		//case w.taskCh <- &task{receipts: receipts, state: s, block: block, createdAt: time.Now()}:
-		//	w.unconfirmed.Shift(block.NumberU64() - 1)
-		//	log.Info("Commit new mining work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
-		//		"uncles", len(uncles), "txs", w.current.tcount,
-		//		"gas", block.GasUsed(), "fees", totalFees(block, receipts),
-		//		"elapsed", common.PrettyDuration(time.Since(start)))
-		//
-		//case <-w.exitCh:
-		//	log.Info("Worker has exited")
-		//}
+				case <-w.exitCh:
+					log.Info("Worker has exited")
+				}
+			}
+		}
 	}
-
 	if update {
 		w.updateSnapshot()
 	}
 	return nil
+}
+
+// isTTDReached returns the indicator if the given block has reached the total
+// terminal difficulty for The Merge transition.
+func (w *worker) isTTDReached(header *types.Header) bool {
+	td, ttd := w.chain.GetTd(header.ParentHash, header.Number.Uint64()-1), w.chain.Config().TerminalTotalDifficulty
+	return td != nil && ttd != nil && td.Cmp(ttd) >= 0
 }
 
 // copyReceipts makes a deep copy of the given receipts.
@@ -1136,4 +1486,19 @@ func totalFees(block *types.Block, receipts []*types.Receipt) *big.Float {
 		feesWei.Add(feesWei, new(big.Int).Mul(new(big.Int).SetUint64(receipts[i].GasUsed), minerFee))
 	}
 	return new(big.Float).Quo(new(big.Float).SetInt(feesWei), new(big.Float).SetInt(big.NewInt(params.Ether)))
+}
+
+// signalToErr converts the interruption signal to a concrete error type for return.
+// The given signal must be a valid interruption signal.
+func signalToErr(signal int32) error {
+	switch signal {
+	case commitInterruptNewHead:
+		return errBlockInterruptedByNewHead
+	case commitInterruptResubmit:
+		return errBlockInterruptedByRecommit
+	case commitInterruptTimeout:
+		return errBlockInterruptedByTimeout
+	default:
+		panic(fmt.Errorf("undefined signal %d", signal))
+	}
 }

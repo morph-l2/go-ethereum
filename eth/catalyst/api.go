@@ -234,7 +234,9 @@ func encodeTransactions(txs []*types.Transaction) [][]byte {
 }
 
 func decodeTransactions(enc [][]byte) ([]*types.Transaction, error) {
-	var txs = make([]*types.Transaction, len(enc))
+	var (
+		txs = make([]*types.Transaction, len(enc))
+	)
 	for i, encTx := range enc {
 		var tx types.Transaction
 		if err := tx.UnmarshalBinary(encTx); err != nil {
@@ -242,6 +244,7 @@ func decodeTransactions(enc [][]byte) ([]*types.Transaction, error) {
 		}
 		txs[i] = &tx
 	}
+
 	return txs, nil
 }
 

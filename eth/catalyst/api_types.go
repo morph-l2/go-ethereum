@@ -87,7 +87,7 @@ type GenericResponse struct {
 //go:generate go run github.com/fjl/gencodec -type ExecutableL2Data -field-override executableL2DataMarshaling -out gen_l2_ed.go
 
 type ExecutableL2Data struct {
-	// BLS message fields which need to be singed, and submitted to DA layer.
+	// BLS message fields which need to be signed, and submitted to DA layer.
 	// We chose the fields which would affect the state calculation result,
 	// and the values are determined by sequencers as the BLS message.
 	ParentHash   common.Hash    `json:"parentHash"     gencodec:"required"`
@@ -104,6 +104,8 @@ type ExecutableL2Data struct {
 	ReceiptRoot      common.Hash `json:"receiptsRoot"`
 	LogsBloom        []byte      `json:"logsBloom"`
 	WithdrawTrieRoot common.Hash `json:"withdrawTrieRoot"`
+
+	NextL1MessageIndex uint64 `json:"nextL1MessageIndex"`
 
 	Hash common.Hash `json:"hash"` // cached value
 }

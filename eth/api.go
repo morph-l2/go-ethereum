@@ -19,6 +19,7 @@ package eth
 import (
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -643,4 +644,68 @@ func (api *ScrollAPI) GetBlockByHash(ctx context.Context, hash common.Hash, full
 		return api.rpcMarshalBlock(ctx, block, fullTx)
 	}
 	return nil, err
+}
+
+// GetBlockByNumber returns the requested block. When fullTx is true all transactions in the block are returned in full
+// detail, otherwise only the transaction hash is returned.
+func (api *ScrollAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
+	block, err := api.eth.APIBackend.BlockByNumber(ctx, number)
+	if block != nil {
+		return api.rpcMarshalBlock(ctx, block, fullTx)
+	}
+	return nil, err
+}
+
+// GetNumSkippedTransactions returns the number of skipped transactions.
+func (api *ScrollAPI) GetNumSkippedTransactions(ctx context.Context) (uint64, error) {
+	return rawdb.ReadNumSkippedTransactions(api.eth.ChainDb()), nil
+}
+
+// RPCTransaction is the standard RPC transaction return type with some additional skip-related fields.
+type RPCTransaction struct {
+	ethapi.RPCTransaction
+	SkipReason      string       `json:"skipReason"`
+	SkipBlockNumber *hexutil.Big `json:"skipBlockNumber"`
+	SkipBlockHash   *common.Hash `json:"skipBlockHash,omitempty"`
+
+	// wrapped traces, currently only available for `scroll_getSkippedTransaction` API, when `MinerStoreSkippedTxTracesFlag` is set
+	Traces *types.BlockTrace `json:"traces,omitempty"`
+}
+
+// GetSkippedTransaction returns a skipped transaction by its hash.
+func (api *ScrollAPI) GetSkippedTransaction(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
+	stx := rawdb.ReadSkippedTransaction(api.eth.ChainDb(), hash)
+	if stx == nil {
+		return nil, nil
+	}
+	var rpcTx RPCTransaction
+	rpcTx.RPCTransaction = *ethapi.NewRPCTransaction(stx.Tx, common.Hash{}, 0, 0, nil, api.eth.blockchain.Config())
+	rpcTx.SkipReason = stx.Reason
+	rpcTx.SkipBlockNumber = (*hexutil.Big)(new(big.Int).SetUint64(stx.BlockNumber))
+	rpcTx.SkipBlockHash = stx.BlockHash
+	if len(stx.TracesBytes) != 0 {
+		traces := &types.BlockTrace{}
+		if err := json.Unmarshal(stx.TracesBytes, traces); err != nil {
+			return nil, fmt.Errorf("fail to Unmarshal traces for skipped tx, hash: %s, err: %w", hash.String(), err)
+		}
+		rpcTx.Traces = traces
+	}
+	return &rpcTx, nil
+}
+
+// GetSkippedTransactionHashes returns a list of skipped transaction hashes between the two indices provided (inclusive).
+func (api *ScrollAPI) GetSkippedTransactionHashes(ctx context.Context, from uint64, to uint64) ([]common.Hash, error) {
+	it := rawdb.IterateSkippedTransactionsFrom(api.eth.ChainDb(), from)
+	defer it.Release()
+
+	var hashes []common.Hash
+
+	for it.Next() {
+		if it.Index() > to {
+			break
+		}
+		hashes = append(hashes, it.TransactionHash())
+	}
+
+	return hashes, nil
 }

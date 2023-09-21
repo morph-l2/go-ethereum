@@ -71,7 +71,7 @@ func newTesterWithNotification(success func()) *downloadTester {
 	}
 	core.GenesisBlockForTesting(db, testAddress, big.NewInt(1000000000000000))
 
-	chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, nil)
+	chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, nil, false)
 	if err != nil {
 		panic(err)
 	}

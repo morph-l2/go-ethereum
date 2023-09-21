@@ -447,6 +447,18 @@ func DefaultScrollAlphaGenesisBlock() *Genesis {
 	}
 }
 
+// DefaultScrollSepoliaGenesisBlock returns the Scroll Sepolia network genesis block.
+func DefaultScrollSepoliaGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.ScrollSepoliaChainConfig,
+		Timestamp:  0x64cfd015,
+		ExtraData:  hexutil.MustDecode("0x000000000000000000000000000000000000000000000000000000000000000048C3F81f3D998b6652900e1C3183736C238Fe4290000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+		GasLimit:   8000000,
+		Difficulty: big.NewInt(1),
+		Alloc:      decodePrealloc(scrollSepoliaAllocData),
+	}
+}
+
 // DeveloperGenesisBlock returns the 'geth --dev' genesis block.
 func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address) *Genesis {
 	// Override the default period to the user requested one

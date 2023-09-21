@@ -670,3 +670,9 @@ func copyAddressPtr(a *common.Address) *common.Address {
 	cpy := *a
 	return &cpy
 }
+
+type SkippedTransaction struct {
+	Tx     Transaction
+	Reason string
+	Trace  *BlockTrace
+}

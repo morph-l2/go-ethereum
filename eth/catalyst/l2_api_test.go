@@ -12,6 +12,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/eth"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,21 +91,21 @@ func TestValidateL2Block(t *testing.T) {
 	config := l2ChainConfig()
 
 	// wrong block number
-	_, err := api.ValidateL2Block(ExecutableL2Data{Number: 2})
+	_, err := api.ValidateL2Block(ExecutableL2Data{Number: 2}, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "discontinuous block number")
 
 	// wrong parent hash
 	currentBlockHash := api.eth.BlockChain().CurrentHeader().Hash()
 	currentBlockHash[0] = 0
-	_, err = api.ValidateL2Block(ExecutableL2Data{Number: 1, ParentHash: currentBlockHash})
+	_, err = api.ValidateL2Block(ExecutableL2Data{Number: 1, ParentHash: currentBlockHash}, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "wrong parent hash")
 
 	// generic case
 	err = sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	block, _, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
@@ -124,17 +125,17 @@ func TestValidateL2Block(t *testing.T) {
 	wrongL2Data := l2Data
 	wrongL2Data.BaseFee = big.NewInt(333)
 
-	validResp, err := api.ValidateL2Block(wrongL2Data)
+	validResp, err := api.ValidateL2Block(wrongL2Data, nil)
 	require.NoError(t, err)
 	require.False(t, validResp.Success)
 
 	wrongL2Data = l2Data
 	wrongL2Data.StateRoot[0] = wrongL2Data.StateRoot[0] + 1
-	validResp, err = api.ValidateL2Block(wrongL2Data)
+	validResp, err = api.ValidateL2Block(wrongL2Data, nil)
 	require.NoError(t, err)
 	require.False(t, validResp.Success)
 
-	validResp, err = api.ValidateL2Block(l2Data)
+	validResp, err = api.ValidateL2Block(l2Data, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
 
@@ -144,7 +145,7 @@ func TestValidateL2Block(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, len(l2Data.Transactions))
 
-	validResp, err = api.ValidateL2Block(*resp)
+	validResp, err = api.ValidateL2Block(*resp, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
 }
@@ -159,7 +160,7 @@ func TestNewL2Block(t *testing.T) {
 
 	err := sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	block, _, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
@@ -176,7 +177,7 @@ func TestNewL2Block(t *testing.T) {
 		LogsBloom:   block.Bloom().Bytes(),
 	}
 
-	err = api.NewL2Block(l2Data, types.BLSData{})
+	err = api.NewL2Block(l2Data, types.BLSData{}, nil)
 	require.NoError(t, err)
 
 	currentState, err := ethService.BlockChain().State()
@@ -190,10 +191,10 @@ func TestNewL2Block(t *testing.T) {
 	resp, err := api.AssembleL2Block(AssembleL2BlockParams{Number: 2})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, len(resp.Transactions))
-	validResp, err := api.ValidateL2Block(*resp)
+	validResp, err := api.ValidateL2Block(*resp, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
-	err = api.NewL2Block(*resp, types.BLSData{})
+	err = api.NewL2Block(*resp, types.BLSData{}, nil)
 	require.NoError(t, err)
 	currentState, err = ethService.BlockChain().State()
 	require.NoError(t, err)
@@ -211,7 +212,7 @@ func TestNewSafeL2Block(t *testing.T) {
 
 	err := sendTransfer(config, ethService)
 	require.NoError(t, err)
-	block, _, _, err := ethService.Miner().GetSealingBlockAndState(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	block, _, _, _, _, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
 	require.NoError(t, err)
 	l2Data := SafeL2Data{
 		Number:       block.NumberU64(),
@@ -224,6 +225,155 @@ func TestNewSafeL2Block(t *testing.T) {
 	require.NoError(t, err)
 
 	require.EqualValues(t, block.Root().String(), header.Root.String())
+}
+
+func TestValidateL1Message(t *testing.T) {
+	genesis, blocks := generateTestL2Chain(0)
+	n, ethService := startEthService(t, genesis, blocks)
+	require.NoError(t, ethService.StartMining(0))
+	defer n.Close()
+
+	api := newL2ConsensusAPI(ethService)
+	ccc := api.eth.Miner().GetCCC()
+
+	l1Txs, l1Messages := makeL1Txs(0, 10)
+	// case: include #0, #1, fail on #2, skip it and seal the block
+	ccc.ScheduleError(3, circuitcapacitychecker.ErrUnknown)
+	block, _, _, _, _, err := api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, block.Transactions().Len())
+	require.EqualValues(t, 3, block.Header().NextL1MsgIndex)
+	l2Data := ExecutableL2Data{
+		ParentHash:   block.ParentHash(),
+		Number:       block.NumberU64(),
+		Miner:        block.Coinbase(),
+		Timestamp:    block.Time(),
+		GasLimit:     block.GasLimit(),
+		BaseFee:      block.BaseFee(),
+		Transactions: encodeTransactions(block.Transactions()),
+
+		StateRoot:          block.Root(),
+		GasUsed:            block.GasUsed(),
+		ReceiptRoot:        block.ReceiptHash(),
+		LogsBloom:          block.Bloom().Bytes(),
+		NextL1MessageIndex: block.Header().NextL1MsgIndex,
+
+		Hash: block.Hash(),
+	}
+
+	// should be false, the ccc during the `ValidateL2Block` will include all the l1 messages
+	resp, err := api.ValidateL2Block(l2Data, l1Messages)
+	require.NoError(t, err)
+	require.False(t, resp.Success)
+	// should be true, the ccc during the `ValidateL2Block` behaviors the same with the ccc during `BuildBlock`
+	ccc.ScheduleError(1, circuitcapacitychecker.ErrUnknown)
+	resp, err = api.ValidateL2Block(l2Data, l1Messages)
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+	// generated block 1
+	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
+
+	// case: #2 - #9, error nextL1MessageIndex
+	// expected: Unexpected L1 message queue index, build none transaction
+	restL1Txs := l1Txs[2:]
+	restL1Messages := l1Messages[2:]
+	block, _, _, _, _, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), restL1Txs)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, block.Transactions().Len())
+
+	// case: #3 - #9, skip #3, includes the rest
+	restL1Txs = restL1Txs[1:]
+	restL1Messages = restL1Messages[1:]
+	ccc.ScheduleError(1, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
+	block, _, _, _, _, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), restL1Txs)
+	require.NoError(t, err)
+	require.EqualValues(t, 6, block.Transactions().Len())
+	l2Data = ExecutableL2Data{
+		ParentHash:   block.ParentHash(),
+		Number:       block.NumberU64(),
+		Miner:        block.Coinbase(),
+		Timestamp:    block.Time(),
+		GasLimit:     block.GasLimit(),
+		BaseFee:      block.BaseFee(),
+		Transactions: encodeTransactions(block.Transactions()),
+
+		StateRoot:          block.Root(),
+		GasUsed:            block.GasUsed(),
+		ReceiptRoot:        block.ReceiptHash(),
+		LogsBloom:          block.Bloom().Bytes(),
+		NextL1MessageIndex: block.Header().NextL1MsgIndex,
+
+		Hash: block.Hash(),
+	}
+	resp, err = api.ValidateL2Block(l2Data, restL1Messages)
+	require.NoError(t, err)
+	require.False(t, resp.Success) // false, skipped tx that should not be skipped
+
+	ccc.ScheduleError(1, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
+	resp, err = api.ValidateL2Block(l2Data, restL1Messages)
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+
+	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
+
+	// case: includes all l1messages from #10
+	l1Txs, l1Messages = makeL1Txs(10, 5)
+	block, _, _, _, _, err = api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
+	require.NoError(t, err)
+	l2Data = ExecutableL2Data{
+		ParentHash:   block.ParentHash(),
+		Number:       block.NumberU64(),
+		Miner:        block.Coinbase(),
+		Timestamp:    block.Time(),
+		GasLimit:     block.GasLimit(),
+		BaseFee:      block.BaseFee(),
+		Transactions: encodeTransactions(block.Transactions()),
+
+		StateRoot:          block.Root(),
+		GasUsed:            block.GasUsed(),
+		ReceiptRoot:        block.ReceiptHash(),
+		LogsBloom:          block.Bloom().Bytes(),
+		NextL1MessageIndex: block.Header().NextL1MsgIndex,
+
+		Hash: block.Hash(),
+	}
+
+	// mess up transactions
+	wrongL2Data := l2Data
+	wrongL2Data.Transactions = encodeTransactions(block.Transactions()[1:])
+	resp, err = api.ValidateL2Block(wrongL2Data, l1Messages)
+	require.NoError(t, err)
+	require.False(t, resp.Success)
+
+	// mess up NextL1MessageIndex
+	wrongL2Data = l2Data
+	wrongL2Data.NextL1MessageIndex = 16
+	resp, err = api.ValidateL2Block(wrongL2Data, l1Messages)
+	require.NoError(t, err)
+	require.False(t, resp.Success)
+
+	resp, err = api.ValidateL2Block(l2Data, l1Messages)
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+}
+
+func makeL1Txs(fromIndex, count int) (types.Transactions, []types.L1MessageTx) {
+	receiver := common.BigToAddress(big.NewInt(1111))
+	l1Txs := make([]*types.Transaction, count)
+	l1Messages := make([]types.L1MessageTx, count)
+	for i := 0; i < count; i++ {
+		l1Message := types.L1MessageTx{
+			QueueIndex: uint64(fromIndex + i),
+			Gas:        uint64(100000 + i),
+			To:         &receiver,
+			Value:      big.NewInt(100),
+			Data:       nil,
+			Sender:     testAddr,
+		}
+		l1Txs[i] = types.NewTx(&l1Message)
+		l1Messages[i] = l1Message
+	}
+	return l1Txs, l1Messages
 }
 
 func sendTransfer(config params.ChainConfig, ethService *eth.Ethereum) error {

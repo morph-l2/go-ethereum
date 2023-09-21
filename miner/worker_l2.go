@@ -1,7 +1,10 @@
 package miner
 
 import (
+	"errors"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
@@ -11,6 +14,22 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/params"
 )
+
+// getWorkReq represents a request for getting a new sealing work with provided parameters.
+type getWorkReq struct {
+	interrupt *int32
+	params    *generateParams
+	result    chan *newBlockResult // non-blocking channel
+}
+
+type newBlockResult struct {
+	block          *types.Block
+	state          *state.StateDB
+	receipts       types.Receipts
+	rowConsumption *types.RowConsumption
+	skippedTxs     []*types.SkippedTransaction
+	err            error
+}
 
 // generateParams wraps various of settings for generating sealing task.
 type generateParams struct {
@@ -92,7 +111,19 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 // fillTransactions retrieves the pending transactions from the txpool and fills them
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
-func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions) {
+func (w *worker) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) (error, []*types.SkippedTransaction) {
+	var (
+		err                    error
+		circuitCapacityReached bool
+		skippedTxs             []*types.SkippedTransaction
+	)
+
+	defer func(env *environment) {
+		if err == nil && env.header != nil {
+			env.header.NextL1MsgIndex = env.nextL1MsgIndex
+		}
+	}(env)
+
 	if len(l1Transactions) > 0 {
 		l1Txs := make(map[common.Address]types.Transactions)
 		for _, tx := range l1Transactions {
@@ -106,7 +137,10 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		w.commitTransactions(env, txs, env.header.Coinbase, nil)
+		err, circuitCapacityReached, skippedTxs = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		if err != nil || circuitCapacityReached {
+			return err, skippedTxs
+		}
 	}
 
 	// Split the pending transactions into locals and remotes
@@ -121,44 +155,46 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
+		err, circuitCapacityReached, _ = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		if err != nil || circuitCapacityReached {
+			return err, skippedTxs
+		}
 	}
 	if len(remoteTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
+		err, _, _ = w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
 	}
+
+	return err, skippedTxs
 }
 
 // generateWork generates a sealing block based on the given parameters.
-func (w *worker) generateWork(genParams *generateParams) (*types.Block, *state.StateDB, types.Receipts, error) {
-	work, err := w.prepareWork(genParams)
-	if err != nil {
-		return nil, nil, nil, err
+// TODO the produced state data by the transactions will be commit to database, whether the block is confirmed or not.
+// TODO this issue will persist until the current zktrie based database optimizes its strategy.
+func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (block *types.Block, state *state.StateDB, receipts types.Receipts, rc *types.RowConsumption, skippedTxs []*types.SkippedTransaction, err error) {
+	// reset circuitCapacityChecker for a new block
+	w.circuitCapacityChecker.Reset()
+	work, prepareErr := w.prepareWork(genParams)
+	if prepareErr != nil {
+		err = prepareErr
+		return
 	}
 	defer work.discard()
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	//for _, tx := range genParams.transactions {
-	//
-	//	from, _ := types.Sender(work.signer, tx)
-	//	// Start executing the transaction
-	//	work.state.Prepare(tx.Hash(), work.tcount)
-	//	_, err := w.commitTransaction(work, tx, work.header.Coinbase)
-	//	if err != nil {
-	//		return nil, nil, nil, fmt.Errorf("failed to force-include tx: %s type: %d sender: %s nonce: %d, err: %w", tx.Hash(), tx.Type(), from, tx.Nonce(), err)
-	//	}
-	//	work.l1TxCount++
-	//}
-
-	w.fillTransactions(work, genParams.transactions)
-
-	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)
-	if err != nil {
-		return nil, nil, nil, err
+	fillTxErr, skippedTxs := w.fillTransactions(work, genParams.transactions, interrupt)
+	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
+		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(w.newBlockTimeout))
 	}
-	return block, work.state, work.receipts, nil
+
+	block, finalizeErr := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)
+	if finalizeErr != nil {
+		err = finalizeErr
+		return
+	}
+	return block, work.state, work.receipts, work.accRows, skippedTxs, nil
 }
 
 func (env *environment) discard() {
@@ -166,4 +202,59 @@ func (env *environment) discard() {
 		return
 	}
 	env.state.StopPrefetcher()
+}
+
+// getSealingBlockAndState sealing a new block based on parentHash.
+func (w *worker) getSealingBlockAndState(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*types.Block, *state.StateDB, types.Receipts, *types.RowConsumption, []*types.SkippedTransaction, error) {
+	interrupt := new(int32)
+	timer := time.AfterFunc(w.newBlockTimeout, func() {
+		atomic.StoreInt32(interrupt, commitInterruptTimeout)
+	})
+	defer timer.Stop()
+
+	req := &getWorkReq{
+		interrupt: interrupt,
+		params: &generateParams{
+			parentHash:   parentHash,
+			timestamp:    uint64(timestamp.Unix()),
+			transactions: transactions,
+		},
+		result: make(chan *newBlockResult, 1),
+	}
+	select {
+	case w.getWorkCh <- req:
+		result := <-req.result
+		return result.block, result.state, result.receipts, result.rowConsumption, result.skippedTxs, result.err
+	case <-w.exitCh:
+		return nil, nil, nil, nil, nil, errors.New("miner closed")
+	}
+}
+
+func (w *worker) simulateL1Messages(genParams *generateParams, transactions types.Transactions) ([]*types.Transaction, []*types.SkippedTransaction, error) {
+	if transactions.Len() == 0 {
+		return nil, nil, nil
+	}
+
+	env, err := w.prepareWork(genParams)
+	if err != nil {
+		return nil, nil, err
+	}
+	env.isSimulate = true
+
+	l1Txs := make(map[common.Address]types.Transactions)
+	for _, tx := range transactions {
+		sender, _ := types.Sender(env.signer, tx)
+		senderTxs, ok := l1Txs[sender]
+		if ok {
+			senderTxs = append(senderTxs, tx)
+			l1Txs[sender] = senderTxs
+		} else {
+			l1Txs[sender] = types.Transactions{tx}
+		}
+	}
+
+	txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
+	_, _, skippedTxs := w.commitTransactions(env, txs, env.header.Coinbase, nil)
+
+	return env.txs, skippedTxs, nil
 }

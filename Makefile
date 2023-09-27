@@ -85,7 +85,7 @@ mockccc_docker:
 	docker build --platform linux/x86_64 -t scrolltech/l2geth:latest ./ -f Dockerfile.mockccc
 
 mockccc_alpine_docker:
-	docker build --platform linux/x86_64 -t scrolltech/l2geth:latest ./ -f Dockerfile.mockccc.alpine
+	docker build -t morphism/l2geth:latest ./ -f Dockerfile.mockccc.alpine
 
 base_image:
 	docker build -t morphism/go-rust-builder:go-1.19-rust-nightly-2022-12-10 ./ -f go-rust-builder.Dockerfile

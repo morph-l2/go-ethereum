@@ -516,4 +516,5 @@ type Blocks []*Block
 type BlockWithRowConsumption struct {
 	*Block
 	*RowConsumption
+	StartL1QueueIndex uint64
 }

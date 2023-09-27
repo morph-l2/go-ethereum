@@ -368,7 +368,13 @@ func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	var body rpcBlock
 	var rpcRc rpcRowConsumption
 	var rc *types.RowConsumption
+	var startL1Index struct {
+		StartL1QueueIndex hexutil.Uint64 `json:"startL1QueueIndex"`
+	}
 	if err := json.Unmarshal(raw, &head); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, &startL1Index); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -428,8 +434,9 @@ func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	}
 	block := types.NewBlockWithHeader(head).WithBody(txs, uncles)
 	return &types.BlockWithRowConsumption{
-		Block:          block,
-		RowConsumption: rc,
+		Block:             block,
+		RowConsumption:    rc,
+		StartL1QueueIndex: uint64(startL1Index.StartL1QueueIndex),
 	}, nil
 }
 

@@ -12,7 +12,8 @@ RUN apt-get install build-essential curl wget git pkg-config -y
 RUN apt-get install libclang-dev libssl-dev llvm software-properties-common -y
 # Install golang
 RUN add-apt-repository ppa:longsleep/golang-backports
-RUN apt install golang-${GO_VERSION}-go -y
+RUN apt install golang-1.19-go -y
+ENV PATH="/usr/lib/go-1.19/bin:${PATH}"
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y

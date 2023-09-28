@@ -631,6 +631,7 @@ func (api *ScrollAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullT
 		return nil, err
 	}
 	fields["startL1QueueIndex"] = hexutil.Uint64(parent.NextL1MsgIndex)
+	fields["blsData"] = b.BLSData()
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))
 	rc := rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), b.Hash())
 	if rc != nil {

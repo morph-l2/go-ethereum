@@ -253,7 +253,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		startCh:                make(chan struct{}, 1),
 		resubmitIntervalCh:     make(chan time.Duration),
 		resubmitAdjustCh:       make(chan *intervalAdjust, resubmitAdjustChanSize),
-		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(),
+		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(true),
 	}
 	log.Info("created new worker", "CircuitCapacityChecker ID", worker.circuitCapacityChecker.ID)
 

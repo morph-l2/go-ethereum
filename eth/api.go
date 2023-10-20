@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
+	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"io"
 	"math/big"
 	"os"
@@ -630,6 +632,11 @@ func (api *ScrollAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullT
 	if err != nil {
 		return nil, err
 	}
+	stateDB, err := api.eth.BlockChain().StateAt(b.Root())
+	if err != nil {
+		return nil, err
+	}
+	fields["withdrawTrieRoot"] = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB)
 	fields["startL1QueueIndex"] = hexutil.Uint64(parent.NextL1MsgIndex)
 	fields["blsData"] = b.BLSData()
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))

@@ -518,4 +518,5 @@ type BlockWithRowConsumption struct {
 	*Block
 	*RowConsumption
 	StartL1QueueIndex uint64
+	WithdrawTrieRoot  common.Hash
 }

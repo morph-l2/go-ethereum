@@ -119,7 +119,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	)
 
 	defer func(env *environment) {
-		if err == nil && env.header != nil {
+		if env.header != nil {
 			env.header.NextL1MsgIndex = env.nextL1MsgIndex
 		}
 	}(env)

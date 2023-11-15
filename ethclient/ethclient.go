@@ -28,6 +28,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/core/types"
+	"github.com/scroll-tech/go-ethereum/eth"
 	"github.com/scroll-tech/go-ethereum/rpc"
 )
 
@@ -450,6 +451,13 @@ func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 // SubscribeNewBlockTrace subscribes to block execution trace when a new block is created.
 func (ec *Client) SubscribeNewBlockTrace(ctx context.Context, ch chan<- *types.BlockTrace) (ethereum.Subscription, error) {
 	return ec.c.EthSubscribe(ctx, ch, "newBlockTrace")
+}
+
+// GetRollupBatchByIndex query the batch to be rollup by batchIndex
+func (ec *Client) GetRollupBatchByIndex(ctx context.Context, batchIndex uint64) (*eth.RPCRollupBatch, error) {
+	rpcRollupBatch := new(eth.RPCRollupBatch)
+	err := ec.c.CallContext(ctx, rpcRollupBatch, "scroll_getRollupBatchByIndex", batchIndex)
+	return rpcRollupBatch, err
 }
 
 // State Access

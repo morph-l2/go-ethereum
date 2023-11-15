@@ -637,14 +637,17 @@ func (api *ScrollAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullT
 		return nil, err
 	}
 	fields["withdrawTrieRoot"] = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB)
+	fields["batchHash"] = b.BaseFee()
 	fields["startL1QueueIndex"] = hexutil.Uint64(parent.NextL1MsgIndex)
-	fields["blsData"] = b.BLSData()
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))
 	rc := rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), b.Hash())
 	if rc != nil {
 		fields["rowConsumption"] = rc
 	} else {
 		fields["rowConsumption"] = nil
+	}
+	if b.BatchHash() != nil {
+		fields["batchHash"] = *b.BatchHash()
 	}
 	return fields, err
 }
@@ -721,4 +724,57 @@ func (api *ScrollAPI) GetSkippedTransactionHashes(ctx context.Context, from uint
 	}
 
 	return hashes, nil
+}
+
+type RPCRollupBatch struct {
+	Version                uint            `json:"version"`
+	ParentBatchHeader      hexutil.Bytes   `json:"parentBatchHeader"`
+	Chunks                 []hexutil.Bytes `json:"chunks"`
+	SkippedL1MessageBitmap hexutil.Bytes   `json:"skippedL1MessageBitmap"`
+	PrevStateRoot          common.Hash     `json:"prevStateRoot"`
+	PostStateRoot          common.Hash     `json:"postStateRoot"`
+	WithdrawRoot           common.Hash     `json:"withdrawRoot"`
+
+	Signatures []RPCBatchSignature `json:"signatures"`
+}
+
+type RPCBatchSignature struct {
+	Version      uint64        `json:"version"`
+	Signer       uint64        `json:"signer"`
+	SignerPubKey hexutil.Bytes `json:"signerPubKey"`
+	Signature    hexutil.Bytes `json:"signature"`
+}
+
+func (api *ScrollAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*RPCRollupBatch, error) {
+	rollupBatch := rawdb.ReadRollupBatch(api.eth.ChainDb(), index)
+	if rollupBatch == nil {
+		return nil, nil
+	}
+	signatures := rawdb.ReadBatchSignatures(api.eth.ChainDb(), index)
+
+	hexChunks := make([]hexutil.Bytes, len(rollupBatch.Chunks))
+	for i, chunk := range rollupBatch.Chunks {
+		hexChunks[i] = chunk
+	}
+
+	rpcSignatures := make([]RPCBatchSignature, len(signatures))
+	for i, sig := range signatures {
+		rpcSignatures[i] = RPCBatchSignature{
+			Version:      sig.Version,
+			Signer:       sig.Signer,
+			SignerPubKey: sig.SignerPubKey,
+			Signature:    sig.Signature,
+		}
+	}
+
+	return &RPCRollupBatch{
+		Version:                rollupBatch.Version,
+		ParentBatchHeader:      rollupBatch.ParentBatchHeader,
+		Chunks:                 hexChunks,
+		SkippedL1MessageBitmap: rollupBatch.SkippedL1MessageBitmap,
+		PrevStateRoot:          rollupBatch.PrevStateRoot,
+		PostStateRoot:          rollupBatch.PostStateRoot,
+		WithdrawRoot:           rollupBatch.WithdrawRoot,
+		Signatures:             rpcSignatures,
+	}, nil
 }

@@ -177,7 +177,7 @@ func TestNewL2Block(t *testing.T) {
 		LogsBloom:   block.Bloom().Bytes(),
 	}
 
-	err = api.NewL2Block(l2Data, types.BLSData{}, nil)
+	err = api.NewL2Block(l2Data, nil, nil)
 	require.NoError(t, err)
 
 	currentState, err := ethService.BlockChain().State()
@@ -194,7 +194,7 @@ func TestNewL2Block(t *testing.T) {
 	validResp, err := api.ValidateL2Block(*resp, nil)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
-	err = api.NewL2Block(*resp, types.BLSData{}, nil)
+	err = api.NewL2Block(*resp, nil, nil)
 	require.NoError(t, err)
 	currentState, err = ethService.BlockChain().State()
 	require.NoError(t, err)
@@ -221,7 +221,7 @@ func TestNewSafeL2Block(t *testing.T) {
 		BaseFee:      block.BaseFee(),
 		Transactions: encodeTransactions(block.Transactions()),
 	}
-	header, err := api.NewSafeL2Block(l2Data, types.BLSData{})
+	header, err := api.NewSafeL2Block(l2Data)
 	require.NoError(t, err)
 
 	require.EqualValues(t, block.Root().String(), header.Root.String())
@@ -271,7 +271,7 @@ func TestValidateL1Message(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 	// generated block 1
-	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
+	require.NoError(t, api.NewL2Block(l2Data, nil, nil))
 
 	// case: #2 - #9, error nextL1MessageIndex
 	// expected: Unexpected L1 message queue index, build none transaction
@@ -314,7 +314,7 @@ func TestValidateL1Message(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 
-	require.NoError(t, api.NewL2Block(l2Data, types.BLSData{}, nil))
+	require.NoError(t, api.NewL2Block(l2Data, nil, nil))
 
 	// case: includes all l1messages from #10
 	l1Txs, l1Messages = makeL1Txs(10, 5)

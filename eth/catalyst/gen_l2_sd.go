@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 )
 
@@ -20,6 +21,7 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
 		Timestamp    hexutil.Uint64  `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
+		BatchHash    *common.Hash    `json:"batchHash"`
 	}
 	var enc SafeL2Data
 	enc.Number = hexutil.Uint64(s.Number)
@@ -32,6 +34,7 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 			enc.Transactions[k] = v
 		}
 	}
+	enc.BatchHash = s.BatchHash
 	return json.Marshal(&enc)
 }
 
@@ -43,6 +46,7 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
 		Timestamp    *hexutil.Uint64 `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
+		BatchHash    *common.Hash    `json:"batchHash"`
 	}
 	var dec SafeL2Data
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -69,6 +73,9 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 	s.Transactions = make([][]byte, len(dec.Transactions))
 	for k, v := range dec.Transactions {
 		s.Transactions[k] = v
+	}
+	if dec.BatchHash != nil {
+		s.BatchHash = dec.BatchHash
 	}
 	return nil
 }

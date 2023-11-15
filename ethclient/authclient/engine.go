@@ -51,3 +51,8 @@ func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL
 func (ec *Client) CommitBatch(ctx context.Context, batch *types.RollupBatch, signatures []types.BatchSignature) error {
 	return ec.c.CallContext(ctx, nil, "engine_commitBatch", batch, signatures)
 }
+
+// AppendBlsSignature append a new bls signature to the batch
+func (ec *Client) AppendBlsSignature(ctx context.Context, batchHash common.Hash, signature types.BatchSignature) error {
+	return ec.c.CallContext(ctx, nil, "engine_appendBatchSignature", batchHash, signature)
+}

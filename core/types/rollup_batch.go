@@ -8,8 +8,9 @@ import (
 //go:generate go run github.com/fjl/gencodec -type RollupBatch -field-override rollupBatchMarshaling -out gen_batch.go
 
 type RollupBatch struct {
-	Version                uint
 	Index                  uint64
+	Hash                   common.Hash
+	Version                uint
 	ParentBatchHeader      []byte
 	Chunks                 [][]byte
 	SkippedL1MessageBitmap []byte

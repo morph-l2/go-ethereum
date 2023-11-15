@@ -2,6 +2,8 @@ package rawdb
 
 import (
 	"bytes"
+	"encoding/binary"
+	"github.com/scroll-tech/go-ethereum/common"
 
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/ethdb"
@@ -14,10 +16,27 @@ func WriteRollupBatch(db ethdb.KeyValueWriter, batch types.RollupBatch) {
 	if err != nil {
 		log.Crit("failed to RLP encode batch", "batch index", batch.Index, "err", err)
 	}
-
 	if err = db.Put(RollupBatchKey(batch.Index), bz); err != nil {
 		log.Crit("failed to store batch", "batch index", batch.Index, "err", err)
 	}
+
+	// stores batchHash -> batchIndex
+	if err = db.Put(RollupBatchIndexKey(batch.Hash), encodeBigEndian(batch.Index)); err != nil {
+		log.Crit("failed to store batch index", "batch hash", batch.Hash.Hex(), "batch index", batch.Index, "err", err)
+	}
+}
+
+func ReadBatchIndexByHash(db ethdb.Reader, batchHash common.Hash) *uint64 {
+	data, err := db.Get(RollupBatchIndexKey(batchHash))
+	if err != nil && isNotFoundErr(err) {
+		return nil
+	}
+	if err != nil {
+		log.Crit("failed to read batchIndex from database", "err", err)
+	}
+
+	index := binary.BigEndian.Uint64(data)
+	return &index
 }
 
 func ReadRollupBatch(db ethdb.Reader, batchIndex uint64) *types.RollupBatch {
@@ -36,19 +55,19 @@ func ReadRollupBatch(db ethdb.Reader, batchIndex uint64) *types.RollupBatch {
 	return rb
 }
 
-func WriteBatchSignature(db ethdb.KeyValueWriter, batchIndex uint64, signature types.BatchSignature) {
+func WriteBatchSignature(db ethdb.KeyValueWriter, batchHash common.Hash, signature types.BatchSignature) {
 	bz, err := rlp.EncodeToBytes(&signature)
 	if err != nil {
-		log.Crit("failed to RLP encode batch signature", "batch index", batchIndex, "signer index", signature.Signer, "err", err)
+		log.Crit("failed to RLP encode batch signature", "batch hash", batchHash, "signer index", signature.Signer, "err", err)
 	}
 
-	if err = db.Put(RollupBatchSignatureSignerKey(batchIndex, signature.Signer), bz); err != nil {
-		log.Crit("failed to store batch signature", "batch index", batchIndex, "signer index", signature.Signer, "err", err)
+	if err = db.Put(RollupBatchSignatureSignerKey(batchHash, signature.Signer), bz); err != nil {
+		log.Crit("failed to store batch signature", "batch index", batchHash, "signer index", signature.Signer, "err", err)
 	}
 }
 
-func ReadBatchSignatures(db ethdb.Iteratee, batchIndex uint64) []*types.BatchSignature {
-	prefix := RollupBatchSignatureKey(batchIndex)
+func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) []*types.BatchSignature {
+	prefix := RollupBatchSignatureKey(batchHash)
 	it := db.NewIterator(prefix, nil)
 	defer it.Release()
 
@@ -63,7 +82,7 @@ func ReadBatchSignatures(db ethdb.Iteratee, batchIndex uint64) []*types.BatchSig
 		}
 		bs := new(types.BatchSignature)
 		if err := rlp.Decode(bytes.NewReader(data), bs); err != nil {
-			log.Crit("Invalid BatchSignature RLP", "batch index", batchIndex, "data", data, "err", err)
+			log.Crit("Invalid BatchSignature RLP", "batch hash", batchHash, "data", data, "err", err)
 		}
 		bss = append(bss, bs)
 	}

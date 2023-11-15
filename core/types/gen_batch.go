@@ -14,8 +14,9 @@ var _ = (*rollupBatchMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (r RollupBatch) MarshalJSON() ([]byte, error) {
 	type RollupBatch struct {
-		Version                hexutil.Uint
 		Index                  hexutil.Uint64
+		Hash                   common.Hash
+		Version                hexutil.Uint
 		ParentBatchHeader      hexutil.Bytes
 		Chunks                 []hexutil.Bytes
 		SkippedL1MessageBitmap hexutil.Bytes
@@ -24,8 +25,9 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 		WithdrawRoot           common.Hash
 	}
 	var enc RollupBatch
-	enc.Version = hexutil.Uint(r.Version)
 	enc.Index = hexutil.Uint64(r.Index)
+	enc.Hash = r.Hash
+	enc.Version = hexutil.Uint(r.Version)
 	enc.ParentBatchHeader = r.ParentBatchHeader
 	if r.Chunks != nil {
 		enc.Chunks = make([]hexutil.Bytes, len(r.Chunks))
@@ -43,8 +45,9 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 	type RollupBatch struct {
-		Version                *hexutil.Uint
 		Index                  *hexutil.Uint64
+		Hash                   *common.Hash
+		Version                *hexutil.Uint
 		ParentBatchHeader      *hexutil.Bytes
 		Chunks                 []hexutil.Bytes
 		SkippedL1MessageBitmap *hexutil.Bytes
@@ -56,11 +59,14 @@ func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 	if err := json.Unmarshal(input, &dec); err != nil {
 		return err
 	}
-	if dec.Version != nil {
-		r.Version = uint(*dec.Version)
-	}
 	if dec.Index != nil {
 		r.Index = uint64(*dec.Index)
+	}
+	if dec.Hash != nil {
+		r.Hash = *dec.Hash
+	}
+	if dec.Version != nil {
+		r.Version = uint(*dec.Version)
 	}
 	if dec.ParentBatchHeader != nil {
 		r.ParentBatchHeader = *dec.ParentBatchHeader

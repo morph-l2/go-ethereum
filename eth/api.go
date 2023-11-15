@@ -750,7 +750,7 @@ func (api *ScrollAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (
 	if rollupBatch == nil {
 		return nil, nil
 	}
-	signatures := rawdb.ReadBatchSignatures(api.eth.ChainDb(), index)
+	signatures := rawdb.ReadBatchSignatures(api.eth.ChainDb(), rollupBatch.Hash)
 
 	hexChunks := make([]hexutil.Bytes, len(rollupBatch.Chunks))
 	for i, chunk := range rollupBatch.Chunks {

@@ -334,9 +334,14 @@ func (api *l2ConsensusAPI) CommitBatch(batch types.RollupBatch, signatures []typ
 	dbBatch := api.eth.ChainDb().NewBatch()
 	rawdb.WriteRollupBatch(dbBatch, batch)
 	for _, signature := range signatures {
-		rawdb.WriteBatchSignature(dbBatch, batch.Index, signature)
+		rawdb.WriteBatchSignature(dbBatch, batch.Hash, signature)
 	}
 	return dbBatch.Write()
+}
+
+func (api *l2ConsensusAPI) AppendBatchSignature(batchHash common.Hash, signature types.BatchSignature) {
+	log.Info("append batch signature", "batch hash", fmt.Sprintf("%x", batchHash))
+	rawdb.WriteBatchSignature(api.eth.ChainDb(), batchHash, signature)
 }
 
 func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, error) {

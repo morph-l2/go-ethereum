@@ -117,6 +117,7 @@ var (
 
 	// rollup batch
 	rollupBatchPrefix          = []byte("R-b")
+	rollupBatchIndexPrefix     = []byte("R-bp")
 	rollupBatchSignaturePrefix = []byte("R-bs")
 )
 
@@ -287,12 +288,17 @@ func RollupBatchKey(batchIndex uint64) []byte {
 	return append(rollupBatchPrefix, encodeBigEndian(batchIndex)...)
 }
 
-// RollupBatchSignatureKey = rollupBatchSignaturePrefix + batch index (uint64 big endian)
-func RollupBatchSignatureKey(batchIndex uint64) []byte {
-	return append(rollupBatchSignaturePrefix, encodeBigEndian(batchIndex)...)
+// RollupBatchIndexKey = rollupBatchIndexPrefix + batchHash
+func RollupBatchIndexKey(batchHash common.Hash) []byte {
+	return append(rollupBatchIndexPrefix, batchHash.Bytes()...)
+}
+
+// RollupBatchSignatureKey = rollupBatchSignaturePrefix + batchHash
+func RollupBatchSignatureKey(batchHash common.Hash) []byte {
+	return append(rollupBatchSignaturePrefix, batchHash.Bytes()...)
 }
 
 // RollupBatchSignatureSignerKey = RollupBatchSignatureKey + signer index (uint64 big endian)
-func RollupBatchSignatureSignerKey(batchIndex uint64, signerIndex uint64) []byte {
-	return append(RollupBatchSignatureKey(batchIndex), encodeBigEndian(signerIndex)...)
+func RollupBatchSignatureSignerKey(batchHash common.Hash, signerIndex uint64) []byte {
+	return append(RollupBatchSignatureKey(batchHash), encodeBigEndian(signerIndex)...)
 }

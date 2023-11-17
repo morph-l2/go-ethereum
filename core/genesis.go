@@ -195,6 +195,8 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
+		log.Error("=============================Genesis Error:", err)
+		log.Error("=============================Genesis Value:", genesis)
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
 		}
@@ -212,6 +214,7 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	// Check whether the genesis block is already written.
 	if genesis != nil {
 		hash := genesis.ToBlock(nil).Hash()
+		log.Info("=============================trap in hash := genesis.ToBlock(nil).Hash()=============================")
 		if hash != stored {
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}

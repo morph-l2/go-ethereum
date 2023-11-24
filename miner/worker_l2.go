@@ -153,6 +153,21 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 			localTxs[account] = txs
 		}
 	}
+
+	if w.prioritizedTx != nil && env.header.Number.Uint64() > w.prioritizedTx.blockNumber {
+		w.prioritizedTx = nil
+	}
+	if w.prioritizedTx != nil && env.header.Number.Uint64() == w.prioritizedTx.blockNumber {
+		tx := w.prioritizedTx.tx
+		from, _ := types.Sender(w.current.signer, tx) // error already checked before
+		txList := map[common.Address]types.Transactions{from: []*types.Transaction{tx}}
+		txs := types.NewTransactionsByPriceAndNonce(env.signer, txList, env.header.BaseFee)
+		err, circuitCapacityReached, _ = w.commitTransactions(env, txs, w.coinbase, interrupt)
+		if err != nil || circuitCapacityReached {
+			return err, skippedTxs
+		}
+	}
+
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
 		err, circuitCapacityReached, _ = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)

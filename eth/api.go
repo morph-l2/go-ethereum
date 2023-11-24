@@ -677,6 +677,23 @@ func (api *ScrollAPI) GetNumSkippedTransactions(ctx context.Context) (uint64, er
 	return rawdb.ReadNumSkippedTransactions(api.eth.ChainDb()), nil
 }
 
+// EstimateL1DataFee returns an estimate of the L1 data fee required to
+// process the given transaction against the current pending block.
+func (api *ScrollAPI) EstimateL1DataFee(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
+	if blockNrOrHash != nil {
+		bNrOrHash = *blockNrOrHash
+	}
+
+	l1DataFee, err := ethapi.EstimateL1MsgFee(ctx, api.eth.APIBackend, args, bNrOrHash, nil, 0, api.eth.APIBackend.RPCGasCap(), api.eth.APIBackend.ChainConfig())
+	if err != nil {
+		return nil, fmt.Errorf("failed to estimate L1 data fee: %w", err)
+	}
+
+	result := hexutil.Uint64(l1DataFee.Uint64())
+	return &result, nil
+}
+
 // RPCTransaction is the standard RPC transaction return type with some additional skip-related fields.
 type RPCTransaction struct {
 	ethapi.RPCTransaction

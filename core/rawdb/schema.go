@@ -114,6 +114,11 @@ var (
 	numSkippedTransactionsKey    = []byte("NumberOfSkippedTransactions")
 	skippedTransactionPrefix     = []byte("skip") // skippedTransactionPrefix + tx hash -> skipped transaction
 	skippedTransactionHashPrefix = []byte("sh")   // skippedTransactionHashPrefix + index -> tx hash
+
+	// rollup batch
+	rollupBatchPrefix          = []byte("R-b")
+	rollupBatchIndexPrefix     = []byte("R-bp")
+	rollupBatchSignaturePrefix = []byte("R-bs")
 )
 
 const (
@@ -276,4 +281,24 @@ func SkippedTransactionKey(txHash common.Hash) []byte {
 // SkippedTransactionHashKey = skippedTransactionHashPrefix + index (uint64 big endian)
 func SkippedTransactionHashKey(index uint64) []byte {
 	return append(skippedTransactionHashPrefix, encodeBigEndian(index)...)
+}
+
+// RollupBatchKey = rollupBatchPrefix + batch index (uint64 big endian)
+func RollupBatchKey(batchIndex uint64) []byte {
+	return append(rollupBatchPrefix, encodeBigEndian(batchIndex)...)
+}
+
+// RollupBatchIndexKey = rollupBatchIndexPrefix + batchHash
+func RollupBatchIndexKey(batchHash common.Hash) []byte {
+	return append(rollupBatchIndexPrefix, batchHash.Bytes()...)
+}
+
+// RollupBatchSignatureKey = rollupBatchSignaturePrefix + batchHash
+func RollupBatchSignatureKey(batchHash common.Hash) []byte {
+	return append(rollupBatchSignaturePrefix, batchHash.Bytes()...)
+}
+
+// RollupBatchSignatureSignerKey = RollupBatchSignatureKey + signer index (uint64 big endian)
+func RollupBatchSignatureSignerKey(batchHash common.Hash, signerIndex uint64) []byte {
+	return append(RollupBatchSignatureKey(batchHash), encodeBigEndian(signerIndex)...)
 }

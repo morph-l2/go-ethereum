@@ -128,7 +128,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.executableDataToBlock(params, types.BLSData{})
+	block, err := api.executableDataToBlock(params, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 	}, nil
 }
 
-func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData, l1Messages []types.L1MessageTx) (err error) {
+func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []types.L1MessageTx, batchHash *common.Hash) (err error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
@@ -237,7 +237,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 		return fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.executableDataToBlock(params, bls)
+	block, err := api.executableDataToBlock(params, batchHash)
 	if err != nil {
 		return err
 	}
@@ -294,7 +294,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, bls types.BLSData
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
-func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) (header *types.Header, err error) {
+func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Header, err error) {
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
@@ -302,7 +302,7 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) 
 		return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
 	}
 
-	block, err := api.safeDataToBlock(params, bls)
+	block, err := api.safeDataToBlock(params)
 	if err != nil {
 		return nil, err
 	}
@@ -329,13 +329,28 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data, bls types.BLSData) 
 	return header, api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
-func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSData) (*types.Block, error) {
+func (api *l2ConsensusAPI) CommitBatch(batch types.RollupBatch, signatures []types.BatchSignature) error {
+	log.Info("commit batch", "batch index", batch.Index)
+	dbBatch := api.eth.ChainDb().NewBatch()
+	rawdb.WriteRollupBatch(dbBatch, batch)
+	for _, signature := range signatures {
+		rawdb.WriteBatchSignature(dbBatch, batch.Hash, signature)
+	}
+	return dbBatch.Write()
+}
+
+func (api *l2ConsensusAPI) AppendBatchSignature(batchHash common.Hash, signature types.BatchSignature) {
+	log.Info("append batch signature", "batch hash", fmt.Sprintf("%x", batchHash))
+	rawdb.WriteBatchSignature(api.eth.ChainDb(), batchHash, signature)
+}
+
+func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, error) {
 	header := &types.Header{
-		Number:   big.NewInt(int64(params.Number)),
-		GasLimit: params.GasLimit,
-		Time:     params.Timestamp,
-		BLSData:  blsData,
-		BaseFee:  params.BaseFee,
+		Number:    big.NewInt(int64(params.Number)),
+		GasLimit:  params.GasLimit,
+		Time:      params.Timestamp,
+		BaseFee:   params.BaseFee,
+		BatchHash: params.BatchHash,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
 	txs, err := decodeTransactions(params.Transactions)
@@ -346,7 +361,7 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data, blsData types.BLSD
 	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
 }
 
-func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsData types.BLSData) (*types.Block, error) {
+func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, batchHash *common.Hash) (*types.Block, error) {
 	header := &types.Header{
 		ParentHash:     params.ParentHash,
 		Number:         big.NewInt(int64(params.Number)),
@@ -354,9 +369,9 @@ func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, blsDat
 		GasLimit:       params.GasLimit,
 		Time:           params.Timestamp,
 		Coinbase:       params.Miner,
-		BLSData:        blsData,
 		BaseFee:        params.BaseFee,
 		NextL1MsgIndex: params.NextL1MessageIndex,
+		BatchHash:      batchHash,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
 

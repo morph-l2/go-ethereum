@@ -3,6 +3,7 @@ package authclient
 import (
 	"context"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/common"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/core/types"
@@ -35,13 +36,23 @@ func (ec *Client) ValidateL2Block(ctx context.Context, executableL2Data *catalys
 }
 
 // NewL2Block executes L2 Block, and set the block to chain
-func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, blsData *types.BLSData, collectedL1Messages []types.L1MessageTx) error {
-	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data, blsData, collectedL1Messages)
+func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, collectedL1Messages []types.L1MessageTx, batchHash *common.Hash) error {
+	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data, collectedL1Messages, batchHash)
 }
 
 // NewSafeL2Block executes a safe L2 Block, and set the block to chain
-func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL2Data, blsData *types.BLSData) (*types.Header, error) {
+func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL2Data) (*types.Header, error) {
 	var header types.Header
-	err := ec.c.CallContext(ctx, &header, "engine_newSafeL2Block", safeL2Data, blsData)
+	err := ec.c.CallContext(ctx, &header, "engine_newSafeL2Block", safeL2Data)
 	return &header, err
+}
+
+// CommitBatch commit the batch, with the signatures
+func (ec *Client) CommitBatch(ctx context.Context, batch *types.RollupBatch, signatures []types.BatchSignature) error {
+	return ec.c.CallContext(ctx, nil, "engine_commitBatch", batch, signatures)
+}
+
+// AppendBlsSignature append a new bls signature to the batch
+func (ec *Client) AppendBlsSignature(ctx context.Context, batchHash common.Hash, signature types.BatchSignature) error {
+	return ec.c.CallContext(ctx, nil, "engine_appendBatchSignature", batchHash, signature)
 }

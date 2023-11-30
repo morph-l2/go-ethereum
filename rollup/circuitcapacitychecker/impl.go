@@ -34,12 +34,14 @@ type CircuitCapacityChecker struct {
 }
 
 // NewCircuitCapacityChecker creates a new CircuitCapacityChecker
-func NewCircuitCapacityChecker() *CircuitCapacityChecker {
+func NewCircuitCapacityChecker(lightMode bool) *CircuitCapacityChecker {
 	creationMu.Lock()
 	defer creationMu.Unlock()
 
 	id := C.new_circuit_capacity_checker()
-	return &CircuitCapacityChecker{ID: uint64(id)}
+	ccc := &CircuitCapacityChecker{ID: uint64(id)}
+	ccc.SetLightMode(lightMode)
+	return ccc
 }
 
 // Reset resets a CircuitCapacityChecker
@@ -78,7 +80,7 @@ func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) (*
 	log.Debug("start to check circuit capacity for tx", "id", ccc.ID, "TxHash", traces.Transactions[0].TxHash)
 	rawResult := C.apply_tx(C.uint64_t(ccc.ID), tracesStr)
 	defer func() {
-		C.free(unsafe.Pointer(rawResult))
+		C.free_c_chars(rawResult)
 	}()
 	log.Debug("check circuit capacity for tx done", "id", ccc.ID, "TxHash", traces.Transactions[0].TxHash)
 
@@ -124,7 +126,7 @@ func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (*types.
 	log.Debug("start to check circuit capacity for block", "id", ccc.ID, "blockNumber", traces.Header.Number, "blockHash", traces.Header.Hash())
 	rawResult := C.apply_block(C.uint64_t(ccc.ID), tracesStr)
 	defer func() {
-		C.free(unsafe.Pointer(rawResult))
+		C.free_c_chars(rawResult)
 	}()
 	log.Debug("check circuit capacity for block done", "id", ccc.ID, "blockNumber", traces.Header.Number, "blockHash", traces.Header.Hash())
 
@@ -156,7 +158,7 @@ func (ccc *CircuitCapacityChecker) CheckTxNum(expected int) (bool, uint64, error
 	log.Debug("ccc get_tx_num start", "id", ccc.ID)
 	rawResult := C.get_tx_num(C.uint64_t(ccc.ID))
 	defer func() {
-		C.free(unsafe.Pointer(rawResult))
+		C.free_c_chars(rawResult)
 	}()
 	log.Debug("ccc get_tx_num end", "id", ccc.ID)
 
@@ -169,4 +171,27 @@ func (ccc *CircuitCapacityChecker) CheckTxNum(expected int) (bool, uint64, error
 	}
 
 	return result.TxNum == uint64(expected), result.TxNum, nil
+}
+
+// SetLightMode sets to ccc light mode
+func (ccc *CircuitCapacityChecker) SetLightMode(lightMode bool) error {
+	ccc.Lock()
+	defer ccc.Unlock()
+
+	log.Debug("ccc set_light_mode start", "id", ccc.ID)
+	rawResult := C.set_light_mode(C.uint64_t(ccc.ID), C.bool(lightMode))
+	defer func() {
+		C.free_c_chars(rawResult)
+	}()
+	log.Debug("ccc set_light_mode end", "id", ccc.ID)
+
+	result := &WrappedCommonResult{}
+	if err := json.Unmarshal([]byte(C.GoString(rawResult)), result); err != nil {
+		return fmt.Errorf("fail to json unmarshal set_light_mode result, id: %d, err: %w", ccc.ID, err)
+	}
+	if result.Error != "" {
+		return fmt.Errorf("fail to set_light_mode in CircuitCapacityChecker, id: %d, err: %w", ccc.ID, result.Error)
+	}
+
+	return nil
 }

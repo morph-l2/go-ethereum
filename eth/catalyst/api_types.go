@@ -125,11 +125,12 @@ type executableL2DataMarshaling struct {
 
 // SafeL2Data is the block data which is approved in L1 and considered to be safe
 type SafeL2Data struct {
-	Number       uint64   `json:"number"         gencodec:"required"`
-	GasLimit     uint64   `json:"gasLimit"       gencodec:"required"`
-	BaseFee      *big.Int `json:"baseFeePerGas"`
-	Timestamp    uint64   `json:"timestamp"      gencodec:"required"`
-	Transactions [][]byte `json:"transactions"   gencodec:"required"`
+	Number       uint64       `json:"number"         gencodec:"required"`
+	GasLimit     uint64       `json:"gasLimit"       gencodec:"required"`
+	BaseFee      *big.Int     `json:"baseFeePerGas"`
+	Timestamp    uint64       `json:"timestamp"      gencodec:"required"`
+	Transactions [][]byte     `json:"transactions"   gencodec:"required"`
+	BatchHash    *common.Hash `json:"batchHash"`
 }
 
 // JSON type overrides for SafeL2Data.
@@ -139,16 +140,4 @@ type safeL2DataMarshaling struct {
 	Timestamp    hexutil.Uint64
 	Transactions []hexutil.Bytes
 	BaseFee      *hexutil.Big
-}
-
-//go:generate go run github.com/fjl/gencodec -type BLSData -field-override blsDataMarshaling -out gen_bls.go
-
-type BLSData struct {
-	BLSSigners   [][]byte `json:"bls_signers"`
-	BLSSignature []byte   `json:"bls_signature"`
-}
-
-type blsDataMarshaling struct {
-	BLSSigners   []hexutil.Bytes
-	BLSSignature hexutil.Bytes
 }

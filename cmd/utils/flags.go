@@ -175,6 +175,10 @@ var (
 		Name:  "scroll-sepolia",
 		Usage: "Scroll Sepolia test network",
 	}
+	ScrollFlag = cli.BoolFlag{
+		Name:  "scroll",
+		Usage: "Scroll mainnet",
+	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
 		Usage: "Ephemeral proof-of-authority network with a pre-funded developer account, mining enabled",
@@ -843,6 +847,12 @@ var (
 		Name:  "ccc",
 		Usage: "Enable circuit capacity check during block validation",
 	}
+
+	// Max block range for `eth_getLogs` method
+	MaxBlockRangeFlag = cli.Int64Flag{
+		Name:  "rpc.getlogs.maxrange",
+		Usage: "Limit max fetched block range for `eth_getLogs` method",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -869,6 +879,9 @@ func MakeDataDir(ctx *cli.Context) string {
 		}
 		if ctx.GlobalBool(ScrollSepoliaFlag.Name) {
 			return filepath.Join(path, "scroll-sepolia")
+		}
+		if ctx.GlobalBool(ScrollFlag.Name) {
+			return filepath.Join(path, "scroll")
 		}
 		return path
 	}
@@ -930,6 +943,8 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.ScrollAlphaBootnodes
 	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
 		urls = params.ScrollSepoliaBootnodes
+	case ctx.GlobalBool(ScrollFlag.Name):
+		urls = params.ScrollMainnetBootnodes
 	case cfg.BootstrapNodes != nil || len(urls) == 0:
 		return // already set, don't apply defaults.
 	}
@@ -1371,6 +1386,8 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-alpha")
 	case ctx.GlobalBool(ScrollSepoliaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-sepolia")
+	case ctx.GlobalBool(ScrollFlag.Name) && cfg.DataDir == node.DefaultDataDir():
+		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll")
 
 	}
 }
@@ -1525,6 +1542,14 @@ func setCircuitCapacityCheck(ctx *cli.Context, cfg *ethconfig.Config) {
 	}
 }
 
+func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
+	if ctx.GlobalIsSet(MaxBlockRangeFlag.Name) {
+		cfg.MaxBlockRange = ctx.GlobalInt64(MaxBlockRangeFlag.Name)
+	} else {
+		cfg.MaxBlockRange = -1
+	}
+}
+
 // CheckExclusive verifies that only a single instance of the provided flags was
 // set by the user. Each flag might optionally be followed by a string type to
 // specialize it further.
@@ -1569,7 +1594,7 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, ScrollAlphaFlag, ScrollSepoliaFlag)
+	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, ScrollAlphaFlag, ScrollSepoliaFlag, ScrollFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	if ctx.GlobalString(GCModeFlag.Name) == GCModeArchive && ctx.GlobalUint64(TxLookupLimitFlag.Name) != 0 {
@@ -1591,6 +1616,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	setWhitelist(ctx, cfg)
 	setLes(ctx, cfg)
 	setCircuitCapacityCheck(ctx, cfg)
+	setMaxBlockRange(ctx, cfg)
 
 	// Cap the cache allowance and tune the garbage collector
 	mem, err := gopsutil.VirtualMemory()
@@ -1743,6 +1769,21 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.NetworkId = 534351
 		}
 		cfg.Genesis = core.DefaultScrollSepoliaGenesisBlock()
+		// disable pruning
+		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
+			log.Crit("Must use --gcmode=archive")
+		}
+		log.Info("Pruning disabled")
+		cfg.NoPruning = true
+		// disable prefetch
+		log.Info("Prefetch disabled")
+		cfg.NoPrefetch = true
+	case ctx.GlobalBool(ScrollFlag.Name):
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = 534352
+		}
+		cfg.Genesis = core.DefaultScrollMainnetGenesisBlock()
+		// forced for mainnet
 		// disable pruning
 		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
 			log.Crit("Must use --gcmode=archive")
@@ -1982,6 +2023,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultScrollAlphaGenesisBlock()
 	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
 		genesis = core.DefaultScrollSepoliaGenesisBlock()
+	case ctx.GlobalBool(ScrollFlag.Name):
+		genesis = core.DefaultScrollMainnetGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}

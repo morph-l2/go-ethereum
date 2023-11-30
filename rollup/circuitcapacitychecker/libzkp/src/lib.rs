@@ -15,6 +15,11 @@ pub mod checker {
     use std::ptr::null;
 
     #[derive(Debug, Clone, Deserialize, Serialize)]
+    pub struct CommonResult {
+        pub error: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Deserialize, Serialize)]
     pub struct RowUsageResult {
         pub acc_row_usage: Option<RowUsage>,
         pub error: Option<String>,
@@ -218,12 +223,57 @@ pub mod checker {
             |result| result,
         )
     }
+
+    /// # Safety
+    #[no_mangle]
+    pub unsafe extern "C" fn set_light_mode(id: u64, light_mode: bool) -> *const c_char {
+        let result = set_light_mode_inner(id, light_mode);
+        let r = match result {
+            Ok(()) => CommonResult { error: None },
+            Err(e) => CommonResult {
+                error: Some(format!("{e:?}")),
+            },
+        };
+        serde_json::to_vec(&r).map_or(null(), vec_to_c_char)
+    }
+
+    unsafe fn set_light_mode_inner(id: u64, light_mode: bool) -> Result<(), Error> {
+        log::debug!("ccc set_light_mode raw input, id: {id}");
+        panic::catch_unwind(|| {
+            CHECKERS
+                .get_mut()
+                .ok_or(anyhow!(
+                    "fail to get circuit capacity checkers map in set_light_mode"
+                ))?
+                .get_mut(&id)
+                .ok_or(anyhow!(
+                    "fail to get circuit capacity checker (id: {id}) in set_light_mode"
+                ))?
+                .set_light_mode(light_mode);
+            Ok(())
+        })
+        .map_or_else(
+            |e| bail!("circuit capacity checker (id: {id}) error in set_light_mode: {e:?}"),
+            |result| result,
+        )
+    }
 }
 
-pub(crate) mod utils {
+pub mod utils {
     use std::ffi::{CStr, CString};
     use std::os::raw::c_char;
     use std::str::Utf8Error;
+
+    /// # Safety
+    #[no_mangle]
+    pub unsafe extern "C" fn free_c_chars(ptr: *mut c_char) {
+        if ptr.is_null() {
+            log::warn!("Try to free an empty pointer!");
+            return;
+        }
+
+        let _ = CString::from_raw(ptr);
+    }
 
     #[allow(dead_code)]
     pub(crate) fn c_char_to_str(c: *const c_char) -> Result<&'static str, Utf8Error> {

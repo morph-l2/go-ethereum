@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
+	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"io"
 	"math/big"
 	"os"
@@ -626,12 +628,26 @@ func (api *ScrollAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullT
 	if err != nil {
 		return nil, err
 	}
+	parent, err := api.eth.APIBackend.HeaderByHash(ctx, b.ParentHash())
+	if err != nil {
+		return nil, err
+	}
+	stateDB, err := api.eth.BlockChain().StateAt(b.Root())
+	if err != nil {
+		return nil, err
+	}
+	fields["withdrawTrieRoot"] = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB)
+	fields["batchHash"] = b.BaseFee()
+	fields["startL1QueueIndex"] = hexutil.Uint64(parent.NextL1MsgIndex)
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))
 	rc := rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), b.Hash())
 	if rc != nil {
 		fields["rowConsumption"] = rc
 	} else {
 		fields["rowConsumption"] = nil
+	}
+	if b.BatchHash() != nil {
+		fields["batchHash"] = *b.BatchHash()
 	}
 	return fields, err
 }
@@ -659,6 +675,23 @@ func (api *ScrollAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumb
 // GetNumSkippedTransactions returns the number of skipped transactions.
 func (api *ScrollAPI) GetNumSkippedTransactions(ctx context.Context) (uint64, error) {
 	return rawdb.ReadNumSkippedTransactions(api.eth.ChainDb()), nil
+}
+
+// EstimateL1DataFee returns an estimate of the L1 data fee required to
+// process the given transaction against the current pending block.
+func (api *ScrollAPI) EstimateL1DataFee(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
+	if blockNrOrHash != nil {
+		bNrOrHash = *blockNrOrHash
+	}
+
+	l1DataFee, err := ethapi.EstimateL1MsgFee(ctx, api.eth.APIBackend, args, bNrOrHash, nil, 0, api.eth.APIBackend.RPCGasCap(), api.eth.APIBackend.ChainConfig())
+	if err != nil {
+		return nil, fmt.Errorf("failed to estimate L1 data fee: %w", err)
+	}
+
+	result := hexutil.Uint64(l1DataFee.Uint64())
+	return &result, nil
 }
 
 // RPCTransaction is the standard RPC transaction return type with some additional skip-related fields.
@@ -708,4 +741,57 @@ func (api *ScrollAPI) GetSkippedTransactionHashes(ctx context.Context, from uint
 	}
 
 	return hashes, nil
+}
+
+type RPCRollupBatch struct {
+	Version                uint            `json:"version"`
+	ParentBatchHeader      hexutil.Bytes   `json:"parentBatchHeader"`
+	Chunks                 []hexutil.Bytes `json:"chunks"`
+	SkippedL1MessageBitmap hexutil.Bytes   `json:"skippedL1MessageBitmap"`
+	PrevStateRoot          common.Hash     `json:"prevStateRoot"`
+	PostStateRoot          common.Hash     `json:"postStateRoot"`
+	WithdrawRoot           common.Hash     `json:"withdrawRoot"`
+
+	Signatures []RPCBatchSignature `json:"signatures"`
+}
+
+type RPCBatchSignature struct {
+	Version      uint64        `json:"version"`
+	Signer       uint64        `json:"signer"`
+	SignerPubKey hexutil.Bytes `json:"signerPubKey"`
+	Signature    hexutil.Bytes `json:"signature"`
+}
+
+func (api *ScrollAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*RPCRollupBatch, error) {
+	rollupBatch := rawdb.ReadRollupBatch(api.eth.ChainDb(), index)
+	if rollupBatch == nil {
+		return nil, nil
+	}
+	signatures := rawdb.ReadBatchSignatures(api.eth.ChainDb(), rollupBatch.Hash)
+
+	hexChunks := make([]hexutil.Bytes, len(rollupBatch.Chunks))
+	for i, chunk := range rollupBatch.Chunks {
+		hexChunks[i] = chunk
+	}
+
+	rpcSignatures := make([]RPCBatchSignature, len(signatures))
+	for i, sig := range signatures {
+		rpcSignatures[i] = RPCBatchSignature{
+			Version:      sig.Version,
+			Signer:       sig.Signer,
+			SignerPubKey: sig.SignerPubKey,
+			Signature:    sig.Signature,
+		}
+	}
+
+	return &RPCRollupBatch{
+		Version:                rollupBatch.Version,
+		ParentBatchHeader:      rollupBatch.ParentBatchHeader,
+		Chunks:                 hexChunks,
+		SkippedL1MessageBitmap: rollupBatch.SkippedL1MessageBitmap,
+		PrevStateRoot:          rollupBatch.PrevStateRoot,
+		PostStateRoot:          rollupBatch.PostStateRoot,
+		WithdrawRoot:           rollupBatch.WithdrawRoot,
+		Signatures:             rpcSignatures,
+	}, nil
 }

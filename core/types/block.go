@@ -65,7 +65,7 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 	return hexutil.UnmarshalFixedText("BlockNonce", input, n[:])
 }
 
-//go:generate gencodec -type Header -field-override headerMarshaling -out gen_header_json.go
+//go:generate go run github.com/fjl/gencodec -type Header -field-override headerMarshaling -out gen_header_json.go
 
 // Header represents a block header in the Ethereum blockchain.
 type Header struct {
@@ -85,14 +85,14 @@ type Header struct {
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
 
-	// BLSData was the field specified for morphism
-	BLSData BLSData `json:"blsData" rlp:"optional"`
-
 	// the start index of L1Message needs to be processed
-	NextL1MsgIndex uint64 `json:"nextL1MsgIndex" rlp:"optional" gencodec:"required"`
+	NextL1MsgIndex uint64 `json:"nextL1MsgIndex" rlp:"optional"`
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
+
+	// BatchHash is not zero if it is a batch point
+	BatchHash *common.Hash `json:"batchHash" rlp:"optional"`
 
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
 	// Included for Ethereum compatibility in Scroll SDK
@@ -115,7 +115,7 @@ type headerMarshaling struct {
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
 // RLP encoding.
 func (h *Header) Hash() common.Hash {
-	type headerNoBLS struct {
+	type headerHashing struct {
 		ParentHash  common.Hash
 		UncleHash   common.Hash
 		Coinbase    common.Address
@@ -136,7 +136,7 @@ func (h *Header) Hash() common.Hash {
 		BaseFee         *big.Int     `rlp:"optional"`
 		WithdrawalsHash *common.Hash `rlp:"optional"`
 	}
-	h2 := &headerNoBLS{
+	h2 := &headerHashing{
 		ParentHash:      h.ParentHash,
 		UncleHash:       h.UncleHash,
 		Coinbase:        h.Coinbase,
@@ -156,18 +156,6 @@ func (h *Header) Hash() common.Hash {
 		WithdrawalsHash: h.WithdrawalsHash,
 	}
 	return rlpHash(h2)
-}
-
-//go:generate go run github.com/fjl/gencodec -type BLSData -field-override blsDataMarshaling -out gen_bls.go
-
-type BLSData struct {
-	BLSSigners   [][]byte `json:"bls_signers"`
-	BLSSignature []byte   `json:"bls_signature"`
-}
-
-type blsDataMarshaling struct {
-	BLSSigners   []hexutil.Bytes
-	BLSSignature hexutil.Bytes
 }
 
 var headerSize = common.StorageSize(reflect.TypeOf(Header{}).Size())
@@ -366,6 +354,9 @@ func (b *Block) TxHash() common.Hash      { return b.header.TxHash }
 func (b *Block) ReceiptHash() common.Hash { return b.header.ReceiptHash }
 func (b *Block) UncleHash() common.Hash   { return b.header.UncleHash }
 func (b *Block) Extra() []byte            { return common.CopyBytes(b.header.Extra) }
+func (b *Block) BatchHash() *common.Hash {
+	return b.header.BatchHash
+}
 
 func (b *Block) BaseFee() *big.Int {
 	if b.header.BaseFee == nil {
@@ -514,4 +505,6 @@ type Blocks []*Block
 type BlockWithRowConsumption struct {
 	*Block
 	*RowConsumption
+	StartL1QueueIndex uint64
+	WithdrawTrieRoot  common.Hash
 }

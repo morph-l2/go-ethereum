@@ -31,8 +31,9 @@ func (h Header) MarshalJSON() ([]byte, error) {
 		Extra           hexutil.Bytes  `json:"extraData"        gencodec:"required"`
 		MixDigest       common.Hash    `json:"mixHash"`
 		Nonce           BlockNonce     `json:"nonce"`
+		NextL1MsgIndex  hexutil.Uint64 `json:"nextL1MsgIndex" rlp:"optional"`
 		BaseFee         *hexutil.Big   `json:"baseFeePerGas" rlp:"optional"`
-		BLSData         BLSData        `json:"blsData" rlp:"-"`
+		BatchHash       *common.Hash   `json:"batchHash" rlp:"optional"`
 		WithdrawalsHash *common.Hash   `json:"withdrawalsRoot" rlp:"optional"`
 		Hash            common.Hash    `json:"hash"`
 	}
@@ -52,8 +53,9 @@ func (h Header) MarshalJSON() ([]byte, error) {
 	enc.Extra = h.Extra
 	enc.MixDigest = h.MixDigest
 	enc.Nonce = h.Nonce
+	enc.NextL1MsgIndex = hexutil.Uint64(h.NextL1MsgIndex)
 	enc.BaseFee = (*hexutil.Big)(h.BaseFee)
-	enc.BLSData = h.BLSData
+	enc.BatchHash = h.BatchHash
 	enc.WithdrawalsHash = h.WithdrawalsHash
 	enc.Hash = h.Hash()
 	return json.Marshal(&enc)
@@ -77,8 +79,9 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 		Extra           *hexutil.Bytes  `json:"extraData"        gencodec:"required"`
 		MixDigest       *common.Hash    `json:"mixHash"`
 		Nonce           *BlockNonce     `json:"nonce"`
+		NextL1MsgIndex  *hexutil.Uint64 `json:"nextL1MsgIndex" rlp:"optional"`
 		BaseFee         *hexutil.Big    `json:"baseFeePerGas" rlp:"optional"`
-		BLSData         *BLSData        `json:"blsData" rlp:"-"`
+		BatchHash       *common.Hash    `json:"batchHash" rlp:"optional"`
 		WithdrawalsHash *common.Hash    `json:"withdrawalsRoot" rlp:"optional"`
 	}
 	var dec Header
@@ -142,11 +145,14 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 	if dec.Nonce != nil {
 		h.Nonce = *dec.Nonce
 	}
+	if dec.NextL1MsgIndex != nil {
+		h.NextL1MsgIndex = uint64(*dec.NextL1MsgIndex)
+	}
 	if dec.BaseFee != nil {
 		h.BaseFee = (*big.Int)(dec.BaseFee)
 	}
-	if dec.BLSData != nil {
-		h.BLSData = *dec.BLSData
+	if dec.BatchHash != nil {
+		h.BatchHash = dec.BatchHash
 	}
 	if dec.WithdrawalsHash != nil {
 		h.WithdrawalsHash = dec.WithdrawalsHash

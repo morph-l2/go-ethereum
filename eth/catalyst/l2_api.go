@@ -94,6 +94,10 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	// }
 	procTime := time.Since(start)
 	withdrawTrieRoot := api.writeVerified(state, block, receipts, skippedTxs, procTime)
+	var resRc types.RowConsumption
+	if rc != nil {
+		resRc = *rc
+	}
 	return &ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -109,7 +113,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		LogsBloom:          block.Bloom().Bytes(),
 		NextL1MessageIndex: block.Header().NextL1MsgIndex,
 		WithdrawTrieRoot:   withdrawTrieRoot,
-		RowUsages:          *rc,
+		RowUsages:          resRc,
 
 		Hash: block.Hash(),
 	}, nil

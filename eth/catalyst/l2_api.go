@@ -7,9 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-
 	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/eth"
@@ -61,7 +60,6 @@ type executionResult struct {
 	block            *types.Block
 	state            *state.StateDB
 	receipts         types.Receipts
-	rc               *types.RowConsumption
 	skippedTxs       []*types.SkippedTransaction
 	procTime         time.Duration
 	withdrawTrieRoot common.Hash
@@ -95,7 +93,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	//	 return nil, nil
 	// }
 	procTime := time.Since(start)
-	withdrawTrieRoot := api.writeVerified(state, block, receipts, rc, skippedTxs, procTime)
+	withdrawTrieRoot := api.writeVerified(state, block, receipts, skippedTxs, procTime)
 	return &ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -111,6 +109,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		LogsBloom:          block.Bloom().Bytes(),
 		NextL1MessageIndex: block.Header().NextL1MsgIndex,
 		WithdrawTrieRoot:   withdrawTrieRoot,
+		RowUsages:          *rc,
 
 		Hash: block.Hash(),
 	}, nil
@@ -206,13 +205,14 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 			false,
 		}, nil
 	}
+
 	if (params.WithdrawTrieRoot != common.Hash{}) && params.WithdrawTrieRoot != withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB) {
 		log.Error("ValidateL2Block failed, wrong withdraw trie root")
 		return &GenericResponse{
 			false,
 		}, nil
 	}
-	api.writeVerified(stateDB, block, receipts, nil, skippedTransactions, procTime)
+	api.writeVerified(stateDB, block, receipts, skippedTransactions, procTime)
 	return &GenericResponse{
 		true,
 	}, nil
@@ -251,11 +251,6 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []type
 	bas, verified := api.isVerified(block.Hash())
 	if verified {
 		api.eth.BlockChain().UpdateBlockProcessMetrics(bas.state, bas.procTime)
-		if bas.rc != nil {
-			if rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), block.Hash()) == nil {
-				rawdb.WriteBlockRowConsumption(api.eth.ChainDb(), block.Hash(), bas.rc)
-			}
-		}
 		for _, skipped := range bas.skippedTxs {
 			bh := block.Hash()
 			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), &skipped.Tx, skipped.Trace, skipped.Reason, block.NumberU64(), &bh)
@@ -289,6 +284,12 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []type
 		}
 		bh := block.Hash()
 		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), types.NewTx(&l1Message), nil, "", block.NumberU64(), &bh)
+	}
+
+	if len(params.RowUsages) > 0 {
+		if rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), block.Hash()) == nil {
+			rawdb.WriteBlockRowConsumption(api.eth.ChainDb(), block.Hash(), &params.RowUsages)
+		}
 	}
 
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
@@ -423,7 +424,7 @@ func (api *l2ConsensusAPI) verifyBlock(block *types.Block) error {
 	return nil
 }
 
-func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, rc *types.RowConsumption, skipped []*types.SkippedTransaction, procTime time.Duration) common.Hash {
+func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, skipped []*types.SkippedTransaction, procTime time.Duration) common.Hash {
 	withdrawTrieRoot := withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, state)
 	api.verifiedMapLock.Lock()
 	defer api.verifiedMapLock.Unlock()
@@ -431,7 +432,6 @@ func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Bloc
 		block:            block,
 		state:            state,
 		receipts:         receipts,
-		rc:               rc,
 		skippedTxs:       skipped,
 		procTime:         procTime,
 		withdrawTrieRoot: withdrawTrieRoot,

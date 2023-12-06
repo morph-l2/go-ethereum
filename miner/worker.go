@@ -452,7 +452,7 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 			return
 		}
 		// we do not need this resubmit loop to acquire higher price transactions here in our cases
-		// todo use morphism config instead later
+		// todo use morph config instead later
 		if !w.chainConfig.Scroll.UseZktrie {
 			timer.Reset(recommit)
 		}

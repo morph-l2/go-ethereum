@@ -2,8 +2,8 @@
 #script for sentry entrypoint
 set -ex
 
-GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morphism/setup/geth-data}"
-JWT_SECRET_PATH="${JWT_SECRET_PATH:-/data/morphism/setup/jwt-secret.txt}"
+GETH_DATA_DIR="${GETH_DATA_DIR:-/data/morph/setup/geth-data}"
+JWT_SECRET_PATH="${JWT_SECRET_PATH:-/data/morph/setup/jwt-secret.txt}"
 DEFAULE_MINER_ETHERBASE="0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
 CHAIN_ID="${CHAIN_ID:-2710}"
 GETH_LOG_FILE="${GETH_LOG_FILE:-/data/logs/geth.log}"

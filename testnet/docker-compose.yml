@@ -11,7 +11,7 @@ services:
     build:
       context: ..
       dockerfile: ./Dockerfile
-    image: morphism_geth:latest
+    image: morph_geth:latest
     ports:
       - "8545:8545"
       - "8546:8546"
@@ -32,7 +32,7 @@ services:
     build:
       context: ..
       dockerfile: ./Dockerfile
-    image: morphism_geth:latest
+    image: morph_geth:latest
     ports:
       - "8645:8545"
       - "8646:8546"
@@ -55,7 +55,7 @@ services:
     build:
       context: ..
       dockerfile: ./Dockerfile
-    image: morphism_geth:latest
+    image: morph_geth:latest
     ports:
       - "8745:8545"
       - "8746:8546"
@@ -78,7 +78,7 @@ services:
     build:
       context: ..
       dockerfile: ./Dockerfile
-    image: morphism_geth:latest
+    image: morph_geth:latest
     ports:
       - "8845:8545"
       - "8846:8546"

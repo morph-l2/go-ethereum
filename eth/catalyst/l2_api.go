@@ -127,7 +127,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 		return nil, fmt.Errorf("cannot validate block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
 	}
 	if params.ParentHash != parent.Hash() {
-		log.Warn("Wrong parent hash", "expected block hash", parent.TxHash().Hex(), "actual block hash", params.ParentHash.Hex())
+		log.Warn("Wrong parent hash", "expected block hash", parent.Hash().Hex(), "actual block hash", params.ParentHash.Hex())
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 

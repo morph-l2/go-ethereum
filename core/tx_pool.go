@@ -302,8 +302,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	// Using MaxTxPayloadBytesPerBlock as max tx bytes if it exists and smaller than 128K
 	rawTxMaxSize := txMaxSize
 	if configSize := chainconfig.Scroll.MaxTxPayloadBytesPerBlock; configSize != nil && *configSize < txMaxSize {
-		// tx raw size + tx hash length <= config.MaxTxPayloadBytesPerBlock
-		rawTxMaxSize = *configSize - common.HashLength
+		rawTxMaxSize = *configSize
 	}
 
 	// Create the transaction pool with its initial settings

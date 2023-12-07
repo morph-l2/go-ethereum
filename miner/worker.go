@@ -1050,7 +1050,7 @@ loop:
 			)
 			break
 		}
-		if !tx.IsL1MessageTx() && !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize+tx.Size()+common.HashLength) {
+		if !tx.IsL1MessageTx() && !w.chainConfig.Scroll.IsValidBlockSize(env.blockSize+tx.Size()) {
 			log.Trace("Block size limit reached", "have", env.blockSize, "want", w.chainConfig.Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
 			continue

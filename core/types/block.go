@@ -88,11 +88,11 @@ type Header struct {
 	// the start index of L1Message needs to be processed
 	NextL1MsgIndex uint64 `json:"nextL1MsgIndex" rlp:"optional"`
 
-	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
-	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
-
 	// BatchHash is not zero if it is a batch point
 	BatchHash *common.Hash `json:"batchHash" rlp:"optional"`
+
+	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
+	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
 	// Included for Ethereum compatibility in Scroll SDK

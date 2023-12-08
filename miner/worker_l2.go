@@ -159,7 +159,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	}
 	if w.prioritizedTx != nil && env.header.Number.Uint64() == w.prioritizedTx.blockNumber {
 		tx := w.prioritizedTx.tx
-		from, _ := types.Sender(w.current.signer, tx) // error already checked before
+		from, _ := types.Sender(env.signer, tx) // error already checked before
 		txList := map[common.Address]types.Transactions{from: []*types.Transaction{tx}}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, txList, env.header.BaseFee)
 		err, circuitCapacityReached, _ = w.commitTransactions(env, txs, w.coinbase, interrupt)
@@ -202,6 +202,41 @@ func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (bloc
 	fillTxErr, skippedTxs := w.fillTransactions(work, genParams.transactions, interrupt)
 	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(w.newBlockTimeout))
+	}
+
+	if work.accRows == nil {
+		log.Trace(
+			"Worker apply ccc for empty block",
+			"id", w.circuitCapacityChecker.ID,
+			"number", work.header.Number,
+			"hash", work.header.Hash().String(),
+		)
+		var traces *types.BlockTrace
+		withTimer(l2CommitTraceTimer, func() {
+			traces, err = work.traceEnv.GetBlockTrace(types.NewBlockWithHeader(work.header))
+		})
+		if err != nil {
+			return
+		}
+		// truncate ExecutionResults&TxStorageTraces, because we declare their lengths with a dummy tx before;
+		// however, we need to clean it up for an empty block
+		traces.ExecutionResults = traces.ExecutionResults[:0]
+		traces.TxStorageTraces = traces.TxStorageTraces[:0]
+		var accRows *types.RowConsumption
+		withTimer(l2CommitCCCTimer, func() {
+			accRows, err = w.circuitCapacityChecker.ApplyBlock(traces)
+		})
+		if err != nil {
+			return
+		}
+		log.Trace(
+			"Worker apply ccc for empty block result",
+			"id", w.circuitCapacityChecker.ID,
+			"number", work.header.Number,
+			"hash", work.header.Hash().String(),
+			"accRows", accRows,
+		)
+		work.accRows = accRows
 	}
 
 	block, finalizeErr := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, nil, work.receipts)

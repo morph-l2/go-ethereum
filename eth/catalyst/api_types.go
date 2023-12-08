@@ -17,6 +17,7 @@
 package catalyst
 
 import (
+	"github.com/scroll-tech/go-ethereum/core/types"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -99,11 +100,12 @@ type ExecutableL2Data struct {
 	Transactions [][]byte       `json:"transactions"   gencodec:"required"`
 
 	// execution result
-	StateRoot        common.Hash `json:"stateRoot"`
-	GasUsed          uint64      `json:"gasUsed"`
-	ReceiptRoot      common.Hash `json:"receiptsRoot"`
-	LogsBloom        []byte      `json:"logsBloom"`
-	WithdrawTrieRoot common.Hash `json:"withdrawTrieRoot"`
+	StateRoot        common.Hash          `json:"stateRoot"`
+	GasUsed          uint64               `json:"gasUsed"`
+	ReceiptRoot      common.Hash          `json:"receiptsRoot"`
+	LogsBloom        []byte               `json:"logsBloom"`
+	WithdrawTrieRoot common.Hash          `json:"withdrawTrieRoot"`
+	RowUsages        types.RowConsumption `json:"rowUsages"`
 
 	NextL1MessageIndex uint64 `json:"nextL1MessageIndex"`
 

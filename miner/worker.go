@@ -479,6 +479,7 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 		case head := <-w.chainHeadCh:
 			clearPending(head.Block.NumberU64())
 			timestamp = time.Now().Unix()
+			log.Info("newHead from chainHeadCh", "head number", head.Block.Number())
 			commit(true, commitInterruptNewHead)
 
 		case <-timer.C:
@@ -544,6 +545,7 @@ func (w *worker) mainLoop() {
 	for {
 		select {
 		case req := <-w.newWorkCh:
+			log.Info("receive req from w.newWorkCh")
 			w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
 			// new block created.
 
@@ -1305,7 +1307,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	defer func(t0 time.Time) {
 		l2CommitNewWorkTimer.Update(time.Since(t0))
 	}(time.Now())
-
+	log.Info("start to commitNewWork...")
 	tstart := time.Now()
 	parent := w.chain.CurrentBlock()
 	w.circuitCapacityChecker.Reset()

@@ -300,6 +300,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []type
 }
 
 func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Header, err error) {
+	log.Info("receive NewSafeL2Block request", "number", params.Number)
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
@@ -311,7 +312,9 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Head
 	if err != nil {
 		return nil, err
 	}
+	log.Info("start to ProcessBlock", "number", params.Number)
 	stateDB, receipts, usedGas, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), true)
+	log.Info("finished ProcessBlock", "number", params.Number, "error", err)
 	if err != nil {
 		return nil, err
 	}

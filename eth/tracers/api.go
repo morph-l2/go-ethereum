@@ -602,18 +602,20 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 	}
 	// Execute all the transaction contained within the block concurrently
 	var (
-		signer  = types.MakeSigner(api.backend.ChainConfig(), block.Number())
-		txs     = block.Transactions()
-		results = make([]*txTraceResult, len(txs))
-		pend    sync.WaitGroup
+		signer    = types.MakeSigner(api.backend.ChainConfig(), block.Number())
+		txs       = block.Transactions()
+		blockHash = block.Hash()
+		blockCtx  = core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), api.backend.ChainConfig(), nil)
+		results   = make([]*txTraceResult, len(txs))
+
+		pend = new(sync.WaitGroup)
+		jobs = make(chan *txTraceTask, len(txs))
 	)
 	threads := runtime.NumCPU()
 	if threads > len(txs) {
 		threads = len(txs)
 	}
-	blockCtx := core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), api.backend.ChainConfig(), nil)
-	jobs := make(chan *txTraceTask, threads)
-	blockHash := block.Hash()
+
 	for th := 0; th < threads; th++ {
 		pend.Add(1)
 		go func() {

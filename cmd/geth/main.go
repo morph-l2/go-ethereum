@@ -117,6 +117,8 @@ var (
 		utils.CacheSnapshotFlag,
 		utils.CacheNoPrefetchFlag,
 		utils.CachePreimagesFlag,
+		utils.CacheLogSizeFlag,
+		utils.FDLimitFlag,
 		utils.ListenPortFlag,
 		utils.MaxPeersFlag,
 		utils.MaxPendingPeersFlag,
@@ -193,6 +195,8 @@ var (
 		utils.RPCGlobalTxFeeCapFlag,
 		utils.AllowUnprotectedTxs,
 		utils.MaxBlockRangeFlag,
+		utils.BatchRequestLimit,
+		utils.BatchResponseMaxSize,
 	}
 
 	metricsFlags = []cli.Flag{

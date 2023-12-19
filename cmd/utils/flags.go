@@ -20,6 +20,8 @@ package utils
 import (
 	"crypto/ecdsa"
 	"fmt"
+	"github.com/scroll-tech/go-ethereum/eth/filters"
+	"github.com/scroll-tech/go-ethereum/rpc"
 	"io"
 	"io/ioutil"
 	"math"
@@ -447,6 +449,16 @@ var (
 		Name:  "cache.preimages",
 		Usage: "Enable recording the SHA3/keccak preimages of trie keys",
 	}
+	CacheLogSizeFlag = &cli.IntFlag{
+		Name:  "cache.blocklogs",
+		Usage: "Size (in number of blocks) of the log cache for filtering",
+		Value: ethconfig.Defaults.FilterLogCacheSize,
+	}
+	FDLimitFlag = &cli.IntFlag{
+		Name:  "fdlimit",
+		Usage: "Raise the open file descriptor resource limit (default = system fd limit)",
+	}
+
 	// Miner settings
 	MiningEnabledFlag = cli.BoolFlag{
 		Name:  "mine",
@@ -650,9 +662,20 @@ var (
 		Name:  "preload",
 		Usage: "Comma separated list of JavaScript files to preload into the console",
 	}
-	AllowUnprotectedTxs = cli.BoolFlag{
+	AllowUnprotectedTxs = &cli.BoolFlag{
 		Name:  "rpc.allow-unprotected-txs",
 		Usage: "Allow for unprotected (non EIP155 signed) transactions to be submitted via RPC",
+	}
+	BatchRequestLimit = &cli.IntFlag{
+		Name:  "rpc.batch-request-limit",
+		Usage: "Maximum number of requests in a batch",
+		Value: node.DefaultConfig.BatchRequestLimit,
+	}
+	BatchResponseMaxSize = &cli.IntFlag{
+		Name:  "rpc.batch-response-max-size",
+		Usage: "Maximum number of bytes returned from a batched call",
+		Value: node.DefaultConfig.BatchResponseMaxSize,
+		//>>>>>>> f3314bb6d (rpc: add limit for batch request items and response size (#26681))
 	}
 
 	// Network Settings
@@ -1060,6 +1083,14 @@ func setHTTP(ctx *cli.Context, cfg *node.Config) {
 	}
 	if ctx.GlobalIsSet(AllowUnprotectedTxs.Name) {
 		cfg.AllowUnprotectedTxs = ctx.GlobalBool(AllowUnprotectedTxs.Name)
+	}
+
+	if ctx.IsSet(BatchRequestLimit.Name) {
+		cfg.BatchRequestLimit = ctx.Int(BatchRequestLimit.Name)
+	}
+
+	if ctx.IsSet(BatchResponseMaxSize.Name) {
+		cfg.BatchResponseMaxSize = ctx.Int(BatchResponseMaxSize.Name)
 	}
 }
 
@@ -1685,7 +1716,10 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.GlobalIsSet(CacheFlag.Name) || ctx.GlobalIsSet(CacheSnapshotFlag.Name) {
 		cfg.SnapshotCache = ctx.GlobalInt(CacheFlag.Name) * ctx.GlobalInt(CacheSnapshotFlag.Name) / 100
 	}
-	if !ctx.GlobalBool(SnapshotFlag.Name) {
+	if ctx.IsSet(CacheLogSizeFlag.Name) {
+		cfg.FilterLogCacheSize = ctx.Int(CacheLogSizeFlag.Name)
+	}
+	if !ctx.Bool(SnapshotFlag.Name) {
 		// If snap-sync is requested, this flag is also required
 		if cfg.SyncMode == downloader.SnapSync {
 			log.Info("Snap sync requested, enabling --snapshot")
@@ -1893,19 +1927,32 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 	return backend.APIBackend, backend
 }
 
-// RegisterEthStatsService configures the Ethereum Stats daemon and adds it to
-// the given node.
+// RegisterEthStatsService configures the Ethereum Stats daemon and adds it to the node.
 func RegisterEthStatsService(stack *node.Node, backend ethapi.Backend, url string) {
 	if err := ethstats.New(stack, backend, backend.Engine(), url); err != nil {
 		Fatalf("Failed to register the Ethereum Stats service: %v", err)
 	}
 }
 
-// RegisterGraphQLService is a utility function to construct a new service and register it against a node.
-func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, cfg node.Config) {
-	if err := graphql.New(stack, backend, cfg.GraphQLCors, cfg.GraphQLVirtualHosts); err != nil {
+// RegisterGraphQLService adds the GraphQL API to the node.
+func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, filterSystem *filters.FilterSystem, cfg *node.Config) {
+	err := graphql.New(stack, backend, filterSystem, cfg.GraphQLCors, cfg.GraphQLVirtualHosts)
+	if err != nil {
 		Fatalf("Failed to register the GraphQL service: %v", err)
 	}
+}
+
+// RegisterFilterAPI adds the eth log filtering RPC API to the node.
+func RegisterFilterAPI(stack *node.Node, backend ethapi.Backend, ethcfg *ethconfig.Config) *filters.FilterSystem {
+	isLightClient := ethcfg.SyncMode == downloader.LightSync
+	filterSystem := filters.NewFilterSystem(backend, filters.Config{
+		LogCacheSize: ethcfg.FilterLogCacheSize,
+	})
+	stack.RegisterAPIs([]rpc.API{{
+		Namespace: "eth",
+		Service:   filters.NewFilterAPI(filterSystem, isLightClient, ethcfg.MaxBlockRange),
+	}})
+	return filterSystem
 }
 
 func SetupMetrics(ctx *cli.Context) {

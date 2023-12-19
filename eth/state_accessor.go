@@ -17,6 +17,7 @@
 package eth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -46,7 +47,7 @@ import (
 //     storing trash persistently
 //   - preferDisk: this arg can be used by the caller to signal that even though the 'base' is provided,
 //     it would be preferrable to start from a fresh state, if we have it on disk.
-func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
+func (eth *Ethereum) stateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
 	var (
 		current  *types.Block
 		database state.Database
@@ -92,6 +93,9 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 		}
 		// Database does not have the state for the given block, try to regenerate
 		for i := uint64(0); i < reexec; i++ {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if current.NumberU64() == 0 {
 				return nil, errors.New("genesis state is missing")
 			}
@@ -122,6 +126,9 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 		parent common.Hash
 	)
 	for current.NumberU64() < origin {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		// Print progress logs if long enough time elapsed
 		if time.Since(logged) > 8*time.Second && report {
 			log.Info("Regenerating historical state", "block", current.NumberU64()+1, "target", origin, "remaining", origin-current.NumberU64()-1, "elapsed", time.Since(start))
@@ -160,7 +167,7 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 }
 
 // stateAtTransaction returns the execution environment of a certain transaction.
-func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
+func (eth *Ethereum) stateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {
 		return nil, vm.BlockContext{}, nil, errors.New("no transaction in genesis")
@@ -172,7 +179,7 @@ func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec 
 	}
 	// Lookup the statedb of parent block from the live database,
 	// otherwise regenerate it on the flight.
-	statedb, err := eth.stateAtBlock(parent, reexec, nil, true, false)
+	statedb, err := eth.stateAtBlock(ctx, parent, reexec, nil, true, false)
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, err
 	}

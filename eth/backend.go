@@ -39,7 +39,6 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/vm"
 	"github.com/scroll-tech/go-ethereum/eth/downloader"
 	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
-	"github.com/scroll-tech/go-ethereum/eth/filters"
 	"github.com/scroll-tech/go-ethereum/eth/gasprice"
 	"github.com/scroll-tech/go-ethereum/eth/protocols/eth"
 	"github.com/scroll-tech/go-ethereum/eth/protocols/snap"
@@ -320,11 +319,6 @@ func (s *Ethereum) APIs() []rpc.API {
 			Version:   "1.0",
 			Service:   NewPrivateMinerAPI(s),
 			Public:    false,
-		}, {
-			Namespace: "eth",
-			Version:   "1.0",
-			Service:   filters.NewPublicFilterAPI(s.APIBackend, false, 5*time.Minute, s.config.MaxBlockRange),
-			Public:    true,
 		}, {
 			Namespace: "admin",
 			Version:   "1.0",

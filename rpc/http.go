@@ -26,9 +26,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,9 +54,16 @@ type httpConn struct {
 	auth      HTTPAuth
 }
 
-// httpConn is treated specially by Client.
-func (hc *httpConn) writeJSON(context.Context, interface{}) error {
+// httpConn implements ServerCodec, but it is treated specially by Client
+// and some methods don't work. The panic() stubs here exist to ensure
+// this special treatment is correct.
+
+func (hc *httpConn) writeJSON(context.Context, interface{}, bool) error {
 	panic("writeJSON called on httpConn")
+}
+
+func (hc *httpConn) peerInfo() PeerInfo {
+	panic("peerInfo called on httpConn")
 }
 
 func (hc *httpConn) remoteAddr() string {
@@ -149,7 +158,7 @@ func DialHTTPWithClient(endpoint string, client *http.Client) (*Client, error) {
 	var cfg clientConfig
 	cfg.httpClient = client
 	fn := newClientTransportHTTP(endpoint, &cfg)
-	return newClient(context.Background(), fn)
+	return newClient(context.Background(), &cfg, fn)
 }
 
 func newClientTransportHTTP(endpoint string, cfg *clientConfig) reconnectFunc {
@@ -186,11 +195,12 @@ func (c *Client) sendHTTP(ctx context.Context, op *requestOp, msg interface{}) e
 	}
 	defer respBody.Close()
 
-	var respmsg jsonrpcMessage
-	if err := json.NewDecoder(respBody).Decode(&respmsg); err != nil {
+	var resp jsonrpcMessage
+	batch := [1]*jsonrpcMessage{&resp}
+	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return err
 	}
-	op.resp <- &respmsg
+	op.resp <- batch[:]
 	return nil
 }
 
@@ -201,13 +211,12 @@ func (c *Client) sendBatchHTTP(ctx context.Context, op *requestOp, msgs []*jsonr
 		return err
 	}
 	defer respBody.Close()
-	var respmsgs []jsonrpcMessage
+
+	var respmsgs []*jsonrpcMessage
 	if err := json.NewDecoder(respBody).Decode(&respmsgs); err != nil {
 		return err
 	}
-	for i := 0; i < len(respmsgs); i++ {
-		op.resp <- &respmsgs[i]
-	}
+	op.resp <- respmsgs
 	return nil
 }
 
@@ -288,7 +297,42 @@ func newDecodeCompression(decoding string, rc io.ReadCloser) (io.ReadCloser, err
 func newHTTPServerConn(r *http.Request, w http.ResponseWriter) ServerCodec {
 	body := io.LimitReader(r.Body, maxRequestContentLength)
 	conn := &httpServerConn{Reader: body, Writer: w, r: r}
-	return NewCodec(conn)
+
+	encoder := func(v any, isErrorResponse bool) error {
+		if !isErrorResponse {
+			return json.NewEncoder(conn).Encode(v)
+		}
+
+		// It's an error response and requires special treatment.
+		//
+		// In case of a timeout error, the response must be written before the HTTP
+		// server's write timeout occurs. So we need to flush the response. The
+		// Content-Length header also needs to be set to ensure the client knows
+		// when it has the full response.
+		encdata, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		w.Header().Set("content-length", strconv.Itoa(len(encdata)))
+
+		// If this request is wrapped in a handler that might remove Content-Length (such
+		// as the automatic gzip we do in package node), we need to ensure the HTTP server
+		// doesn't perform chunked encoding. In case WriteTimeout is reached, the chunked
+		// encoding might not be finished correctly, and some clients do not like it when
+		// the final chunk is missing.
+		w.Header().Set("transfer-encoding", "identity")
+
+		_, err = w.Write(encdata)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		return err
+	}
+
+	dec := json.NewDecoder(conn)
+	dec.UseNumber()
+
+	return NewFuncCodec(conn, encoder, dec.Decode)
 }
 
 // Close does nothing and always returns nil.
@@ -313,20 +357,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), code)
 		return
 	}
+
+	// Create request-scoped context.
+	connInfo := PeerInfo{Transport: "http", RemoteAddr: r.RemoteAddr}
+	connInfo.HTTP.Version = r.Proto
+	connInfo.HTTP.Host = r.Host
+	connInfo.HTTP.Origin = r.Header.Get("Origin")
+	connInfo.HTTP.UserAgent = r.Header.Get("User-Agent")
+	ctx := r.Context()
+	ctx = context.WithValue(ctx, peerInfoContextKey{}, connInfo)
+
 	// All checks passed, create a codec that reads directly from the request body
 	// until EOF, writes the response to w, and orders the server to process a
 	// single request.
-	ctx := r.Context()
-	ctx = context.WithValue(ctx, "remote", r.RemoteAddr)
-	ctx = context.WithValue(ctx, "scheme", r.Proto)
-	ctx = context.WithValue(ctx, "local", r.Host)
-	if ua := r.Header.Get("User-Agent"); ua != "" {
-		ctx = context.WithValue(ctx, "User-Agent", ua)
-	}
-	if origin := r.Header.Get("Origin"); origin != "" {
-		ctx = context.WithValue(ctx, "Origin", origin)
-	}
-
 	w.Header().Set("content-type", contentType)
 	codec := newHTTPServerConn(r, w)
 	defer codec.close()
@@ -358,4 +401,36 @@ func validateRequest(r *http.Request) (int, error) {
 	// Invalid content-type
 	err := fmt.Errorf("invalid content type, only %s is supported", contentType)
 	return http.StatusUnsupportedMediaType, err
+}
+
+// ContextRequestTimeout returns the request timeout derived from the given context.
+func ContextRequestTimeout(ctx context.Context) (time.Duration, bool) {
+	timeout := time.Duration(math.MaxInt64)
+	hasTimeout := false
+	setTimeout := func(d time.Duration) {
+		if d < timeout {
+			timeout = d
+			hasTimeout = true
+		}
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		setTimeout(time.Until(deadline))
+	}
+
+	// If the context is an HTTP request context, use the server's WriteTimeout.
+	httpSrv, ok := ctx.Value(http.ServerContextKey).(*http.Server)
+	if ok && httpSrv.WriteTimeout > 0 {
+		wt := httpSrv.WriteTimeout
+		// When a write timeout is configured, we need to send the response message before
+		// the HTTP server cuts connection. So our internal timeout must be earlier than
+		// the server's true timeout.
+		//
+		// Note: Timeouts are sanitized to be a minimum of 1 second.
+		// Also see issue: https://github.com/golang/go/issues/47229
+		wt -= 100 * time.Millisecond
+		setTimeout(wt)
+	}
+
+	return timeout, hasTimeout
 }

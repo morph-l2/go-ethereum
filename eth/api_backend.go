@@ -185,17 +185,8 @@ func (b *EthAPIBackend) GetReceipts(ctx context.Context, hash common.Hash) (type
 	return b.eth.blockchain.GetReceiptsByHash(hash), nil
 }
 
-func (b *EthAPIBackend) GetLogs(ctx context.Context, hash common.Hash) ([][]*types.Log, error) {
-	db := b.eth.ChainDb()
-	number := rawdb.ReadHeaderNumber(db, hash)
-	if number == nil {
-		return nil, errors.New("failed to get block number from hash")
-	}
-	logs := rawdb.ReadLogs(db, hash, *number, b.eth.blockchain.Config())
-	if logs == nil {
-		return nil, errors.New("failed to get logs for block")
-	}
-	return logs, nil
+func (b *EthAPIBackend) GetLogs(ctx context.Context, hash common.Hash, number uint64) ([][]*types.Log, error) {
+	return rawdb.ReadLogs(b.eth.chainDb, hash, number, b.ChainConfig()), nil
 }
 
 func (b *EthAPIBackend) GetTd(ctx context.Context, hash common.Hash) *big.Int {
@@ -358,9 +349,9 @@ func (b *EthAPIBackend) StartMining(threads int) error {
 }
 
 func (b *EthAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive, preferDisk bool) (*state.StateDB, error) {
-	return b.eth.stateAtBlock(block, reexec, base, checkLive, preferDisk)
+	return b.eth.stateAtBlock(ctx, block, reexec, base, checkLive, preferDisk)
 }
 
 func (b *EthAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
-	return b.eth.stateAtTransaction(block, txIndex, reexec)
+	return b.eth.stateAtTransaction(ctx, block, txIndex, reexec)
 }

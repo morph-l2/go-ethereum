@@ -83,6 +83,7 @@ var Defaults = Config{
 	TrieDirtyCache:          256,
 	TrieTimeout:             60 * time.Minute,
 	SnapshotCache:           102,
+	FilterLogCacheSize:      32,
 	Miner: miner.Config{
 		GasCeil:         8000000,
 		GasPrice:        big.NewInt(params.GWei),
@@ -118,7 +119,7 @@ func init() {
 	}
 }
 
-//go:generate gencodec -type Config -formats toml -out gen_config.go
+//go:generate go run github.com/fjl/gencodec -type Config -formats toml -out gen_config.go
 
 // Config contains configuration options for of the ETH and LES protocols.
 type Config struct {
@@ -170,6 +171,9 @@ type Config struct {
 	TrieTimeout             time.Duration
 	SnapshotCache           int
 	Preimages               bool
+
+	// This is the number of blocks for which logs will be cached in the filter system.
+	FilterLogCacheSize int
 
 	// Mining options
 	Miner miner.Config

@@ -338,9 +338,9 @@ func (s *Ethereum) APIs() []rpc.API {
 			Service:   s.netRPCService,
 			Public:    true,
 		}, {
-			Namespace: "scroll",
+			Namespace: "morph",
 			Version:   "1.0",
-			Service:   NewScrollAPI(s),
+			Service:   NewMorphAPI(s),
 			Public:    false,
 		},
 	}...)

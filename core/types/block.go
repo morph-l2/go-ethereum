@@ -95,7 +95,7 @@ type Header struct {
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
-	// Included for Ethereum compatibility in Scroll SDK
+	// Included for Ethereum compatibility in Morph SDK
 	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`
 }
 

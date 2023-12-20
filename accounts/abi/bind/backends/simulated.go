@@ -181,6 +181,8 @@ func NewSimulatedBackendWithOpts(opts ...SimulatedBackendOpt) *SimulatedBackend 
 		config:     config.genesis.Config,
 		consensus:  config.consensus,
 	}
+	filterBackend := &filterBackend{config.database, blockchain, backend}
+	backend.filterSystem = filters.NewFilterSystem(filterBackend, filters.Config{})
 	backend.events = filters.NewEventSystem(backend.filterSystem, false)
 
 	backend.rollback(blockchain.CurrentBlock())

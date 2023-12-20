@@ -637,7 +637,7 @@ func (api *MorphAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullTx
 		return nil, err
 	}
 	fields["withdrawTrieRoot"] = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB)
-	fields["batchHash"] = b.BaseFee()
+	fields["batchHash"] = b.BatchHash()
 	fields["startL1QueueIndex"] = hexutil.Uint64(parent.NextL1MsgIndex)
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))
 	rc := rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), b.Hash())
@@ -645,9 +645,6 @@ func (api *MorphAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullTx
 		fields["rowConsumption"] = rc
 	} else {
 		fields["rowConsumption"] = nil
-	}
-	if b.BatchHash() != nil {
-		fields["batchHash"] = *b.BatchHash()
 	}
 	return fields, err
 }

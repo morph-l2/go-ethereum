@@ -350,12 +350,16 @@ func (api *l2ConsensusAPI) AppendBatchSignature(batchHash common.Hash, signature
 }
 
 func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, error) {
+	var batchHash common.Hash
+	if params.BatchHash != nil {
+		batchHash = *params.BatchHash
+	}
 	header := &types.Header{
 		Number:    big.NewInt(int64(params.Number)),
 		GasLimit:  params.GasLimit,
 		Time:      params.Timestamp,
 		BaseFee:   params.BaseFee,
-		BatchHash: params.BatchHash,
+		BatchHash: batchHash,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
 	txs, err := decodeTransactions(params.Transactions)
@@ -367,6 +371,10 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, err
 }
 
 func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, batchHash *common.Hash) (*types.Block, error) {
+	var bh common.Hash
+	if batchHash != nil {
+		bh = *batchHash
+	}
 	header := &types.Header{
 		ParentHash:     params.ParentHash,
 		Number:         big.NewInt(int64(params.Number)),
@@ -376,7 +384,7 @@ func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, batchH
 		Coinbase:       params.Miner,
 		BaseFee:        params.BaseFee,
 		NextL1MsgIndex: params.NextL1MessageIndex,
-		BatchHash:      batchHash,
+		BatchHash:      bh,
 	}
 	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
 

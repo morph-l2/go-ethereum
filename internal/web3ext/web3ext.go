@@ -856,46 +856,46 @@ web3._extend({
 	methods: [
 		new web3._extend.Method({
 			name: 'getBlockTraceByNumber',
-			call: 'scroll_getBlockTraceByNumberOrHash',
+			call: 'morph_getBlockTraceByNumberOrHash',
 			params: 1,
 			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'getBlockTraceByHash',
-			call: 'scroll_getBlockTraceByNumberOrHash',
+			call: 'morph_getBlockTraceByNumberOrHash',
 			params: 1
 		}),
 		new web3._extend.Method({
 			name: 'getTxBlockTraceOnTopOfBlock',
-			call: 'scroll_getTxBlockTraceOnTopOfBlock',
+			call: 'morph_getTxBlockTraceOnTopOfBlock',
 			params: 3,
 			inputFormatter: [web3._extend.formatters.inputTransactionFormatter, null, null]
 		}),
 		new web3._extend.Method({
 			name: 'getBlockByHash',
-			call: 'scroll_getBlockByHash',
+			call: 'morph_getBlockByHash',
 			params: 2,
 			inputFormatter: [null, function (val) { return !!val; }]
 		}),
 		new web3._extend.Method({
 			name: 'getBlockByNumber',
-			call: 'scroll_getBlockByNumber',
+			call: 'morph_getBlockByNumber',
 			params: 2,
 			inputFormatter: [null, function (val) { return !!val; }]
 		}),
 		new web3._extend.Method({
 			name: 'getSkippedTransaction',
-			call: 'scroll_getSkippedTransaction',
+			call: 'morph_getSkippedTransaction',
 			params: 1
 		}),
 		new web3._extend.Method({
 			name: 'getSkippedTransactionHashes',
-			call: 'scroll_getSkippedTransactionHashes',
+			call: 'morph_getSkippedTransactionHashes',
 			params: 2
 		}),
 		new web3._extend.Method({
 			name: 'estimateL1DataFee',
-			call: 'scroll_estimateL1DataFee',
+			call: 'morph_estimateL1DataFee',
 			params: 2,
 			inputFormatter: [web3._extend.formatters.inputCallFormatter, web3._extend.formatters.inputBlockNumberFormatter],
 			outputFormatter: web3._extend.utils.toDecimal
@@ -905,19 +905,19 @@ web3._extend({
 	[
 		new web3._extend.Property({
 			name: 'l1SyncHeight',
-			getter: 'scroll_getL1SyncHeight'
+			getter: 'morph_getL1SyncHeight'
 		}),
 		new web3._extend.Property({
 			name: 'latestRelayedQueueIndex',
-			getter: 'scroll_getLatestRelayedQueueIndex'
+			getter: 'morph_getLatestRelayedQueueIndex'
 		}),
 		new web3._extend.Property({
 			name: 'numSkippedTransactions',
-			getter: 'scroll_getNumSkippedTransactions'
+			getter: 'morph_getNumSkippedTransactions'
 		}),
 		new web3._extend.Property({
 			name: 'syncStatus',
-			getter: 'scroll_syncStatus',
+			getter: 'morph_syncStatus',
 		}),
 	]
 });

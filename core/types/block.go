@@ -89,13 +89,13 @@ type Header struct {
 	NextL1MsgIndex uint64 `json:"nextL1MsgIndex" rlp:"optional"`
 
 	// BatchHash is not zero if it is a batch point
-	BatchHash *common.Hash `json:"batchHash" rlp:"optional"`
+	BatchHash common.Hash `json:"batchHash" rlp:"optional"`
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
-	// Included for Ethereum compatibility in Scroll SDK
+	// Included for Ethereum compatibility in Morph SDK
 	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`
 }
 
@@ -354,7 +354,7 @@ func (b *Block) TxHash() common.Hash      { return b.header.TxHash }
 func (b *Block) ReceiptHash() common.Hash { return b.header.ReceiptHash }
 func (b *Block) UncleHash() common.Hash   { return b.header.UncleHash }
 func (b *Block) Extra() []byte            { return common.CopyBytes(b.header.Extra) }
-func (b *Block) BatchHash() *common.Hash {
+func (b *Block) BatchHash() common.Hash {
 	return b.header.BatchHash
 }
 

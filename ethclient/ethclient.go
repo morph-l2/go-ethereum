@@ -320,13 +320,13 @@ func (ec *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header)
 // GetBlockTraceByHash returns the BlockTrace given the block hash.
 func (ec *Client) GetBlockTraceByHash(ctx context.Context, blockHash common.Hash) (*types.BlockTrace, error) {
 	blockTrace := &types.BlockTrace{}
-	return blockTrace, ec.c.CallContext(ctx, &blockTrace, "scroll_getBlockTraceByNumberOrHash", blockHash)
+	return blockTrace, ec.c.CallContext(ctx, &blockTrace, "morph_getBlockTraceByNumberOrHash", blockHash)
 }
 
 // GetBlockTraceByNumber returns the BlockTrace given the block number.
 func (ec *Client) GetBlockTraceByNumber(ctx context.Context, number *big.Int) (*types.BlockTrace, error) {
 	blockTrace := &types.BlockTrace{}
-	return blockTrace, ec.c.CallContext(ctx, &blockTrace, "scroll_getBlockTraceByNumberOrHash", toBlockNumArg(number))
+	return blockTrace, ec.c.CallContext(ctx, &blockTrace, "morph_getBlockTraceByNumberOrHash", toBlockNumArg(number))
 }
 
 type rpcRowConsumption struct {
@@ -354,10 +354,10 @@ func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	var raw json.RawMessage
 	var err error
 	if number, ok := blockNrOrHash.Number(); ok {
-		err = ec.c.CallContext(ctx, &raw, "scroll_getBlockByNumber", number, true)
+		err = ec.c.CallContext(ctx, &raw, "morph_getBlockByNumber", number, true)
 	}
 	if hash, ok := blockNrOrHash.Hash(); ok {
-		err = ec.c.CallContext(ctx, &raw, "scroll_getBlockByHash", hash, true)
+		err = ec.c.CallContext(ctx, &raw, "morph_getBlockByHash", hash, true)
 	}
 	if err != nil {
 		return nil, err
@@ -456,7 +456,7 @@ func (ec *Client) SubscribeNewBlockTrace(ctx context.Context, ch chan<- *types.B
 // GetRollupBatchByIndex query the batch to be rollup by batchIndex
 func (ec *Client) GetRollupBatchByIndex(ctx context.Context, batchIndex uint64) (*eth.RPCRollupBatch, error) {
 	rpcRollupBatch := new(eth.RPCRollupBatch)
-	err := ec.c.CallContext(ctx, rpcRollupBatch, "scroll_getRollupBatchByIndex", batchIndex)
+	err := ec.c.CallContext(ctx, rpcRollupBatch, "morph_getRollupBatchByIndex", batchIndex)
 	return rpcRollupBatch, err
 }
 

@@ -173,14 +173,18 @@ func NewSimulatedBackendWithOpts(opts ...SimulatedBackendOpt) *SimulatedBackend 
 	}
 
 	config.genesis.MustCommit(config.database)
-	blockchain, _ := core.NewBlockChain(config.database, config.cacheConfig, config.genesis.Config, config.consensus, config.vmConfig, nil, nil, false)
-
+	blockchain, err := core.NewBlockChain(config.database, config.cacheConfig, config.genesis.Config, config.consensus, config.vmConfig, nil, nil, false)
+	if err != nil {
+		panic(err)
+	}
 	backend := &SimulatedBackend{
 		database:   config.database,
 		blockchain: blockchain,
 		config:     config.genesis.Config,
 		consensus:  config.consensus,
 	}
+	filterBackend := &filterBackend{config.database, blockchain, backend}
+	backend.filterSystem = filters.NewFilterSystem(filterBackend, filters.Config{})
 	backend.events = filters.NewEventSystem(backend.filterSystem, false)
 
 	backend.rollback(blockchain.CurrentBlock())

@@ -611,19 +611,19 @@ func (api *PrivateDebugAPI) GetAccessibleState(from, to rpc.BlockNumber) (uint64
 	return 0, fmt.Errorf("No state found")
 }
 
-// ScrollAPI provides private RPC methods to query the L1 message database.
-type ScrollAPI struct {
+// MorphAPI provides private RPC methods to query the L1 message database.
+type MorphAPI struct {
 	eth *Ethereum
 }
 
-// NewScrollAPI creates a new RPC service to query the L1 message database.
-func NewScrollAPI(eth *Ethereum) *ScrollAPI {
-	return &ScrollAPI{eth: eth}
+// NewMorphAPI creates a new RPC service to query the L1 message database.
+func NewMorphAPI(eth *Ethereum) *MorphAPI {
+	return &MorphAPI{eth: eth}
 }
 
 // rpcMarshalBlock uses the generalized output filler, then adds the total difficulty field, which requires
-// a `ScrollAPI`.
-func (api *ScrollAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullTx bool) (map[string]interface{}, error) {
+// a `MorphAPI`.
+func (api *MorphAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullTx bool) (map[string]interface{}, error) {
 	fields, err := ethapi.RPCMarshalBlock(b, true, fullTx, api.eth.APIBackend.ChainConfig())
 	if err != nil {
 		return nil, err
@@ -637,7 +637,7 @@ func (api *ScrollAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullT
 		return nil, err
 	}
 	fields["withdrawTrieRoot"] = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB)
-	fields["batchHash"] = b.BaseFee()
+	fields["batchHash"] = b.BatchHash()
 	fields["startL1QueueIndex"] = hexutil.Uint64(parent.NextL1MsgIndex)
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))
 	rc := rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), b.Hash())
@@ -646,15 +646,12 @@ func (api *ScrollAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullT
 	} else {
 		fields["rowConsumption"] = nil
 	}
-	if b.BatchHash() != nil {
-		fields["batchHash"] = *b.BatchHash()
-	}
 	return fields, err
 }
 
 // GetBlockByHash returns the requested block. When fullTx is true all transactions in the block are returned in full
 // detail, otherwise only the transaction hash is returned.
-func (api *ScrollAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (map[string]interface{}, error) {
+func (api *MorphAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (map[string]interface{}, error) {
 	block, err := api.eth.APIBackend.BlockByHash(ctx, hash)
 	if block != nil {
 		return api.rpcMarshalBlock(ctx, block, fullTx)
@@ -664,7 +661,7 @@ func (api *ScrollAPI) GetBlockByHash(ctx context.Context, hash common.Hash, full
 
 // GetBlockByNumber returns the requested block. When fullTx is true all transactions in the block are returned in full
 // detail, otherwise only the transaction hash is returned.
-func (api *ScrollAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
+func (api *MorphAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
 	block, err := api.eth.APIBackend.BlockByNumber(ctx, number)
 	if block != nil {
 		return api.rpcMarshalBlock(ctx, block, fullTx)
@@ -673,13 +670,13 @@ func (api *ScrollAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumb
 }
 
 // GetNumSkippedTransactions returns the number of skipped transactions.
-func (api *ScrollAPI) GetNumSkippedTransactions(ctx context.Context) (uint64, error) {
+func (api *MorphAPI) GetNumSkippedTransactions(ctx context.Context) (uint64, error) {
 	return rawdb.ReadNumSkippedTransactions(api.eth.ChainDb()), nil
 }
 
 // EstimateL1DataFee returns an estimate of the L1 data fee required to
 // process the given transaction against the current pending block.
-func (api *ScrollAPI) EstimateL1DataFee(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+func (api *MorphAPI) EstimateL1DataFee(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -701,12 +698,12 @@ type RPCTransaction struct {
 	SkipBlockNumber *hexutil.Big `json:"skipBlockNumber"`
 	SkipBlockHash   *common.Hash `json:"skipBlockHash,omitempty"`
 
-	// wrapped traces, currently only available for `scroll_getSkippedTransaction` API, when `MinerStoreSkippedTxTracesFlag` is set
+	// wrapped traces, currently only available for `morph_getSkippedTransaction` API, when `MinerStoreSkippedTxTracesFlag` is set
 	Traces *types.BlockTrace `json:"traces,omitempty"`
 }
 
 // GetSkippedTransaction returns a skipped transaction by its hash.
-func (api *ScrollAPI) GetSkippedTransaction(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
+func (api *MorphAPI) GetSkippedTransaction(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
 	stx := rawdb.ReadSkippedTransaction(api.eth.ChainDb(), hash)
 	if stx == nil {
 		return nil, nil
@@ -727,7 +724,7 @@ func (api *ScrollAPI) GetSkippedTransaction(ctx context.Context, hash common.Has
 }
 
 // GetSkippedTransactionHashes returns a list of skipped transaction hashes between the two indices provided (inclusive).
-func (api *ScrollAPI) GetSkippedTransactionHashes(ctx context.Context, from uint64, to uint64) ([]common.Hash, error) {
+func (api *MorphAPI) GetSkippedTransactionHashes(ctx context.Context, from uint64, to uint64) ([]common.Hash, error) {
 	it := rawdb.IterateSkippedTransactionsFrom(api.eth.ChainDb(), from)
 	defer it.Release()
 
@@ -762,7 +759,7 @@ type RPCBatchSignature struct {
 	Signature    hexutil.Bytes `json:"signature"`
 }
 
-func (api *ScrollAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*RPCRollupBatch, error) {
+func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*RPCRollupBatch, error) {
 	rollupBatch := rawdb.ReadRollupBatch(api.eth.ChainDb(), index)
 	if rollupBatch == nil {
 		return nil, nil

@@ -86,6 +86,24 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	rawdb.WriteBlock(blockBatch, block)
 	rawdb.WriteReceipts(blockBatch, block.Hash(), block.NumberU64(), receipts)
 	rawdb.WritePreimages(blockBatch, state.Preimages())
+
+	queueIndex := rawdb.ReadFirstQueueIndexNotInL2Block(bc.db, block.ParentHash())
+	// note: we can insert blocks with header-only ancestors here,
+	// so queueIndex might not yet be available in DB.
+	if queueIndex != nil {
+		numProcessed := uint64(block.NumL1MessagesProcessed(*queueIndex))
+		newIndex := *queueIndex + numProcessed
+		log.Trace(
+			"Blockchain.writeBlockStateWithoutHead WriteFirstQueueIndexNotInL2Block",
+			"number", block.Number(),
+			"hash", block.Hash().String(),
+			"queueIndex", *queueIndex,
+			"numProcessed", numProcessed,
+			"newIndex", newIndex,
+		)
+		rawdb.WriteFirstQueueIndexNotInL2Block(blockBatch, block.Hash(), newIndex)
+	}
+
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
 	}

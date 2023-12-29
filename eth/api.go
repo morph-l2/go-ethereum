@@ -22,8 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
-	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"io"
 	"math/big"
 	"os"
@@ -40,6 +38,8 @@ import (
 	"github.com/scroll-tech/go-ethereum/internal/ethapi"
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/rlp"
+	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
+	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/rpc"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
@@ -628,17 +628,13 @@ func (api *MorphAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullTx
 	if err != nil {
 		return nil, err
 	}
-	parent, err := api.eth.APIBackend.HeaderByHash(ctx, b.ParentHash())
-	if err != nil {
-		return nil, err
-	}
 	stateDB, err := api.eth.BlockChain().StateAt(b.Root())
 	if err != nil {
 		return nil, err
 	}
 	fields["withdrawTrieRoot"] = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, stateDB)
 	fields["batchHash"] = b.BatchHash()
-	fields["startL1QueueIndex"] = hexutil.Uint64(parent.NextL1MsgIndex)
+	fields["nextL1MsgIndex"] = hexutil.Uint64(b.Header().NextL1MsgIndex)
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))
 	rc := rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), b.Hash())
 	if rc != nil {

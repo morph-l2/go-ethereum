@@ -107,6 +107,9 @@ var (
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)
 
+	// L1 message store
+	firstQueueIndexNotInL2BlockPrefix = []byte("q") // firstQueueIndexNotInL2BlockPrefix + L2 block hash -> enqueue index
+
 	// Row consumption
 	rowConsumptionPrefix = []byte("rc") // rowConsumptionPrefix + hash -> row consumption by block
 
@@ -262,6 +265,11 @@ func encodeBigEndian(index uint64) []byte {
 	enc := make([]byte, 8)
 	binary.BigEndian.PutUint64(enc, index)
 	return enc
+}
+
+// FirstQueueIndexNotInL2BlockKey = firstQueueIndexNotInL2BlockPrefix + L2 block hash
+func FirstQueueIndexNotInL2BlockKey(l2BlockHash common.Hash) []byte {
+	return append(firstQueueIndexNotInL2BlockPrefix, l2BlockHash.Bytes()...)
 }
 
 // rowConsumptionKey = rowConsumptionPrefix + hash

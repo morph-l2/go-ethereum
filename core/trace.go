@@ -10,6 +10,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/consensus"
+	"github.com/scroll-tech/go-ethereum/core/rawdb"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/core/vm"
@@ -101,6 +102,11 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext ChainContext, 
 
 	// Collect start queue index, we should always have this value for blocks
 	// that have been executed.
+	startL1QueueIndex := rawdb.ReadFirstQueueIndexNotInL2Block(chaindb, parent.Hash())
+	if startL1QueueIndex == nil {
+		log.Error("missing FirstQueueIndexNotInL2Block for block during trace call", "number", parent.NumberU64(), "hash", parent.Hash())
+		return nil, fmt.Errorf("missing FirstQueueIndexNotInL2Block for block during trace call: hash=%v, parentHash=%vv", block.Hash(), parent.Hash())
+	}
 	env := CreateTraceEnvHelper(
 		chainConfig,
 		&vm.LogConfig{
@@ -109,7 +115,7 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext ChainContext, 
 			EnableReturnData: true,
 		},
 		NewEVMBlockContext(block.Header(), chainContext, chainConfig, nil),
-		parent.Header().NextL1MsgIndex,
+		*startL1QueueIndex,
 		coinbase,
 		statedb,
 		parent.Root(),

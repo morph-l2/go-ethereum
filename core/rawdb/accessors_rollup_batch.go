@@ -12,7 +12,7 @@ import (
 )
 
 func WriteRollupBatch(db ethdb.KeyValueWriter, batch types.RollupBatch) {
-	bz, err := rlp.EncodeToBytes(&batch)
+	bz, err := batch.Encode()
 	if err != nil {
 		log.Crit("failed to RLP encode batch", "batch index", batch.Index, "err", err)
 	}
@@ -49,7 +49,7 @@ func ReadRollupBatch(db ethdb.Reader, batchIndex uint64) *types.RollupBatch {
 	}
 
 	rb := new(types.RollupBatch)
-	if err = rlp.Decode(bytes.NewReader(data), rb); err != nil {
+	if err = rb.Decode(data); err != nil {
 		log.Crit("Invalid RollupBatch RLP", "batch index", batchIndex, "data", data, "err", err)
 	}
 	return rb

@@ -786,6 +786,7 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 
 	return &RPCRollupBatch{
 		Version:                rollupBatch.Version,
+		Hash:                   rollupBatch.Hash,
 		ParentBatchHeader:      rollupBatch.ParentBatchHeader,
 		Chunks:                 hexChunks,
 		SkippedL1MessageBitmap: rollupBatch.SkippedL1MessageBitmap,

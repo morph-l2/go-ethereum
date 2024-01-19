@@ -249,6 +249,11 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []type
 	defer func() {
 		if err == nil {
 			api.verified = make(map[common.Hash]executionResult) // clear cached pending block
+			if len(params.RowUsages) > 0 {
+				if rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), block.Hash()) == nil {
+					rawdb.WriteBlockRowConsumption(api.eth.ChainDb(), block.Hash(), &params.RowUsages)
+				}
+			}
 		}
 	}()
 
@@ -288,12 +293,6 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []type
 		}
 		bh := block.Hash()
 		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), types.NewTx(&l1Message), nil, "", block.NumberU64(), &bh)
-	}
-
-	if len(params.RowUsages) > 0 {
-		if rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), block.Hash()) == nil {
-			rawdb.WriteBlockRowConsumption(api.eth.ChainDb(), block.Hash(), &params.RowUsages)
-		}
 	}
 
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)

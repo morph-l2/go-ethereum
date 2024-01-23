@@ -21,6 +21,7 @@ import (
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/types"
+	"github.com/scroll-tech/go-ethereum/log"
 )
 
 const (
@@ -88,16 +89,18 @@ func (p *Peer) broadcastTransactions() {
 			}
 			queue = queue[:copy(queue, queue[hashesCount:])]
 
+			log.Info("[testnet]broadcastTransactions about to send tx", "txs size", len(txs))
 			// If there's anything available to transfer, fire up an async writer
 			if len(txs) > 0 {
 				done = make(chan struct{})
 				go func() {
 					if err := p.SendTransactions(txs); err != nil {
+						log.Error("[testnet]p.SendTransactions error", "err", err)
 						fail <- err
 						return
 					}
 					close(done)
-					p.Log().Trace("Sent transactions", "count", len(txs))
+					p.Log().Info("Sent transactions", "count", len(txs))
 				}()
 			}
 		}
@@ -113,6 +116,9 @@ func (p *Peer) broadcastTransactions() {
 			if len(queue) > maxQueuedTxs {
 				// Fancy copy and resize to ensure buffer doesn't grow indefinitely
 				queue = queue[:copy(queue, queue[len(queue)-maxQueuedTxs:])]
+			}
+			for _, hash := range hashes {
+				log.Info("[testnet]tx hash is added to queue", "hash", hash.String())
 			}
 
 		case <-done:

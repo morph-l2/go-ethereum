@@ -411,6 +411,7 @@ func answerGetPooledTransactions(backend Backend, query GetPooledTransactionsPac
 }
 
 func handleTransactions(backend Backend, msg Decoder, peer *Peer) error {
+	log.Info("[testnet]handleTransactions received p2p tx", "backend.AcceptTxs()", backend.AcceptTxs)
 	// Transactions arrived, make sure we have a valid and fresh chain to handle them
 	if !backend.AcceptTxs() {
 		return nil
@@ -420,6 +421,7 @@ func handleTransactions(backend Backend, msg Decoder, peer *Peer) error {
 	if err := msg.Decode(&txs); err != nil {
 		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
 	}
+	log.Info("[testnet]handleTransactions received p2p tx", "txHash", txs[0].Hash(), "peer", peer.String())
 	for i, tx := range txs {
 		// Validate and mark the remote transaction
 		if tx == nil {

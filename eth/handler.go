@@ -478,6 +478,7 @@ func (h *handler) Start(maxPeers int) {
 	h.wg.Add(1)
 	h.txsCh = make(chan core.NewTxsEvent, txChanSize)
 	h.txsSub = h.txpool.SubscribeNewTxsEvent(h.txsCh)
+	log.Info("[testnet]handler h.txpool.SubscribeNewTxsEvent done")
 	go h.txBroadcastLoop()
 
 	// broadcast mined blocks
@@ -558,6 +559,7 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		annos = make(map[*ethPeer][]common.Hash) // Set peer->hash to announce
 
 	)
+	log.Info("[testnet]handler received transactions for broadcasting", "txs size", len(txs))
 	// Broadcast transactions to a batch of peers not knowing about it
 	for _, tx := range txs {
 		// L1 messages are not broadcast to peers
@@ -569,11 +571,15 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		numDirect := int(math.Sqrt(float64(len(peers))))
 		for _, peer := range peers[:numDirect] {
 			txset[peer] = append(txset[peer], tx.Hash())
+			log.Info("[testnet]handler txset", "peer", peer.String(), "txHash", tx.Hash().String())
 		}
 		// For the remaining peers, send announcement only
 		for _, peer := range peers[numDirect:] {
 			annos[peer] = append(annos[peer], tx.Hash())
+			log.Info("[testnet]handler annos", "peer", peer.String(), "txHash", tx.Hash().String())
 		}
+		log.Info("[testnet]handler peersWithoutTransaction", "tx hash", tx.Hash().String(), "peer num", len(peers),
+			"txset num", len(txset), "annos num", len(annos))
 	}
 	for peer, hashes := range txset {
 		directPeers++
@@ -585,7 +591,7 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		annoCount += len(hashes)
 		peer.AsyncSendPooledTransactionHashes(hashes)
 	}
-	log.Debug("Transaction broadcast", "txs", len(txs),
+	log.Info("Transaction broadcast", "txs", len(txs),
 		"announce packs", annoPeers, "announced hashes", annoCount,
 		"tx packs", directPeers, "broadcast txs", directCount)
 }

@@ -114,12 +114,13 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		NextL1MessageIndex: block.Header().NextL1MsgIndex,
 		WithdrawTrieRoot:   withdrawTrieRoot,
 		RowUsages:          resRc,
+		SkippedTxs:         skippedTxs,
 
 		Hash: block.Hash(),
 	}, nil
 }
 
-func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages []types.L1MessageTx) (*GenericResponse, error) {
+func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericResponse, error) {
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
 	if params.Number != expectedBlockNumber {
@@ -158,35 +159,14 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 		}, nil
 	}
 
-	// get the skipped L1Message queue indexes, and check whether the nextL1MessageIndex is valid.
-	skippedL1Indexes, err := extractSkippedQueueIndexes(block, parent.Header().NextL1MsgIndex)
-	if err != nil {
-		log.Error("failed to acquire skipped L1 messages", "error", err)
-		return &GenericResponse{
-			false,
-		}, nil
-	}
-
 	// check whether the skipped transactions should be skipped.
 	var skippedTransactions []*types.SkippedTransaction
-	if len(skippedL1Indexes) > 0 {
-		l1MsgMap := make(map[uint64]types.L1MessageTx)
-		for _, l1Message := range l1Messages {
-			l1MsgMap[l1Message.QueueIndex] = l1Message
+	if len(params.SkippedTxs) > 0 {
+		l1Transactions := make(types.Transactions, len(params.SkippedTxs))
+		for i, st := range params.SkippedTxs {
+			l1Transactions[i] = &st.Tx
 		}
-
-		skippedL1MessageTxs := make(types.Transactions, len(skippedL1Indexes))
-		for i, skippedL1Index := range skippedL1Indexes {
-			l1Message, ok := l1MsgMap[skippedL1Index]
-			if !ok {
-				log.Error("no l1message found from parameter", "queue index", skippedL1Index)
-				return &GenericResponse{
-					false,
-				}, nil
-			}
-			skippedL1MessageTxs[i] = types.NewTx(&l1Message)
-		}
-		involvedTxs, realSkipped, err := api.eth.Miner().SimulateL1Messages(params.ParentHash, skippedL1MessageTxs)
+		involvedTxs, realSkipped, err := api.eth.Miner().SimulateL1Messages(params.ParentHash, l1Transactions)
 		if err != nil {
 			log.Error("failed to simulate L1Messages", "error", err)
 			return &GenericResponse{
@@ -222,7 +202,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data, l1Messages [
 	}, nil
 }
 
-func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []types.L1MessageTx, batchHash *common.Hash) (err error) {
+func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common.Hash) (err error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
@@ -272,22 +252,9 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, l1Messages []type
 		return err
 	}
 
-	skippedQueueIndexes, err := extractSkippedQueueIndexes(block, parent.Header().NextL1MsgIndex)
-	if err != nil {
-		return err
-	}
-	l1MsgMap := make(map[uint64]types.L1MessageTx)
-	for _, l1Message := range l1Messages {
-		l1MsgMap[l1Message.QueueIndex] = l1Message
-	}
-	for _, queueIndex := range skippedQueueIndexes {
-		l1Message, ok := l1MsgMap[queueIndex]
-		if !ok {
-			log.Error("no l1message found from parameter", "queue index", queueIndex)
-			return errors.New("unexpected l1Messages")
-		}
-		bh := block.Hash()
-		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), types.NewTx(&l1Message), nil, "", block.NumberU64(), &bh)
+	bh := block.Hash()
+	for _, skippedL1Tx := range params.SkippedTxs {
+		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), &skippedL1Tx.Tx, skippedL1Tx.Trace, skippedL1Tx.Reason, block.NumberU64(), &bh)
 	}
 
 	if len(params.RowUsages) > 0 {

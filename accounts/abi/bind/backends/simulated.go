@@ -83,7 +83,7 @@ type SimulatedBackend struct {
 func NewSimulatedBackendWithDatabase(database ethdb.Database, alloc core.GenesisAlloc, gasLimit uint64) *SimulatedBackend {
 	genesis := core.Genesis{Config: params.AllEthashProtocolChanges, GasLimit: gasLimit, Alloc: alloc}
 	genesis.MustCommit(database)
-	blockchain, _ := core.NewBlockChain(database, nil, genesis.Config, ethash.NewFaker(), vm.Config{}, nil, nil, false)
+	blockchain, _ := core.NewBlockChain(database, nil, genesis.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
 
 	backend := &SimulatedBackend{
 		database:   database,
@@ -173,7 +173,7 @@ func NewSimulatedBackendWithOpts(opts ...SimulatedBackendOpt) *SimulatedBackend 
 	}
 
 	config.genesis.MustCommit(config.database)
-	blockchain, err := core.NewBlockChain(config.database, config.cacheConfig, config.genesis.Config, config.consensus, config.vmConfig, nil, nil, false)
+	blockchain, err := core.NewBlockChain(config.database, config.cacheConfig, config.genesis.Config, config.consensus, config.vmConfig, nil, nil)
 	if err != nil {
 		panic(err)
 	}

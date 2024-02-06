@@ -71,12 +71,12 @@ testnet-down:
 
 testnet-clean:
 	docker-compose -f testnet/docker-compose.yml down
-	docker images -q morphism_geth:latest | xargs -r docker rmi
+	docker images -q morph_geth:latest | xargs -r docker rmi
 	docker volume ls --filter "name=morph_data*" -q | xargs -r docker volume rm
 .PHONY: testnet-clean
 
 image:
-	docker build -f Dockerfile -t morphism-geth:latest .
+	docker build -f Dockerfile -t morph-geth:latest .
 
 docker:
 	docker build --platform linux/x86_64 -t scrolltech/l2geth:latest ./ -f Dockerfile
@@ -85,11 +85,11 @@ mockccc_docker:
 	docker build --platform linux/x86_64 -t scrolltech/l2geth:latest ./ -f Dockerfile.mockccc
 
 mockccc_alpine_docker:
-	docker build -t morphism/l2geth:latest ./ -f Dockerfile.mockccc.alpine
+	docker build -t morph/l2geth:latest ./ -f Dockerfile.mockccc.alpine
 
 base_image:
-	docker build -t morphism/go-rust-builder:go-1.19-rust-nightly-2022-12-10 ./ -f go-rust-builder.Dockerfile
+	docker build -t morph/go-rust-builder:go-1.19-rust-nightly-2022-12-10 ./ -f go-rust-builder.Dockerfile
 
 morph_docker:
-	docker build -t morphism/l2geth:latest ./ -f Dockerfile.morph
+	docker build -t morph/l2geth:latest ./ -f Dockerfile.morph
 

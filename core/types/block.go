@@ -122,6 +122,8 @@ type headerMarshaling struct {
 	Extra          hexutil.Bytes
 	BaseFee        *hexutil.Big
 	Hash           common.Hash `json:"hash"` // adds call to Hash() in MarshalJSON
+	BlobGasUsed    *hexutil.Uint64
+	ExcessBlobGas  *hexutil.Uint64
 }
 
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
@@ -145,27 +147,33 @@ func (h *Header) Hash() common.Hash {
 		Nonce       BlockNonce
 
 		// BaseFee was added by EIP-1559 and is ignored in legacy headers.
-		BaseFee         *big.Int     `rlp:"optional"`
-		WithdrawalsHash *common.Hash `rlp:"optional"`
+		BaseFee          *big.Int     `rlp:"optional"`
+		WithdrawalsHash  *common.Hash `rlp:"optional"`
+		BlobGasUsed      *uint64      `rlp:"optional"`
+		ExcessBlobGas    *uint64      `rlp:"optional"`
+		ParentBeaconRoot *common.Hash ` rlp:"optional"`
 	}
 	h2 := &headerHashing{
-		ParentHash:      h.ParentHash,
-		UncleHash:       h.UncleHash,
-		Coinbase:        h.Coinbase,
-		Root:            h.Root,
-		TxHash:          h.TxHash,
-		ReceiptHash:     h.ReceiptHash,
-		Bloom:           h.Bloom,
-		Difficulty:      h.Difficulty,
-		Number:          h.Number,
-		GasLimit:        h.GasLimit,
-		GasUsed:         h.GasUsed,
-		Time:            h.Time,
-		Extra:           h.Extra,
-		MixDigest:       h.MixDigest,
-		Nonce:           h.Nonce,
-		BaseFee:         h.BaseFee,
-		WithdrawalsHash: h.WithdrawalsHash,
+		ParentHash:       h.ParentHash,
+		UncleHash:        h.UncleHash,
+		Coinbase:         h.Coinbase,
+		Root:             h.Root,
+		TxHash:           h.TxHash,
+		ReceiptHash:      h.ReceiptHash,
+		Bloom:            h.Bloom,
+		Difficulty:       h.Difficulty,
+		Number:           h.Number,
+		GasLimit:         h.GasLimit,
+		GasUsed:          h.GasUsed,
+		Time:             h.Time,
+		Extra:            h.Extra,
+		MixDigest:        h.MixDigest,
+		Nonce:            h.Nonce,
+		BaseFee:          h.BaseFee,
+		WithdrawalsHash:  h.WithdrawalsHash,
+		BlobGasUsed:      h.BlobGasUsed,
+		ExcessBlobGas:    h.ExcessBlobGas,
+		ParentBeaconRoot: h.ParentBeaconRoot,
 	}
 	return rlpHash(h2)
 }

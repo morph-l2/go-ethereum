@@ -55,6 +55,6 @@ func createEmptyBlobTx(key *ecdsa.PrivateKey, withSidecar bool) *Transaction {
 	if withSidecar {
 		blobtx.Sidecar = sidecar
 	}
-	signer := NewCancunSigner(blobtx.ChainID.ToBig())
+	signer := NewLondonSignerWithEIP4844(blobtx.ChainID.ToBig())
 	return MustSignNewTx(key, signer, blobtx)
 }

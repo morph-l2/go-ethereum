@@ -27,6 +27,7 @@ import (
 	"github.com/fjl/memsize/memsizeui"
 	"github.com/mattn/go-colorable"
 	"github.com/mattn/go-isatty"
+	"gopkg.in/natefinch/lumberjack.v2"
 	"gopkg.in/urfave/cli.v1"
 
 	"github.com/scroll-tech/go-ethereum/log"
@@ -59,6 +60,24 @@ var (
 	debugFlag = cli.BoolFlag{
 		Name:  "log.debug",
 		Usage: "Prepends log messages with call-site location (file and line number)",
+	}
+	logFilenameFlag = cli.StringFlag{
+		Name:  "log.filename",
+		Usage: "The target file for writing logs, backup log files will be retained in the same directory.",
+	}
+	logFileMaxSizeFlag = cli.IntFlag{
+		Name:  "log.maxsize",
+		Usage: "The maximum size in megabytes of the log file before it gets rotated. It defaults to 100 megabytes. It is used only when log.filename is provided.",
+		Value: 100,
+	}
+	logMaxAgeFlag = cli.IntFlag{
+		Name:  "log.maxage",
+		Usage: "The maximum number of days to retain old log files based on the timestamp encoded in their filename. It defaults to 30 days. It is used only when log.filename is provided.",
+		Value: 30,
+	}
+	logCompressFlag = cli.BoolFlag{
+		Name:  "log.compress",
+		Usage: "Compress determines if the rotated log files should be compressed using gzip. The default is not to perform compression. It is used only when log.filename is provided.",
 	}
 	pprofFlag = cli.BoolFlag{
 		Name:  "pprof",
@@ -106,6 +125,10 @@ var Flags = []cli.Flag{
 	logjsonFlag,
 	backtraceAtFlag,
 	debugFlag,
+	logFilenameFlag,
+	logFileMaxSizeFlag,
+	logMaxAgeFlag,
+	logCompressFlag,
 	pprofFlag,
 	pprofAddrFlag,
 	pprofPortFlag,
@@ -143,16 +166,43 @@ func ConfigTrace(ctx *cli.Context) *TraceConfig {
 // It should be called as early as possible in the program.
 func Setup(ctx *cli.Context) error {
 	var ostream log.Handler
+	var format log.Format
 	output := io.Writer(os.Stderr)
 	if ctx.GlobalBool(logjsonFlag.Name) {
-		ostream = log.StreamHandler(output, log.JSONFormat())
+		format = log.JSONFormat()
 	} else {
 		usecolor := (isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())) && os.Getenv("TERM") != "dumb"
 		if usecolor {
 			output = colorable.NewColorableStderr()
 		}
-		ostream = log.StreamHandler(output, log.TerminalFormat(usecolor))
+		format = log.TerminalFormat(usecolor)
 	}
+	if ctx.GlobalIsSet(logFilenameFlag.Name) {
+		logFilename := ctx.GlobalString(logFilenameFlag.Name)
+		f, err := os.OpenFile(logFilename, os.O_CREATE|os.O_RDWR, os.FileMode(0600))
+		if err != nil {
+			return fmt.Errorf("wrong log.filename set: %d", err)
+		}
+		f.Close()
+
+		maxSize := ctx.GlobalInt(logFileMaxSizeFlag.Name)
+		if maxSize < 1 {
+			return fmt.Errorf("wrong log.maxsize set: %d", maxSize)
+		}
+		maxAge := ctx.GlobalInt(logMaxAgeFlag.Name)
+		if maxAge < 1 {
+			return fmt.Errorf("wrong log.maxage set: %d", maxAge)
+		}
+		logFile := &lumberjack.Logger{
+			Filename: logFilename,
+			MaxSize:  maxSize, // megabytes
+			MaxAge:   maxAge,  // days
+			Compress: ctx.GlobalBool(logCompressFlag.Name),
+		}
+		output = io.MultiWriter(output, logFile)
+	}
+
+	ostream = log.StreamHandler(output, format)
 	glogger.SetHandler(ostream)
 
 	// logging

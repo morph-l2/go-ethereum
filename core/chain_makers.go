@@ -18,7 +18,6 @@ package core
 
 import (
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/trie"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -30,6 +29,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/ethdb"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/fees"
+	"github.com/scroll-tech/go-ethereum/trie"
 )
 
 // BlockGen creates blocks for testing.
@@ -177,7 +177,8 @@ func (b *BlockGen) AddUncle(h *types.Header) {
 	// The gas limit and price should be derived from the parent
 	h.GasLimit = parent.GasLimit
 	if b.config.IsLondon(h.Number) {
-		h.BaseFee = misc.CalcBaseFee(b.config, parent)
+		l1BaseFee := fees.GetL1BaseFee(b.statedb)
+		h.BaseFee = misc.CalcBaseFee(b.config, parent, l1BaseFee)
 		if !b.config.IsLondon(parent.Number) {
 			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
 			h.GasLimit = CalcGasLimit(parentGasLimit, parentGasLimit)

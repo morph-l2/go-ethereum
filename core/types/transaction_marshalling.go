@@ -156,13 +156,6 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		yparity := itx.V.Uint64()
 		enc.YParity = (*hexutil.Uint64)(&yparity)
 
-	case *L1MessageTx:
-		enc.QueueIndex = (*hexutil.Uint64)(&itx.QueueIndex)
-		enc.To = tx.To()
-		enc.Gas = (*hexutil.Uint64)(&itx.Gas)
-		enc.Value = (*hexutil.Big)(itx.Value)
-		enc.Input = (*hexutil.Bytes)(&itx.Data)
-		enc.Sender = itx.Sender
 	}
 	return json.Marshal(&enc)
 }

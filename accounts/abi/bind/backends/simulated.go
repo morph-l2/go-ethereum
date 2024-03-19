@@ -943,6 +943,10 @@ func (fb *filterBackend) PendingBlockAndReceipts() (*types.Block, types.Receipts
 	return fb.backend.pendingBlock, fb.backend.pendingReceipts
 }
 
+func (fb *filterBackend) StateAt(root common.Hash) (*state.StateDB, error) {
+	return fb.backend.blockchain.StateAt(root)
+}
+
 func (fb *filterBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
 	number := rawdb.ReadHeaderNumber(fb.db, hash)
 	if number == nil {

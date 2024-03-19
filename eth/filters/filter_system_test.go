@@ -32,6 +32,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core"
 	"github.com/scroll-tech/go-ethereum/core/bloombits"
 	"github.com/scroll-tech/go-ethereum/core/rawdb"
+	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/core/vm"
 	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
@@ -131,6 +132,10 @@ func (b *testBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subsc
 
 func (b *testBackend) BloomStatus() (uint64, uint64) {
 	return params.BloomBitsBlocks, b.sections
+}
+
+func (b *testBackend) StateAt(root common.Hash) (*state.StateDB, error) {
+	return nil, nil
 }
 
 func (b *testBackend) ServiceFilter(ctx context.Context, session *bloombits.MatcherSession) {

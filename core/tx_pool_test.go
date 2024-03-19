@@ -57,7 +57,7 @@ func init() {
 	testTxPoolConfig = DefaultTxPoolConfig
 	testTxPoolConfig.Journal = ""
 
-	cpy0 := *params.TestNoL1feeChainConfig
+	cpy0 := *params.TestNoL1DataFeeChainConfig
 	noL1feeConfig = &cpy0
 
 	cpy1 := *params.TestChainConfig
@@ -65,7 +65,7 @@ func init() {
 	eip1559Config.BerlinBlock = common.Big0
 	eip1559Config.LondonBlock = common.Big0
 
-	cpy2 := *params.TestNoL1feeChainConfig
+	cpy2 := *params.TestNoL1DataFeeChainConfig
 	eip1559NoL1feeConfig = &cpy2
 	eip1559NoL1feeConfig.BerlinBlock = common.Big0
 	eip1559NoL1feeConfig.LondonBlock = common.Big0

@@ -22,8 +22,6 @@ func l2ChainConfig() params.ChainConfig {
 	config := *params.AllEthashProtocolChanges
 	config.Scroll.UseZktrie = true
 	config.TerminalTotalDifficulty = common.Big0
-	config.Scroll.EnableEIP2718 = false
-	config.Scroll.EnableEIP1559 = false
 	addr := common.BigToAddress(big.NewInt(123))
 	config.Scroll.FeeVaultAddress = &addr
 	return config

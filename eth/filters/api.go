@@ -30,6 +30,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/internal/ethapi"
+	"github.com/scroll-tech/go-ethereum/rollup/fees"
 	"github.com/scroll-tech/go-ethereum/rpc"
 )
 
@@ -161,7 +162,12 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 				latest := api.sys.backend.CurrentHeader()
 				for _, tx := range txs {
 					if fullTx != nil && *fullTx {
-						rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig)
+						stateDB, err := api.sys.backend.StateAt(latest.Root)
+						if err != nil {
+							continue
+						}
+						l1BaseFee := fees.GetL1BaseFee(stateDB)
+						rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee)
 						notifier.Notify(rpcSub.ID, rpcTx)
 					} else {
 						notifier.Notify(rpcSub.ID, tx.Hash())
@@ -445,9 +451,14 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 			return returnHashes(hashes), nil
 		case PendingTransactionsSubscription:
 			if f.fullTx {
+				stateDB, err := api.sys.backend.StateAt(latest.Root)
+				if err != nil {
+					return nil, err
+				}
+				l1BaseFee := fees.GetL1BaseFee(stateDB)
 				txs := make([]*ethapi.RPCTransaction, 0, len(f.txs))
 				for _, tx := range f.txs {
-					txs = append(txs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig))
+					txs = append(txs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
 				}
 				f.txs = nil
 				return txs, nil

@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/consensus/misc"
 	"math/big"
 	"strconv"
 
@@ -626,22 +625,6 @@ func (b *Block) BaseFeePerGas(ctx context.Context) (*hexutil.Big, error) {
 		return nil, nil
 	}
 	return (*hexutil.Big)(header.BaseFee), nil
-}
-
-func (b *Block) NextBaseFeePerGas(ctx context.Context) (*hexutil.Big, error) {
-	header, err := b.resolveHeader(ctx)
-	if err != nil {
-		return nil, err
-	}
-	chaincfg := b.r.backend.ChainConfig()
-	if header.BaseFee == nil {
-		// Make sure next block doesn't enable EIP-1559
-		if !chaincfg.IsLondon(new(big.Int).Add(header.Number, common.Big1)) {
-			return nil, nil
-		}
-	}
-	nextBaseFee := misc.CalcBaseFee(chaincfg, header)
-	return (*hexutil.Big)(nextBaseFee), nil
 }
 
 func (b *Block) Parent(ctx context.Context) (*Block, error) {

@@ -30,6 +30,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core"
 	"github.com/scroll-tech/go-ethereum/core/bloombits"
 	"github.com/scroll-tech/go-ethereum/core/rawdb"
+	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/ethdb"
 	"github.com/scroll-tech/go-ethereum/event"
@@ -61,6 +62,7 @@ type Backend interface {
 	GetReceipts(ctx context.Context, blockHash common.Hash) (types.Receipts, error)
 	GetLogs(ctx context.Context, blockHash common.Hash, number uint64) ([][]*types.Log, error)
 	PendingBlockAndReceipts() (*types.Block, types.Receipts)
+	StateAt(root common.Hash) (*state.StateDB, error)
 
 	CurrentHeader() *types.Header
 	ChainConfig() *params.ChainConfig

@@ -1437,6 +1437,13 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		// which could result in higher uncle rate.
 		w.current.discard()
 		return
+	case errors.Is(err, errBlockInterruptedByTimeout):
+		// If the block building takes too much time, stop it, and commit the block directly
+		log.Warn("block building timeout")
+	default:
+		// unknown error found here, log it and stop committing block
+		log.Error("unknown error found", "err", err)
+		return
 	}
 
 	w.commit(uncles, w.fullTaskHook, true, tstart)

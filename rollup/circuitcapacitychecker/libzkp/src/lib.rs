@@ -35,14 +35,16 @@ pub mod checker {
 
     /// # Safety
     #[no_mangle]
-    pub unsafe extern "C" fn init() {
+    pub extern "C" fn init() {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
             .format_timestamp_millis()
             .init();
         let checkers = HashMap::new();
-        CHECKERS
-            .set(checkers)
-            .expect("circuit capacity checker initialized twice");
+        unsafe {
+            CHECKERS
+                .set(checkers)
+                .expect("circuit capacity checker initialized twice");
+        }
     }
 
     /// # Safety
@@ -70,7 +72,7 @@ pub mod checker {
 
     /// # Safety
     #[no_mangle]
-    pub unsafe extern "C" fn apply_tx(id: u64, tx_traces: *const c_char) -> *const c_char {
+    pub extern "C" fn apply_tx(id: u64, tx_traces: *const c_char) -> *const c_char {
         let result = apply_tx_inner(id, tx_traces);
         let r = match result {
             Ok(acc_row_usage) => {
@@ -92,7 +94,7 @@ pub mod checker {
         serde_json::to_vec(&r).map_or(null(), vec_to_c_char)
     }
 
-    unsafe fn apply_tx_inner(id: u64, tx_traces: *const c_char) -> Result<RowUsage, Error> {
+    fn apply_tx_inner(id: u64, tx_traces: *const c_char) -> Result<RowUsage, Error> {
         log::debug!(
             "ccc apply_tx raw input, id: {:?}, tx_traces: {:?}",
             id,
@@ -111,18 +113,21 @@ pub mod checker {
             bail!("traces.tx_storage_trace.len() != 1");
         }
 
-        let r = panic::catch_unwind(|| {
-            CHECKERS
-                .get_mut()
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checkers map in apply_tx"
-                ))?
-                .get_mut(&id)
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checker (id: {id:?}) in apply_tx"
-                ))?
-                .estimate_circuit_capacity(&[traces])
-        });
+        let r = unsafe {
+            panic::catch_unwind(|| {
+                CHECKERS
+                    .get_mut()
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checkers map in apply_tx"
+                    ))?
+                    .get_mut(&id)
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checker (id: {id:?}) in apply_tx"
+                    ))?
+                    .estimate_circuit_capacity(&[traces])
+            })
+        };
+
         match r {
             Ok(result) => result,
             Err(e) => {
@@ -133,7 +138,7 @@ pub mod checker {
 
     /// # Safety
     #[no_mangle]
-    pub unsafe extern "C" fn apply_block(id: u64, block_trace: *const c_char) -> *const c_char {
+    pub extern "C" fn apply_block(id: u64, block_trace: *const c_char) -> *const c_char {
         let result = apply_block_inner(id, block_trace);
         let r = match result {
             Ok(acc_row_usage) => {
@@ -155,7 +160,7 @@ pub mod checker {
         serde_json::to_vec(&r).map_or(null(), vec_to_c_char)
     }
 
-    unsafe fn apply_block_inner(id: u64, block_trace: *const c_char) -> Result<RowUsage, Error> {
+    fn apply_block_inner(id: u64, block_trace: *const c_char) -> Result<RowUsage, Error> {
         log::debug!(
             "ccc apply_block raw input, id: {:?}, block_trace: {:?}",
             id,
@@ -164,18 +169,20 @@ pub mod checker {
         let block_trace = c_char_to_vec(block_trace);
         let traces = serde_json::from_slice::<BlockTrace>(&block_trace)?;
 
-        let r = panic::catch_unwind(|| {
-            CHECKERS
-                .get_mut()
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checkers map in apply_block"
-                ))?
-                .get_mut(&id)
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checker (id: {id:?}) in apply_block"
-                ))?
-                .estimate_circuit_capacity(&[traces])
-        });
+        let r = unsafe {
+            panic::catch_unwind(|| {
+                CHECKERS
+                    .get_mut()
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checkers map in apply_block"
+                    ))?
+                    .get_mut(&id)
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checker (id: {id:?}) in apply_block"
+                    ))?
+                    .estimate_circuit_capacity(&[traces])
+            })
+        };
         match r {
             Ok(result) => result,
             Err(e) => {
@@ -186,7 +193,7 @@ pub mod checker {
 
     /// # Safety
     #[no_mangle]
-    pub unsafe extern "C" fn get_tx_num(id: u64) -> *const c_char {
+    pub extern "C" fn get_tx_num(id: u64) -> *const c_char {
         let result = get_tx_num_inner(id);
         let r = match result {
             Ok(tx_num) => {
@@ -204,29 +211,31 @@ pub mod checker {
         serde_json::to_vec(&r).map_or(null(), vec_to_c_char)
     }
 
-    unsafe fn get_tx_num_inner(id: u64) -> Result<u64, Error> {
+    fn get_tx_num_inner(id: u64) -> Result<u64, Error> {
         log::debug!("ccc get_tx_num raw input, id: {id}");
-        panic::catch_unwind(|| {
-            Ok(CHECKERS
-                .get_mut()
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checkers map in get_tx_num"
-                ))?
-                .get_mut(&id)
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checker (id: {id}) in get_tx_num"
-                ))?
-                .get_tx_num() as u64)
-        })
-        .map_or_else(
-            |e| bail!("circuit capacity checker (id: {id}) error in get_tx_num: {e:?}"),
-            |result| result,
-        )
+        unsafe {
+            panic::catch_unwind(|| {
+                Ok(CHECKERS
+                    .get_mut()
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checkers map in get_tx_num"
+                    ))?
+                    .get_mut(&id)
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checker (id: {id}) in get_tx_num"
+                    ))?
+                    .get_tx_num() as u64)
+            })
+            .map_or_else(
+                |e| bail!("circuit capacity checker (id: {id}) error in get_tx_num: {e:?}"),
+                |result| result,
+            )
+        }
     }
 
     /// # Safety
     #[no_mangle]
-    pub unsafe extern "C" fn set_light_mode(id: u64, light_mode: bool) -> *const c_char {
+    pub extern "C" fn set_light_mode(id: u64, light_mode: bool) -> *const c_char {
         let result = set_light_mode_inner(id, light_mode);
         let r = match result {
             Ok(()) => CommonResult { error: None },
@@ -237,25 +246,27 @@ pub mod checker {
         serde_json::to_vec(&r).map_or(null(), vec_to_c_char)
     }
 
-    unsafe fn set_light_mode_inner(id: u64, light_mode: bool) -> Result<(), Error> {
+    fn set_light_mode_inner(id: u64, light_mode: bool) -> Result<(), Error> {
         log::debug!("ccc set_light_mode raw input, id: {id}");
-        panic::catch_unwind(|| {
-            CHECKERS
-                .get_mut()
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checkers map in set_light_mode"
-                ))?
-                .get_mut(&id)
-                .ok_or(anyhow!(
-                    "fail to get circuit capacity checker (id: {id}) in set_light_mode"
-                ))?
-                .set_light_mode(light_mode);
-            Ok(())
-        })
-        .map_or_else(
-            |e| bail!("circuit capacity checker (id: {id}) error in set_light_mode: {e:?}"),
-            |result| result,
-        )
+        unsafe {
+            panic::catch_unwind(|| {
+                CHECKERS
+                    .get_mut()
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checkers map in set_light_mode"
+                    ))?
+                    .get_mut(&id)
+                    .ok_or(anyhow!(
+                        "fail to get circuit capacity checker (id: {id}) in set_light_mode"
+                    ))?
+                    .set_light_mode(light_mode);
+                Ok(())
+            })
+            .map_or_else(
+                |e| bail!("circuit capacity checker (id: {id}) error in set_light_mode: {e:?}"),
+                |result| result,
+            )
+        }
     }
 }
 

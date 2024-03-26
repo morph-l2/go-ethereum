@@ -1304,6 +1304,7 @@ func (s *PublicBlockChainAPI) rpcMarshalBlock(ctx context.Context, b *types.Bloc
 	if err != nil {
 		return nil, err
 	}
+	fields["nextL1MsgIndex"] = hexutil.Uint64(b.Header().NextL1MsgIndex)
 	if inclTx {
 		fields["totalDifficulty"] = (*hexutil.Big)(s.b.GetTd(ctx, b.Hash()))
 	}

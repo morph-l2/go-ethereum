@@ -20,8 +20,6 @@ package utils
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/eth/filters"
-	"github.com/scroll-tech/go-ethereum/rpc"
 	"io"
 	"io/ioutil"
 	"math"
@@ -34,8 +32,6 @@ import (
 	"text/tabwriter"
 	"text/template"
 	"time"
-
-	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 
 	pcsclite "github.com/gballet/go-libpcsclite"
 	gopsutil "github.com/shirou/gopsutil/mem"
@@ -53,8 +49,10 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/vm"
 	"github.com/scroll-tech/go-ethereum/crypto"
 	"github.com/scroll-tech/go-ethereum/eth"
+	"github.com/scroll-tech/go-ethereum/eth/catalyst"
 	"github.com/scroll-tech/go-ethereum/eth/downloader"
 	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
+	"github.com/scroll-tech/go-ethereum/eth/filters"
 	"github.com/scroll-tech/go-ethereum/eth/gasprice"
 	"github.com/scroll-tech/go-ethereum/eth/tracers"
 	"github.com/scroll-tech/go-ethereum/ethdb"
@@ -74,6 +72,8 @@ import (
 	"github.com/scroll-tech/go-ethereum/p2p/nat"
 	"github.com/scroll-tech/go-ethereum/p2p/netutil"
 	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/scroll-tech/go-ethereum/rollup/tracing"
+	"github.com/scroll-tech/go-ethereum/rpc"
 )
 
 func init() {
@@ -1906,7 +1906,8 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 		if err != nil {
 			Fatalf("Failed to register the Ethereum service: %v", err)
 		}
-		stack.RegisterAPIs(tracers.APIs(backend.ApiBackend))
+		scrollTracerWrapper := tracing.NewTracerWrapper()
+		stack.RegisterAPIs(tracers.APIs(backend.ApiBackend, scrollTracerWrapper))
 		return backend.ApiBackend, nil
 	}
 
@@ -1923,7 +1924,10 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 	if err := catalyst.RegisterL2Engine(stack, backend); err != nil {
 		Fatalf("Failed to register the Engine API service: %v", err)
 	}
-	stack.RegisterAPIs(tracers.APIs(backend.APIBackend))
+
+	scrollTracerWrapper := tracing.NewTracerWrapper()
+	stack.RegisterAPIs(tracers.APIs(backend.APIBackend, scrollTracerWrapper))
+
 	return backend.APIBackend, backend
 }
 
@@ -2133,7 +2137,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 
 	// TODO(rjl493456442) disable snapshot generation/wiping if the chain is read only.
 	// Disable transaction indexing/unindexing by default.
-	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil, false)
+	chain, err = core.NewBlockChain(chainDb, cache, config, engine, vmcfg, nil, nil)
 	if err != nil {
 		Fatalf("Can't create BlockChain: %v", err)
 	}

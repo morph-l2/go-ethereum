@@ -1,6 +1,8 @@
 package types
 
 import (
+	"bytes"
+	"github.com/scroll-tech/go-ethereum/rlp"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -51,4 +53,12 @@ func (tx *L1MessageTx) rawSignatureValues() (v, r, s *big.Int) {
 
 func (tx *L1MessageTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	// this is a noop for l1 message transactions
+}
+
+func (tx *L1MessageTx) encode(b *bytes.Buffer) error {
+	return rlp.Encode(b, tx)
+}
+
+func (tx *L1MessageTx) decode(input []byte) error {
+	return rlp.DecodeBytes(input, tx)
 }

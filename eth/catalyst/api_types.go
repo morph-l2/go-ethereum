@@ -100,12 +100,13 @@ type ExecutableL2Data struct {
 	Transactions [][]byte       `json:"transactions"   gencodec:"required"`
 
 	// execution result
-	StateRoot        common.Hash          `json:"stateRoot"`
-	GasUsed          uint64               `json:"gasUsed"`
-	ReceiptRoot      common.Hash          `json:"receiptsRoot"`
-	LogsBloom        []byte               `json:"logsBloom"`
-	WithdrawTrieRoot common.Hash          `json:"withdrawTrieRoot"`
-	RowUsages        types.RowConsumption `json:"rowUsages"`
+	StateRoot        common.Hash                 `json:"stateRoot"`
+	GasUsed          uint64                      `json:"gasUsed"`
+	ReceiptRoot      common.Hash                 `json:"receiptsRoot"`
+	LogsBloom        []byte                      `json:"logsBloom"`
+	WithdrawTrieRoot common.Hash                 `json:"withdrawTrieRoot"`
+	RowUsages        types.RowConsumption        `json:"rowUsages"`
+	SkippedTxs       []*types.SkippedTransaction `json:"skippedTxs"`
 
 	NextL1MessageIndex uint64 `json:"nextL1MessageIndex"`
 

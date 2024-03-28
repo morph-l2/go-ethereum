@@ -29,15 +29,15 @@ func (ec *Client) AssembleL2Block(ctx context.Context, number *big.Int, transact
 }
 
 // ValidateL2Block validates a L2 Block
-func (ec *Client) ValidateL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, collectedL1Messages []types.L1MessageTx) (bool, error) {
+func (ec *Client) ValidateL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data) (bool, error) {
 	var result catalyst.GenericResponse
-	err := ec.c.CallContext(ctx, &result, "engine_validateL2Block", executableL2Data, collectedL1Messages)
+	err := ec.c.CallContext(ctx, &result, "engine_validateL2Block", executableL2Data)
 	return result.Success, err
 }
 
 // NewL2Block executes L2 Block, and set the block to chain
-func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, collectedL1Messages []types.L1MessageTx, batchHash *common.Hash) error {
-	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data, collectedL1Messages, batchHash)
+func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, batchHash *common.Hash) error {
+	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data, batchHash)
 }
 
 // NewSafeL2Block executes a safe L2 Block, and set the block to chain

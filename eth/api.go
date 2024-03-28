@@ -738,6 +738,7 @@ func (api *MorphAPI) GetSkippedTransactionHashes(ctx context.Context, from uint6
 
 type RPCRollupBatch struct {
 	Version                uint            `json:"version"`
+	Hash                   common.Hash     `json:"hash"`
 	ParentBatchHeader      hexutil.Bytes   `json:"parentBatchHeader"`
 	Chunks                 []hexutil.Bytes `json:"chunks"`
 	SkippedL1MessageBitmap hexutil.Bytes   `json:"skippedL1MessageBitmap"`
@@ -745,6 +746,7 @@ type RPCRollupBatch struct {
 	PostStateRoot          common.Hash     `json:"postStateRoot"`
 	WithdrawRoot           common.Hash     `json:"withdrawRoot"`
 
+	Sidecar    types.BlobTxSidecar `json:"sidecar"`
 	Signatures []RPCBatchSignature `json:"signatures"`
 }
 
@@ -777,14 +779,21 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 		}
 	}
 
+	var sidecar types.BlobTxSidecar
+	if rollupBatch.Sidecar != nil {
+		sidecar = *rollupBatch.Sidecar
+	}
+
 	return &RPCRollupBatch{
 		Version:                rollupBatch.Version,
+		Hash:                   rollupBatch.Hash,
 		ParentBatchHeader:      rollupBatch.ParentBatchHeader,
 		Chunks:                 hexChunks,
 		SkippedL1MessageBitmap: rollupBatch.SkippedL1MessageBitmap,
 		PrevStateRoot:          rollupBatch.PrevStateRoot,
 		PostStateRoot:          rollupBatch.PostStateRoot,
 		WithdrawRoot:           rollupBatch.WithdrawRoot,
+		Sidecar:                sidecar,
 		Signatures:             rpcSignatures,
 	}, nil
 }

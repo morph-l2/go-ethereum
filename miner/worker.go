@@ -753,10 +753,10 @@ func (w *worker) resultLoop() {
 				// receipt/log of individual transactions were created.
 				receipt.Logs = make([]*types.Log, len(taskReceipt.Logs))
 				for i, taskLog := range taskReceipt.Logs {
-					log := new(types.Log)
-					receipt.Logs[i] = log
-					*log = *taskLog
-					log.BlockHash = hash
+					l := new(types.Log)
+					receipt.Logs[i] = l
+					*l = *taskLog
+					l.BlockHash = hash
 				}
 				logs = append(logs, receipt.Logs...)
 			}
@@ -797,7 +797,7 @@ func (w *worker) resultLoop() {
 func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environment, error) {
 	// Retrieve the parent state to execute on top and start a prefetcher for
 	// the miner to speed block sealing up a bit
-	state, err := w.chain.StateAt(parent.Root())
+	stateDB, err := w.chain.StateAt(parent.Root())
 	if err != nil {
 		return nil, err
 	}
@@ -805,7 +805,7 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 	// don't commit the state during tracing for circuit capacity checker, otherwise we cannot revert.
 	// and even if we don't commit the state, the `refund` value will still be correct, as explained in `CommitTransaction`
 	commitStateAfterApply := false
-	traceEnv, err := tracing.CreateTraceEnv(w.chainConfig, w.chain, w.engine, w.eth.ChainDb(), state, parent,
+	traceEnv, err := tracing.CreateTraceEnv(w.chainConfig, w.chain, w.engine, w.eth.ChainDb(), stateDB, parent,
 		// new block with a placeholder tx, for traceEnv's ExecutionResults length & TxStorageTraces length
 		types.NewBlockWithHeader(header).WithBody([]*types.Transaction{types.NewTx(&types.LegacyTx{})}, nil),
 		commitStateAfterApply)
@@ -813,11 +813,11 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 		return nil, err
 	}
 
-	state.StartPrefetcher("miner")
+	stateDB.StartPrefetcher("miner")
 
 	env := &environment{
 		signer:         types.MakeSigner(w.chainConfig, header.Number),
-		state:          state,
+		state:          stateDB,
 		ancestors:      mapset.NewSet(),
 		family:         mapset.NewSet(),
 		uncles:         mapset.NewSet(),

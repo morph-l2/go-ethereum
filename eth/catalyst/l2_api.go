@@ -83,7 +83,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	block, state, receipts, rc, skippedTxs, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
+	block, stateDB, receipts, rc, skippedTxs, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	//	 return nil, nil
 	// }
 	procTime := time.Since(start)
-	withdrawTrieRoot := api.writeVerified(state, block, receipts, skippedTxs, procTime)
+	withdrawTrieRoot := api.writeVerified(stateDB, block, receipts, skippedTxs, procTime)
 	var resRc types.RowConsumption
 	if rc != nil {
 		resRc = *rc

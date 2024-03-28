@@ -1836,8 +1836,8 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 
 			var logs []*types.Log
 			for _, receipt := range receipts {
-				for _, log := range receipt.Logs {
-					l := *log
+				for _, receiptLog := range receipt.Logs {
+					l := *receiptLog
 					if removed {
 						l.Removed = true
 					}

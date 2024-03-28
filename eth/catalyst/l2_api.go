@@ -365,31 +365,6 @@ func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, batchH
 	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
 }
 
-func extractSkippedQueueIndexes(block *types.Block, parentNextIndex uint64) ([]uint64, error) {
-	nextIndex := parentNextIndex
-	skipped := make([]uint64, 0)
-	for _, tx := range block.Transactions() {
-		if tx.IsL1MessageTx() {
-			txQueueIndex := tx.L1MessageQueueIndex()
-			if txQueueIndex < nextIndex {
-				return nil, errors.New("wrong L1Message order")
-			}
-			for queueIndex := nextIndex; queueIndex < txQueueIndex; queueIndex++ {
-				skipped = append(skipped, queueIndex)
-			}
-			nextIndex = txQueueIndex + 1
-		}
-	}
-
-	if block.Header().NextL1MsgIndex < nextIndex {
-		return nil, errors.New("wrong next L1Message index in the block header")
-	}
-	for queueIndex := nextIndex; queueIndex < block.Header().NextL1MsgIndex; queueIndex++ {
-		skipped = append(skipped, queueIndex)
-	}
-	return skipped, nil
-}
-
 func (api *l2ConsensusAPI) verifyBlock(block *types.Block) error {
 	if err := api.eth.Engine().VerifyHeader(api.eth.BlockChain(), block.Header(), false); err != nil {
 		log.Warn("failed to verify header", "error", err)

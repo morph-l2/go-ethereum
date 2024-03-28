@@ -3,7 +3,6 @@ package l2
 import (
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/params"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -11,6 +10,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
+	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rpc"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
@@ -59,15 +59,6 @@ func (l2 *Consensus) VerifyHeader(chain consensus.ChainHeaderReader, header *typ
 	}
 	// Sanity checks passed, do a proper verification
 	return l2.verifyHeader(chain, header, parent)
-}
-
-// errOut constructs an error channel with prefilled errors inside.
-func errOut(n int, err error) chan error {
-	errs := make(chan error, n)
-	for i := 0; i < n; i++ {
-		errs <- err
-	}
-	return errs
 }
 
 // VerifyHeaders is similar to VerifyHeader, but verifies a batch of headers

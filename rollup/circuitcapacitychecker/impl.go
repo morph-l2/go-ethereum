@@ -73,15 +73,12 @@ func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) (*
 	}
 
 	tracesStr := C.CString(string(tracesByt))
-	defer func() {
-		C.free(unsafe.Pointer(tracesStr))
-	}()
+	defer C.free(unsafe.Pointer(tracesStr))
 
 	log.Debug("start to check circuit capacity for tx", "id", ccc.ID, "TxHash", traces.Transactions[0].TxHash)
 	rawResult := C.apply_tx(C.uint64_t(ccc.ID), tracesStr)
-	defer func() {
-		C.free_c_chars(rawResult)
-	}()
+	defer C.free_c_chars(rawResult)
+
 	log.Debug("check circuit capacity for tx done", "id", ccc.ID, "TxHash", traces.Transactions[0].TxHash)
 
 	result := &WrappedRowUsage{}
@@ -119,15 +116,11 @@ func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (*types.
 	}
 
 	tracesStr := C.CString(string(tracesByt))
-	defer func() {
-		C.free(unsafe.Pointer(tracesStr))
-	}()
+	defer C.free(unsafe.Pointer(tracesStr))
 
 	log.Debug("start to check circuit capacity for block", "id", ccc.ID, "blockNumber", traces.Header.Number, "blockHash", traces.Header.Hash())
 	rawResult := C.apply_block(C.uint64_t(ccc.ID), tracesStr)
-	defer func() {
-		C.free_c_chars(rawResult)
-	}()
+	defer C.free_c_chars(rawResult)
 	log.Debug("check circuit capacity for block done", "id", ccc.ID, "blockNumber", traces.Header.Number, "blockHash", traces.Header.Hash())
 
 	result := &WrappedRowUsage{}
@@ -157,9 +150,8 @@ func (ccc *CircuitCapacityChecker) CheckTxNum(expected int) (bool, uint64, error
 
 	log.Debug("ccc get_tx_num start", "id", ccc.ID)
 	rawResult := C.get_tx_num(C.uint64_t(ccc.ID))
-	defer func() {
-		C.free_c_chars(rawResult)
-	}()
+	defer C.free_c_chars(rawResult)
+
 	log.Debug("ccc get_tx_num end", "id", ccc.ID)
 
 	result := &WrappedTxNum{}
@@ -180,9 +172,8 @@ func (ccc *CircuitCapacityChecker) SetLightMode(lightMode bool) error {
 
 	log.Debug("ccc set_light_mode start", "id", ccc.ID)
 	rawResult := C.set_light_mode(C.uint64_t(ccc.ID), C.bool(lightMode))
-	defer func() {
-		C.free_c_chars(rawResult)
-	}()
+	defer C.free_c_chars(rawResult)
+
 	log.Debug("ccc set_light_mode end", "id", ccc.ID)
 
 	result := &WrappedCommonResult{}

@@ -2,10 +2,10 @@ package types
 
 import (
 	"bytes"
-	"github.com/scroll-tech/go-ethereum/rlp"
 	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/scroll-tech/go-ethereum/rlp"
 )
 
 // payload, RLP encoded

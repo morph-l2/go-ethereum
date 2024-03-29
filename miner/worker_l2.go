@@ -86,7 +86,7 @@ func (w *worker) makeHeader(parent *types.Block, timestamp uint64, coinBase comm
 		Coinbase:   coinBase,
 	}
 	// Set baseFee if we are on an EIP-1559 chain
-	if w.chainConfig.IsBanach(header.Number) {
+	if w.chainConfig.IsCurie(header.Number) {
 		state, err := w.chain.StateAt(parent.Root())
 		if err != nil {
 			log.Error("Failed to create mining context", "err", err)

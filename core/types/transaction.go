@@ -38,6 +38,7 @@ var (
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
+	errShortTypedTx         = errors.New("typed transaction too short")
 	errInvalidYParity       = errors.New("'yParity' field must be 0 or 1")
 	errVYParityMismatch     = errors.New("'v' and 'yParity' fields do not match")
 	errVYParityMissing      = errors.New("missing 'yParity' or 'v' field in transaction")
@@ -143,7 +144,9 @@ func (tx *Transaction) DecodeRLP(s *rlp.Stream) error {
 			tx.setDecoded(&inner, int(rlp.ListSize(size)))
 		}
 		return err
-	case kind == rlp.String:
+	case kind == rlp.Byte:
+		return errShortTypedTx
+	default:
 		// It's an EIP-2718 typed TX envelope.
 		var b []byte
 		if b, err = s.Bytes(); err != nil {
@@ -154,8 +157,6 @@ func (tx *Transaction) DecodeRLP(s *rlp.Stream) error {
 			tx.setDecoded(inner, len(b))
 		}
 		return err
-	default:
-		return rlp.ErrExpectedList
 	}
 }
 
@@ -183,8 +184,8 @@ func (tx *Transaction) UnmarshalBinary(b []byte) error {
 
 // decodeTyped decodes a typed transaction from the canonical format.
 func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
-	if len(b) == 0 {
-		return nil, errEmptyTypedTx
+	if len(b) <= 1 {
+		return nil, errShortTypedTx
 	}
 	var inner TxData
 	switch b[0] {

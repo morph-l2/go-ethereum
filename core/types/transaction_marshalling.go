@@ -22,8 +22,10 @@ import (
 	"math/big"
 
 	"github.com/holiman/uint256"
+
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
+	"github.com/scroll-tech/go-ethereum/crypto/kzg4844"
 )
 
 // txJSON is the JSON representation of transactions.
@@ -47,11 +49,16 @@ type txJSON struct {
 	S                    *hexutil.Big    `json:"s"`
 	YParity              *hexutil.Uint64 `json:"yParity,omitempty"`
 
+	// Blob transaction sidecar encoding:
+	Blobs       []kzg4844.Blob       `json:"blobs,omitempty"`
+	Commitments []kzg4844.Commitment `json:"commitments,omitempty"`
+	Proofs      []kzg4844.Proof      `json:"proofs,omitempty"`
+
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
 
 	// L1 message transaction fields:
-	Sender     common.Address  `json:"sender,omitempty"`
+	Sender     *common.Address `json:"sender,omitempty"`
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 }
 
@@ -129,6 +136,14 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		yparity := itx.V.Uint64()
 		enc.YParity = (*hexutil.Uint64)(&yparity)
 
+	case *L1MessageTx:
+		enc.QueueIndex = (*hexutil.Uint64)(&itx.QueueIndex)
+		enc.Gas = (*hexutil.Uint64)(&itx.Gas)
+		enc.To = tx.To()
+		enc.Value = (*hexutil.Big)(itx.Value)
+		enc.Input = (*hexutil.Bytes)(&itx.Data)
+		enc.Sender = &itx.Sender
+
 	case *BlobTx:
 		enc.ChainID = (*hexutil.Big)(itx.ChainID.ToBig())
 		enc.Nonce = (*hexutil.Uint64)(&itx.Nonce)
@@ -146,14 +161,11 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.S = (*hexutil.Big)(itx.S.ToBig())
 		yparity := itx.V.Uint64()
 		enc.YParity = (*hexutil.Uint64)(&yparity)
-
-	case *L1MessageTx:
-		enc.QueueIndex = (*hexutil.Uint64)(&itx.QueueIndex)
-		enc.To = tx.To()
-		enc.Gas = (*hexutil.Uint64)(&itx.Gas)
-		enc.Value = (*hexutil.Big)(itx.Value)
-		enc.Input = (*hexutil.Bytes)(&itx.Data)
-		enc.Sender = itx.Sender
+		if sidecar := itx.Sidecar; sidecar != nil {
+			enc.Blobs = itx.Sidecar.Blobs
+			enc.Commitments = itx.Sidecar.Commitments
+			enc.Proofs = itx.Sidecar.Proofs
+		}
 	}
 	return json.Marshal(&enc)
 }
@@ -432,7 +444,10 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			return errors.New("missing required field 'input' in transaction")
 		}
 		itx.Data = *dec.Input
-		itx.Sender = dec.Sender
+		if dec.Sender == nil {
+			return errors.New("missing required field 'sender' in transaction")
+		}
+		itx.Sender = *dec.Sender
 
 	default:
 		return ErrTxTypeNotSupported

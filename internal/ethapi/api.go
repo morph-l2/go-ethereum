@@ -171,11 +171,20 @@ func (s *PublicTxPoolAPI) Content() map[string]map[string]map[string]*RPCTransac
 	}
 	pending, queue := s.b.TxPoolContent()
 	curHeader := s.b.CurrentHeader()
+
+	// get latest L1 base fee
+	state, err := s.b.StateAt(curHeader.Root)
+	if err != nil || state == nil {
+		log.Error("State not found", "number", curHeader.Number, "hash", curHeader.Hash().Hex(), "state", state, "err", err)
+		return nil
+	}
+	l1BaseFee := fees.GetL1BaseFee(state)
+
 	// Flatten the pending transactions
 	for account, txs := range pending {
 		dump := make(map[string]*RPCTransaction)
 		for _, tx := range txs {
-			dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig())
+			dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig(), l1BaseFee)
 		}
 		content["pending"][account.Hex()] = dump
 	}
@@ -183,7 +192,7 @@ func (s *PublicTxPoolAPI) Content() map[string]map[string]map[string]*RPCTransac
 	for account, txs := range queue {
 		dump := make(map[string]*RPCTransaction)
 		for _, tx := range txs {
-			dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig())
+			dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig(), l1BaseFee)
 		}
 		content["queued"][account.Hex()] = dump
 	}
@@ -196,17 +205,25 @@ func (s *PublicTxPoolAPI) ContentFrom(addr common.Address) map[string]map[string
 	pending, queue := s.b.TxPoolContentFrom(addr)
 	curHeader := s.b.CurrentHeader()
 
+	// get latest L1 base fee
+	state, err := s.b.StateAt(curHeader.Root)
+	if err != nil || state == nil {
+		log.Error("State not found", "number", curHeader.Number, "hash", curHeader.Hash().Hex(), "state", state, "err", err)
+		return nil
+	}
+	l1BaseFee := fees.GetL1BaseFee(state)
+
 	// Build the pending transactions
 	dump := make(map[string]*RPCTransaction, len(pending))
 	for _, tx := range pending {
-		dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig())
+		dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig(), l1BaseFee)
 	}
 	content["pending"] = dump
 
 	// Build the queued transactions
 	dump = make(map[string]*RPCTransaction, len(queue))
 	for _, tx := range queue {
-		dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig())
+		dump[fmt.Sprintf("%d", tx.Nonce())] = NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig(), l1BaseFee)
 	}
 	content["queued"] = dump
 
@@ -1225,7 +1242,7 @@ func (s *PublicBlockChainAPI) EstimateGas(ctx context.Context, args TransactionA
 }
 
 // RPCMarshalHeader converts the given header to the RPC output .
-func RPCMarshalHeader(head *types.Header, enableBaseFee bool) map[string]interface{} {
+func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(head.Number),
 		"hash":             head.Hash(),
@@ -1246,7 +1263,7 @@ func RPCMarshalHeader(head *types.Header, enableBaseFee bool) map[string]interfa
 		"receiptsRoot":     head.ReceiptHash,
 	}
 
-	if enableBaseFee && head.BaseFee != nil {
+	if head.BaseFee != nil {
 		result["baseFeePerGas"] = (*hexutil.Big)(head.BaseFee)
 	}
 
@@ -1257,7 +1274,7 @@ func RPCMarshalHeader(head *types.Header, enableBaseFee bool) map[string]interfa
 // returned. When fullTx is true the returned block contains full transaction details, otherwise it will only contain
 // transaction hashes.
 func RPCMarshalBlock(block *types.Block, inclTx bool, fullTx bool, config *params.ChainConfig) (map[string]interface{}, error) {
-	fields := RPCMarshalHeader(block.Header(), config.Scroll.BaseFeeEnabled())
+	fields := RPCMarshalHeader(block.Header())
 	fields["size"] = hexutil.Uint64(block.Size())
 
 	if inclTx {
@@ -1292,7 +1309,7 @@ func RPCMarshalBlock(block *types.Block, inclTx bool, fullTx bool, config *param
 // rpcMarshalHeader uses the generalized output filler, then adds the total difficulty field, which requires
 // a `PublicBlockchainAPI`.
 func (s *PublicBlockChainAPI) rpcMarshalHeader(ctx context.Context, header *types.Header) map[string]interface{} {
-	fields := RPCMarshalHeader(header, s.b.ChainConfig().Scroll.BaseFeeEnabled())
+	fields := RPCMarshalHeader(header)
 	fields["totalDifficulty"] = (*hexutil.Big)(s.b.GetTd(ctx, header.Hash()))
 	return fields
 }
@@ -1334,7 +1351,7 @@ type RPCTransaction struct {
 	S                *hexutil.Big      `json:"s"`
 
 	// L1 message transaction fields:
-	Sender     common.Address  `json:"sender,omitempty"`
+	Sender     *common.Address `json:"sender,omitempty"`
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 }
 
@@ -1384,18 +1401,18 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		}
 	case types.L1MessageTxType:
 		msg := tx.AsL1MessageTx()
-		result.Sender = msg.Sender
+		result.Sender = &msg.Sender
 		result.QueueIndex = (*hexutil.Uint64)(&msg.QueueIndex)
 	}
 	return result
 }
 
 // NewRPCPendingTransaction returns a pending transaction that will serialize to the RPC representation
-func NewRPCPendingTransaction(tx *types.Transaction, current *types.Header, config *params.ChainConfig) *RPCTransaction {
+func NewRPCPendingTransaction(tx *types.Transaction, current *types.Header, config *params.ChainConfig, l1BaseFee *big.Int) *RPCTransaction {
 	var baseFee *big.Int
 	blockNumber := uint64(0)
 	if current != nil {
-		baseFee = misc.CalcBaseFee(config, current)
+		baseFee = misc.CalcBaseFee(config, current, l1BaseFee)
 		blockNumber = current.Number.Uint64()
 	}
 	return NewRPCTransaction(tx, common.Hash{}, blockNumber, 0, baseFee, config)
@@ -1634,7 +1651,16 @@ func (s *PublicTransactionPoolAPI) GetTransactionByHash(ctx context.Context, has
 	}
 	// No finalized transaction, try to retrieve it from the pool
 	if tx := s.b.GetPoolTransaction(hash); tx != nil {
-		return NewRPCPendingTransaction(tx, s.b.CurrentHeader(), s.b.ChainConfig()), nil
+		curHeader := s.b.CurrentHeader()
+		// get latest L1 base fee
+		state, err := s.b.StateAt(curHeader.Root)
+		if err != nil || state == nil {
+			log.Error("State not found", "number", curHeader.Number, "hash", curHeader.Hash().Hex(), "state", state, "err", err)
+			return nil, fmt.Errorf("cannot get L1 base fee, state not found")
+		}
+		l1BaseFee := fees.GetL1BaseFee(state)
+
+		return NewRPCPendingTransaction(tx, s.b.CurrentHeader(), s.b.ChainConfig(), l1BaseFee), nil
 	}
 
 	// Transaction unknown, return as such
@@ -1694,7 +1720,7 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
 	}
 	// Assign the effective gas price paid
-	if !s.b.ChainConfig().IsLondon(bigblock) {
+	if !s.b.ChainConfig().IsCurie(bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
 	} else {
 		header, err := s.b.HeaderByHash(ctx, blockHash)
@@ -1906,10 +1932,19 @@ func (s *PublicTransactionPoolAPI) PendingTransactions() ([]*RPCTransaction, err
 	}
 	curHeader := s.b.CurrentHeader()
 	transactions := make([]*RPCTransaction, 0, len(pending))
+
+	// get latest L1 base fee
+	state, err := s.b.StateAt(curHeader.Root)
+	if err != nil || state == nil {
+		log.Error("State not found", "number", curHeader.Number, "hash", curHeader.Hash().Hex(), "state", state, "err", err)
+		return nil, fmt.Errorf("cannot get L1 base fee, state not found")
+	}
+	l1BaseFee := fees.GetL1BaseFee(state)
+
 	for _, tx := range pending {
 		from, _ := types.Sender(s.signer, tx)
 		if _, exists := accounts[from]; exists {
-			transactions = append(transactions, NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig()))
+			transactions = append(transactions, NewRPCPendingTransaction(tx, curHeader, s.b.ChainConfig(), l1BaseFee))
 		}
 	}
 	return transactions, nil

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/scroll-tech/go-ethereum/consensus"
 	"github.com/scroll-tech/go-ethereum/core/rawdb"
@@ -27,9 +28,18 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/ethdb"
 	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/trie"
+)
+
+var (
+	validateL1MessagesTimer     = metrics.NewRegisteredTimer("validator/l1msg", nil)
+	validateRowConsumptionTimer = metrics.NewRegisteredTimer("validator/rowconsumption", nil)
+	validateTraceTimer          = metrics.NewRegisteredTimer("validator/trace", nil)
+	validateLockTimer           = metrics.NewRegisteredTimer("validator/lock", nil)
+	validateCccTimer            = metrics.NewRegisteredTimer("validator/ccc", nil)
 )
 
 // BlockValidator is responsible for validating block headers, uncles and
@@ -195,6 +205,10 @@ func (v *BlockValidator) createTraceEnvAndGetBlockTrace(block *types.Block) (*ty
 }
 
 func (v *BlockValidator) validateCircuitRowConsumption(block *types.Block) (*types.RowConsumption, error) {
+	defer func(t0 time.Time) {
+		validateRowConsumptionTimer.Update(time.Since(t0))
+	}(time.Now())
+
 	log.Trace(
 		"Validator apply ccc for block",
 		"id", v.circuitCapacityChecker.ID,
@@ -203,17 +217,23 @@ func (v *BlockValidator) validateCircuitRowConsumption(block *types.Block) (*typ
 		"len(txs)", block.Transactions().Len(),
 	)
 
+	traceStartTime := time.Now()
 	traces, err := v.createTraceEnvAndGetBlockTrace(block)
 	if err != nil {
 		return nil, err
 	}
+	validateTraceTimer.Update(time.Since(traceStartTime))
 
+	lockStartTime := time.Now()
 	v.cMu.Lock()
 	defer v.cMu.Unlock()
+	validateLockTimer.Update(time.Since(lockStartTime))
 
+	cccStartTime := time.Now()
 	v.circuitCapacityChecker.Reset()
 	log.Trace("Validator reset ccc", "id", v.circuitCapacityChecker.ID)
 	rc, err := v.circuitCapacityChecker.ApplyBlock(traces)
+	validateCccTimer.Update(time.Since(cccStartTime))
 
 	log.Trace(
 		"Validator apply ccc for block result",

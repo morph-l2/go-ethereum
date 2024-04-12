@@ -237,8 +237,8 @@ func (bc *BlockChain) collectLogs(b *types.Block, removed bool) []*types.Log {
 
 	var logs []*types.Log
 	for _, receipt := range receipts {
-		for _, log := range receipt.Logs {
-			l := *log
+		for _, receiptLog := range receipt.Logs {
+			l := *receiptLog
 			if removed {
 				l.Removed = true
 			}

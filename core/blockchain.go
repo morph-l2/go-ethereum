@@ -53,6 +53,8 @@ var (
 	headHeaderGauge    = metrics.NewRegisteredGauge("chain/head/header", nil)
 	headFastBlockGauge = metrics.NewRegisteredGauge("chain/head/receipt", nil)
 
+	l2BaseFeeGauge = metrics.NewRegisteredGauge("chain/fees/l2basefee", nil)
+
 	accountReadTimer   = metrics.NewRegisteredTimer("chain/account/reads", nil)
 	accountHashTimer   = metrics.NewRegisteredTimer("chain/account/hashes", nil)
 	accountUpdateTimer = metrics.NewRegisteredTimer("chain/account/updates", nil)
@@ -219,7 +221,7 @@ type BlockChain struct {
 // NewBlockChain returns a fully initialised block chain using information
 // available in the database. It initialises the default Ethereum Validator and
 // Processor.
-func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *params.ChainConfig, engine consensus.Engine, vmConfig vm.Config, shouldPreserve func(block *types.Block) bool, txLookupLimit *uint64, checkCircuitCapacity bool) (*BlockChain, error) {
+func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *params.ChainConfig, engine consensus.Engine, vmConfig vm.Config, shouldPreserve func(block *types.Block) bool, txLookupLimit *uint64) (*BlockChain, error) {
 	if cacheConfig == nil {
 		cacheConfig = defaultCacheConfig
 	}
@@ -262,7 +264,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		engine:         engine,
 		vmConfig:       vmConfig,
 	}
-	bc.validator = NewBlockValidator(chainConfig, bc, engine, db, checkCircuitCapacity)
+	bc.validator = NewBlockValidator(chainConfig, bc, engine)
 	bc.prefetcher = newStatePrefetcher(chainConfig, bc, engine)
 	bc.processor = NewStateProcessor(chainConfig, bc, engine)
 
@@ -1118,7 +1120,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 	// Write downloaded chain data and corresponding receipt chain data
 	if len(ancientBlocks) > 0 {
 		if n, err := writeAncient(ancientBlocks, ancientReceipts); err != nil {
-			if err == errInsertionInterrupted {
+			if errors.Is(err, errInsertionInterrupted) {
 				return 0, nil
 			}
 			return n, err
@@ -1139,7 +1141,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 	}
 	if len(liveBlocks) > 0 {
 		if n, err := writeLive(liveBlocks, liveReceipts); err != nil {
-			if err == errInsertionInterrupted {
+			if errors.Is(err, errInsertionInterrupted) {
 				return 0, nil
 			}
 			return n, err
@@ -1207,6 +1209,13 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, emitHeadEvent bool) (status WriteStatus, err error) {
 	if bc.insertStopped() {
 		return NonStatTy, errInsertionInterrupted
+	}
+
+	// Note latest seen L2 base fee
+	if block.BaseFee() != nil {
+		l2BaseFeeGauge.Update(block.BaseFee().Int64())
+	} else {
+		l2BaseFeeGauge.Update(0)
 	}
 
 	// Calculate the total difficulty of the block
@@ -1836,8 +1845,8 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 
 			var logs []*types.Log
 			for _, receipt := range receipts {
-				for _, log := range receipt.Logs {
-					l := *log
+				for _, receiptLog := range receipt.Logs {
+					l := *receiptLog
 					if removed {
 						l.Removed = true
 					}

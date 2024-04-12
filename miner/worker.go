@@ -39,6 +39,8 @@ import (
 	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
+	"github.com/scroll-tech/go-ethereum/rollup/fees"
+	"github.com/scroll-tech/go-ethereum/rollup/tracing"
 	"github.com/scroll-tech/go-ethereum/trie"
 )
 
@@ -124,7 +126,7 @@ type environment struct {
 	receipts []*types.Receipt
 
 	// circuit capacity check related fields
-	traceEnv       *core.TraceEnv        // env for tracing
+	traceEnv       *tracing.TraceEnv     // env for tracing
 	accRows        *types.RowConsumption // accumulated row consumption for a block
 	nextL1MsgIndex uint64                // next L1 queue index to be processed
 	isSimulate     bool
@@ -752,10 +754,10 @@ func (w *worker) resultLoop() {
 				// receipt/log of individual transactions were created.
 				receipt.Logs = make([]*types.Log, len(taskReceipt.Logs))
 				for i, taskLog := range taskReceipt.Logs {
-					log := new(types.Log)
-					receipt.Logs[i] = log
-					*log = *taskLog
-					log.BlockHash = hash
+					l := new(types.Log)
+					receipt.Logs[i] = l
+					*l = *taskLog
+					l.BlockHash = hash
 				}
 				logs = append(logs, receipt.Logs...)
 			}
@@ -796,7 +798,7 @@ func (w *worker) resultLoop() {
 func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environment, error) {
 	// Retrieve the parent state to execute on top and start a prefetcher for
 	// the miner to speed block sealing up a bit
-	state, err := w.chain.StateAt(parent.Root())
+	stateDB, err := w.chain.StateAt(parent.Root())
 	if err != nil {
 		return nil, err
 	}
@@ -804,7 +806,7 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 	// don't commit the state during tracing for circuit capacity checker, otherwise we cannot revert.
 	// and even if we don't commit the state, the `refund` value will still be correct, as explained in `CommitTransaction`
 	commitStateAfterApply := false
-	traceEnv, err := core.CreateTraceEnv(w.chainConfig, w.chain, w.engine, w.eth.ChainDb(), state, parent,
+	traceEnv, err := tracing.CreateTraceEnv(w.chainConfig, w.chain, w.engine, w.eth.ChainDb(), stateDB, parent,
 		// new block with a placeholder tx, for traceEnv's ExecutionResults length & TxStorageTraces length
 		types.NewBlockWithHeader(header).WithBody([]*types.Transaction{types.NewTx(&types.LegacyTx{})}, nil),
 		commitStateAfterApply)
@@ -812,11 +814,11 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header) (*environmen
 		return nil, err
 	}
 
-	state.StartPrefetcher("miner")
+	stateDB.StartPrefetcher("miner")
 
 	env := &environment{
 		signer:         types.MakeSigner(w.chainConfig, header.Number),
-		state:          state,
+		state:          stateDB,
 		ancestors:      mapset.NewSet(),
 		family:         mapset.NewSet(),
 		uncles:         mapset.NewSet(),
@@ -1327,20 +1329,15 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		Extra:      w.extra,
 		Time:       uint64(timestamp),
 	}
-	// Set baseFee and GasLimit if we are on an EIP-1559 chain
-	if w.chainConfig.IsLondon(header.Number) {
-		if w.chainConfig.Scroll.BaseFeeEnabled() {
-			header.BaseFee = misc.CalcBaseFee(w.chainConfig, parent.Header())
-		} else {
-			// When disabling EIP-2718 or EIP-1559, we do not set baseFeePerGas in RPC response.
-			// Setting BaseFee as nil here can help outside SDK calculates l2geth's RLP encoding,
-			// otherwise the l2geth's BaseFee is not known from the outside.
-			header.BaseFee = nil
+	// Set baseFee if we are on an EIP-1559 chain
+	if w.chainConfig.IsCurie(header.Number) {
+		state, err := w.chain.StateAt(parent.Root())
+		if err != nil {
+			log.Error("Failed to create mining context", "err", err)
+			return
 		}
-		if !w.chainConfig.IsLondon(parent.Number()) {
-			parentGasLimit := parent.GasLimit() * params.ElasticityMultiplier
-			header.GasLimit = core.CalcGasLimit(parentGasLimit, w.config.GasCeil)
-		}
+		parentL1BaseFee := fees.GetL1BaseFee(state)
+		header.BaseFee = misc.CalcBaseFee(w.chainConfig, parent.Header(), parentL1BaseFee)
 	}
 	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
 	if w.isRunning() {
@@ -1435,6 +1432,13 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		// delay, and possibly causes miner to mine on the previous head,
 		// which could result in higher uncle rate.
 		w.current.discard()
+		return
+	case errors.Is(err, errBlockInterruptedByTimeout):
+		// If the block building takes too much time, stop it, and commit the block directly
+		log.Warn("block building timeout")
+	default:
+		// unknown error found here, log it and stop committing block
+		log.Error("unknown error found", "err", err)
 		return
 	}
 

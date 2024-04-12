@@ -587,12 +587,12 @@ func WriteReceipts(db ethdb.KeyValueWriter, hash common.Hash, number uint64, rec
 	for i, receipt := range receipts {
 		storageReceipts[i] = (*types.ReceiptForStorage)(receipt)
 	}
-	bytes, err := rlp.EncodeToBytes(storageReceipts)
+	bz, err := rlp.EncodeToBytes(storageReceipts)
 	if err != nil {
 		log.Crit("Failed to encode block receipts", "err", err)
 	}
 	// Store the flattened receipt slice
-	if err := db.Put(blockReceiptsKey(number, hash), bytes); err != nil {
+	if err := db.Put(blockReceiptsKey(number, hash), bz); err != nil {
 		log.Crit("Failed to store block receipts", "err", err)
 	}
 }
@@ -627,8 +627,8 @@ func (r *receiptLogs) DecodeRLP(s *rlp.Stream) error {
 		return err
 	}
 	r.Logs = make([]*types.Log, len(stored.Logs))
-	for i, log := range stored.Logs {
-		r.Logs[i] = (*types.Log)(log)
+	for i, lg := range stored.Logs {
+		r.Logs[i] = (*types.Log)(lg)
 	}
 	return nil
 }

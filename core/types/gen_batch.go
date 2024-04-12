@@ -23,6 +23,7 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 		PrevStateRoot          common.Hash
 		PostStateRoot          common.Hash
 		WithdrawRoot           common.Hash
+		Sidecar                *BlobTxSidecar `rlp:"-"`
 	}
 	var enc RollupBatch
 	enc.Index = hexutil.Uint64(r.Index)
@@ -39,6 +40,7 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 	enc.PrevStateRoot = r.PrevStateRoot
 	enc.PostStateRoot = r.PostStateRoot
 	enc.WithdrawRoot = r.WithdrawRoot
+	enc.Sidecar = r.Sidecar
 	return json.Marshal(&enc)
 }
 
@@ -54,6 +56,7 @@ func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 		PrevStateRoot          *common.Hash
 		PostStateRoot          *common.Hash
 		WithdrawRoot           *common.Hash
+		Sidecar                *BlobTxSidecar `rlp:"-"`
 	}
 	var dec RollupBatch
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -88,6 +91,9 @@ func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 	}
 	if dec.WithdrawRoot != nil {
 		r.WithdrawRoot = *dec.WithdrawRoot
+	}
+	if dec.Sidecar != nil {
+		r.Sidecar = dec.Sidecar
 	}
 	return nil
 }

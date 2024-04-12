@@ -14,7 +14,7 @@ var (
 	// predeploy
 	// see contracts/src/L2/predeploys/L2MessageQueue.sol
 	L2MessageQueueAddress = common.HexToAddress("0x5300000000000000000000000000000000000001")
-	WithdrawTrieRootSlot  = common.BigToHash(big.NewInt(45))
+	WithdrawTrieRootSlot  = common.BigToHash(big.NewInt(33))
 
 	// ScrollFeeVaultAddress is the address of the L2TxFeeVault
 	// predeploy

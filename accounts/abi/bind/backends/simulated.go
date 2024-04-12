@@ -83,7 +83,7 @@ type SimulatedBackend struct {
 func NewSimulatedBackendWithDatabase(database ethdb.Database, alloc core.GenesisAlloc, gasLimit uint64) *SimulatedBackend {
 	genesis := core.Genesis{Config: params.AllEthashProtocolChanges, GasLimit: gasLimit, Alloc: alloc}
 	genesis.MustCommit(database)
-	blockchain, _ := core.NewBlockChain(database, nil, genesis.Config, ethash.NewFaker(), vm.Config{}, nil, nil, false)
+	blockchain, _ := core.NewBlockChain(database, nil, genesis.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
 
 	backend := &SimulatedBackend{
 		database:   database,
@@ -173,7 +173,7 @@ func NewSimulatedBackendWithOpts(opts ...SimulatedBackendOpt) *SimulatedBackend 
 	}
 
 	config.genesis.MustCommit(config.database)
-	blockchain, err := core.NewBlockChain(config.database, config.cacheConfig, config.genesis.Config, config.consensus, config.vmConfig, nil, nil, false)
+	blockchain, err := core.NewBlockChain(config.database, config.cacheConfig, config.genesis.Config, config.consensus, config.vmConfig, nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -683,7 +683,7 @@ func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallM
 		return nil, errors.New("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified")
 	}
 	head := b.blockchain.CurrentHeader()
-	if !b.blockchain.Config().IsLondon(head.Number) {
+	if !b.blockchain.Config().IsCurie(head.Number) {
 		// If there's no basefee, then it must be a non-1559 execution
 		if call.GasPrice == nil {
 			call.GasPrice = new(big.Int)
@@ -941,6 +941,10 @@ func (fb *filterBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*t
 
 func (fb *filterBackend) PendingBlockAndReceipts() (*types.Block, types.Receipts) {
 	return fb.backend.pendingBlock, fb.backend.pendingReceipts
+}
+
+func (fb *filterBackend) StateAt(root common.Hash) (*state.StateDB, error) {
+	return fb.backend.blockchain.StateAt(root)
 }
 
 func (fb *filterBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {

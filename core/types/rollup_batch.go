@@ -82,15 +82,13 @@ func (r *RollupBatch) Decode(input []byte) error {
 //go:generate go run github.com/fjl/gencodec -type BatchSignature -field-override batchSignatureMarshaling -out gen_batch_sig.go
 
 type BatchSignature struct {
-	Version      uint64 `json:"version"`
-	Signer       uint64 `json:"signer"`
-	SignerPubKey []byte `json:"signerPubKey"`
-	Signature    []byte `json:"signature"`
+	Signer       common.Address `json:"signer"`
+	SignerPubKey []byte         `json:"signerPubKey"`
+	Signature    []byte         `json:"signature"`
 }
 
 type batchSignatureMarshaling struct {
-	Version      hexutil.Uint64
-	Signer       hexutil.Uint64
+	Signer       common.Address
 	SignerPubKey hexutil.Bytes
 	Signature    hexutil.Bytes
 }

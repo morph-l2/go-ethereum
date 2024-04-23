@@ -751,10 +751,9 @@ type RPCRollupBatch struct {
 }
 
 type RPCBatchSignature struct {
-	Version      uint64        `json:"version"`
-	Signer       uint64        `json:"signer"`
-	SignerPubKey hexutil.Bytes `json:"signerPubKey"`
-	Signature    hexutil.Bytes `json:"signature"`
+	Signer       common.Address `json:"signer"`
+	SignerPubKey hexutil.Bytes  `json:"signerPubKey"`
+	Signature    hexutil.Bytes  `json:"signature"`
 }
 
 func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*RPCRollupBatch, error) {
@@ -772,7 +771,6 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 	rpcSignatures := make([]RPCBatchSignature, len(signatures))
 	for i, sig := range signatures {
 		rpcSignatures[i] = RPCBatchSignature{
-			Version:      sig.Version,
 			Signer:       sig.Signer,
 			SignerPubKey: sig.SignerPubKey,
 			Signature:    sig.Signature,

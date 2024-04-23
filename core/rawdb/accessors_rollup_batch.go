@@ -62,7 +62,7 @@ func WriteBatchSignature(db ethdb.KeyValueWriter, batchHash common.Hash, signatu
 	}
 
 	if err = db.Put(RollupBatchSignatureSignerKey(batchHash, signature.Signer), bz); err != nil {
-		log.Crit("failed to store batch signature", "batch index", batchHash, "signer index", signature.Signer, "err", err)
+		log.Crit("failed to store batch signature", "batch index", batchHash, "signer", signature.Signer, "err", err)
 	}
 }
 

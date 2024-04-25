@@ -475,7 +475,7 @@ func DefaultScrollMainnetGenesisBlock() *Genesis {
 func DefaultMorphHoleskyGenesisBlock() *Genesis {
 	return &Genesis{
 		Config:     params.MorphHoleskyChainConfig,
-		Timestamp:  0x6628ba2e,
+		Timestamp:  0x662a0ed4,
 		ExtraData:  []byte{},
 		GasLimit:   10000000,
 		Difficulty: big.NewInt(0),

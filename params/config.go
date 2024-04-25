@@ -37,7 +37,7 @@ var (
 	ScrollAlphaGenesisHash   = common.HexToHash("0xa4fc62b9b0643e345bdcebe457b3ae898bef59c7203c3db269200055e037afda")
 	ScrollSepoliaGenesisHash = common.HexToHash("0xaa62d1a8b2bffa9e5d2368b63aae0d98d54928bd713125e3fd9e5c896c68592c")
 	ScrollMainnetGenesisHash = common.HexToHash("0xbbc05efd412b7cd47a2ed0e5ddfcf87af251e414ea4c801d78b6784513180a80")
-	MorphHoleskyGenesisHash  = common.HexToHash("0xd4aabf5ffc2a665072917e264b25f4db9f31c034768ff61a0ae557ce0e2f0ea3")
+	MorphHoleskyGenesisHash  = common.HexToHash("0xb1d05b3dcb85fb1d2b92f287ab656d55406693c0e965de4c32555c86c02a063e")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of

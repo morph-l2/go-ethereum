@@ -37,6 +37,7 @@ var (
 	ScrollAlphaGenesisHash   = common.HexToHash("0xa4fc62b9b0643e345bdcebe457b3ae898bef59c7203c3db269200055e037afda")
 	ScrollSepoliaGenesisHash = common.HexToHash("0xaa62d1a8b2bffa9e5d2368b63aae0d98d54928bd713125e3fd9e5c896c68592c")
 	ScrollMainnetGenesisHash = common.HexToHash("0xbbc05efd412b7cd47a2ed0e5ddfcf87af251e414ea4c801d78b6784513180a80")
+	MorphHoleskyGenesisHash  = common.HexToHash("0xd4aabf5ffc2a665072917e264b25f4db9f31c034768ff61a0ae557ce0e2f0ea3")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -354,6 +355,36 @@ var (
 			MaxTxPerBlock:             &ScrollMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &ScrollMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &rcfg.ScrollFeeVaultAddress,
+		},
+	}
+
+	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
+	MorphHoleskyChainConfig = &ChainConfig{
+		ChainID:                 big.NewInt(2810),
+		HomesteadBlock:          big.NewInt(0),
+		DAOForkBlock:            nil,
+		DAOForkSupport:          false,
+		EIP150Block:             big.NewInt(0),
+		EIP155Block:             big.NewInt(0),
+		EIP158Block:             big.NewInt(0),
+		ByzantiumBlock:          big.NewInt(0),
+		ConstantinopleBlock:     big.NewInt(0),
+		PetersburgBlock:         big.NewInt(0),
+		IstanbulBlock:           big.NewInt(0),
+		MuirGlacierBlock:        nil,
+		BerlinBlock:             big.NewInt(0),
+		LondonBlock:             big.NewInt(0),
+		ArrowGlacierBlock:       nil,
+		ArchimedesBlock:         big.NewInt(0),
+		ShanghaiBlock:           big.NewInt(0),
+		BernoulliBlock:          big.NewInt(0),
+		CurieBlock:              nil,
+		TerminalTotalDifficulty: big.NewInt(0),
+		Scroll: ScrollConfig{
+			UseZktrie:                 true,
+			MaxTxPerBlock:             &ScrollMaxTxPerBlock,
+			MaxTxPayloadBytesPerBlock: &ScrollMaxTxPayloadBytesPerBlock,
+			FeeVaultAddress:           &MorphFeeVaultAddress,
 		},
 	}
 

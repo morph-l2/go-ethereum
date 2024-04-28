@@ -471,6 +471,18 @@ func DefaultScrollMainnetGenesisBlock() *Genesis {
 	}
 }
 
+// DefaultMorphHoleskyGenesisBlock returns the Morph holesky genesis block.
+func DefaultMorphHoleskyGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.MorphHoleskyChainConfig,
+		Timestamp:  0x663050a0,
+		ExtraData:  []byte{},
+		GasLimit:   10000000,
+		Difficulty: big.NewInt(0),
+		Alloc:      decodePrealloc(morphHoleskyAllocData),
+	}
+}
+
 // DeveloperGenesisBlock returns the 'geth --dev' genesis block.
 func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address) *Genesis {
 	// Override the default period to the user requested one

@@ -99,6 +99,13 @@ var ScrollMainnetBootnodes = []string{
 	"enode://c7b2d94e95da343db6e667a01cef90376a592f2d277fbcbf6e9c9186734ed8003d01389571bd10cdbab7a6e5adfa6f0c7b55644d0db24e0b9deb4ec80f842075@54.70.236.187:30303",
 }
 
+// MorphHoleskyBootnodes are the enode URLs of the P2P bootstrap nodes running on the Morph Holesky test network.
+var MorphHoleskyBootnodes = []string{
+	"enode://8c400a01a9457ab99219bb7d87677ecdd4638ccf6a5f81c8bcf89abcd59cca91bd27b82071760e7f7d8ef043ca6817278495509197a3fc4ed2fd34fd67fb123b@52.69.21.155:30303",
+	"enode://8eba7278fcb84a7b836a684fd4b62526af775633297974bf2b48584ea2f831a65a7ae7d914198f66b94820348cdad37533fc7336688b139ca27d30a7713867ab@35.76.156.3:30303",
+	"enode://588b64f887745a2f53a92312926c9d5ae03c64412860889a9c605570d7b71522a0774d254311752ac2cd44c68c3282ea125874f66ef7e65548573420d6cd98e2@35.78.13.184:30303",
+}
+
 var V5Bootnodes = []string{
 	// Teku team's bootnode
 	"enr:-KG4QOtcP9X1FbIMOe17QNMKqDxCpm14jcX5tiOE4_TyMrFqbmhPZHK_ZPG2Gxb1GE2xdtodOfx9-cgvNtxnRyHEmC0ghGV0aDKQ9aX9QgAAAAD__________4JpZIJ2NIJpcIQDE8KdiXNlY3AyNTZrMaEDhpehBDbZjM_L9ek699Y7vhUJ-eAdMyQW_Fil522Y0fODdGNwgiMog3VkcIIjKA",

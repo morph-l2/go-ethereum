@@ -10,25 +10,27 @@ import (
 //go:generate go run github.com/fjl/gencodec -type RollupBatch -field-override rollupBatchMarshaling -out gen_batch.go
 
 type RollupBatch struct {
-	Index                  uint64
-	Hash                   common.Hash
-	Version                uint
-	ParentBatchHeader      []byte
-	Chunks                 [][]byte
-	SkippedL1MessageBitmap []byte
-	PrevStateRoot          common.Hash
-	PostStateRoot          common.Hash
-	WithdrawRoot           common.Hash
+	Index                    uint64
+	Hash                     common.Hash
+	Version                  uint
+	ParentBatchHeader        []byte
+	Chunks                   [][]byte
+	SkippedL1MessageBitmap   []byte
+	CurrentSequencerSetBytes []byte
+	PrevStateRoot            common.Hash
+	PostStateRoot            common.Hash
+	WithdrawRoot             common.Hash
 
 	Sidecar *BlobTxSidecar `rlp:"-"`
 }
 
 type rollupBatchMarshaling struct {
-	Version                hexutil.Uint
-	Index                  hexutil.Uint64
-	ParentBatchHeader      hexutil.Bytes
-	Chunks                 []hexutil.Bytes
-	SkippedL1MessageBitmap hexutil.Bytes
+	Version                  hexutil.Uint
+	Index                    hexutil.Uint64
+	ParentBatchHeader        hexutil.Bytes
+	Chunks                   []hexutil.Bytes
+	SkippedL1MessageBitmap   hexutil.Bytes
+	CurrentSequencerSetBytes hexutil.Bytes
 }
 
 // blobTxWithBlobs is used for encoding of transactions when blobs are present.
@@ -82,15 +84,13 @@ func (r *RollupBatch) Decode(input []byte) error {
 //go:generate go run github.com/fjl/gencodec -type BatchSignature -field-override batchSignatureMarshaling -out gen_batch_sig.go
 
 type BatchSignature struct {
-	Version      uint64 `json:"version"`
-	Signer       uint64 `json:"signer"`
-	SignerPubKey []byte `json:"signerPubKey"`
-	Signature    []byte `json:"signature"`
+	Signer       common.Address `json:"signer"`
+	SignerPubKey []byte         `json:"signerPubKey"`
+	Signature    []byte         `json:"signature"`
 }
 
 type batchSignatureMarshaling struct {
-	Version      hexutil.Uint64
-	Signer       hexutil.Uint64
+	Signer       common.Address
 	SignerPubKey hexutil.Bytes
 	Signature    hexutil.Bytes
 }

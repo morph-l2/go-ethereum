@@ -5,6 +5,7 @@ package types
 import (
 	"encoding/json"
 
+	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/hexutil"
 )
 
@@ -13,14 +14,12 @@ var _ = (*batchSignatureMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (b BatchSignature) MarshalJSON() ([]byte, error) {
 	type BatchSignature struct {
-		Version      hexutil.Uint64 `json:"version"`
-		Signer       hexutil.Uint64 `json:"signer"`
+		Signer       common.Address `json:"signer"`
 		SignerPubKey hexutil.Bytes  `json:"signerPubKey"`
 		Signature    hexutil.Bytes  `json:"signature"`
 	}
 	var enc BatchSignature
-	enc.Version = hexutil.Uint64(b.Version)
-	enc.Signer = hexutil.Uint64(b.Signer)
+	enc.Signer = b.Signer
 	enc.SignerPubKey = b.SignerPubKey
 	enc.Signature = b.Signature
 	return json.Marshal(&enc)
@@ -29,8 +28,7 @@ func (b BatchSignature) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (b *BatchSignature) UnmarshalJSON(input []byte) error {
 	type BatchSignature struct {
-		Version      *hexutil.Uint64 `json:"version"`
-		Signer       *hexutil.Uint64 `json:"signer"`
+		Signer       *common.Address `json:"signer"`
 		SignerPubKey *hexutil.Bytes  `json:"signerPubKey"`
 		Signature    *hexutil.Bytes  `json:"signature"`
 	}
@@ -38,11 +36,8 @@ func (b *BatchSignature) UnmarshalJSON(input []byte) error {
 	if err := json.Unmarshal(input, &dec); err != nil {
 		return err
 	}
-	if dec.Version != nil {
-		b.Version = uint64(*dec.Version)
-	}
 	if dec.Signer != nil {
-		b.Signer = uint64(*dec.Signer)
+		b.Signer = *dec.Signer
 	}
 	if dec.SignerPubKey != nil {
 		b.SignerPubKey = *dec.SignerPubKey

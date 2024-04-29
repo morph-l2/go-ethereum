@@ -306,7 +306,7 @@ func RollupBatchSignatureKey(batchHash common.Hash) []byte {
 	return append(rollupBatchSignaturePrefix, batchHash.Bytes()...)
 }
 
-// RollupBatchSignatureSignerKey = RollupBatchSignatureKey + signer index (uint64 big endian)
-func RollupBatchSignatureSignerKey(batchHash common.Hash, signerIndex uint64) []byte {
-	return append(RollupBatchSignatureKey(batchHash), encodeBigEndian(signerIndex)...)
+// RollupBatchSignatureSignerKey = RollupBatchSignatureKey + signer
+func RollupBatchSignatureSignerKey(batchHash common.Hash, signer common.Address) []byte {
+	return append(RollupBatchSignatureKey(batchHash), signer.Bytes()...)
 }

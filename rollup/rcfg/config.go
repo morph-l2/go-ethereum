@@ -6,15 +6,18 @@ import (
 	"github.com/scroll-tech/go-ethereum/common"
 )
 
-// TODO:
-// verify in consensus layer when decentralizing sequencer
-
 var (
 	// L2MessageQueueAddress is the address of the L2MessageQueue
 	// predeploy
 	// see contracts/src/L2/predeploys/L2MessageQueue.sol
 	L2MessageQueueAddress = common.HexToAddress("0x5300000000000000000000000000000000000001")
 	WithdrawTrieRootSlot  = common.BigToHash(big.NewInt(33))
+
+	// SequencerAddress is the address of the Sequencer
+	// predeploy
+	// set contracts/contracts/l2/staking/Sequencer.sol
+	SequencerAddress           = common.HexToAddress("0x5300000000000000000000000000000000000003")
+	SequencerSetVerifyHashSlot = common.BigToHash(big.NewInt(101))
 
 	// ScrollFeeVaultAddress is the address of the L2TxFeeVault
 	// predeploy

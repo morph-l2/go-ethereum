@@ -126,6 +126,7 @@ pub mod checker {
         match r {
             Ok(result) => result,
             Err(e) => {
+                log::error!("estimate_circuit_capacity error: {:?}", e);
                 bail!("estimate_circuit_capacity (id: {id:?}) error in apply_tx, error: {e:?}")
             }
         }

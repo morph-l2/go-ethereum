@@ -22,6 +22,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/fees"
 	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
+	"github.com/scroll-tech/go-ethereum/rollup/sequencer"
 	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
 	"github.com/scroll-tech/go-ethereum/trie/zkproof"
 )
@@ -491,6 +492,7 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 			rcfg.OverheadSlot,
 			rcfg.ScalarSlot,
 		},
+		rcfg.SequencerAddress: {rcfg.SequencerSetVerifyHashSlot},
 	}
 
 	for addr, storages := range intrinsicStorageProofs {
@@ -565,6 +567,7 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 	}
 
 	blockTrace.WithdrawTrieRoot = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, env.state)
+	blockTrace.SequencerSetVerifyHash = sequencer.ReadVerifyHashSlot(rcfg.SequencerAddress, env.state)
 
 	return blockTrace, nil
 }

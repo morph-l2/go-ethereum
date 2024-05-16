@@ -11,6 +11,7 @@ package circuitcapacitychecker
 import "C" //nolint:typecheck
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -30,7 +31,8 @@ func init() {
 type CircuitCapacityChecker struct {
 	// mutex for each CircuitCapacityChecker itself
 	sync.Mutex
-	ID uint64
+	ID         uint64
+	jsonBuffer bytes.Buffer
 }
 
 // NewCircuitCapacityChecker creates a new CircuitCapacityChecker
@@ -66,13 +68,14 @@ func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) (*
 		return nil, ErrUnknown
 	}
 
-	tracesByt, err := json.Marshal(traces)
+	ccc.jsonBuffer.Reset()
+	err := json.NewEncoder(&ccc.jsonBuffer).Encode(traces)
 	if err != nil {
 		log.Error("fail to json marshal traces in ApplyTransaction", "id", ccc.ID, "TxHash", traces.Transactions[0].TxHash, "err", err)
 		return nil, ErrUnknown
 	}
 
-	tracesStr := C.CString(string(tracesByt))
+	tracesStr := C.CString(string(ccc.jsonBuffer.Bytes()))
 	defer func() {
 		C.free(unsafe.Pointer(tracesStr))
 	}()
@@ -112,13 +115,14 @@ func (ccc *CircuitCapacityChecker) ApplyBlock(traces *types.BlockTrace) (*types.
 	ccc.Lock()
 	defer ccc.Unlock()
 
-	tracesByt, err := json.Marshal(traces)
+	ccc.jsonBuffer.Reset()
+	err := json.NewEncoder(&ccc.jsonBuffer).Encode(traces)
 	if err != nil {
 		log.Error("fail to json marshal traces in ApplyBlock", "id", ccc.ID, "blockNumber", traces.Header.Number, "blockHash", traces.Header.Hash(), "err", err)
 		return nil, ErrUnknown
 	}
 
-	tracesStr := C.CString(string(tracesByt))
+	tracesStr := C.CString(string(ccc.jsonBuffer.Bytes()))
 	defer func() {
 		C.free(unsafe.Pointer(tracesStr))
 	}()

@@ -34,7 +34,10 @@ import (
 
 var emptyKeccakCodeHash = codehash.EmptyKeccakCodeHash
 
-var evmCallExecutionTimer = metrics.NewRegisteredTimer("evm/call/execution", nil)
+var (
+	stateTransitionEvmCallExecutionTimer = metrics.NewRegisteredTimer("state/transition/call_execution", nil)
+	stateTransitionApplyMessageTimer     = metrics.NewRegisteredTimer("state/transition/apply_message", nil)
+)
 
 /*
 The State Transitioning Model
@@ -208,6 +211,10 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.In
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
 func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) (*ExecutionResult, error) {
+	defer func(t time.Time) {
+		stateTransitionApplyMessageTimer.Update(time.Since(t))
+	}(time.Now())
+
 	return NewStateTransition(evm, msg, gp, l1DataFee).TransitionDb()
 }
 
@@ -374,11 +381,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if rules.IsShanghai && contractCreation && len(st.data) > params.MaxInitCodeSize {
 		return nil, fmt.Errorf("%w: code size %v limit %v", ErrMaxInitCodeSizeExceeded, len(st.data), params.MaxInitCodeSize)
 	}
-
-	// Set up the initial access list.
-	if rules.IsBerlin {
-		st.state.PrepareAccessList(rules, msg.From(), st.evm.Context.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
-	}
+	// Execute the preparatory steps for state transition which includes:
+	// - prepare accessList(post-berlin)
+	// - reset transient storage(eip 1153)
+	st.state.Prepare(rules, msg.From(), st.evm.Context.Coinbase, msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
 
 	var (
 		ret   []byte
@@ -391,7 +397,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
 		evmCallStart := time.Now()
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
-		evmCallExecutionTimer.Update(time.Since(evmCallStart))
+		stateTransitionEvmCallExecutionTimer.Update(time.Since(evmCallStart))
 	}
 
 	// no refunds for l1 messages

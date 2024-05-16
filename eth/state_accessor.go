@@ -47,7 +47,12 @@ import (
 //     storing trash persistently
 //   - preferDisk: this arg can be used by the caller to signal that even though the 'base' is provided,
 //     it would be preferrable to start from a fresh state, if we have it on disk.
+//
+// <<<<<<< HEAD
 func (eth *Ethereum) stateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
+	// =======
+	// func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
+	// >>>>>>> scroll/v5.3.14
 	var (
 		current  *types.Block
 		database state.Database
@@ -198,7 +203,7 @@ func (eth *Ethereum) stateAtTransaction(ctx context.Context, block *types.Block,
 		}
 		// Not yet the searched for transaction, execute on top of the current state
 		vmenv := vm.NewEVM(context, txContext, statedb, eth.blockchain.Config(), vm.Config{})
-		statedb.Prepare(tx.Hash(), idx)
+		statedb.SetTxContext(tx.Hash(), idx)
 		l1DataFee, err := fees.CalculateL1DataFee(tx, statedb)
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, err

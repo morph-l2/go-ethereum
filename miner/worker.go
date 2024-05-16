@@ -96,16 +96,30 @@ var (
 	l1TxCccUnknownErrCounter          = metrics.NewRegisteredCounter("miner/skipped_txs/l1/ccc_unknown_err", nil)
 	l2TxCccUnknownErrCounter          = metrics.NewRegisteredCounter("miner/skipped_txs/l2/ccc_unknown_err", nil)
 	l1TxStrangeErrCounter             = metrics.NewRegisteredCounter("miner/skipped_txs/l1/strange_err", nil)
-	l2CommitTxsTimer                  = metrics.NewRegisteredTimer("miner/commit/txs_all", nil)
-	l2CommitTxTimer                   = metrics.NewRegisteredTimer("miner/commit/tx_all", nil)
-	l2CommitTxTraceTimer              = metrics.NewRegisteredTimer("miner/commit/tx_trace", nil)
-	l2CommitTxCCCTimer                = metrics.NewRegisteredTimer("miner/commit/tx_ccc", nil)
-	l2CommitTxApplyTimer              = metrics.NewRegisteredTimer("miner/commit/tx_apply", nil)
-	l2CommitTimer                     = metrics.NewRegisteredTimer("miner/commit/all", nil)
-	l2CommitTraceTimer                = metrics.NewRegisteredTimer("miner/commit/trace", nil)
-	l2CommitCCCTimer                  = metrics.NewRegisteredTimer("miner/commit/ccc", nil)
-	l2CommitNewWorkTimer              = metrics.NewRegisteredTimer("miner/commit/new_work_all", nil)
-	l2ResultTimer                     = metrics.NewRegisteredTimer("miner/result/all", nil)
+
+	l2CommitTxsTimer                = metrics.NewRegisteredTimer("miner/commit/txs_all", nil)
+	l2CommitTxTimer                 = metrics.NewRegisteredTimer("miner/commit/tx_all", nil)
+	l2CommitTxFailedTimer           = metrics.NewRegisteredTimer("miner/commit/tx_all_failed", nil)
+	l2CommitTxTraceTimer            = metrics.NewRegisteredTimer("miner/commit/tx_trace", nil)
+	l2CommitTxTraceStateRevertTimer = metrics.NewRegisteredTimer("miner/commit/tx_trace_state_revert", nil)
+	l2CommitTxCCCTimer              = metrics.NewRegisteredTimer("miner/commit/tx_ccc", nil)
+	l2CommitTxApplyTimer            = metrics.NewRegisteredTimer("miner/commit/tx_apply", nil)
+
+	l2CommitNewWorkTimer                    = metrics.NewRegisteredTimer("miner/commit/new_work_all", nil)
+	l2CommitNewWorkL1CollectTimer           = metrics.NewRegisteredTimer("miner/commit/new_work_collect_l1", nil)
+	l2CommitNewWorkPrepareTimer             = metrics.NewRegisteredTimer("miner/commit/new_work_prepare", nil)
+	l2CommitNewWorkCommitUncleTimer         = metrics.NewRegisteredTimer("miner/commit/new_work_uncle", nil)
+	l2CommitNewWorkTidyPendingTxTimer       = metrics.NewRegisteredTimer("miner/commit/new_work_tidy_pending", nil)
+	l2CommitNewWorkCommitL1MsgTimer         = metrics.NewRegisteredTimer("miner/commit/new_work_commit_l1_msg", nil)
+	l2CommitNewWorkPrioritizedTxCommitTimer = metrics.NewRegisteredTimer("miner/commit/new_work_prioritized", nil)
+	l2CommitNewWorkRemoteLocalCommitTimer   = metrics.NewRegisteredTimer("miner/commit/new_work_remote_local", nil)
+	l2CommitNewWorkLocalPriceAndNonceTimer  = metrics.NewRegisteredTimer("miner/commit/new_work_local_price_and_nonce", nil)
+	l2CommitNewWorkRemotePriceAndNonceTimer = metrics.NewRegisteredTimer("miner/commit/new_work_remote_price_and_nonce", nil)
+
+	l2CommitTimer      = metrics.NewRegisteredTimer("miner/commit/all", nil)
+	l2CommitTraceTimer = metrics.NewRegisteredTimer("miner/commit/trace", nil)
+	l2CommitCCCTimer   = metrics.NewRegisteredTimer("miner/commit/ccc", nil)
+	l2ResultTimer      = metrics.NewRegisteredTimer("miner/result/all", nil)
 )
 
 // environment is the worker's current environment and holds all of the current state information.
@@ -247,6 +261,7 @@ type worker struct {
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
 	fullTaskHook func()                             // Method to call before pushing the full sealing task.
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
+	beforeTxHook func()                             // Method to call before processing a transaction.
 }
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(*types.Block) bool, init bool) *worker {
@@ -920,6 +935,9 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 	if w.isRunning() {
 		defer func(t0 time.Time) {
 			l2CommitTxTimer.Update(time.Since(t0))
+			if err != nil {
+				l2CommitTxFailedTimer.Update(time.Since(t0))
+			}
 		}(time.Now())
 
 		// do gas limit check up-front and do not run CCC if it fails
@@ -942,18 +960,20 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 		// 2.1 when starting handling the first tx, `state.refund` is 0 by default,
 		// 2.2 after tracing, the state is either committed in `core.ApplyTransaction`, or reverted, so the `state.refund` can be cleared,
 		// 2.3 when starting handling the following txs, `state.refund` comes as 0
-		withTimer(l2CommitTxTraceTimer, func() {
+		common.WithTimer(l2CommitTxTraceTimer, func() {
 			traces, err = env.traceEnv.GetBlockTrace(
-				types.NewBlockWithHeader(env.header).WithBody([]*types.Transaction{tx}, nil),
+				types.NewBlockWithHeader(w.current.header).WithBody([]*types.Transaction{tx}, nil),
 			)
 		})
-		// `w.current.traceEnv.State` & `w.current.state` share a same pointer to the state, so only need to revert `w.current.state`
-		// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
-		env.state.RevertToSnapshot(snap)
+		common.WithTimer(l2CommitTxTraceStateRevertTimer, func() {
+			// `env.traceEnv.State` & `env.state` share a same pointer to the state, so only need to revert `env.state`
+			// revert to snapshot for calling `core.ApplyMessage` again, (both `traceEnv.GetBlockTrace` & `core.ApplyTransaction` will call `core.ApplyMessage`)
+			env.state.RevertToSnapshot(snap)
+		})
 		if err != nil {
 			return nil, nil, err
 		}
-		withTimer(l2CommitTxCCCTimer, func() {
+		common.WithTimer(l2CommitTxCCCTimer, func() {
 			accRows, err = w.circuitCapacityChecker.ApplyTransaction(traces)
 		})
 		if err != nil {
@@ -971,7 +991,7 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 	snap := env.state.Snapshot()
 
 	var receipt *types.Receipt
-	withTimer(l2CommitTxApplyTimer, func() {
+	common.WithTimer(l2CommitTxApplyTimer, func() {
 		receipt, err = core.ApplyTransaction(w.chainConfig, w.chain, &coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *w.chain.GetVMConfig())
 	})
 	if err != nil {
@@ -1018,11 +1038,17 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 
 	var (
 		coalescedLogs []*types.Log
+		loops         int64
 		skippedTxs    = make([]*types.SkippedTransaction, 0)
 	)
 
 loop:
 	for {
+		if w.beforeTxHook != nil {
+			w.beforeTxHook()
+		}
+
+		loops++
 		if interrupt != nil {
 			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
 				return signalToErr(signal), circuitCapacityReached, skippedTxs
@@ -1071,7 +1097,11 @@ loop:
 			continue
 		}
 		// Start executing the transaction
-		env.state.Prepare(tx.Hash(), env.tcount)
+		// <<<<<<< HEAD
+		// 		env.state.Prepare(tx.Hash(), env.tcount)
+		// =======
+		env.state.SetTxContext(tx.Hash(), env.tcount)
+		//>>>>>>> scroll/v5.3.14
 
 		logs, traces, err := w.commitTransaction(env, tx, coinbase)
 		switch {
@@ -1347,10 +1377,14 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 		}
 		header.Coinbase = w.coinbase
 	}
-	if err := w.engine.Prepare(w.chain, header); err != nil {
-		log.Error("Failed to prepare header for mining", "err", err)
-		return
-	}
+
+	common.WithTimer(l2CommitNewWorkPrepareTimer, func() {
+		if err := w.engine.Prepare(w.chain, header); err != nil {
+			log.Error("Failed to prepare header for mining", "err", err)
+			return
+		}
+	})
+
 	// If we are care about TheDAO hard-fork check whether to override the extra-data or not
 	if daoBlock := w.chainConfig.DAOForkBlock; daoBlock != nil {
 		// Check whether the block is among the fork extra-override range
@@ -1396,16 +1430,18 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 			}
 		}
 	}
-	// Prefer to locally generated uncle
-	commitUncles(w.localUncles)
-	commitUncles(w.remoteUncles)
+
+	common.WithTimer(l2CommitNewWorkCommitUncleTimer, func() {
+		// Prefer to locally generated uncle
+		commitUncles(w.localUncles)
+		commitUncles(w.remoteUncles)
+	})
 
 	// Create an empty block based on temporary copied state for
 	// sealing in advance without waiting block execution finished.
 	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
 		w.commit(uncles, nil, false, tstart)
 	}
-
 	err, _ = w.fillTransactions(w.current, nil, interrupt)
 	switch {
 	case err == nil:
@@ -1463,7 +1499,7 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		)
 		var traces *types.BlockTrace
 		var err error
-		withTimer(l2CommitTraceTimer, func() {
+		common.WithTimer(l2CommitTraceTimer, func() {
 			traces, err = w.current.traceEnv.GetBlockTrace(types.NewBlockWithHeader(w.current.header))
 		})
 		if err != nil {
@@ -1474,7 +1510,7 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 		traces.ExecutionResults = traces.ExecutionResults[:0]
 		traces.TxStorageTraces = traces.TxStorageTraces[:0]
 		var accRows *types.RowConsumption
-		withTimer(l2CommitCCCTimer, func() {
+		common.WithTimer(l2CommitCCCTimer, func() {
 			accRows, err = w.circuitCapacityChecker.ApplyBlock(traces)
 		})
 		if err != nil {

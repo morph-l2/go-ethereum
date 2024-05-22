@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -316,6 +317,12 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		log.Warn("Low block timeout may cause high amount of non-full blocks", "provided", newBlockTimeout, "default", 3*time.Second)
 	}
 	worker.newBlockTimeout = newBlockTimeout
+
+	// Sanitize account fetch limit.
+	if worker.config.MaxAccountsNum == 0 {
+		log.Warn("Sanitizing miner account fetch limit", "provided", worker.config.MaxAccountsNum, "updated", math.MaxInt)
+		worker.config.MaxAccountsNum = math.MaxInt
+	}
 
 	worker.wg.Add(4)
 	go worker.mainLoop()

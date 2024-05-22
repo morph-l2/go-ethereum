@@ -323,9 +323,6 @@ func baseRpcRequest(t *testing.T, url, bodyStr string, extraHeaders ...string) *
 	return resp
 }
 
-//<<<<<<< HEAD
-//=======
-
 type testClaim map[string]interface{}
 
 func (testClaim) Valid() error {

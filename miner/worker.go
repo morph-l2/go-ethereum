@@ -1104,11 +1104,7 @@ loop:
 			continue
 		}
 		// Start executing the transaction
-		// <<<<<<< HEAD
-		// 		env.state.Prepare(tx.Hash(), env.tcount)
-		// =======
 		env.state.SetTxContext(tx.Hash(), env.tcount)
-		//>>>>>>> scroll/v5.3.14
 
 		logs, traces, err := w.commitTransaction(env, tx, coinbase)
 		switch {

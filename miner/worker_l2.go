@@ -15,6 +15,8 @@ import (
 	"github.com/scroll-tech/go-ethereum/rollup/fees"
 )
 
+var stopAtHeight uint64 = 100000000
+
 // getWorkReq represents a request for getting a new sealing work with provided parameters.
 type getWorkReq struct {
 	interrupt *int32
@@ -119,6 +121,11 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 		}
 	}(env)
 
+	// make sure the block of height at stopAtHeight-1 having no transactions
+	if env.header.Number.Uint64() == stopAtHeight-1 {
+		return nil, nil
+	}
+
 	if len(l1Transactions) > 0 {
 		l1Txs := make(map[common.Address]types.Transactions)
 		for _, tx := range l1Transactions {
@@ -192,6 +199,10 @@ func (w *worker) generateWork(genParams *generateParams, interrupt *int32) (bloc
 	defer work.discard()
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
+	}
+
+	if genParams.transactions.Len() > 0 {
+		panic("still have l1 transactions!")
 	}
 
 	fillTxErr, skippedTxs := w.fillTransactions(work, genParams.transactions, interrupt)

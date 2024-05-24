@@ -140,7 +140,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 
 	// Split the pending transactions into locals and remotes
 	// Fill the block with all available pending transactions.
-	pending := w.eth.TxPool().Pending(true)
+	pending := w.eth.TxPool().PendingWithMax(false, w.config.MaxAccountsNum)
 	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
 	for _, account := range w.eth.TxPool().Locals() {
 		if txs := remoteTxs[account]; len(txs) > 0 {

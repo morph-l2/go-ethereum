@@ -16,7 +16,7 @@ var (
 	// SequencerAddress is the address of the Sequencer
 	// predeploy
 	// set contracts/contracts/l2/staking/Sequencer.sol
-	SequencerAddress           = common.HexToAddress("0x5300000000000000000000000000000000000003")
+	SequencerAddress           = common.HexToAddress("0x5300000000000000000000000000000000000017")
 	SequencerSetVerifyHashSlot = common.BigToHash(big.NewInt(101))
 
 	// ScrollFeeVaultAddress is the address of the L2TxFeeVault

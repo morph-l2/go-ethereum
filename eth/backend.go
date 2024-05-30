@@ -53,6 +53,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/p2p/enode"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rlp"
+	"github.com/scroll-tech/go-ethereum/rollup/batch"
 	"github.com/scroll-tech/go-ethereum/rollup/tracing"
 	"github.com/scroll-tech/go-ethereum/rpc"
 )
@@ -93,6 +94,9 @@ type Ethereum struct {
 	netRPCService *ethapi.PublicNetAPI
 
 	p2pServer *p2p.Server
+
+	// Batch Handler
+	batchHandler *batch.Handler
 
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 }
@@ -233,6 +237,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 
 	eth.miner = miner.New(eth, &config.Miner, chainConfig, eth.EventMux(), eth.engine, eth.isLocalBlock)
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
+
+	// new batch handler
+	eth.batchHandler = batch.NewBatchHandler(chainDb, eth.blockchain)
 
 	eth.APIBackend = &EthAPIBackend{stack.Config().ExtRPCEnabled(), stack.Config().AllowUnprotectedTxs, eth, nil}
 	if eth.APIBackend.allowUnprotectedTxs {
@@ -504,6 +511,7 @@ func (s *Ethereum) Downloader() *downloader.Downloader { return s.handler.downlo
 func (s *Ethereum) Synced() bool                       { return atomic.LoadUint32(&s.handler.acceptTxs) == 1 }
 func (s *Ethereum) ArchiveMode() bool                  { return s.config.NoPruning }
 func (s *Ethereum) BloomIndexer() *core.ChainIndexer   { return s.bloomIndexer }
+func (s *Ethereum) BatchHandler() *batch.Handler       { return s.batchHandler }
 func (s *Ethereum) SyncMode() downloader.SyncMode {
 	mode, _ := s.handler.chainSync.modeAndLocalHead()
 	return mode
@@ -522,6 +530,9 @@ func (s *Ethereum) Protocols() []p2p.Protocol {
 // Start implements node.Lifecycle, starting all internal goroutines needed by the
 // Ethereum protocol implementation.
 func (s *Ethereum) Start() error {
+	// start the batch handler
+	s.batchHandler.Start()
+
 	//eth.StartENRUpdater(s.blockchain, s.p2pServer.LocalNode())
 
 	// Start the bloom bits servicing goroutines
@@ -553,6 +564,7 @@ func (s *Ethereum) Stop() error {
 	close(s.closeBloomHandler)
 	s.txPool.Stop()
 	s.miner.Close()
+	s.batchHandler.Stop()
 	s.blockchain.Stop()
 	s.engine.Close()
 	rawdb.PopUncleanShutdownMarker(s.chainDb)

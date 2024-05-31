@@ -749,6 +749,8 @@ type RPCRollupBatch struct {
 
 	Sidecar    types.BlobTxSidecar `json:"sidecar"`
 	Signatures []RPCBatchSignature `json:"signatures"`
+
+	CollectedL1Fee *hexutil.Big `json:"collectedL1Fee"`
 }
 
 type RPCBatchSignature struct {
@@ -783,6 +785,12 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 		sidecar = *rollupBatch.Sidecar
 	}
 
+	var collectedL1Fee *hexutil.Big
+	l1DataFee := rawdb.ReadBatchL1DataFee(api.eth.ChainDb(), index)
+	if l1DataFee != nil {
+		collectedL1Fee = (*hexutil.Big)(l1DataFee)
+	}
+
 	return &RPCRollupBatch{
 		Version:                  rollupBatch.Version,
 		Hash:                     rollupBatch.Hash,
@@ -795,5 +803,15 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 		WithdrawRoot:             rollupBatch.WithdrawRoot,
 		Sidecar:                  sidecar,
 		Signatures:               rpcSignatures,
+		CollectedL1Fee:           collectedL1Fee,
 	}, nil
+}
+
+func (api *MorphAPI) GetRollupBatchL1FeeByIndex(ctx context.Context, index uint64) (*hexutil.Big, error) {
+	var collectedL1Fee *hexutil.Big
+	l1DataFee := rawdb.ReadBatchL1DataFee(api.eth.ChainDb(), index)
+	if l1DataFee != nil {
+		collectedL1Fee = (*hexutil.Big)(l1DataFee)
+	}
+	return collectedL1Fee, nil
 }

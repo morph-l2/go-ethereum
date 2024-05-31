@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-
 	leveldb "github.com/syndtr/goleveldb/leveldb/errors"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -119,9 +118,12 @@ var (
 	skippedTransactionHashPrefix = []byte("sh")   // skippedTransactionHashPrefix + index -> tx hash
 
 	// rollup batch
-	rollupBatchPrefix          = []byte("R-b")
-	rollupBatchIndexPrefix     = []byte("R-bp")
-	rollupBatchSignaturePrefix = []byte("R-bs")
+	rollupHeadBatchKey            = []byte("R-hb")
+	rollupBatchPrefix             = []byte("R-b")
+	rollupBatchIndexPrefix        = []byte("R-bp")
+	rollupBatchSignaturePrefix    = []byte("R-bs")
+	rollupBatchL1DataFeePrefix    = []byte("R-df")
+	rollupBatchHeadBatchHasFeeKey = []byte("R-hbf")
 )
 
 const (
@@ -309,4 +311,9 @@ func RollupBatchSignatureKey(batchHash common.Hash) []byte {
 // RollupBatchSignatureSignerKey = RollupBatchSignatureKey + signer index (uint64 big endian)
 func RollupBatchSignatureSignerKey(batchHash common.Hash, signerIndex uint64) []byte {
 	return append(RollupBatchSignatureKey(batchHash), encodeBigEndian(signerIndex)...)
+}
+
+// RollupBatchL1DataFeeKey = rollupBatchL1DataFeePrefix + batchIndex
+func RollupBatchL1DataFeeKey(batchIndex uint64) []byte {
+	return append(rollupBatchL1DataFeePrefix, encodeBigEndian(batchIndex)...)
 }

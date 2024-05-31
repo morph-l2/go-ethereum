@@ -485,6 +485,18 @@ func (ec *Client) GetRollupBatchByIndex(ctx context.Context, batchIndex uint64) 
 	return rpcRollupBatch, err
 }
 
+// GetRollupBatchL1FeeByIndex query the batch to be rollup by batchIndex
+func (ec *Client) GetRollupBatchL1FeeByIndex(ctx context.Context, batchIndex uint64) (*big.Int, error) {
+	var fee *hexutil.Big
+	err := ec.c.CallContext(ctx, &fee, "morph_getRollupBatchL1FeeByIndex", batchIndex)
+	if err != nil {
+		return nil, err
+	} else if fee == nil {
+		return nil, nil
+	}
+	return (*big.Int)(fee), err
+}
+
 // State Access
 
 // NetworkID returns the network ID (also known as the chain ID) for this chain.

@@ -3,6 +3,7 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
+	"math/big"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/types"
@@ -11,7 +12,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/rlp"
 )
 
-func WriteRollupBatch(db ethdb.KeyValueWriter, batch types.RollupBatch) {
+func WriteRollupBatch(db ethdb.KeyValueWriter, batch *types.RollupBatch) {
 	bz, err := batch.Encode()
 	if err != nil {
 		log.Crit("failed to RLP encode batch", "batch index", batch.Index, "err", err)
@@ -24,6 +25,23 @@ func WriteRollupBatch(db ethdb.KeyValueWriter, batch types.RollupBatch) {
 	if err = db.Put(RollupBatchIndexKey(batch.Hash), encodeBigEndian(batch.Index)); err != nil {
 		log.Crit("failed to store batch index", "batch hash", batch.Hash.Hex(), "batch index", batch.Index, "err", err)
 	}
+
+	// stores latest batch index
+	if err = db.Put(rollupHeadBatchKey, encodeBigEndian(batch.Index)); err != nil {
+		log.Crit("failed to store latest batch index", "batch index", batch.Index, "err", err)
+	}
+}
+
+func ReadLatestBatchIndex(db ethdb.Reader) *uint64 {
+	data, err := db.Get(rollupHeadBatchKey)
+	if err != nil && isNotFoundErr(err) {
+		return nil
+	}
+	if err != nil {
+		log.Crit("failed to read batchIndex from database", "err", err)
+	}
+	index := binary.BigEndian.Uint64(data)
+	return &index
 }
 
 func ReadBatchIndexByHash(db ethdb.Reader, batchHash common.Hash) *uint64 {
@@ -87,4 +105,39 @@ func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) []*types.Batc
 		bss = append(bss, bs)
 	}
 	return bss
+}
+
+func WriteBatchL1DataFee(db ethdb.Database, batchIndex uint64, l1DataFee *big.Int) {
+	if err := db.Put(RollupBatchL1DataFeeKey(batchIndex), l1DataFee.Bytes()); err != nil {
+		log.Crit("failed to store batch l1DataFee", "batch index", batchIndex, "l1DataFee", l1DataFee.String(), "err", err)
+	}
+}
+
+func WriteHeadBatchIndexHasFee(db ethdb.Database, batchIndex uint64) {
+	if err := db.Put(rollupBatchHeadBatchHasFeeKey, encodeBigEndian(batchIndex)); err != nil {
+		log.Crit("failed to store head batch which has fee collected", "batch index", batchIndex, "err", err)
+	}
+}
+
+func ReadBatchL1DataFee(db ethdb.Database, batchIndex uint64) *big.Int {
+	data, err := db.Get(RollupBatchL1DataFeeKey(batchIndex))
+	if err != nil && isNotFoundErr(err) {
+		return nil
+	}
+	if err != nil {
+		log.Crit("failed to read batch from database", "err", err)
+	}
+	return new(big.Int).SetBytes(data)
+}
+
+func ReadLatestBatchIndexHasFee(db ethdb.Reader) *uint64 {
+	data, err := db.Get(rollupBatchHeadBatchHasFeeKey)
+	if err != nil && isNotFoundErr(err) {
+		return nil
+	}
+	if err != nil {
+		log.Crit("failed to read batchIndex from database", "err", err)
+	}
+	index := binary.BigEndian.Uint64(data)
+	return &index
 }

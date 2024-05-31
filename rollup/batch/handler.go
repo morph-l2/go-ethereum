@@ -95,7 +95,7 @@ func (h *Handler) CollectL1FeeLoop() {
 			}
 			h.calculateL1FeeForBatch(newBatch.Index, newBatch.Chunks)
 			rawdb.WriteHeadBatchIndexHasFee(h.db, newBatch.Index)
-			h.latestBatchIndexHasFee++
+			h.latestBatchIndexHasFee = newBatch.Index
 		case <-h.stopCh:
 			close(h.newBatchCh)
 			return

@@ -66,9 +66,9 @@ var (
 // Pruner is an offline tool to prune the stale state with the
 // help of the snapshot. The workflow of pruner is very simple:
 //
-// - iterate the snapshot, reconstruct the relevant state
-// - iterate the database, delete all other state entries which
-//   don't belong to the target state and the genesis state
+//   - iterate the snapshot, reconstruct the relevant state
+//   - iterate the database, delete all other state entries which
+//     don't belong to the target state and the genesis state
 //
 // It can take several hours(around 2 hours for mainnet) to finish
 // the whole pruning work. It's recommended to run this offline tool
@@ -493,7 +493,7 @@ The clean trie cache is not found. Please delete it by yourself after the
 pruning. Remember don't start the Geth without deleting the clean trie cache
 otherwise the entire database may be damaged!
 
-Check the command description "geth snapshot prune-state --help" for more details.
+Check the command description "geth snapshot prune-zk-state --help" for more details.
 `
 
 func deleteCleanTrieCache(path string) {

@@ -37,7 +37,7 @@ func NewZktrieDatabaseFromTriedb(db *Database) *ZktrieDatabase {
 
 // Put saves a key:value into the Storage
 func (l *ZktrieDatabase) Put(k, v []byte) error {
-	k = bitReverse(k)
+	k = BitReverse(k)
 	l.db.lock.Lock()
 	l.db.rawDirties.Put(Concat(l.prefix, k[:]), v)
 	l.db.lock.Unlock()
@@ -46,7 +46,7 @@ func (l *ZktrieDatabase) Put(k, v []byte) error {
 
 // Get retrieves a value from a key in the Storage
 func (l *ZktrieDatabase) Get(key []byte) ([]byte, error) {
-	key = bitReverse(key)
+	key = BitReverse(key)
 	concatKey := Concat(l.prefix, key[:])
 	l.db.lock.RLock()
 	value, ok := l.db.rawDirties.Get(concatKey)
@@ -88,7 +88,7 @@ func (l *ZktrieDatabase) Iterate(f func([]byte, []byte) (bool, error)) error {
 	iter := l.db.diskdb.NewIterator(l.prefix, nil)
 	defer iter.Release()
 	for iter.Next() {
-		localKey := bitReverse(iter.Key()[len(l.prefix):])
+		localKey := BitReverse(iter.Key()[len(l.prefix):])
 		if cont, err := f(localKey, iter.Value()); err != nil {
 			return err
 		} else if !cont {
@@ -159,7 +159,7 @@ func bitReverseForNibble(b byte) byte {
 	}
 }
 
-func bitReverse(inp []byte) (out []byte) {
+func BitReverse(inp []byte) (out []byte) {
 
 	l := len(inp)
 	out = make([]byte, l)

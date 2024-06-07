@@ -54,6 +54,31 @@ var (
 		Description: "",
 		Subcommands: []cli.Command{
 			{
+				Name:      "prune-zk-state",
+				ArgsUsage: "<root>",
+				Action:    utils.MigrateFlags(pruneZKState),
+				Category:  "MISCELLANEOUS COMMANDS",
+				Flags: []cli.Flag{
+					utils.DataDirFlag,
+					utils.MorphHoleskyFlag,
+					utils.BloomFilterSizeFlag,
+				},
+				Description: `
+geth snapshot prune-zk-state <state-root>
+will prune historical state data.
+All trie nodes and contract codes that do not belong to the specified
+version state will be deleted from the database. After pruning, only
+two version states are available: genesis and the specific one.
+
+The default pruning target is the HEAD state.
+
+WARNING: It's necessary to delete the trie clean cache after the pruning.
+If you specify another directory for the trie clean cache via "--cache.trie.journal"
+during the use of Geth, please also specify it here for correct deletion. Otherwise
+the trie clean cache with default directory will be deleted.
+`,
+			},
+			{
 				Name:      "prune-state",
 				Usage:     "Prune stale ethereum state data based on the snapshot",
 				ArgsUsage: "<root>",
@@ -201,6 +226,32 @@ block is used.
 		},
 	}
 )
+
+func pruneZKState(ctx *cli.Context) error {
+	stack, config := makeConfigNode(ctx)
+	defer stack.Close()
+
+	chaindb := utils.MakeChainDatabase(ctx, stack, false)
+	zkPruner, err := pruner.NewZKPruner(chaindb, ctx.GlobalUint64(utils.BloomFilterSizeFlag.Name), stack.ResolvePath(""), stack.ResolvePath(config.Eth.TrieCleanCacheJournal))
+	if err != nil {
+		return err
+	}
+
+	if ctx.NArg() > 1 {
+		log.Error("Too many arguments given")
+		return errors.New("too many arguments")
+	}
+	var targetRoot common.Hash
+	if ctx.NArg() == 1 {
+		targetRoot, err = parseRoot(ctx.Args()[0])
+		if err != nil {
+			log.Error("Failed to resolve state root", "err", err)
+			return err
+		}
+	}
+
+	return zkPruner.Prune(targetRoot)
+}
 
 func pruneState(ctx *cli.Context) error {
 	stack, config := makeConfigNode(ctx)

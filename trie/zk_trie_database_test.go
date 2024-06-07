@@ -39,7 +39,7 @@ func TestBitReverse(t *testing.T) {
 		common.FromHex("b908adff17a5aa9d6787324c39014a74b04cef7fba6a92aeb730f48da1ca665d"),
 	} {
 
-		b1 := bitReverse(testBytes)
+		b1 := BitReverse(testBytes)
 		reverseBitInPlace(testBytes)
 		reverseBytesInPlace(testBytes)
 		if !bytes.Equal(b1, testBytes) {
@@ -60,7 +60,7 @@ func TestBitDoubleReverse(t *testing.T) {
 		common.FromHex("b908adff17a5aa9d6787324c39014a74b04cef7fba6a92aeb730f48da1ca665d"),
 	} {
 
-		b := bitReverse(bitReverse(testBytes))
+		b := BitReverse(BitReverse(testBytes))
 		if !bytes.Equal(b, testBytes) {
 			t.Errorf("unexpected double bit reversed %x vs %x", b, testBytes)
 		}

@@ -126,6 +126,7 @@ type environment struct {
 	receipts []*types.Receipt
 
 	// circuit capacity check related fields
+	skipCCC        bool                  // skip CCC when commitNewWork
 	traceEnv       *tracing.TraceEnv     // env for tracing
 	accRows        *types.RowConsumption // accumulated row consumption for a block
 	nextL1MsgIndex uint64                // next L1 queue index to be processed
@@ -855,6 +856,8 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 		w.current.discard()
 	}
 	w.current = env
+	// It does not need CCC for `commitNewWork`.
+	w.current.skipCCC = true
 	return nil
 }
 
@@ -916,8 +919,8 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 	var traces *types.BlockTrace
 	var err error
 
-	// do not do CCC checks on follower nodes
-	if w.isRunning() {
+	// do not do CCC checks on follower nodes, or it is called from `commitNewWork`
+	if w.isRunning() && !env.skipCCC {
 		defer func(t0 time.Time) {
 			l2CommitTxTimer.Update(time.Since(t0))
 		}(time.Now())

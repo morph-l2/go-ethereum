@@ -110,7 +110,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 	var (
 		err                    error
 		circuitCapacityReached bool
-		skippedTxs             []*types.SkippedTransaction
+		skippedL1Txs           []*types.SkippedTransaction
 	)
 
 	defer func(env *environment) {
@@ -132,9 +132,9 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		err, circuitCapacityReached, skippedTxs = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		err, circuitCapacityReached, skippedL1Txs = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err, skippedTxs
+			return err, skippedL1Txs
 		}
 	}
 
@@ -159,7 +159,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, txList, env.header.BaseFee)
 		err, circuitCapacityReached, _ = w.commitTransactions(env, txs, w.coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err, skippedTxs
+			return err, skippedL1Txs
 		}
 	}
 
@@ -167,7 +167,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
 		err, circuitCapacityReached, _ = w.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err, skippedTxs
+			return err, skippedL1Txs
 		}
 	}
 	if len(remoteTxs) > 0 {
@@ -175,7 +175,7 @@ func (w *worker) fillTransactions(env *environment, l1Transactions types.Transac
 		err, _, _ = w.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
 	}
 
-	return err, skippedTxs
+	return err, skippedL1Txs
 }
 
 // generateWork generates a sealing block based on the given parameters.
@@ -299,7 +299,7 @@ func (w *worker) simulateL1Messages(genParams *generateParams, transactions type
 	}
 
 	txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-	_, _, skippedTxs := w.commitTransactions(env, txs, env.header.Coinbase, nil)
+	_, _, skippedL1Txs := w.commitTransactions(env, txs, env.header.Coinbase, nil)
 
-	return env.txs, skippedTxs, nil
+	return env.txs, skippedL1Txs, nil
 }

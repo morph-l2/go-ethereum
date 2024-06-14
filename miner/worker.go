@@ -1049,7 +1049,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 	var (
 		coalescedLogs []*types.Log
 		loops         int64
-		skippedTxs    = make([]*types.SkippedTransaction, 0)
+		skippedL1Txs  = make([]*types.SkippedTransaction, 0)
 	)
 
 loop:
@@ -1061,7 +1061,7 @@ loop:
 		loops++
 		if interrupt != nil {
 			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
-				return signalToErr(signal), circuitCapacityReached, skippedTxs
+				return signalToErr(signal), circuitCapacityReached, skippedL1Txs
 			}
 		}
 		if env.gasPool.Gas() < params.TxGas {
@@ -1127,7 +1127,7 @@ loop:
 			if w.config.StoreSkippedTxTraces {
 				storeTraces = traces
 			}
-			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+			skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
 				Tx:     *tx,
 				Reason: "gas limit exceeded",
 				Trace:  storeTraces,
@@ -1207,6 +1207,16 @@ loop:
 					log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "row consumption overflow")
 					env.nextL1MsgIndex = queueIndex + 1
 					l1TxRowConsumptionOverflowCounter.Inc(1)
+
+					var storeTraces *types.BlockTrace
+					if w.config.StoreSkippedTxTraces {
+						storeTraces = traces
+					}
+					skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
+						Tx:     *tx,
+						Reason: "row consumption overflow",
+						Trace:  storeTraces,
+					})
 				} else {
 					// Skip L2 transaction and all other transactions from the same sender account
 					log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "first tx row consumption overflow")
@@ -1220,15 +1230,6 @@ loop:
 				log.Trace("Worker reset ccc", "id", w.circuitCapacityChecker.ID)
 				circuitCapacityReached = false
 
-				var storeTraces *types.BlockTrace
-				if w.config.StoreSkippedTxTraces {
-					storeTraces = traces
-				}
-				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
-					Tx:     *tx,
-					Reason: "row consumption overflow",
-					Trace:  storeTraces,
-				})
 			}
 
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && tx.IsL1MessageTx():
@@ -1243,7 +1244,7 @@ loop:
 			if w.config.StoreSkippedTxTraces {
 				storeTraces = traces
 			}
-			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+			skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
 				Tx:     *tx,
 				Reason: "unknown circuit capacity checker error",
 				Trace:  storeTraces,
@@ -1295,7 +1296,7 @@ loop:
 				if w.config.StoreSkippedTxTraces {
 					storeTraces = traces
 				}
-				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+				skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
 					Tx:     *tx,
 					Reason: fmt.Sprintf("strange error: %v", err),
 					Trace:  storeTraces,
@@ -1326,7 +1327,7 @@ loop:
 	if interrupt != nil {
 		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
 	}
-	return nil, circuitCapacityReached, skippedTxs
+	return nil, circuitCapacityReached, skippedL1Txs
 }
 
 func (w *worker) checkCurrentTxNumWithCCC(expected int) {

@@ -50,6 +50,16 @@ var (
 		Usage: "Target gas floor for mined blocks (deprecated)",
 		Value: ethconfig.Defaults.Miner.GasFloor,
 	}
+
+	MinerEtherbaseFlag = cli.StringFlag{
+		Name:  "miner.etherbase",
+		Usage: "Public address for block mining rewards (default = first account)",
+		Value: "0",
+	}
+	MiningEnabledFlag = &cli.BoolFlag{
+		Name:  "mine",
+		Usage: "Enable mining",
+	}
 )
 
 // showDeprecated displays deprecated flags that will be soon removed from the codebase.

@@ -152,7 +152,7 @@ func (oracle *Oracle) resolveBlockRange(ctx context.Context, lastBlock rpc.Block
 	)
 	// query either pending block or head header and set headBlock
 	if lastBlock == rpc.PendingBlockNumber {
-		if pendingBlock, pendingReceipts = oracle.backend.PendingBlockAndReceipts(); pendingBlock != nil {
+		if pendingBlock, pendingReceipts, _ = oracle.backend.Pending(); pendingBlock != nil {
 			lastBlock = rpc.BlockNumber(pendingBlock.NumberU64())
 			headBlock = lastBlock - 1
 		} else {

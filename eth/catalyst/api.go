@@ -129,15 +129,11 @@ func (api *consensusAPI) AssembleBlock(params assembleBlockParams) (*executableD
 
 	pending := pool.Pending(true)
 
-	coinbase, err := api.eth.Etherbase()
-	if err != nil {
-		return nil, err
-	}
 	num := parent.Number()
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     num.Add(num, common.Big1),
-		Coinbase:   coinbase,
+		Coinbase:   common.Address{},
 		GasLimit:   parent.GasLimit(), // Keep the gas limit constant in this prototype
 		Extra:      []byte{},
 		Time:       params.Timestamp,
@@ -150,7 +146,7 @@ func (api *consensusAPI) AssembleBlock(params assembleBlockParams) (*executableD
 		parentL1BaseFee := fees.GetL1BaseFee(stateDb)
 		header.BaseFee = misc.CalcBaseFee(config, parent.Header(), parentL1BaseFee)
 	}
-	err = api.eth.Engine().Prepare(bc, header)
+	err := api.eth.Engine().Prepare(bc, header)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +176,7 @@ func (api *consensusAPI) AssembleBlock(params assembleBlockParams) (*executableD
 
 		// Execute the transaction
 		env.state.SetTxContext(tx.Hash(), env.tcount)
-		err = env.commitTransaction(tx, coinbase)
+		err = env.commitTransaction(tx, common.Address{})
 		switch err {
 		case core.ErrGasLimitReached:
 			// Pop the current out-of-gas transaction without shifting in the next from the account

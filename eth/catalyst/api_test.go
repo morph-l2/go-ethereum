@@ -250,7 +250,6 @@ func startEthService(t *testing.T, genesis *core.Genesis, blocks []*types.Block)
 			t.Fatal("cannot set canonical: ", err)
 		}
 	}
-	ethservice.SetEtherbase(testAddr)
 
 	return n, ethservice
 }

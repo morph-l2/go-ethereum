@@ -83,7 +83,8 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	block, stateDB, receipts, rc, skippedTxs, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
+	//block, stateDB, receipts, rc, skippedTxs, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
+	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -93,30 +94,30 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	//	 return nil, nil
 	// }
 	procTime := time.Since(start)
-	withdrawTrieRoot := api.writeVerified(stateDB, block, receipts, skippedTxs, procTime)
+	withdrawTrieRoot := api.writeVerified(newBlockResult.State, newBlockResult.Block, newBlockResult.Receipts, newBlockResult.SkippedTxs, procTime)
 	var resRc types.RowConsumption
-	if rc != nil {
-		resRc = *rc
+	if newBlockResult.RowConsumption != nil {
+		resRc = *newBlockResult.RowConsumption
 	}
 	return &ExecutableL2Data{
-		ParentHash:   block.ParentHash(),
-		Number:       block.NumberU64(),
-		Miner:        block.Coinbase(),
-		Timestamp:    block.Time(),
-		GasLimit:     block.GasLimit(),
-		BaseFee:      block.BaseFee(),
-		Transactions: encodeTransactions(block.Transactions()),
+		ParentHash:   newBlockResult.Block.ParentHash(),
+		Number:       newBlockResult.Block.NumberU64(),
+		Miner:        newBlockResult.Block.Coinbase(),
+		Timestamp:    newBlockResult.Block.Time(),
+		GasLimit:     newBlockResult.Block.GasLimit(),
+		BaseFee:      newBlockResult.Block.BaseFee(),
+		Transactions: encodeTransactions(newBlockResult.Block.Transactions()),
 
-		StateRoot:          block.Root(),
-		GasUsed:            block.GasUsed(),
-		ReceiptRoot:        block.ReceiptHash(),
-		LogsBloom:          block.Bloom().Bytes(),
-		NextL1MessageIndex: block.Header().NextL1MsgIndex,
+		StateRoot:          newBlockResult.Block.Root(),
+		GasUsed:            newBlockResult.Block.GasUsed(),
+		ReceiptRoot:        newBlockResult.Block.ReceiptHash(),
+		LogsBloom:          newBlockResult.Block.Bloom().Bytes(),
+		NextL1MessageIndex: newBlockResult.Block.Header().NextL1MsgIndex,
 		WithdrawTrieRoot:   withdrawTrieRoot,
 		RowUsages:          resRc,
-		SkippedTxs:         skippedTxs,
+		SkippedTxs:         newBlockResult.SkippedTxs,
 
-		Hash: block.Hash(),
+		Hash: newBlockResult.Block.Hash(),
 	}, nil
 }
 

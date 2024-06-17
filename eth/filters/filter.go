@@ -284,7 +284,7 @@ func (f *Filter) checkMatches(ctx context.Context, header *types.Header) ([]*typ
 
 // pendingLogs returns the logs matching the filter criteria within the pending block.
 func (f *Filter) pendingLogs() ([]*types.Log, error) {
-	block, receipts := f.sys.backend.PendingBlockAndReceipts()
+	block, receipts, _ := f.sys.backend.Pending()
 	if bloomFilter(block.Bloom(), f.addresses, f.topics) {
 		var unfiltered []*types.Log
 		for _, r := range receipts {

@@ -3,7 +3,6 @@ package miner
 import (
 	"errors"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/metrics"
 	"sync/atomic"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/core/state"
 	"github.com/scroll-tech/go-ethereum/core/types"
 	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/params"
 	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/scroll-tech/go-ethereum/rollup/fees"

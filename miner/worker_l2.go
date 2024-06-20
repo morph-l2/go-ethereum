@@ -15,7 +15,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/rollup/fees"
 )
 
-var stopAtHeight uint64 = 100200
+var stopAtHeight uint64 = 3600
 
 // getWorkReq represents a request for getting a new sealing work with provided parameters.
 type getWorkReq struct {

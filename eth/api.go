@@ -758,11 +758,17 @@ type RPCBatchSignature struct {
 }
 
 func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*RPCRollupBatch, error) {
-	rollupBatch := rawdb.ReadRollupBatch(api.eth.ChainDb(), index)
+	rollupBatch, err := rawdb.ReadRollupBatch(api.eth.ChainDb(), index)
+	if err != nil {
+		return nil, errors.New("failed to read batch")
+	}
 	if rollupBatch == nil {
 		return nil, nil
 	}
-	signatures := rawdb.ReadBatchSignatures(api.eth.ChainDb(), rollupBatch.Hash)
+	signatures, err := rawdb.ReadBatchSignatures(api.eth.ChainDb(), rollupBatch.Hash)
+	if err != nil {
+		return nil, errors.New("failed to read signatures")
+	}
 
 	hexChunks := make([]hexutil.Bytes, len(rollupBatch.Chunks))
 	for i, chunk := range rollupBatch.Chunks {

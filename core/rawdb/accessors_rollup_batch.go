@@ -39,20 +39,23 @@ func ReadBatchIndexByHash(db ethdb.Reader, batchHash common.Hash) *uint64 {
 	return &index
 }
 
-func ReadRollupBatch(db ethdb.Reader, batchIndex uint64) *types.RollupBatch {
+func ReadRollupBatch(db ethdb.Reader, batchIndex uint64) (*types.RollupBatch, error) {
 	data, err := db.Get(RollupBatchKey(batchIndex))
 	if err != nil && isNotFoundErr(err) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		log.Crit("failed to read batch from database", "err", err)
+		log.Error("failed to read batch from database", "err", err)
+		return nil, err
 	}
 
 	rb := new(types.RollupBatch)
 	if err = rb.Decode(data); err != nil {
-		log.Crit("Invalid RollupBatch RLP", "batch index", batchIndex, "data", data, "err", err)
+		log.Error("Invalid RollupBatch RLP", "batch index", batchIndex, "data", data, "err", err)
+		return nil, err
 	}
-	return rb
+
+	return rb, nil
 }
 
 func WriteBatchSignature(db ethdb.KeyValueWriter, batchHash common.Hash, signature types.BatchSignature) {
@@ -66,7 +69,7 @@ func WriteBatchSignature(db ethdb.KeyValueWriter, batchHash common.Hash, signatu
 	}
 }
 
-func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) []*types.BatchSignature {
+func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) ([]*types.BatchSignature, error) {
 	prefix := RollupBatchSignatureKey(batchHash)
 	it := db.NewIterator(prefix, nil)
 	defer it.Release()
@@ -82,9 +85,10 @@ func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) []*types.Batc
 		}
 		bs := new(types.BatchSignature)
 		if err := rlp.Decode(bytes.NewReader(data), bs); err != nil {
-			log.Crit("Invalid BatchSignature RLP", "batch hash", batchHash, "data", data, "err", err)
+			log.Error("Invalid BatchSignature RLP", "batch hash", batchHash, "data", data, "err", err)
+			return nil, err
 		}
 		bss = append(bss, bs)
 	}
-	return bss
+	return bss, nil
 }

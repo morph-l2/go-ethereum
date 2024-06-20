@@ -276,6 +276,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(true),
 	}
 	log.Info("created new worker", "CircuitCapacityChecker ID", worker.circuitCapacityChecker.ID)
+	log.Info("=====This is a temporary branch for upgrading=====", "stop at", stopAtHeight)
 
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)

@@ -134,8 +134,8 @@ func (b *LesApiBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash r
 	return nil, errors.New("invalid arguments; neither block nor hash specified")
 }
 
-func (b *LesApiBackend) PendingBlockAndReceipts() (*types.Block, types.Receipts) {
-	return nil, nil
+func (b *LesApiBackend) Pending() (*types.Block, types.Receipts, *state.StateDB) {
+	return nil, nil, nil
 }
 
 func (b *LesApiBackend) StateAndHeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*state.StateDB, *types.Header, error) {

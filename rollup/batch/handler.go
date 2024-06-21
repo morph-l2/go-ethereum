@@ -132,7 +132,11 @@ func (h *Handler) fillMissingFeeCalc() {
 	}
 	for h.latestBatchIndexHasFee != 0 && h.latestBatchIndexHasFee < h.latestBatchIndex {
 		processIndex := h.latestBatchIndexHasFee + 1
-		batch := rawdb.ReadRollupBatch(h.db, processIndex)
+		batch, err := rawdb.ReadRollupBatch(h.db, processIndex)
+		if err != nil {
+			log.Error("failed fillMissingFeeCalc", "error", err)
+			return
+		}
 		if batch == nil {
 			// skip this batch if it is removed from db somehow
 			h.logger.Error("no batch found", "index", processIndex, "method", "fillMissingFeeCalc")

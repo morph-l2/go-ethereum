@@ -34,9 +34,7 @@ import (
 	"github.com/scroll-tech/go-ethereum/eth/downloader"
 	"github.com/scroll-tech/go-ethereum/eth/gasprice"
 	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/miner"
-	"github.com/scroll-tech/go-ethereum/node"
 	"github.com/scroll-tech/go-ethereum/params"
 )
 
@@ -84,18 +82,13 @@ var Defaults = Config{
 	TrieTimeout:             60 * time.Minute,
 	SnapshotCache:           102,
 	FilterLogCacheSize:      32,
-	Miner: miner.Config{
-		GasCeil:         8000000,
-		GasPrice:        big.NewInt(params.GWei),
-		Recommit:        3 * time.Second,
-		NewBlockTimeout: 3 * time.Second,
-	},
-	TxPool:        core.DefaultTxPoolConfig,
-	RPCGasCap:     50000000,
-	RPCEVMTimeout: 5 * time.Second,
-	GPO:           FullNodeGPO,
-	RPCTxFeeCap:   1,  // 1 ether
-	MaxBlockRange: -1, // Default unconfigured value: no block range limit for backward compatibility
+	Miner:                   miner.DefaultConfig,
+	TxPool:                  core.DefaultTxPoolConfig,
+	RPCGasCap:               50000000,
+	RPCEVMTimeout:           5 * time.Second,
+	GPO:                     FullNodeGPO,
+	RPCTxFeeCap:             1,  // 1 ether
+	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
 }
 
 func init() {
@@ -222,36 +215,13 @@ type Config struct {
 	MaxBlockRange int64
 }
 
-// CreateConsensusEngine creates a consensus engine for the given chain configuration.
-func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, config *ethash.Config, notify []string, noverify bool, db ethdb.Database) consensus.Engine {
-	var engine consensus.Engine
-	// If proof-of-authority is requested, set it up
-	if chainConfig.Clique != nil {
-		engine = clique.New(chainConfig.Clique, db)
-	} else {
-		// Otherwise assume proof-of-work
-		switch config.PowMode {
-		case ethash.ModeFake:
-			log.Warn("Ethash used in fake mode")
-		case ethash.ModeTest:
-			log.Warn("Ethash used in test mode")
-		case ethash.ModeShared:
-			log.Warn("Ethash used in shared mode")
-		}
-		engine = ethash.New(ethash.Config{
-			PowMode:          config.PowMode,
-			CacheDir:         stack.ResolvePath(config.CacheDir),
-			CachesInMem:      config.CachesInMem,
-			CachesOnDisk:     config.CachesOnDisk,
-			CachesLockMmap:   config.CachesLockMmap,
-			DatasetDir:       config.DatasetDir,
-			DatasetsInMem:    config.DatasetsInMem,
-			DatasetsOnDisk:   config.DatasetsOnDisk,
-			DatasetsLockMmap: config.DatasetsLockMmap,
-			NotifyFull:       config.NotifyFull,
-		}, notify, noverify)
-		engine.(*ethash.Ethash).SetThreads(-1) // Disable CPU mining
+// CreateConsensusEngine creates a consensus engine for the given chain config.
+// Clique is allowed for now to live standalone, but ethash is forbidden and can
+// only exist on already merged networks.
+func CreateConsensusEngine(config *params.ChainConfig, db ethdb.Database) (consensus.Engine, error) {
+	// Wrap previously supported consensus engines into their post-merge counterpart
+	if config.Clique != nil {
+		return l2.New(clique.New(config.Clique, db), config), nil
 	}
-
-	return l2.New(engine, chainConfig)
+	return l2.New(ethash.NewFaker(), config), nil
 }

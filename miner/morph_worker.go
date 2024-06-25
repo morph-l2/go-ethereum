@@ -154,6 +154,24 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		return nil, prepareErr
 	}
 
+	// Apply special state transition at Curie block
+	if miner.chainConfig.CurieBlock != nil && miner.chainConfig.CurieBlock.Cmp(work.header.Number) == 0 {
+		misc.ApplyCurieHardFork(work.state)
+
+		work.header.NextL1MsgIndex = work.nextL1MsgIndex // we do not include any L1 messages at Curie block
+		block, finalizeErr := miner.engine.FinalizeAndAssemble(miner.chain, work.header, work.state, types.Transactions{}, nil, types.Receipts{})
+		if finalizeErr != nil {
+			return nil, finalizeErr
+		}
+		return &NewBlockResult{
+			Block:          block,
+			State:          work.state,
+			Receipts:       work.receipts,
+			RowConsumption: &types.RowConsumption{},
+			SkippedTxs:     nil,
+		}, nil
+	}
+
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}

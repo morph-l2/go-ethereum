@@ -135,6 +135,10 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	log.Info("Initialised chain configuration", "config", chainConfig)
 
+	// hard code curie block for testing purpose
+	chainConfig.CurieBlock = params.TestCurieBlock
+	log.Info("Configured Curie upgrade block number", "curie block", params.TestCurieBlock)
+
 	if err := pruner.RecoverPruning(stack.ResolvePath(""), chainDb, stack.ResolvePath(config.TrieCleanCacheJournal)); err != nil {
 		log.Error("Failed to recover state", "error", err)
 	}

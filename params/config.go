@@ -382,7 +382,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              nil,
-		DescartesTime:           nil,
+		DarwinTime:              nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Scroll: ScrollConfig{
 			UseZktrie:                 true,

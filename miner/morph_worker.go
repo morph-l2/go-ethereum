@@ -453,7 +453,7 @@ func (miner *Miner) commitTransactions(env *environment, txs *types.Transactions
 	var (
 		coalescedLogs []*types.Log
 		loops         int64
-		skippedTxs    = make([]*types.SkippedTransaction, 0)
+		skippedL1Txs  = make([]*types.SkippedTransaction, 0)
 	)
 
 loop:
@@ -462,7 +462,7 @@ loop:
 		loops++
 		if interrupt != nil {
 			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
-				return signalToErr(signal), circuitCapacityReached, skippedTxs
+				return signalToErr(signal), circuitCapacityReached, skippedL1Txs
 			}
 		}
 		if env.gasPool.Gas() < params.TxGas {
@@ -528,7 +528,7 @@ loop:
 			if miner.config.StoreSkippedTxTraces {
 				storeTraces = traces
 			}
-			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+			skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
 				Tx:     *tx,
 				Reason: "gas limit exceeded",
 				Trace:  storeTraces,
@@ -607,6 +607,16 @@ loop:
 					log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "row consumption overflow")
 					env.nextL1MsgIndex = queueIndex + 1
 					l1TxRowConsumptionOverflowCounter.Inc(1)
+
+					var storeTraces *types.BlockTrace
+					if miner.config.StoreSkippedTxTraces {
+						storeTraces = traces
+					}
+					skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
+						Tx:     *tx,
+						Reason: "row consumption overflow",
+						Trace:  storeTraces,
+					})
 				} else {
 					// Skip L2 transaction and all other transactions from the same sender account
 					log.Info("Skipping L2 message", "tx", tx.Hash().String(), "block", env.header.Number, "reason", "first tx row consumption overflow")
@@ -620,15 +630,6 @@ loop:
 				log.Trace("Worker reset ccc", "id", miner.circuitCapacityChecker.ID)
 				circuitCapacityReached = false
 
-				var storeTraces *types.BlockTrace
-				if miner.config.StoreSkippedTxTraces {
-					storeTraces = traces
-				}
-				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
-					Tx:     *tx,
-					Reason: "row consumption overflow",
-					Trace:  storeTraces,
-				})
 			}
 
 		case errors.Is(err, circuitcapacitychecker.ErrUnknown) && tx.IsL1MessageTx():
@@ -643,7 +644,7 @@ loop:
 			if miner.config.StoreSkippedTxTraces {
 				storeTraces = traces
 			}
-			skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+			skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
 				Tx:     *tx,
 				Reason: "unknown circuit capacity checker error",
 				Trace:  storeTraces,
@@ -695,7 +696,7 @@ loop:
 				if miner.config.StoreSkippedTxTraces {
 					storeTraces = traces
 				}
-				skippedTxs = append(skippedTxs, &types.SkippedTransaction{
+				skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
 					Tx:     *tx,
 					Reason: fmt.Sprintf("strange error: %v", err),
 					Trace:  storeTraces,
@@ -706,7 +707,7 @@ loop:
 		}
 	}
 
-	return nil, circuitCapacityReached, skippedTxs
+	return nil, circuitCapacityReached, skippedL1Txs
 }
 
 // fillTransactions retrieves the pending transactions from the txpool and fills them
@@ -716,7 +717,7 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 	var (
 		err                    error
 		circuitCapacityReached bool
-		skippedTxs             []*types.SkippedTransaction
+		skippedL1Txs           []*types.SkippedTransaction
 	)
 
 	defer func(env *environment) {
@@ -738,15 +739,15 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		err, circuitCapacityReached, skippedTxs = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		err, circuitCapacityReached, skippedL1Txs = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err, skippedTxs
+			return err, skippedL1Txs
 		}
 	}
 
 	// Giving up involving L2 transactions if it is simulation for L1Messages
 	if env.isSimulate {
-		return err, skippedTxs
+		return err, skippedL1Txs
 	}
 
 	// Split the pending transactions into locals and remotes
@@ -770,7 +771,7 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, txList, env.header.BaseFee)
 		err, circuitCapacityReached, _ = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err, skippedTxs
+			return err, skippedL1Txs
 		}
 	}
 
@@ -778,7 +779,7 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
 		err, circuitCapacityReached, _ = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
-			return err, skippedTxs
+			return err, skippedL1Txs
 		}
 	}
 	if len(remoteTxs) > 0 {
@@ -786,7 +787,7 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 		err, _, _ = miner.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
 	}
 
-	return err, skippedTxs
+	return err, skippedL1Txs
 }
 
 func (miner *Miner) resetCCC(skip bool) {

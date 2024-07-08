@@ -27,8 +27,7 @@ value zero equivalent to the empty string).
 RLP values are distinguished by a type tag. The type tag precedes the value in the input
 stream and defines the size and kind of the bytes that follow.
 
-
-Encoding Rules
+# Encoding Rules
 
 Package rlp uses reflection and encodes RLP based on the Go type of the value.
 
@@ -37,7 +36,7 @@ call EncodeRLP on nil pointer values.
 
 To encode a pointer, the value being pointed to is encoded. A nil pointer to a struct
 type, slice or array always encodes as an empty RLP list unless the slice or array has
-elememt type byte. A nil pointer to any other value encodes as the empty string.
+element type byte. A nil pointer to any other value encodes as the empty string.
 
 Struct values are encoded as an RLP list of all their encoded public fields. Recursive
 struct types are supported.
@@ -58,8 +57,7 @@ An interface value encodes as the value contained in the interface.
 
 Floating point numbers, maps, channels and functions are not supported.
 
-
-Decoding Rules
+# Decoding Rules
 
 Decoding uses the following type-dependent rules:
 
@@ -99,8 +97,7 @@ To decode into an interface value, one of these types is stored in the value:
 Non-empty interface types are not supported when decoding.
 Signed integers, floating point numbers, maps, channels and functions cannot be decoded into.
 
-
-Struct Tags
+# Struct Tags
 
 As with other encoding packages, the "-" tag ignores fields.
 

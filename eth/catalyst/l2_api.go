@@ -165,7 +165,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 	if len(params.SkippedTxs) > 0 {
 		l1Transactions := make(types.Transactions, len(params.SkippedTxs))
 		for i, st := range params.SkippedTxs {
-			l1Transactions[i] = &st.Tx
+			l1Transactions[i] = st.Tx
 		}
 		involvedTxs, realSkipped, err := api.eth.Miner().SimulateL1Messages(params.ParentHash, l1Transactions)
 		if err != nil {
@@ -243,7 +243,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 		api.eth.BlockChain().UpdateBlockProcessMetrics(bas.state, bas.procTime)
 		for _, skipped := range bas.skippedTxs {
 			bh := block.Hash()
-			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), &skipped.Tx, skipped.Trace, skipped.Reason, block.NumberU64(), &bh)
+			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skipped.Tx, skipped.Trace, skipped.Reason, block.NumberU64(), &bh)
 		}
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
@@ -260,7 +260,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 
 	bh := block.Hash()
 	for _, skippedL1Tx := range params.SkippedTxs {
-		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), &skippedL1Tx.Tx, skippedL1Tx.Trace, skippedL1Tx.Reason, block.NumberU64(), &bh)
+		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skippedL1Tx.Tx, skippedL1Tx.Trace, skippedL1Tx.Reason, block.NumberU64(), &bh)
 	}
 
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)

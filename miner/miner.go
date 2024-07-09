@@ -20,6 +20,7 @@ package miner
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -125,6 +126,13 @@ func New(eth Backend, config Config, engine consensus.Engine) *Miner {
 		getWorkCh:       make(chan *getWorkReq),
 		exitCh:          make(chan struct{}),
 	}
+
+	// Sanitize account fetch limit.
+	if miner.config.MaxAccountsNum == 0 {
+		log.Warn("Sanitizing miner account fetch limit", "provided", miner.config.MaxAccountsNum, "updated", math.MaxInt)
+		miner.config.MaxAccountsNum = math.MaxInt
+	}
+
 	miner.wg.Add(1)
 	go miner.generateWorkLoop()
 

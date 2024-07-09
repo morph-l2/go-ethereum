@@ -38,8 +38,7 @@ var (
 	receiptStatusSuccessfulRLP = []byte{0x01}
 )
 
-// This error is returned when a typed receipt is decoded, but the string is empty.
-var errEmptyTypedReceipt = errors.New("empty typed receipt bytes")
+var errShortTypedReceipt = errors.New("typed receipt too short")
 
 const (
 	// ReceiptStatusFailed is the status code of a transaction if execution failed.
@@ -191,7 +190,7 @@ func (r *Receipt) MarshalBinary() ([]byte, error) {
 // DecodeRLP implements rlp.Decoder, and loads the consensus fields of a receipt
 // from an RLP stream.
 func (r *Receipt) DecodeRLP(s *rlp.Stream) error {
-	kind, _, err := s.Kind()
+	kind, size, err := s.Kind()
 	switch {
 	case err != nil:
 		return err
@@ -203,15 +202,19 @@ func (r *Receipt) DecodeRLP(s *rlp.Stream) error {
 		}
 		r.Type = LegacyTxType
 		return r.setFromRLP(dec)
-	case kind == rlp.String:
+	case kind == rlp.Byte:
+		return errShortTypedReceipt
+	default:
 		// It's an EIP-2718 typed tx receipt.
-		b, err := s.Bytes()
+		b, buf, err := getPooledBuffer(size)
 		if err != nil {
 			return err
 		}
+		defer encodeBufferPool.Put(buf)
+		if err := s.ReadBytes(b); err != nil {
+			return err
+		}
 		return r.decodeTyped(b)
-	default:
-		return rlp.ErrExpectedList
 	}
 }
 
@@ -234,8 +237,8 @@ func (r *Receipt) UnmarshalBinary(b []byte) error {
 
 // decodeTyped decodes a typed receipt from the canonical format.
 func (r *Receipt) decodeTyped(b []byte) error {
-	if len(b) == 0 {
-		return errEmptyTypedReceipt
+	if len(b) <= 1 {
+		return errShortTypedReceipt
 	}
 	switch b[0] {
 	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType:

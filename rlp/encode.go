@@ -30,7 +30,10 @@ import (
 var (
 	// Common encoded values.
 	// These are useful when implementing EncodeRLP.
+
+	// EmptyString is the encoding of an empty string.
 	EmptyString = []byte{0x80}
+	// EmptyList is the encoding of an empty list.
 	EmptyList   = []byte{0xC0}
 )
 
@@ -57,20 +60,16 @@ type Encoder interface {
 // Please see package-level documentation of encoding rules.
 func Encode(w io.Writer, val interface{}) error {
 	// Optimization: reuse *encBuffer when called by EncodeRLP.
-	if buf, ok := w.(*encBuffer); ok {
+	if buf := encBufferFromWriter(w); buf != nil {
 		return buf.encode(val)
-	}
-	if ebuf, ok := w.(EncoderBuffer); ok {
-		return ebuf.buf.encode(val)
 	}
 
 	buf := getEncBuffer()
 	defer encBufferPool.Put(buf)
-
 	if err := buf.encode(val); err != nil {
 		return err
 	}
-	return buf.toWriter(w)
+	return buf.writeTo(w)
 }
 
 // EncodeToBytes returns the RLP encoding of val.
@@ -82,7 +81,7 @@ func EncodeToBytes(val interface{}) ([]byte, error) {
 	if err := buf.encode(val); err != nil {
 		return nil, err
 	}
-	return buf.toBytes(), nil
+	return buf.makeBytes(), nil
 }
 
 // EncodeToReader returns a reader from which the RLP encoding of val
@@ -142,17 +141,17 @@ func makeWriter(typ reflect.Type, ts rlpstruct.Tags) (writer, error) {
 	switch {
 	case typ == rawValueType:
 		return writeRawValue, nil
-	case typ.AssignableTo(reflect.PtrTo(bigInt)):
+	case typ.AssignableTo(reflect.PointerTo(bigInt)):
 		return writeBigIntPtr, nil
 	case typ.AssignableTo(bigInt):
 		return writeBigIntNoPtr, nil
-	case typ == reflect.PtrTo(u256Int):
+	case typ == reflect.PointerTo(u256Int):
 		return writeU256IntPtr, nil
 	case typ == u256Int:
 		return writeU256IntNoPtr, nil
 	case kind == reflect.Ptr:
 		return makePtrWriter(typ, ts)
-	case reflect.PtrTo(typ).Implements(encoderInterface):
+	case reflect.PointerTo(typ).Implements(encoderInterface):
 		return makeEncoderWriter(typ), nil
 	case isUint(kind):
 		return writeUint, nil
@@ -420,7 +419,7 @@ func makeEncoderWriter(typ reflect.Type) writer {
 			// package json simply doesn't call MarshalJSON for this case, but encodes the
 			// value as if it didn't implement the interface. We don't want to handle it that
 			// way.
-			return fmt.Errorf("rlp: unadressable value of type %v, EncodeRLP is pointer method", val.Type())
+			return fmt.Errorf("rlp: unaddressable value of type %v, EncodeRLP is pointer method", val.Type())
 		}
 		return val.Addr().Interface().(Encoder).EncodeRLP(w)
 	}

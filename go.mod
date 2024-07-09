@@ -1,6 +1,6 @@
 module github.com/scroll-tech/go-ethereum
 
-go 1.20
+go 1.21
 
 require (
 	github.com/Azure/azure-storage-blob-go v0.7.0
@@ -21,7 +21,7 @@ require (
 	github.com/edsrzf/mmap-go v1.0.0
 	github.com/ethereum/c-kzg-4844/bindings/go v0.0.0-20230126171313-363c7d7593b4
 	github.com/fatih/color v1.13.0
-	github.com/fjl/memsize v0.0.0-20190710130421-bcb5799ab5e5
+	github.com/fjl/memsize v0.0.2
 	github.com/gballet/go-libpcsclite v0.0.0-20190607065134-2772fd86a8ff
 	github.com/go-stack/stack v1.8.1
 	github.com/golang-jwt/jwt/v4 v4.5.0

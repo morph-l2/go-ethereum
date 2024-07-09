@@ -87,9 +87,3 @@ mockccc_docker:
 mockccc_alpine_docker:
 	docker build -t morph/l2geth:latest ./ -f Dockerfile.mockccc.alpine
 
-base_image:
-	docker build -t morph/go-rust-builder:go-1.19-rust-nightly-2023-12-03 ./ -f go-rust-builder.Dockerfile
-
-morph_docker:
-	docker build -t morph/l2geth:latest ./ -f Dockerfile.morph
-

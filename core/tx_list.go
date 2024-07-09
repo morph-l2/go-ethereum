@@ -20,6 +20,7 @@ import (
 	"container/heap"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -49,6 +50,7 @@ func (h *nonceHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
 	x := old[n-1]
+	old[n-1] = 0
 	*h = old[0 : n-1]
 	return x
 }
@@ -56,9 +58,10 @@ func (h *nonceHeap) Pop() interface{} {
 // txSortedMap is a nonce->transaction hash map with a heap based index to allow
 // iterating over the contents in a nonce-incrementing way.
 type txSortedMap struct {
-	items map[uint64]*types.Transaction // Hash map storing the transaction data
-	index *nonceHeap                    // Heap of nonces of all the stored transactions (non-strict mode)
-	cache types.Transactions            // Cache of the transactions already sorted
+	items   map[uint64]*types.Transaction // Hash map storing the transaction data
+	index   *nonceHeap                    // Heap of nonces of all the stored transactions (non-strict mode)
+	cache   types.Transactions            // Cache of the transactions already sorted
+	cacheMu sync.Mutex                    // Mutex covering the cache
 }
 
 // newTxSortedMap creates a new nonce-sorted transaction map.
@@ -81,7 +84,9 @@ func (m *txSortedMap) Put(tx *types.Transaction) {
 	if m.items[nonce] == nil {
 		heap.Push(m.index, nonce)
 	}
+	m.cacheMu.Lock()
 	m.items[nonce], m.cache = tx, nil
+	m.cacheMu.Unlock()
 }
 
 // Forward removes all transactions from the map with a nonce lower than the
@@ -97,9 +102,11 @@ func (m *txSortedMap) Forward(threshold uint64) types.Transactions {
 		delete(m.items, nonce)
 	}
 	// If we had a cached order, shift the front
+	m.cacheMu.Lock()
 	if m.cache != nil {
 		m.cache = m.cache[len(removed):]
 	}
+	m.cacheMu.Unlock()
 	return removed
 }
 
@@ -123,7 +130,9 @@ func (m *txSortedMap) reheap() {
 		*m.index = append(*m.index, nonce)
 	}
 	heap.Init(m.index)
+	m.cacheMu.Lock()
 	m.cache = nil
+	m.cacheMu.Unlock()
 }
 
 // filter is identical to Filter, but **does not** regenerate the heap. This method
@@ -139,7 +148,9 @@ func (m *txSortedMap) filter(filter func(*types.Transaction) bool) types.Transac
 		}
 	}
 	if len(removed) > 0 {
+		m.cacheMu.Lock()
 		m.cache = nil
+		m.cacheMu.Unlock()
 	}
 	return removed
 }
@@ -153,19 +164,21 @@ func (m *txSortedMap) Cap(threshold int) types.Transactions {
 	}
 	// Otherwise gather and drop the highest nonce'd transactions
 	var drops types.Transactions
-
-	sort.Sort(*m.index)
+	slices.Sort(*m.index)
 	for size := len(m.items); size > threshold; size-- {
 		drops = append(drops, m.items[(*m.index)[size-1]])
 		delete(m.items, (*m.index)[size-1])
 	}
 	*m.index = (*m.index)[:threshold]
-	heap.Init(m.index)
+	// The sorted m.index slice is still a valid heap, so there is no need to
+	// reheap after deleting tail items.
 
 	// If we had a cache, shift the back
+	m.cacheMu.Lock()
 	if m.cache != nil {
 		m.cache = m.cache[:len(m.cache)-len(drops)]
 	}
+	m.cacheMu.Unlock()
 	return drops
 }
 
@@ -185,7 +198,9 @@ func (m *txSortedMap) Remove(nonce uint64) bool {
 		}
 	}
 	delete(m.items, nonce)
+	m.cacheMu.Lock()
 	m.cache = nil
+	m.cacheMu.Unlock()
 
 	return true
 }
@@ -195,7 +210,7 @@ func (m *txSortedMap) Remove(nonce uint64) bool {
 // removed from the list.
 //
 // Note, all transactions with nonces lower than start will also be returned to
-// prevent getting into and invalid state. This is not something that should ever
+// prevent getting into an invalid state. This is not something that should ever
 // happen but better to be self correcting than failing!
 func (m *txSortedMap) Ready(start uint64) types.Transactions {
 	// Short circuit if no transactions are available
@@ -209,7 +224,9 @@ func (m *txSortedMap) Ready(start uint64) types.Transactions {
 		delete(m.items, next)
 		heap.Pop(m.index)
 	}
+	m.cacheMu.Lock()
 	m.cache = nil
+	m.cacheMu.Unlock()
 
 	return ready
 }
@@ -220,6 +237,8 @@ func (m *txSortedMap) Len() int {
 }
 
 func (m *txSortedMap) flatten() types.Transactions {
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
 	// If the sorting was not cached yet, create and cache it
 	if m.cache == nil {
 		m.cache = make(types.Transactions, 0, len(m.items))
@@ -604,6 +623,7 @@ func (l *txPricedList) underpricedFor(h *priceHeap, tx *types.Transaction) bool 
 
 // Discard finds a number of most underpriced transactions, removes them from the
 // priced list and returns them for further removal from the entire pool.
+// If noPending is set to true, we will only consider the floating list
 //
 // Note local transaction won't be considered for eviction.
 func (l *txPricedList) Discard(slots int, force bool) (types.Transactions, bool) {

@@ -60,7 +60,7 @@ var CheckpointOracles = map[common.Hash]*CheckpointOracleConfig{
 }
 
 var (
-	TestCurieBlock = big.NewInt(36500)
+	TestCurieBlock = big.NewInt(47600)
 
 	// MainnetChainConfig is the chain parameters to run a node on the main network.
 	MainnetChainConfig = &ChainConfig{

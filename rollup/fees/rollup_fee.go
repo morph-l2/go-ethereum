@@ -41,7 +41,6 @@ type Message interface {
 // required to compute the L1 fee
 type StateDB interface {
 	GetState(common.Address, common.Hash) common.Hash
-	GetBalance(addr common.Address) *big.Int
 }
 
 type gpoState struct {
@@ -65,7 +64,7 @@ func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.C
 		return nil, err
 	}
 
-	raw, err := rlpEncode(tx)
+	raw, err := tx.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
@@ -130,16 +129,6 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,
 	})
-}
-
-// rlpEncode RLP encodes the transaction into bytes
-func rlpEncode(tx *types.Transaction) ([]byte, error) {
-	raw := new(bytes.Buffer)
-	if err := tx.EncodeRLP(raw); err != nil {
-		return nil, err
-	}
-
-	return raw.Bytes(), nil
 }
 
 func readGPOStorageSlots(addr common.Address, state StateDB) gpoState {
@@ -215,7 +204,7 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 		return big.NewInt(0), nil
 	}
 
-	raw, err := rlpEncode(tx)
+	raw, err := tx.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}

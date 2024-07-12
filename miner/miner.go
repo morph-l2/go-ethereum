@@ -85,6 +85,8 @@ type Miner struct {
 	pending     *pending
 	pendingMu   sync.Mutex // Lock protects the pending block
 
+	currentPipeline *Pipeline
+
 	// newBlockTimeout is the maximum timeout allowance for creating block.
 	// The default value is 3 seconds but node operator can set it to arbitrary
 	// large value. A large timeout allowance may cause Geth to fail creating

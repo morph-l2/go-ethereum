@@ -25,21 +25,22 @@ all:
 	$(GORUN) build/ci.go install
 
 # in go-ethereum repo
-build-l2-mainnet-morph-geth: libzkp
+build-morph-geth: libzkp
 	$(GORUN) build/ci.go install -buildtags circuit_capacity_checker ./cmd/geth
 	cp build/bin/geth make-bin/
+	#find $(PWD)/rollup/circuitcapacitychecker/libzkp | grep -E 'libzkp.so|libzkp.dylib' | xargs -I{} cp {} $(PWD)/make-bin/
+	cp $(PWD)/rollup/circuitcapacitychecker/libzkp/libzkp.so make-bin/
 
-build-l2-mainnet-morph-nccc-geth: ## geth without circuit capacity checker
+build-morph-nccc-geth: ## geth without circuit capacity checker
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth make-bin/
 
-start-l2-mainnet-morph-geth: export GETH_DATA_DIR=/data/morph-geth-db
-start-l2-mainnet-morph-geth: export JWT_SECRET_PATH=/data/morph-geth/make-conf/jwt-secret.txt
-start-l2-mainnet-morph-geth: export CHAIN_ID=2810
-start-l2-mainnet-morph-geth: export RUST_LOG=info
-start-l2-mainnet-morph-geth:
-	/bin/sh /data/morph-geth/make-bin/run-mainnet-sequencer.sh
+start-morph-geth:
+	geth --datadir="/data/morph-geth-db"
+
+start-morph-sentry-geth:
+	geth --datadir="/data/morph-geth-db"
 
 android:
 	$(GORUN) build/ci.go aar --local

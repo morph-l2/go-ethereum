@@ -52,6 +52,6 @@ func VerifyEip1559Header(config *params.ChainConfig, parent, header *types.Heade
 // CalcBaseFee calculates the basefee of the header.
 // TODO We will add extra cost into baseFee in the future, such as l1 fee for finalizing batch.
 func CalcBaseFee(config *params.ChainConfig, parent *types.Header, parentL1BaseFee *big.Int) *big.Int {
-	l2SequencerFee := big.NewInt(10000000) // 0.01 Gwei
+	l2SequencerFee := big.NewInt(1000000) // 0.001 Gwei
 	return l2SequencerFee
 }

@@ -768,7 +768,7 @@ func copyAddressPtr(a *common.Address) *common.Address {
 }
 
 type SkippedTransaction struct {
-	Tx     Transaction
+	Tx     *Transaction
 	Reason string
 	Trace  *BlockTrace `rlp:"-"`
 }

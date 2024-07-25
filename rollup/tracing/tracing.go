@@ -315,9 +315,14 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		return fmt.Errorf("failed to create callTracer: %w", err)
 	}
 
+	prestateTracer, err := tracers.New("prestateTracer", &tracerContext)
+	if err != nil {
+		return fmt.Errorf("failed to create prestateTracer: %w", err)
+	}
+
 	applyMessageStart := time.Now()
 	structLogger := vm.NewStructLogger(env.logConfig)
-	tracer := NewMuxTracer(structLogger, callTracer)
+	tracer := NewMuxTracer(structLogger, callTracer, prestateTracer)
 	// Run the transaction with tracing enabled.
 	vmenv := vm.NewEVM(env.blockCtx, txContext, state, env.chainConfig, vm.Config{Debug: true, Tracer: tracer, NoBaseFee: true})
 
@@ -487,6 +492,10 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	if err != nil {
 		return fmt.Errorf("failed to get callTracer result: %w", err)
 	}
+	prestate, err := prestateTracer.GetResult()
+	if err != nil {
+		return fmt.Errorf("failed to get prestateTracer result: %w", err)
+	}
 	getTxResultTracerResultTimer.UpdateSince(tracerResultTimer)
 
 	env.ExecutionResults[index] = &types.ExecutionResult{
@@ -500,6 +509,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		ReturnValue:    fmt.Sprintf("%x", returnVal),
 		StructLogs:     vm.FormatLogs(structLogger.StructLogs()),
 		CallTrace:      callTrace,
+		Prestate:       prestate,
 	}
 	env.TxStorageTraces[index] = txStorageTrace
 

@@ -264,12 +264,13 @@ func (miner *Miner) prepareWork(genParams *generateParams) (*environment, error)
 func (miner *Miner) makeHeader(parent *types.Block, timestamp uint64, coinBase common.Address) (*types.Header, error) {
 	num := parent.Number()
 	header := &types.Header{
-		ParentHash: parent.Hash(),
-		Number:     num.Add(num, common.Big1),
-		GasLimit:   core.CalcGasLimit(parent.GasLimit(), miner.config.GasCeil),
-		Extra:      miner.config.ExtraData,
-		Time:       timestamp,
-		Coinbase:   coinBase,
+		ParentHash:     parent.Hash(),
+		Number:         num.Add(num, common.Big1),
+		GasLimit:       core.CalcGasLimit(parent.GasLimit(), miner.config.GasCeil),
+		NextL1MsgIndex: parent.Header().NextL1MsgIndex,
+		Extra:          miner.config.ExtraData,
+		Time:           timestamp,
+		Coinbase:       coinBase,
 	}
 
 	// Set baseFee if we are on an EIP-1559 chain

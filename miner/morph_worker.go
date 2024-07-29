@@ -41,21 +41,8 @@ var (
 	l2CommitTxCCCTimer              = metrics.NewRegisteredTimer("miner/commit/tx_ccc", nil)
 	l2CommitTxApplyTimer            = metrics.NewRegisteredTimer("miner/commit/tx_apply", nil)
 
-	l2CommitNewWorkTimer                    = metrics.NewRegisteredTimer("miner/commit/new_work_all", nil)
-	l2CommitNewWorkL1CollectTimer           = metrics.NewRegisteredTimer("miner/commit/new_work_collect_l1", nil)
-	l2CommitNewWorkPrepareTimer             = metrics.NewRegisteredTimer("miner/commit/new_work_prepare", nil)
-	l2CommitNewWorkCommitUncleTimer         = metrics.NewRegisteredTimer("miner/commit/new_work_uncle", nil)
-	l2CommitNewWorkTidyPendingTxTimer       = metrics.NewRegisteredTimer("miner/commit/new_work_tidy_pending", nil)
-	l2CommitNewWorkCommitL1MsgTimer         = metrics.NewRegisteredTimer("miner/commit/new_work_commit_l1_msg", nil)
-	l2CommitNewWorkPrioritizedTxCommitTimer = metrics.NewRegisteredTimer("miner/commit/new_work_prioritized", nil)
-	l2CommitNewWorkRemoteLocalCommitTimer   = metrics.NewRegisteredTimer("miner/commit/new_work_remote_local", nil)
-	l2CommitNewWorkLocalPriceAndNonceTimer  = metrics.NewRegisteredTimer("miner/commit/new_work_local_price_and_nonce", nil)
-	l2CommitNewWorkRemotePriceAndNonceTimer = metrics.NewRegisteredTimer("miner/commit/new_work_remote_price_and_nonce", nil)
-
-	l2CommitTimer      = metrics.NewRegisteredTimer("miner/commit/all", nil)
 	l2CommitTraceTimer = metrics.NewRegisteredTimer("miner/commit/trace", nil)
 	l2CommitCCCTimer   = metrics.NewRegisteredTimer("miner/commit/ccc", nil)
-	l2ResultTimer      = metrics.NewRegisteredTimer("miner/result/all", nil)
 )
 
 // prioritizedTransaction represents a single transaction that
@@ -529,7 +516,7 @@ loop:
 				storeTraces = traces
 			}
 			skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
-				Tx:     *tx,
+				Tx:     tx,
 				Reason: "gas limit exceeded",
 				Trace:  storeTraces,
 			})
@@ -613,7 +600,7 @@ loop:
 						storeTraces = traces
 					}
 					skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
-						Tx:     *tx,
+						Tx:     tx,
 						Reason: "row consumption overflow",
 						Trace:  storeTraces,
 					})
@@ -645,7 +632,7 @@ loop:
 				storeTraces = traces
 			}
 			skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
-				Tx:     *tx,
+				Tx:     tx,
 				Reason: "unknown circuit capacity checker error",
 				Trace:  storeTraces,
 			})
@@ -697,7 +684,7 @@ loop:
 					storeTraces = traces
 				}
 				skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
-					Tx:     *tx,
+					Tx:     tx,
 					Reason: fmt.Sprintf("strange error: %v", err),
 					Trace:  storeTraces,
 				})

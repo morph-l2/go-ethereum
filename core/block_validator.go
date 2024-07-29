@@ -35,7 +35,6 @@ import (
 )
 
 var (
-	validateL1MessagesTimer     = metrics.NewRegisteredTimer("validator/l1msg", nil)
 	validateRowConsumptionTimer = metrics.NewRegisteredTimer("validator/rowconsumption", nil)
 	validateTraceTimer          = metrics.NewRegisteredTimer("validator/trace", nil)
 	validateLockTimer           = metrics.NewRegisteredTimer("validator/lock", nil)

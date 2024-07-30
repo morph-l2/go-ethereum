@@ -129,6 +129,9 @@ func HashWithCap(inpBI []*big.Int, width int, nBytes int64) (*big.Int, error) {
 
 	// initialize the state
 	state := make([]*ff.Element, MAX_WIDTH)
+	for i := 0; i < MAX_WIDTH; i++ {
+		state[i] = ff.NewElement() // Initialize each element
+	}
 	state[0] = ff.NewElement().Set(capflag)
 
 	rate := width - 1

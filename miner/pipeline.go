@@ -48,8 +48,7 @@ func (e *ErrorWithTrace) Unwrap() error {
 }
 
 var (
-	ErrPipelineDone             = errors.New("pipeline is done")
-	ErrUnexpectedL1MessageIndex = errors.New("unexpected L1 message index")
+	ErrPipelineDone = errors.New("pipeline is done")
 
 	lifetimeTimer = func() metrics.Timer {
 		t := metrics.NewCustomTimer(metrics.NewHistogram(metrics.NewExpDecaySample(128, 0.015)), metrics.NewMeter())
@@ -65,15 +64,18 @@ var (
 )
 
 type Pipeline struct {
-	start     time.Time
-	chain     *core.BlockChain
-	chainDB   ethdb.Database
-	txpool    *core.TxPool
-	vmConfig  vm.Config
-	parent    *types.Block
-	wg        sync.WaitGroup
-	ctx       context.Context
-	cancelCtx context.CancelFunc
+	start       time.Time
+	simulateL1  bool
+	chain       *core.BlockChain
+	chainDB     ethdb.Database
+	txpool      *core.TxPool
+	vmConfig    vm.Config
+	parent      *types.Block
+	startHeader *types.Header
+	startState  *state.StateDB
+	wg          sync.WaitGroup
+	ctx         context.Context
+	cancelCtx   context.CancelFunc
 
 	// accumulators
 	ccc           *circuitcapacitychecker.CircuitCapacityChecker
@@ -85,9 +87,6 @@ type Pipeline struct {
 	receipts      types.Receipts
 	gasPool       *core.GasPool
 	skippedL1Txs  []*types.SkippedTransaction
-
-	skipCCC     bool
-	storeTraces bool
 
 	// com channels
 	txnQueue         chan *types.Transaction
@@ -102,26 +101,29 @@ func NewPipeline(
 	vmConfig vm.Config,
 	state *state.StateDB,
 	header *types.Header,
+	simulateL1 bool,
 	ccc *circuitcapacitychecker.CircuitCapacityChecker,
-	skipCCC bool,
 ) *Pipeline {
 	// make sure we are not sharing a tracer with the caller and not in debug mode
 	vmConfig.Tracer = nil
 	vmConfig.Debug = false
 
+	state.Copy()
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Pipeline{
 		chain:        chain,
+		simulateL1:   simulateL1,
 		chainDB:      chainDB,
 		txpool:       txpool,
 		vmConfig:     vmConfig,
 		parent:       chain.GetBlock(header.ParentHash, header.Number.Uint64()-1),
+		startHeader:  types.CopyHeader(header),
+		startState:   state.Copy(),
 		ccc:          ccc,
 		state:        state,
 		header:       header,
 		gasPool:      new(core.GasPool).AddGas(header.GasLimit),
 		skippedL1Txs: make([]*types.SkippedTransaction, 0),
-		skipCCC:      skipCCC,
 		ctx:          ctx,
 		cancelCtx:    cancel,
 	}
@@ -168,6 +170,10 @@ func (p *Pipeline) TryPushTxns(txs *types.TransactionsByPriceAndNonce) *Result {
 			return nil
 		}
 
+		if txsOP == nil {
+			log.Error("txsOP is nil, skip assembling the following transactions", "cause tx", tx.Hash().String())
+			return nil
+		}
 		txsOP(txs)
 	}
 
@@ -232,13 +238,14 @@ func (p *Pipeline) traceAndApplyStage(txsIn <-chan *types.Transaction) (<-chan t
 			select {
 			case tx = <-txsIn:
 				if tx == nil {
+					log.Info("stop traceAndApply stage")
 					return
 				}
 			case <-p.ctx.Done():
 				return
 			}
-
-			if tx.IsL1MessageTx() && tx.AsL1MessageTx().QueueIndex != p.header.NextL1MsgIndex {
+			log.Info("received new tx", "hash", tx.Hash().String(), "stage", "traceAndApplyStage")
+			if !p.simulateL1 && tx.IsL1MessageTx() && tx.AsL1MessageTx().QueueIndex != p.header.NextL1MsgIndex {
 				// Continue, we might still be able to include some L2 messages
 				log.Error(
 					"Unexpected L1 message queue index in worker",
@@ -262,10 +269,12 @@ func (p *Pipeline) traceAndApplyStage(txsIn <-chan *types.Transaction) (<-chan t
 			p.state.SetTxContext(tx.Hash(), p.txs.Len())
 			receipt, trace, err := p.traceAndApply(tx)
 
+			log.Info("finished tx", "hash", tx.Hash().String(), "err", err, "stage", "traceAndApplyStage")
 			var txsOP txsOP
 			switch {
 			case errors.Is(err, core.ErrGasLimitReached) && tx.IsL1MessageTx():
 				if p.txs.Len() > 0 {
+					txsOP = txsShift
 					break
 				}
 				queueIndex := tx.L1MessageQueueIndex()
@@ -365,16 +374,17 @@ func (p *Pipeline) encodeStage(traces <-chan *BlockCandidate) <-chan *BlockCandi
 			select {
 			case trace := <-traces:
 				if trace == nil {
+					log.Info("stop encode stage")
 					return
 				}
 				encodeIdleTimer.UpdateSince(idleStart)
 
 				encodeStart := time.Now()
-				if !p.skipCCC {
+				if p.ccc != nil {
+					log.Info("received tx", "hash", trace.LastTrace.Transactions[0].TxHash, "stage", "encode")
 					trace.RustTrace = circuitcapacitychecker.MakeRustTrace(trace.LastTrace, buffer)
 					if trace.RustTrace == nil {
 						log.Error("making rust trace", "txHash", trace.LastTrace.Transactions[0].TxHash)
-						return
 					}
 				}
 				encodeTimer.UpdateSince(encodeStart)
@@ -443,14 +453,26 @@ func (p *Pipeline) cccStage(candidates <-chan *BlockCandidate, timeout time.Dura
 
 				// close the block immediately when apply stage is done
 				if candidate == nil {
+					// if the lastCandidate is nil here, meaning the previous apply stage did not include any transactions, and shut down the txQueue.
+					// but it still may skip some l1 txs due to reaching gas limit
+					// so we set the lastCandidate as the pipeline accumulated result
+					if lastCandidate == nil {
+						lastCandidate = &BlockCandidate{
+							Header:   p.header,
+							State:    p.state,
+							Txs:      p.txs,
+							Receipts: p.receipts,
+						}
+					}
 					resultCh <- &Result{
 						Rows:       lastAccRows,
 						FinalBlock: lastCandidate,
 					}
+					log.Info("stop ccc stage")
 					return
 				}
 
-				if p.ccc == nil || candidate.RustTrace == nil { // ccc is disabled during this pipeline
+				if p.ccc == nil { // ccc is disabled during this pipeline
 					lastCandidate = candidate
 					if deadlineReached {
 						resultCh <- &Result{
@@ -462,9 +484,19 @@ func (p *Pipeline) cccStage(candidates <-chan *BlockCandidate, timeout time.Dura
 					continue
 				}
 
+				var (
+					accRows  *types.RowConsumption
+					err      error
+					skipL1Tx bool
+				)
 				lastTxn := candidate.Txs[candidate.Txs.Len()-1]
-				log.Info("new transaction enters ccc", "tx hash", lastTxn.Hash().String())
-				accRows, err := p.ccc.ApplyTransactionRustTrace(candidate.RustTrace)
+				if candidate.RustTrace != nil {
+					log.Info("received tx", "hash", lastTxn.Hash().String(), "stage", "ccc")
+					accRows, err = p.ccc.ApplyTransactionRustTrace(candidate.RustTrace)
+					log.Info("finished tx", "hash", lastTxn.Hash().String(), "error", err, "stage", "ccc")
+				} else {
+					err = errors.New("no rust trace")
+				}
 				cccTimer.UpdateSince(cccStart)
 				switch {
 				case errors.Is(err, nil):
@@ -487,37 +519,62 @@ func (p *Pipeline) cccStage(candidates <-chan *BlockCandidate, timeout time.Dura
 								Trace:  candidate.LastTrace,
 								Reason: "row consumption overflow",
 							})
+							skipL1Tx = true
 							l1TxRowConsumptionOverflowCounter.Inc(1)
 						} else {
 							p.txpool.RemoveTx(lastTxn.Hash(), true)
 							l2TxRowConsumptionOverflowCounter.Inc(1)
 						}
 					}
-				case errors.Is(err, circuitcapacitychecker.ErrUnknown):
+
+				// the error here could be:
+				// 1. circuitcapacitychecker.ErrUnknown
+				// 2. no rust trace
+				// 3. other strange errors
+				default:
 					log.Trace("Unknown circuit capacity checker error", "tx", lastTxn.Hash().String())
-					log.Info("Skipping message", "tx", lastTxn.Hash().String(), "block", p.header.Number, "reason", "unknown row consumption error")
+					log.Info("Skipping message", "tx", lastTxn.Hash().String(), "block", p.header.Number, "error", err)
 					if lastTxn.IsL1MessageTx() {
 						p.skippedL1Txs = append(p.skippedL1Txs, &types.SkippedTransaction{
 							Tx:     lastTxn,
 							Trace:  candidate.LastTrace,
-							Reason: "row consumption overflow",
+							Reason: err.Error(),
 						})
+						skipL1Tx = true
 						l1TxCccUnknownErrCounter.Inc(1)
 					} else {
-						rawdb.WriteSkippedTransaction(p.chainDB, lastTxn, candidate.LastTrace, "unknown circuit capacity checker error", p.header.Number.Uint64(), nil)
+						rawdb.WriteSkippedTransaction(p.chainDB, lastTxn, candidate.LastTrace, err.Error(), p.header.Number.Uint64(), nil)
 						p.txpool.RemoveTx(lastTxn.Hash(), true)
 						l2TxCccUnknownErrCounter.Inc(1)
 					}
-				default:
+				}
+
+				finalBlock := lastCandidate
+				// if the lastCandidate is nil here, meaning this tx is the first one passed from apply stage, but it fails
+				// build the finalBlock with no transactions
+				if finalBlock == nil {
+					finalBlock = &BlockCandidate{
+						Header:   p.startHeader,
+						State:    p.startState,
+						Txs:      types.Transactions{},
+						Receipts: types.Receipts{},
+					}
+
+					// copy the NextL1MsgIndex from accumulated header
+					// in order to make sure we do not lose any skipped l1 transactions from apply stage
+					finalBlock.Header.NextL1MsgIndex = p.header.NextL1MsgIndex
+				}
+
+				// if this is a l1 tx needs to be skipped
+				if skipL1Tx {
+					tx := lastTxn.AsL1MessageTx()
+					finalBlock.Header.NextL1MsgIndex = tx.QueueIndex + 1
 				}
 
 				// ccc error, construct final result, close the block
-				if tx := lastTxn.AsL1MessageTx(); tx != nil {
-					lastCandidate.Header.NextL1MsgIndex = tx.QueueIndex + 1
-				}
 				resultCh <- &Result{
 					Rows:       lastAccRows,
-					FinalBlock: lastCandidate,
+					FinalBlock: finalBlock,
 				}
 				return
 			}
@@ -538,7 +595,7 @@ func (p *Pipeline) traceAndApply(tx *types.Transaction) (*types.Receipt, *types.
 		return nil, nil, core.ErrGasLimitReached
 	}
 
-	if !p.skipCCC {
+	if p.ccc != nil {
 		// don't commit the state during tracing for circuit capacity checker, otherwise we cannot revert.
 		// and even if we don't commit the state, the `refund` value will still be correct, as explained in `CommitTransaction`
 		commitStateAfterApply := false

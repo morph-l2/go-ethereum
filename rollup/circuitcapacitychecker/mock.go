@@ -5,19 +5,27 @@ package circuitcapacitychecker
 import (
 	"bytes"
 	"math/rand"
+	"time"
 	"unsafe"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/core/types"
 )
 
+var TestRustTraceErrorHash string
+
 type CircuitCapacityChecker struct {
 	ID        uint64
 	countdown int
 	nextError *error
 
-	skipHash  string
-	skipError error
+	skipHash    string
+	skipLatency time.Duration
+	skipError   error
+
+	encodeErrorHash string
+
+	applyLatency map[string]time.Duration
 }
 
 // NewCircuitCapacityChecker creates a new CircuitCapacityChecker
@@ -44,8 +52,15 @@ func (ccc *CircuitCapacityChecker) ApplyTransaction(traces *types.BlockTrace) (*
 	}
 	if ccc.skipError != nil {
 		if traces.Transactions[0].TxHash == ccc.skipHash {
+			if ccc.skipLatency > 0 {
+				time.Sleep(ccc.skipLatency) // make some latency for simulating real world
+			}
 			return nil, ccc.skipError
 		}
+	}
+	latency, ok := ccc.applyLatency[traces.Transactions[0].TxHash]
+	if ok {
+		time.Sleep(latency)
 	}
 	return &types.RowConsumption{types.SubCircuitRowUsage{
 		Name:      "mock",
@@ -89,9 +104,26 @@ func (ccc *CircuitCapacityChecker) Skip(txnHash common.Hash, err error) {
 	ccc.skipError = err
 }
 
+func (ccc *CircuitCapacityChecker) SkipWithLatency(txnHash common.Hash, err error, latency time.Duration) {
+	ccc.skipHash = txnHash.String()
+	ccc.skipError = err
+	ccc.skipLatency = latency
+}
+
+func (ccc *CircuitCapacityChecker) SetApplyLatency(txnHash common.Hash, latency time.Duration) {
+	if ccc.applyLatency == nil {
+		ccc.applyLatency = make(map[string]time.Duration)
+	}
+	ccc.applyLatency[txnHash.String()] = latency
+}
+
 var goTraces = make(map[unsafe.Pointer]*types.BlockTrace)
 
 func MakeRustTrace(trace *types.BlockTrace, buffer *bytes.Buffer) unsafe.Pointer {
+	if trace.Transactions[0].TxHash == TestRustTraceErrorHash {
+		TestRustTraceErrorHash = ""
+		return nil
+	}
 	rustTrace := new(struct{})
 	goTraces[unsafe.Pointer(rustTrace)] = trace
 	return unsafe.Pointer(rustTrace)

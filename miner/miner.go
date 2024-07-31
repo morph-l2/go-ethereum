@@ -23,7 +23,6 @@ import (
 	"math"
 	"math/big"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/scroll-tech/go-ethereum/common"
@@ -85,8 +84,6 @@ type Miner struct {
 	pending     *pending
 	pendingMu   sync.Mutex // Lock protects the pending block
 
-	currentPipeline *Pipeline
-
 	// newBlockTimeout is the maximum timeout allowance for creating block.
 	// The default value is 3 seconds but node operator can set it to arbitrary
 	// large value. A large timeout allowance may cause Geth to fail creating
@@ -96,7 +93,6 @@ type Miner struct {
 
 	// Make sure the checker here is used by a single block one time, and must be reset for another block.
 	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
-	prioritizedTx          *prioritizedTransaction
 
 	getWorkCh chan *getWorkReq
 	exitCh    chan struct{}
@@ -184,16 +180,9 @@ func (miner *Miner) GetCCC() *circuitcapacitychecker.CircuitCapacityChecker {
 }
 
 func (miner *Miner) getSealingBlockAndState(params *generateParams) (*NewBlockResult, error) {
-	interrupt := new(int32)
-	timer := time.AfterFunc(params.timeout, func() {
-		atomic.StoreInt32(interrupt, commitInterruptTimeout)
-	})
-	defer timer.Stop()
-
 	req := &getWorkReq{
-		interrupt: interrupt,
-		params:    params,
-		result:    make(chan getWorkResp),
+		params: params,
+		result: make(chan getWorkResp),
 	}
 	select {
 	case miner.getWorkCh <- req:
@@ -244,12 +233,6 @@ func (miner *Miner) getPending() *NewBlockResult {
 		return cached
 	}
 
-	interrupt := new(int32)
-	timer := time.AfterFunc(miner.newBlockTimeout, func() {
-		atomic.StoreInt32(interrupt, commitInterruptTimeout)
-	})
-	defer timer.Stop()
-
 	// It may cause the `generateWork` fall into concurrent case,
 	// but it is ok here, as it skips CCC so that will not reset ccc unexpectedly.
 	ret, err := miner.generateWork(&generateParams{
@@ -257,7 +240,8 @@ func (miner *Miner) getPending() *NewBlockResult {
 		parentHash: header.Hash(),
 		coinbase:   miner.config.PendingFeeRecipient,
 		skipCCC:    true,
-	}, interrupt)
+		timeout:    miner.newBlockTimeout,
+	})
 
 	if err != nil {
 		return nil

@@ -29,6 +29,7 @@ func l2ChainConfig() params.ChainConfig {
 }
 
 func generateTestL2Chain(n int) (*core.Genesis, []*types.Block) {
+	testNonce = 0
 	db := rawdb.NewMemoryDatabase()
 	config := l2ChainConfig()
 	engine := l2.New(nil, params.TestChainConfig)
@@ -252,7 +253,7 @@ func TestValidateL1Message(t *testing.T) {
 	api := newL2ConsensusAPI(ethService)
 	ccc := api.eth.Miner().GetCCC()
 
-	l1Txs, l1Messages := makeL1Txs(0, 10)
+	l1Txs, _ := makeL1Txs(0, 10)
 	// case: include #0, #1, fail on #2, skip it and seal the block
 	ccc.ScheduleError(3, circuitcapacitychecker.ErrUnknown)
 	ret, err := api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
@@ -294,20 +295,18 @@ func TestValidateL1Message(t *testing.T) {
 	// case: #2 - #9, error nextL1MessageIndex
 	// expected: Unexpected L1 message queue index, build none transaction
 	restL1Txs := l1Txs[2:]
-	restL1Messages := l1Messages[2:]
 	ret, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), restL1Txs)
 	require.NoError(t, err)
 	block = ret.Block
-	require.EqualValues(t, 0, block.Transactions().Len())
+	require.EqualValues(t, 7, block.Transactions().Len())
 
-	// case: #3 - #9, skip #3, includes the rest
+	// case: #3 - #9, skip #3, includes none
 	restL1Txs = restL1Txs[1:]
-	restL1Messages = restL1Messages[1:]
 	ccc.ScheduleError(1, circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
 	ret, err = ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), restL1Txs)
 	require.NoError(t, err)
 	block = ret.Block
-	require.EqualValues(t, 6, block.Transactions().Len())
+	require.EqualValues(t, 0, block.Transactions().Len())
 	l2Data = ExecutableL2Data{
 		ParentHash:   block.ParentHash(),
 		Number:       block.NumberU64(),
@@ -338,7 +337,7 @@ func TestValidateL1Message(t *testing.T) {
 	require.NoError(t, api.NewL2Block(l2Data, nil))
 
 	// case: includes all l1messages from #10
-	l1Txs, l1Messages = makeL1Txs(10, 5)
+	l1Txs, _ = makeL1Txs(4, 5)
 	ret, err = api.eth.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), l1Txs)
 	require.NoError(t, err)
 	block = ret.Block

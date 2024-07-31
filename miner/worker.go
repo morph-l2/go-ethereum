@@ -269,6 +269,7 @@ func (miner *Miner) handlePipelineResult(pipeline *Pipeline, res *Result) (*NewB
 
 	// if ccc is enabled, and it is an empty block
 	if pipeline.ccc != nil && (res == nil || res.Rows == nil) {
+		miner.circuitCapacityChecker.Reset()
 		log.Trace(
 			"Worker apply ccc for empty block",
 			"id", miner.circuitCapacityChecker.ID,

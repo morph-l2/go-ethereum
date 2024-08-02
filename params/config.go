@@ -381,7 +381,7 @@ var (
 		ArchimedesBlock:         big.NewInt(0),
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
-		CurieBlock:              nil,
+		CurieBlock:              big.NewInt(6330180),
 		DarwinTime:              nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Scroll: ScrollConfig{

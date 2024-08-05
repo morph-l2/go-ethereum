@@ -18,6 +18,7 @@ package trie
 
 import (
 	"fmt"
+	"sync"
 
 	zktrie "github.com/scroll-tech/zktrie/trie"
 	zkt "github.com/scroll-tech/zktrie/types"
@@ -123,13 +124,47 @@ func (t *ZkTrie) GetKey(kHashBytes []byte) []byte {
 //
 // Committing flushes nodes from memory. Subsequent Get calls will load nodes
 // from the database.
-func (t *ZkTrie) Commit(LeafCallback) (common.Hash, int, error) {
+func (t *ZkTrie) Commit(onleaf LeafCallback) (common.Hash, int, error) {
 	if err := t.ZkTrie.Commit(); err != nil {
 		return common.Hash{}, 0, err
 	}
 	// in current implmentation, every update of trie already writes into database
 	// so Commmit does nothing
-	return t.Hash(), 0, nil
+
+	rootHash := t.Hash()
+
+	// Derive the hash for all dirty nodes first. We hold the assumption
+	// in the following procedure that all nodes are hashed.
+	h := newZkCommitter()
+	defer returnZkCommitterToPool(h)
+
+	var wg sync.WaitGroup
+	if onleaf != nil {
+		h.onleaf = onleaf
+		h.zkLeafCh = make(chan *ZkLeaf, ZkLeafChanSize)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.commitLoop(t.db.db)
+		}()
+	}
+
+	_, committed, err := h.Commit(rootHash, t.db.db)
+
+	if onleaf != nil {
+		// The leafch is created in newCommitter if there was an onleaf callback
+		// provided. The commitLoop only _reads_ from it, and the commit
+		// operation was the sole writer. Therefore, it's safe to close this
+		// channel here.
+		close(h.zkLeafCh)
+		wg.Wait()
+	}
+
+	if err != nil {
+		return common.Hash{}, 0, err
+	}
+
+	return rootHash, committed, nil
 }
 
 // Hash returns the root hash of SecureBinaryTrie. It does not write to the

@@ -1006,9 +1006,10 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 	}
 	// The onleaf func is called _serially_, so we can reuse the same account
 	// for unmarshalling every time.
-	var account types.StateAccount
+	var account *types.StateAccount
 	root, accountCommitted, err := s.trie.Commit(func(_ [][]byte, _ []byte, leaf []byte, parent common.Hash) error {
-		if err := rlp.DecodeBytes(leaf, &account); err != nil {
+		var err error
+		if account, err = types.UnmarshalStateAccount(leaf); err != nil {
 			return nil
 		}
 		if account.Root != s.db.TrieDB().EmptyRoot() {

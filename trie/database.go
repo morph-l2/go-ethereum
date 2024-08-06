@@ -17,6 +17,7 @@
 package trie
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,8 @@ import (
 	"github.com/scroll-tech/go-ethereum/log"
 	"github.com/scroll-tech/go-ethereum/metrics"
 	"github.com/scroll-tech/go-ethereum/rlp"
+	zktrie "github.com/scroll-tech/zktrie/trie"
+	zkt "github.com/scroll-tech/zktrie/types"
 )
 
 var (
@@ -92,7 +95,8 @@ type Database struct {
 	childrenSize common.StorageSize // Storage size of the external children tracking
 	preimages    *preimageStore     // The store for caching preimages
 
-	lock sync.RWMutex
+	lock    sync.RWMutex
+	rawLock sync.RWMutex //For zk raw dirties
 }
 
 // rawNode is a simple binary blob used to differentiate between collapsed trie
@@ -140,6 +144,13 @@ type rawShortNode struct {
 func (n rawShortNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
 func (n rawShortNode) fstring(ind string) string { panic("this should never end up in a live trie") }
 
+type rawZkNode struct {
+	n *zktrie.Node
+}
+
+func (n rawZkNode) cache() (hashNode, bool)   { panic("this should never end up in a live trie") }
+func (n rawZkNode) fstring(ind string) string { panic("this should never end up in a live trie") }
+
 // cachedNode is all the information we know about a single cached trie node
 // in the memory database write layer.
 type cachedNode struct {
@@ -168,6 +179,9 @@ func (n *cachedNode) rlp() []byte {
 	if node, ok := n.node.(rawNode); ok {
 		return node
 	}
+	if node, ok := n.node.(rawZkNode); ok {
+		return node.n.CanonicalValue()
+	}
 	blob, err := rlp.EncodeToBytes(n.node)
 	if err != nil {
 		panic(err)
@@ -180,6 +194,10 @@ func (n *cachedNode) rlp() []byte {
 func (n *cachedNode) obj(hash common.Hash) node {
 	if node, ok := n.node.(rawNode); ok {
 		return mustDecodeNode(hash[:], node)
+	}
+
+	if node, ok := n.node.(rawZkNode); ok {
+		return node
 	}
 	return expandNode(hash[:], n.node)
 }
@@ -208,6 +226,16 @@ func forGatherChildren(n node, onChild func(hash common.Hash)) {
 		}
 	case hashNode:
 		onChild(common.BytesToHash(n))
+	case rawZkNode:
+		switch n.n.Type {
+		case zktrie.NodeTypeBranch_0, zktrie.NodeTypeBranch_1, zktrie.NodeTypeBranch_2, zktrie.NodeTypeBranch_3:
+			if !bytes.Equal(n.n.ChildL[:], common.Hash{}.Bytes()) {
+				onChild(common.BytesToHash(n.n.ChildL.Bytes()))
+			}
+			if !bytes.Equal(n.n.ChildR[:], common.Hash{}.Bytes()) {
+				onChild(common.BytesToHash(n.n.ChildR.Bytes()))
+			}
+		}
 	case valueNode, nil, rawNode:
 	default:
 		panic(fmt.Sprintf("unknown node type: %T", n))
@@ -231,8 +259,7 @@ func simplifyNode(n node) node {
 			}
 		}
 		return node
-
-	case valueNode, hashNode, rawNode:
+	case valueNode, hashNode, rawNode, rawZkNode:
 		return n
 
 	default:
@@ -360,12 +387,18 @@ func (db *Database) insert(hash common.Hash, size int, node node) {
 // node retrieves a cached trie node from memory, or returns nil if none can be
 // found in the memory cache.
 func (db *Database) node(hash common.Hash) node {
+	zkHash := zkt.NewHashFromBytes(hash[:])
+	nodeKey := common.BytesToHash(BitReverse(zkHash[:]))
+
 	// Retrieve the node from the clean cache if available
 	if db.cleans != nil {
-		if enc := db.cleans.Get(nil, hash[:]); enc != nil {
+		if enc := db.cleans.Get(nil, nodeKey[:]); enc != nil {
 			memcacheCleanHitMeter.Mark(1)
 			memcacheCleanReadMeter.Mark(int64(len(enc)))
-			return mustDecodeNode(hash[:], enc)
+
+			if zkNode, err := zktrie.NewNodeFromBytes(enc); err == nil {
+				return rawZkNode{zkNode}
+			}
 		}
 	}
 	// Retrieve the node from the dirty cache if available
@@ -381,15 +414,20 @@ func (db *Database) node(hash common.Hash) node {
 	memcacheDirtyMissMeter.Mark(1)
 
 	// Content unavailable in memory, attempt to retrieve from disk
-	enc, err := db.diskdb.Get(hash[:])
+	enc, err := db.diskdb.Get(nodeKey[:])
 	if err != nil || enc == nil {
 		return nil
 	}
 	if db.cleans != nil {
-		db.cleans.Set(hash[:], enc)
+		db.cleans.Set(nodeKey[:], enc)
 		memcacheCleanMissMeter.Mark(1)
 		memcacheCleanWriteMeter.Mark(int64(len(enc)))
 	}
+
+	if zkNode, err := zktrie.NewNodeFromBytes(enc); err == nil {
+		return rawZkNode{zkNode}
+	}
+
 	return mustDecodeNode(hash[:], enc)
 }
 
@@ -585,7 +623,11 @@ func (db *Database) Cap(limit common.StorageSize) error {
 	for size > limit && oldest != (common.Hash{}) {
 		// Fetch the oldest referenced node and push into the batch
 		node := db.dirties[oldest]
-		rawdb.WriteTrieNode(batch, oldest, node.rlp())
+
+		zkHash := zkt.NewHashFromBytes(oldest[:])
+		nodeKey := common.BytesToHash(BitReverse(zkHash[:]))
+
+		rawdb.WriteTrieNode(batch, nodeKey, node.rlp())
 
 		// If we exceeded the ideal batch size, commit and reset
 		if batch.ValueSize() >= ethdb.IdealBatchSize {
@@ -654,18 +696,21 @@ func (db *Database) Commit(node common.Hash, report bool, callback func(common.H
 	start := time.Now()
 	batch := db.diskdb.NewBatch()
 
-	db.lock.Lock()
-	for _, v := range db.rawDirties {
-		batch.Put(v.K, v.V)
+	if (db.newest == common.Hash{}) {
+		db.lock.Lock()
+
+		for _, v := range db.rawDirties {
+			batch.Put(v.K, v.V)
+		}
+		for k := range db.rawDirties {
+			delete(db.rawDirties, k)
+		}
+		db.lock.Unlock()
+		if err := batch.Write(); err != nil {
+			return err
+		}
+		batch.Reset()
 	}
-	for k := range db.rawDirties {
-		delete(db.rawDirties, k)
-	}
-	db.lock.Unlock()
-	if err := batch.Write(); err != nil {
-		return err
-	}
-	batch.Reset()
 
 	if (node == common.Hash{}) {
 		return nil
@@ -675,6 +720,7 @@ func (db *Database) Commit(node common.Hash, report bool, callback func(common.H
 	if db.preimages != nil {
 		db.preimages.commit(true)
 	}
+
 	// Move the trie itself into the batch, flushing if enough data is accumulated
 	nodes, storage := len(db.dirties), db.dirtiesSize
 
@@ -731,7 +777,10 @@ func (db *Database) commit(hash common.Hash, batch ethdb.Batch, uncacher *cleane
 		return err
 	}
 	// If we've reached an optimal batch size, commit and start over
-	rawdb.WriteTrieNode(batch, hash, node.rlp())
+	zkHash := zkt.NewHashFromBytes(hash[:])
+	nodeKey := common.BytesToHash(BitReverse(zkHash[:]))
+
+	rawdb.WriteTrieNode(batch, nodeKey, node.rlp())
 	if callback != nil {
 		callback(hash)
 	}

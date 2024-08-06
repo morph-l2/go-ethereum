@@ -133,6 +133,10 @@ func (t *ZkTrie) Commit(onleaf LeafCallback) (common.Hash, int, error) {
 
 	rootHash := t.Hash()
 
+	if !t.db.db.pruning {
+		return rootHash, 0, nil
+	}
+
 	// Derive the hash for all dirty nodes first. We hold the assumption
 	// in the following procedure that all nodes are hashed.
 	h := newZkCommitter()

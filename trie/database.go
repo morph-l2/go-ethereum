@@ -77,6 +77,8 @@ type Database struct {
 	Zktrie bool
 	// TODO: It's a quick&dirty implementation. FIXME later.
 	rawDirties KvMap
+	// enable prning
+	pruning bool
 
 	cleans  *fastcache.Cache            // GC friendly memory cache of clean node RLPs
 	dirties map[common.Hash]*cachedNode // Data and references relationships of dirty trie nodes
@@ -309,6 +311,7 @@ type Config struct {
 	Journal   string // Journal of clean cache to survive node restarts
 	Preimages bool   // Flag whether the preimage of trie key is recorded
 	Zktrie    bool   // use zktrie
+	Pruning   bool   // enable pruning
 }
 
 // NewDatabase creates a new trie database to store ephemeral trie content before
@@ -342,6 +345,7 @@ func NewDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Database
 		}},
 		rawDirties: make(KvMap),
 		preimages:  preimage,
+		pruning:    config.Pruning,
 	}
 	return db
 }
@@ -696,7 +700,7 @@ func (db *Database) Commit(node common.Hash, report bool, callback func(common.H
 	start := time.Now()
 	batch := db.diskdb.NewBatch()
 
-	if (db.newest == common.Hash{}) {
+	if !db.pruning {
 		db.lock.Lock()
 
 		for _, v := range db.rawDirties {

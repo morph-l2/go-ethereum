@@ -71,11 +71,20 @@ func (l *ZktrieDatabase) Get(key []byte) ([]byte, error) {
 		}
 	}
 
-	l.db.lock.RLock()
-	value, ok := l.db.dirties[nodeKey]
-	l.db.lock.RUnlock()
-	if ok {
-		return value.rlp(), nil
+	if l.db.pruning {
+		l.db.lock.RLock()
+		value, ok := l.db.dirties[nodeKey]
+		l.db.lock.RUnlock()
+		if ok {
+			return value.rlp(), nil
+		}
+	} else {
+		l.db.rawLock.RLock()
+		value, ok := l.db.rawDirties.Get(concatKey)
+		l.db.rawLock.RUnlock()
+		if ok {
+			return value, nil
+		}
 	}
 
 	v, err := l.db.diskdb.Get(concatKey)

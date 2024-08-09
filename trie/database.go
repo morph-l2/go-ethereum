@@ -701,7 +701,7 @@ func (db *Database) Commit(node common.Hash, report bool, callback func(common.H
 	batch := db.diskdb.NewBatch()
 
 	if !db.pruning {
-		db.lock.Lock()
+		db.rawLock.Lock()
 
 		for _, v := range db.rawDirties {
 			batch.Put(v.K, v.V)
@@ -709,7 +709,7 @@ func (db *Database) Commit(node common.Hash, report bool, callback func(common.H
 		for k := range db.rawDirties {
 			delete(db.rawDirties, k)
 		}
-		db.lock.Unlock()
+		db.rawLock.Unlock()
 		if err := batch.Write(); err != nil {
 			return err
 		}

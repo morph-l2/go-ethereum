@@ -249,6 +249,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 			Journal:   cacheConfig.TrieCleanJournal,
 			Preimages: cacheConfig.Preimages,
 			Zktrie:    chainConfig.Scroll.ZktrieEnabled(),
+			Pruning:   !cacheConfig.TrieDirtyDisabled,
 		}),
 		quit:           make(chan struct{}),
 		chainmu:        syncx.NewClosableMutex(),

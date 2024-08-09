@@ -18,13 +18,14 @@
 package ethconfig
 
 import (
-	"github.com/scroll-tech/go-ethereum/consensus/l2"
 	"math/big"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/scroll-tech/go-ethereum/consensus/l2"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/consensus"
@@ -79,7 +80,7 @@ var Defaults = Config{
 	TrieCleanCacheJournal:   "triecache",
 	TrieCleanCacheRejournal: 60 * time.Minute,
 	TrieDirtyCache:          256,
-	TrieTimeout:             60 * time.Minute,
+	TrieTimeout:             1 * time.Minute,
 	SnapshotCache:           102,
 	FilterLogCacheSize:      32,
 	Miner:                   miner.DefaultConfig,

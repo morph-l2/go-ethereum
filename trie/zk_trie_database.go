@@ -6,6 +6,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 
 	zktrie "github.com/scroll-tech/zktrie/trie"
+	zkt "github.com/scroll-tech/zktrie/types"
 
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/ethdb"
@@ -38,28 +39,51 @@ func NewZktrieDatabaseFromTriedb(db *Database) *ZktrieDatabase {
 // Put saves a key:value into the Storage
 func (l *ZktrieDatabase) Put(k, v []byte) error {
 	k = BitReverse(k)
-	l.db.lock.Lock()
-	l.db.rawDirties.Put(Concat(l.prefix, k[:]), v)
-	l.db.lock.Unlock()
+	concatKey := Concat(l.prefix, k[:])
+
+	l.db.rawLock.Lock()
+	l.db.rawDirties.Put(concatKey, v)
+	l.db.rawLock.Unlock()
+
+	if l.db.cleans != nil {
+		l.db.cleans.Set(concatKey[:], v)
+		memcacheCleanMissMeter.Mark(1)
+		memcacheCleanWriteMeter.Mark(int64(len(v)))
+	}
+
 	return nil
 }
 
 // Get retrieves a value from a key in the Storage
 func (l *ZktrieDatabase) Get(key []byte) ([]byte, error) {
+	// for dirties
+	zkHash := zkt.NewHashFromBytes(key[:])
+	nodeKey := common.BytesToHash(zkHash[:])
+
 	key = BitReverse(key)
 	concatKey := Concat(l.prefix, key[:])
-	l.db.lock.RLock()
-	value, ok := l.db.rawDirties.Get(concatKey)
-	l.db.lock.RUnlock()
-	if ok {
-		return value, nil
-	}
 
 	if l.db.cleans != nil {
 		if enc := l.db.cleans.Get(nil, concatKey); enc != nil {
 			memcacheCleanHitMeter.Mark(1)
 			memcacheCleanReadMeter.Mark(int64(len(enc)))
 			return enc, nil
+		}
+	}
+
+	if l.db.pruning {
+		l.db.lock.RLock()
+		value, ok := l.db.dirties[nodeKey]
+		l.db.lock.RUnlock()
+		if ok {
+			return value.rlp(), nil
+		}
+	} else {
+		l.db.rawLock.RLock()
+		value, ok := l.db.rawDirties.Get(concatKey)
+		l.db.rawLock.RUnlock()
+		if ok {
+			return value, nil
 		}
 	}
 

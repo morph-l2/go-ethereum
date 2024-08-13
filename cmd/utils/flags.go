@@ -1835,11 +1835,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		cfg.Genesis = core.DefaultMorphHoleskyGenesisBlock()
 		// forced for mainnet
 		// disable pruning
-		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-			log.Crit("Must use --gcmode=archive")
-		}
-		log.Info("Pruning disabled")
-		cfg.NoPruning = true
+		// if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
+		// 	log.Crit("Must use --gcmode=archive")
+		// }
+		// log.Info("Pruning disabled")
+		// cfg.NoPruning = true
 		// disable prefetch
 		log.Info("Prefetch disabled")
 		cfg.NoPrefetch = true

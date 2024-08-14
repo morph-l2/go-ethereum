@@ -2596,8 +2596,8 @@ func TestPoolPending(t *testing.T) {
 		pool.AddRemotesSync([]*types.Transaction{tx})
 	}
 
-	assert.Len(t, pool.Pending(false), numTxns)
+	assert.Len(t, pool.Pending(nil, nil), numTxns)
 
 	maxAccounts := 10
-	assert.Len(t, pool.PendingWithMax(false, maxAccounts), maxAccounts)
+	assert.Len(t, pool.PendingWithMax(nil, nil, maxAccounts), maxAccounts)
 }

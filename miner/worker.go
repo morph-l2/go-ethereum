@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/holiman/uint256"
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
 	"github.com/scroll-tech/go-ethereum/core"
@@ -170,9 +171,19 @@ func (miner *Miner) startPipeline(
 ) (*Result, error) {
 	var pending map[common.Address]types.Transactions
 
+	miner.confMu.RLock()
+	tip := miner.config.GasPrice
+	miner.confMu.RUnlock()
+
 	// Do not collect txns from txpool, if `simulate` is true
 	if !genParams.simulate {
-		pending = miner.txpool.PendingWithMax(false, miner.config.MaxAccountsNum)
+		// Retrieve the pending transactions pre-filtered by the 1559/4844 dynamic fees
+		var baseFee *uint256.Int
+		if pipeline.header.BaseFee != nil {
+			baseFee = uint256.MustFromBig(pipeline.header.BaseFee)
+		}
+
+		pending = miner.txpool.PendingWithMax(uint256.MustFromBig(tip), baseFee, miner.config.MaxAccountsNum)
 	}
 	// if no txs, return immediately without starting pipeline
 	if genParams.transactions.Len() == 0 && len(pending) == 0 {

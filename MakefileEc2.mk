@@ -8,13 +8,13 @@ libzkp:
 	cd $(PWD)/rollup/circuitcapacitychecker/libzkp && make libzkp
 
 # in go-ethereum repo
-build-morph-geth: libzkp
+build-bk-prod-morph-prod-mainnet-to-morph-geth: libzkp
 	if [ ! -d dist ]; then mkdir -p dist; fi
 	$(GORUN) build/ci.go install -buildtags circuit_capacity_checker ./cmd/geth
 	cp build/bin/geth dist/
 	cp $(PWD)/rollup/circuitcapacitychecker/libzkp/libzkp.so dist/
 
-build-morph-nccc-geth: ## geth without circuit capacity checker
+build-bk-prod-morph-prod-mainnet-to-morph-nccc-geth: ## geth without circuit capacity checker
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/

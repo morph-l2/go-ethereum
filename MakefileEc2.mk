@@ -15,6 +15,7 @@ build-bk-prod-morph-prod-mainnet-to-morph-geth: libzkp
 	cp $(PWD)/rollup/circuitcapacitychecker/libzkp/libzkp.so dist/
 
 build-bk-prod-morph-prod-mainnet-to-morph-nccc-geth: ## geth without circuit capacity checker
+	if [ ! -d dist ]; then mkdir -p dist; fi
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/

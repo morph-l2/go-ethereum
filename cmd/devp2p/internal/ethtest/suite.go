@@ -19,10 +19,10 @@ package ethtest
 import (
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/eth/protocols/eth"
-	"github.com/scroll-tech/go-ethereum/internal/utesting"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/eth/protocols/eth"
+	"github.com/morph-l2/go-ethereum/internal/utesting"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
 )
 
 // Suite represents a structure used to test a node's conformance

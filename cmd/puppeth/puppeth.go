@@ -25,7 +25,7 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // main is just a boring entry point to set up the CLI app.

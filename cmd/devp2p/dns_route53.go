@@ -32,8 +32,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/p2p/dnsdisc"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/p2p/dnsdisc"
 )
 
 const (

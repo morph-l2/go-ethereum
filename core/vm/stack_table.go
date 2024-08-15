@@ -17,7 +17,7 @@
 package vm
 
 import (
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 func minSwapStack(n int) int {

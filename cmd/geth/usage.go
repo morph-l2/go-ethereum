@@ -24,9 +24,9 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/cmd/utils"
-	"github.com/scroll-tech/go-ethereum/internal/debug"
-	"github.com/scroll-tech/go-ethereum/internal/flags"
+	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/internal/debug"
+	"github.com/morph-l2/go-ethereum/internal/flags"
 )
 
 // AppHelpFlagGroups is the application flags, grouped by functionality.
@@ -47,9 +47,6 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.RinkebyFlag,
 			utils.RopstenFlag,
 			utils.SepoliaFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 			utils.SyncModeFlag,
 			utils.ExitWhenSyncedFlag,

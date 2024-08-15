@@ -21,7 +21,7 @@ import (
 
 	"github.com/holiman/uint256"
 
-	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common"
 )
 
 // hashRange is a utility to handle ranges of hashes, Split up the

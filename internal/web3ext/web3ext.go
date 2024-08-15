@@ -30,7 +30,7 @@ var Modules = map[string]string{
 	"txpool":   TxpoolJs,
 	"les":      LESJs,
 	"vflux":    VfluxJs,
-	"scroll":   ScrollJs,
+	"morph":    MorphJs,
 }
 
 const CliqueJs = `
@@ -841,9 +841,9 @@ web3._extend({
 });
 `
 
-const ScrollJs = `
+const MorphJs = `
 web3._extend({
-	property: 'scroll',
+	property: 'morph',
 	methods: [
 		new web3._extend.Method({
 			name: 'getBlockTraceByNumber',

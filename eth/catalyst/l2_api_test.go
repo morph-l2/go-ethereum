@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/consensus/l2"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/eth"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/consensus/l2"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/eth"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/circuitcapacitychecker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,10 +20,10 @@ var testNonce uint64
 
 func l2ChainConfig() params.ChainConfig {
 	config := *params.AllEthashProtocolChanges
-	config.Scroll.UseZktrie = true
+	config.Morph.UseZktrie = true
 	config.TerminalTotalDifficulty = common.Big0
 	addr := common.BigToAddress(big.NewInt(123))
-	config.Scroll.FeeVaultAddress = &addr
+	config.Morph.FeeVaultAddress = &addr
 	config.CurieBlock = nil
 	return config
 }

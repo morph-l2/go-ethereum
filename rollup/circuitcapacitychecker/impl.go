@@ -18,9 +18,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/metrics"
 )
 
 // mutex for concurrent CircuitCapacityChecker creations

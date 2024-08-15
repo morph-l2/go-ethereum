@@ -25,17 +25,17 @@ import (
 
 	cli "gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/cmd/utils"
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/state/pruner"
-	"github.com/scroll-tech/go-ethereum/core/state/snapshot"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/crypto/codehash"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/rlp"
-	"github.com/scroll-tech/go-ethereum/trie"
+	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/state/pruner"
+	"github.com/morph-l2/go-ethereum/core/state/snapshot"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/crypto/codehash"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/rlp"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 var (
@@ -91,9 +91,6 @@ the trie clean cache with default directory will be deleted.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
-					utils.ScrollAlphaFlag,
-					utils.ScrollSepoliaFlag,
-					utils.ScrollFlag,
 					utils.MorphHoleskyFlag,
 					utils.CacheTrieJournalFlag,
 					utils.BloomFilterSizeFlag,
@@ -126,9 +123,6 @@ the trie clean cache with default directory will be deleted.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
-					utils.ScrollAlphaFlag,
-					utils.ScrollSepoliaFlag,
-					utils.ScrollFlag,
 					utils.MorphHoleskyFlag,
 				},
 				Description: `
@@ -151,9 +145,6 @@ In other words, this command does the snapshot to trie conversion.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
-					utils.ScrollAlphaFlag,
-					utils.ScrollSepoliaFlag,
-					utils.ScrollFlag,
 					utils.MorphHoleskyFlag,
 				},
 				Description: `
@@ -178,9 +169,6 @@ It's also usable without snapshot enabled.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
-					utils.ScrollAlphaFlag,
-					utils.ScrollSepoliaFlag,
-					utils.ScrollFlag,
 					utils.MorphHoleskyFlag,
 				},
 				Description: `
@@ -206,9 +194,6 @@ It's also usable without snapshot enabled.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
-					utils.ScrollAlphaFlag,
-					utils.ScrollSepoliaFlag,
-					utils.ScrollFlag,
 					utils.MorphHoleskyFlag,
 					utils.ExcludeCodeFlag,
 					utils.ExcludeStorageFlag,

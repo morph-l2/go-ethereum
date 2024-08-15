@@ -19,17 +19,18 @@ package graphql
 import (
 	"context"
 	"encoding/json"
-	"github.com/scroll-tech/go-ethereum/eth/filters"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/morph-l2/go-ethereum/eth/filters"
+
 	"github.com/graph-gophers/graphql-go"
 	gqlErrors "github.com/graph-gophers/graphql-go/errors"
-	"github.com/scroll-tech/go-ethereum/internal/ethapi"
-	"github.com/scroll-tech/go-ethereum/node"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/internal/ethapi"
+	"github.com/morph-l2/go-ethereum/node"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 type handler struct {

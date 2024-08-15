@@ -22,7 +22,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/ethdb"
 )
 
 // TestDatabaseSuite runs a suite of tests against a KeyValueStore database

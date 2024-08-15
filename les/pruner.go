@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common/math"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/common/math"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // pruner is responsible for pruning historical light chain data.

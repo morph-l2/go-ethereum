@@ -22,9 +22,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/scroll-tech/go-ethereum/p2p"
-	"github.com/scroll-tech/go-ethereum/p2p/nat"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/p2p/nat"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 const (

@@ -19,10 +19,10 @@ package keystore
 import (
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum"
-	"github.com/scroll-tech/go-ethereum/accounts"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum"
+	"github.com/morph-l2/go-ethereum/accounts"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/crypto"
 )
 
 // keystoreWallet implements the accounts.Wallet interface for the original

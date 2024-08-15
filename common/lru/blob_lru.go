@@ -21,7 +21,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/golang-lru/simplelru"
-	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common"
 )
 
 // SizeConstrainedLRU is a wrapper around simplelru.LRU. The simplelru.LRU is capable

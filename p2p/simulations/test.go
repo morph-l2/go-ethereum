@@ -19,10 +19,10 @@ package simulations
 import (
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/p2p"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
-	"github.com/scroll-tech/go-ethereum/p2p/enr"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/p2p/enr"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 // NoopService is the service that does not do anything

@@ -22,8 +22,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/accounts/abi"
-	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/accounts/abi"
+	"github.com/morph-l2/go-ethereum/common"
 )
 
 // Tests that all the selectors contained in the 4byte database are valid.

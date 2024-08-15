@@ -14,7 +14,7 @@ Morph Chain adapts the Go Ethereum to run as the execution layer. It starts its 
 
 ### ZKTrie Storage
 
-Another implement for storage trie, base on patricia merkle tree, has been induced. It is feasible to zk proving in the storage part. It is specified as a flag in gensis, set `config.scroll.useZktrie` to true for enabling it.
+Another implement for storage trie, base on patricia merkle tree, has been induced. It is feasible to zk proving in the storage part. It is specified as a flag in gensis, set `config.morph.useZktrie` to true for enabling it.
 
 Notice that currently the snapshot would be disabled by the zktrie implement.
 

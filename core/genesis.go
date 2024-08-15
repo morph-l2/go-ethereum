@@ -25,19 +25,19 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
-	"github.com/scroll-tech/go-ethereum/common/math"
-	"github.com/scroll-tech/go-ethereum/consensus/misc"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/crypto"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rlp"
-	"github.com/scroll-tech/go-ethereum/trie"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/common/math"
+	"github.com/morph-l2/go-ethereum/consensus/misc"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rlp"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 //go:generate gencodec -type Genesis -field-override genesisSpecMarshaling -out gen_genesis.go
@@ -189,10 +189,10 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			trieCfg = &trie.Config{Zktrie: storedcfg.Scroll.ZktrieEnabled()}
+			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled()}
 		}
 	} else {
-		trieCfg = &trie.Config{Zktrie: genesis.Config.Scroll.ZktrieEnabled()}
+		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled()}
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
@@ -278,7 +278,7 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		trieCfg = &trie.Config{Zktrie: g.Config.Scroll.ZktrieEnabled()}
+		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled()}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)
 	if err != nil {
@@ -432,42 +432,6 @@ func DefaultSepoliaGenesisBlock() *Genesis {
 		Difficulty: big.NewInt(0x20000),
 		Timestamp:  1633267481,
 		Alloc:      decodePrealloc(sepoliaAllocData),
-	}
-}
-
-// DefaultScrollAlphaGenesisBlock returns the Scroll Alpha network genesis block.
-func DefaultScrollAlphaGenesisBlock() *Genesis {
-	return &Genesis{
-		Config:     params.ScrollAlphaChainConfig,
-		Timestamp:  0x63f67207,
-		ExtraData:  hexutil.MustDecode("0x0000000000000000000000000000000000000000000000000000000000000000b7C0c58702D0781C0e2eB3aaE301E4c340073448Ec9c139eFCBBe6323DA406fffBF4Db02a60A9720589c71deC4302fE718bE62350c174922782Cc6600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
-		GasLimit:   8000000,
-		Difficulty: big.NewInt(1),
-		Alloc:      decodePrealloc(scrollAlphaAllocData),
-	}
-}
-
-// DefaultScrollSepoliaGenesisBlock returns the Scroll Sepolia network genesis block.
-func DefaultScrollSepoliaGenesisBlock() *Genesis {
-	return &Genesis{
-		Config:     params.ScrollSepoliaChainConfig,
-		Timestamp:  0x64cfd015,
-		ExtraData:  hexutil.MustDecode("0x000000000000000000000000000000000000000000000000000000000000000048C3F81f3D998b6652900e1C3183736C238Fe4290000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
-		GasLimit:   8000000,
-		Difficulty: big.NewInt(1),
-		Alloc:      decodePrealloc(scrollSepoliaAllocData),
-	}
-}
-
-// DefaultScrollMainnetGenesisBlock returns the Scroll mainnet genesis block.
-func DefaultScrollMainnetGenesisBlock() *Genesis {
-	return &Genesis{
-		Config:     params.ScrollMainnetChainConfig,
-		Timestamp:  0x6524e860,
-		ExtraData:  hexutil.MustDecode("0x4c61206573746f6e7465636f206573746173206d616c6665726d6974612e0000d2ACF5d16a983DB0d909d9D761B8337Fabd6cBd10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
-		GasLimit:   10000000,
-		Difficulty: big.NewInt(1),
-		Alloc:      decodePrealloc(scrollMainnetAllocData),
 	}
 }
 

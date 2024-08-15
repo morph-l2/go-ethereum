@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // measurementImpact is the impact a single measurement has on a peer's final

@@ -3,7 +3,7 @@ package rcfg
 import (
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common"
 )
 
 var (
@@ -19,14 +19,14 @@ var (
 	SequencerAddress           = common.HexToAddress("0x5300000000000000000000000000000000000017")
 	SequencerSetVerifyHashSlot = common.BigToHash(big.NewInt(101))
 
-	// ScrollFeeVaultAddress is the address of the L2TxFeeVault
+	// MorphFeeVaultAddress is the address of the L2TxFeeVault
 	// predeploy
-	// see scroll-tech/scroll/contracts/src/L2/predeploys/L2TxFeeVault.sol
-	ScrollFeeVaultAddress = common.HexToAddress("0x530000000000000000000000000000000000000a")
+	// see morph-l2/morph/contracts/contracts/l2/system/L2TxFeeVault.sol
+	MorphFeeVaultAddress = common.HexToAddress("0x530000000000000000000000000000000000000a")
 
-	// L1GasPriceOracleAddress is the address of the L1GasPriceOracle
+	// L1GasPriceOracleAddress is the address of the GasPriceOracle
 	// predeploy
-	// see scroll-tech/scroll/contracts/src/L2/predeploys/L1GasPriceOracle.sol
+	// see morph-l2/morph/contracts/contracts/l2/system/GasPriceOracle.sol
 	L1GasPriceOracleAddress = common.HexToAddress("0x530000000000000000000000000000000000000F")
 	Precision               = new(big.Int).SetUint64(1e9)
 	L1BaseFeeSlot           = common.BigToHash(big.NewInt(1))

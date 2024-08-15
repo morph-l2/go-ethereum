@@ -28,8 +28,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/pbkdf2"
 
-	"github.com/scroll-tech/go-ethereum/accounts"
-	"github.com/scroll-tech/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/accounts"
+	"github.com/morph-l2/go-ethereum/crypto"
 )
 
 // creates a Key and stores that in the given KeyStore by decrypting a presale key JSON

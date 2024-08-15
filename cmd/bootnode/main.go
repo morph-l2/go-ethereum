@@ -24,13 +24,13 @@ import (
 	"net"
 	"os"
 
-	"github.com/scroll-tech/go-ethereum/cmd/utils"
-	"github.com/scroll-tech/go-ethereum/crypto"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/p2p/discover"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
-	"github.com/scroll-tech/go-ethereum/p2p/nat"
-	"github.com/scroll-tech/go-ethereum/p2p/netutil"
+	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/p2p/discover"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/p2p/nat"
+	"github.com/morph-l2/go-ethereum/p2p/netutil"
 )
 
 func main() {

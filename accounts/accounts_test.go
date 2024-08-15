@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
 )
 
 func TestTextHash(t *testing.T) {

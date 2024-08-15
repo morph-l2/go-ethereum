@@ -26,16 +26,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/common/prque"
-	"github.com/scroll-tech/go-ethereum/consensus/misc"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/event"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/metrics"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/fees"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/prque"
+	"github.com/morph-l2/go-ethereum/consensus/misc"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/event"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/fees"
 )
 
 const (
@@ -287,7 +287,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 
 	// Using MaxTxPayloadBytesPerBlock as max tx bytes if it exists and smaller than 128K
 	rawTxMaxSize := txMaxSize
-	if configSize := chainconfig.Scroll.MaxTxPayloadBytesPerBlock; configSize != nil && *configSize < txMaxSize {
+	if configSize := chainconfig.Morph.MaxTxPayloadBytesPerBlock; configSize != nil && *configSize < txMaxSize {
 		rawTxMaxSize = *configSize
 	}
 
@@ -671,7 +671,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrInsufficientFunds
 	}
 	// 2. If FeeVault is enabled, perform an additional check for L1 data fees.
-	if pool.chainconfig.Scroll.FeeVaultEnabled() {
+	if pool.chainconfig.Morph.FeeVaultEnabled() {
 		// Get L1 data fee in current state
 		l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead)
 		if err != nil {
@@ -1445,7 +1445,7 @@ func (pool *TxPool) executableTxFilter(costLimit *big.Int) func(tx *types.Transa
 			return true
 		}
 
-		if pool.chainconfig.Scroll.FeeVaultEnabled() {
+		if pool.chainconfig.Morph.FeeVaultEnabled() {
 			// recheck L1 data fee, as the oracle price may have changed
 			l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead)
 			if err != nil {

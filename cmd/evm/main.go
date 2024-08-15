@@ -24,9 +24,9 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/cmd/evm/internal/t8ntool"
-	"github.com/scroll-tech/go-ethereum/cmd/utils"
-	"github.com/scroll-tech/go-ethereum/internal/flags"
+	"github.com/morph-l2/go-ethereum/cmd/evm/internal/t8ntool"
+	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/internal/flags"
 )
 
 var gitCommit = "" // Git SHA1 commit hash of the release (set via linker flags)

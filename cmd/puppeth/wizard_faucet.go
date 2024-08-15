@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/scroll-tech/go-ethereum/accounts/keystore"
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/accounts/keystore"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // deployFaucet queries the user for various input on deploying a faucet, after

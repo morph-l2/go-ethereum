@@ -20,9 +20,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/scroll-tech/go-ethereum"
-	"github.com/scroll-tech/go-ethereum/event"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum"
+	"github.com/morph-l2/go-ethereum/event"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 // PublicDownloaderAPI provides an API which gives information about the current synchronisation status.

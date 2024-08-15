@@ -27,7 +27,7 @@ import (
 	"testing"
 
 	"github.com/holiman/uint256"
-	"github.com/scroll-tech/go-ethereum/common/math"
+	"github.com/morph-l2/go-ethereum/common/math"
 )
 
 type testEncoder struct {

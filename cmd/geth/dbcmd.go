@@ -31,14 +31,14 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/cmd/utils"
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
-	"github.com/scroll-tech/go-ethereum/console/prompt"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/trie"
+	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/console/prompt"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 var (
@@ -85,9 +85,6 @@ Remove blockchain and state databases`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 		Usage:       "Inspect the storage size for each type of data in the database",
@@ -105,9 +102,6 @@ Remove blockchain and state databases`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 	}
@@ -123,9 +117,6 @@ Remove blockchain and state databases`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 			utils.CacheFlag,
 			utils.CacheDatabaseFlag,
@@ -147,10 +138,7 @@ corruption if it is aborted during execution'!`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
 			utils.MorphHoleskyFlag,
-			utils.ScrollFlag,
 		},
 		Description: "This command looks up the specified database key from the database.",
 	}
@@ -167,9 +155,6 @@ corruption if it is aborted during execution'!`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 		Description: `This command deletes the specified database key from the database.
@@ -188,9 +173,6 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 		Description: `This command sets a given database key to the given value.
@@ -209,9 +191,6 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 		Description: "This command looks up the specified database key from the database.",
@@ -229,9 +208,6 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 			utils.SepoliaFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 		Description: "This command displays information about the freezer index.",
@@ -248,9 +224,6 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 			utils.RopstenFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 		Description: "The import command imports the specific chain data from an RLP encoded stream.",
@@ -267,9 +240,6 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 			utils.RopstenFlag,
 			utils.RinkebyFlag,
 			utils.GoerliFlag,
-			utils.ScrollAlphaFlag,
-			utils.ScrollSepoliaFlag,
-			utils.ScrollFlag,
 			utils.MorphHoleskyFlag,
 		},
 		Description: "Exports the specified chain data to an RLP encoded stream, optionally gzip-compressed.",

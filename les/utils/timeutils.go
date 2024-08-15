@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common/mclock"
+	"github.com/morph-l2/go-ethereum/common/mclock"
 )
 
 type UpdateTimer struct {

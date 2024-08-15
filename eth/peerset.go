@@ -21,10 +21,10 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/eth/protocols/eth"
-	"github.com/scroll-tech/go-ethereum/eth/protocols/snap"
-	"github.com/scroll-tech/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/eth/protocols/eth"
+	"github.com/morph-l2/go-ethereum/eth/protocols/snap"
+	"github.com/morph-l2/go-ethereum/p2p"
 )
 
 var (

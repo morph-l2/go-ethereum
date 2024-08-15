@@ -1,4 +1,4 @@
-module github.com/scroll-tech/go-ethereum
+module github.com/morph-l2/go-ethereum
 
 go 1.21
 

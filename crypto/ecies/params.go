@@ -42,7 +42,7 @@ import (
 	"fmt"
 	"hash"
 
-	ethcrypto "github.com/scroll-tech/go-ethereum/crypto"
+	ethcrypto "github.com/morph-l2/go-ethereum/crypto"
 )
 
 var (

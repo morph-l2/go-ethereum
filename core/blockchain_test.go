@@ -30,18 +30,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/consensus/ethash"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/crypto"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
-	"github.com/scroll-tech/go-ethereum/trie"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/consensus/ethash"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/rcfg"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 // So we can deterministically seed different blockchains
@@ -1467,7 +1467,7 @@ func TestEIP161AccountRemoval(t *testing.T) {
 // tests that under weird reorg conditions the blockchain and its internal header-
 // chain return the same latest block/header.
 //
-// https://github.com/scroll-tech/go-ethereum/pull/15941
+// https://github.com/morph-l2/go-ethereum/pull/15941
 func TestBlockchainHeaderchainReorgConsistency(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -1750,8 +1750,8 @@ func TestInsertReceiptChainRollback(t *testing.T) {
 // overtake the 'canon' chain until after it's passed canon by about 200 blocks.
 //
 // Details at:
-//   - https://github.com/scroll-tech/go-ethereum/issues/18977
-//   - https://github.com/scroll-tech/go-ethereum/pull/18988
+//   - https://github.com/morph-l2/go-ethereum/issues/18977
+//   - https://github.com/morph-l2/go-ethereum/pull/18988
 func TestLowDiffLongChain(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := ethash.NewFaker()
@@ -3173,7 +3173,7 @@ func TestFeeVault(t *testing.T) {
 	}
 
 	// Ensure that the fee vault received all tx fees
-	actual = state.GetBalance(*params.TestChainConfig.Scroll.FeeVaultAddress)
+	actual = state.GetBalance(*params.TestChainConfig.Morph.FeeVaultAddress)
 
 	effectiveGasPrice := new(big.Int).Add(block.BaseFee(), block.Transactions()[0].GasTipCap())
 	gasUsed := new(big.Int).SetUint64(block.GasUsed())
@@ -3188,10 +3188,10 @@ func TestFeeVault(t *testing.T) {
 func TestTransactionCountLimit(t *testing.T) {
 	// Create config that allows at most 1 transaction per block
 	config := params.TestChainConfig
-	config.Scroll.MaxTxPerBlock = new(int)
-	*config.Scroll.MaxTxPerBlock = 1
+	config.Morph.MaxTxPerBlock = new(int)
+	*config.Morph.MaxTxPerBlock = 1
 	defer func() {
-		config.Scroll.MaxTxPerBlock = nil
+		config.Morph.MaxTxPerBlock = nil
 	}()
 
 	var (
@@ -3251,10 +3251,10 @@ func TestTransactionCountLimit(t *testing.T) {
 func TestBlockPayloadSizeLimit(t *testing.T) {
 	// Create config that allows at most 150 bytes per block payload
 	config := params.TestChainConfig
-	config.Scroll.MaxTxPayloadBytesPerBlock = new(int)
-	*config.Scroll.MaxTxPayloadBytesPerBlock = 150
+	config.Morph.MaxTxPayloadBytesPerBlock = new(int)
+	*config.Morph.MaxTxPayloadBytesPerBlock = 150
 	defer func() {
-		config.Scroll.MaxTxPayloadBytesPerBlock = nil
+		config.Morph.MaxTxPayloadBytesPerBlock = nil
 	}()
 
 	var (

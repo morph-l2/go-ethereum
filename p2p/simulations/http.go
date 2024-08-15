@@ -32,11 +32,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/julienschmidt/httprouter"
 
-	"github.com/scroll-tech/go-ethereum/event"
-	"github.com/scroll-tech/go-ethereum/p2p"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
-	"github.com/scroll-tech/go-ethereum/p2p/simulations/adapters"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/event"
+	"github.com/morph-l2/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/p2p/simulations/adapters"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 // DefaultClient is the default simulation API client which expects the API

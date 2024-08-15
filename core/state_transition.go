@@ -22,14 +22,14 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	cmath "github.com/scroll-tech/go-ethereum/common/math"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/crypto/codehash"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/metrics"
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/common"
+	cmath "github.com/morph-l2/go-ethereum/common/math"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto/codehash"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 var emptyKeccakCodeHash = codehash.EmptyKeccakCodeHash
@@ -230,7 +230,7 @@ func (st *StateTransition) buyGas() error {
 	mgval := new(big.Int).SetUint64(st.msg.Gas())
 	mgval = mgval.Mul(mgval, st.gasPrice)
 
-	if st.evm.ChainConfig().Scroll.FeeVaultEnabled() {
+	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
 		// should be fine to add st.l1DataFee even without `L1MessageTx` check, since L1MessageTx will come with 0 l1DataFee,
 		// but double check to make sure
 		if !st.msg.IsL1MessageTx() {
@@ -244,7 +244,7 @@ func (st *StateTransition) buyGas() error {
 		balanceCheck = new(big.Int).SetUint64(st.msg.Gas())
 		balanceCheck = balanceCheck.Mul(balanceCheck, st.gasFeeCap)
 		balanceCheck.Add(balanceCheck, st.value)
-		if st.evm.ChainConfig().Scroll.FeeVaultEnabled() {
+		if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
 			// should be fine to add st.l1DataFee even without `L1MessageTx` check, since L1MessageTx will come with 0 l1DataFee,
 			// but double check to make sure
 			if !st.msg.IsL1MessageTx() {
@@ -420,7 +420,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	effectiveTip := st.gasPrice
 
 	// only burn the base fee if the fee vault is not enabled
-	if rules.IsCurie && !st.evm.ChainConfig().Scroll.FeeVaultEnabled() {
+	if rules.IsCurie && !st.evm.ChainConfig().Morph.FeeVaultEnabled() {
 		effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.evm.Context.BaseFee))
 	}
 

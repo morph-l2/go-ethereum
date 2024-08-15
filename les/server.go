@@ -21,20 +21,20 @@ import (
 	"errors"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common/mclock"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/les/flowcontrol"
-	vfs "github.com/scroll-tech/go-ethereum/les/vflux/server"
-	"github.com/scroll-tech/go-ethereum/light"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/node"
-	"github.com/scroll-tech/go-ethereum/p2p"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
-	"github.com/scroll-tech/go-ethereum/p2p/enr"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/common/mclock"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/eth/ethconfig"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/les/flowcontrol"
+	vfs "github.com/morph-l2/go-ethereum/les/vflux/server"
+	"github.com/morph-l2/go-ethereum/light"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/node"
+	"github.com/morph-l2/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/p2p/enr"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 var (
@@ -83,7 +83,7 @@ func NewLesServer(node *node.Node, e ethBackend, config *ethconfig.Config) (*Les
 		return nil, err
 	}
 	// Now disable for zktrie
-	if e.BlockChain().Config().Scroll.ZktrieEnabled() {
+	if e.BlockChain().Config().Morph.ZktrieEnabled() {
 		return nil, errors.New("light server not work with zktrie storage")
 	}
 

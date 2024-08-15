@@ -30,7 +30,7 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/scroll-tech/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/crypto"
 )
 
 const (

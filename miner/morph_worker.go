@@ -748,14 +748,12 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 		}
 	}
 
-	if miner.prioritizedTx != nil && env.header.Number.Uint64() > miner.prioritizedTx.blockNumber {
-		miner.prioritizedTx = nil
-	}
-	if miner.prioritizedTx != nil && env.header.Number.Uint64() == miner.prioritizedTx.blockNumber {
+	if miner.prioritizedTx != nil && env.header.Number.Uint64() >= miner.prioritizedTx.blockNumber {
 		tx := miner.prioritizedTx.tx
 		from, _ := types.Sender(env.signer, tx) // error already checked before
 		txList := map[common.Address]types.Transactions{from: []*types.Transaction{tx}}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, txList, env.header.BaseFee)
+		miner.prioritizedTx = nil // clear prioritizedTx before commitTransactions
 		err, circuitCapacityReached, _ = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil || circuitCapacityReached {
 			return err, skippedL1Txs

@@ -127,7 +127,7 @@ func (api *consensusAPI) AssembleBlock(params assembleBlockParams) (*executableD
 		time.Sleep(wait)
 	}
 
-	pending := pool.Pending(true)
+	pending := pool.Pending(nil, nil)
 
 	num := parent.Number()
 	header := &types.Header{

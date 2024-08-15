@@ -481,7 +481,7 @@ func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address
 
 // decodePrealloc does not support code and storage in prealloc config,
 // so we provide an alternative implementation here.
-func decodePreallocScroll(data string) (GenesisAlloc, error) {
+func decodePreallocMorph(data string) (GenesisAlloc, error) {
 	var p []struct {
 		Addr, Balance *big.Int
 		Code          []byte
@@ -510,7 +510,7 @@ func decodePreallocScroll(data string) (GenesisAlloc, error) {
 }
 
 func decodePrealloc(data string) GenesisAlloc {
-	if ga, err := decodePreallocScroll(data); err == nil {
+	if ga, err := decodePreallocMorph(data); err == nil {
 		return ga
 	}
 	var p []struct{ Addr, Balance *big.Int }

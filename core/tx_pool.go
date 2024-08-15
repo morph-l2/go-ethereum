@@ -26,7 +26,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/holiman/uint256"
 	"github.com/scroll-tech/go-ethereum/common"
 	"github.com/scroll-tech/go-ethereum/common/prque"
 	"github.com/scroll-tech/go-ethereum/consensus/misc"
@@ -546,40 +545,28 @@ func (pool *TxPool) ContentFrom(addr common.Address) (types.Transactions, types.
 // The enforceTips parameter can be used to do an extra filtering on the pending
 // transactions and only return those whose **effective** tip is large enough in
 // the next pending execution environment.
-func (pool *TxPool) Pending(minTip *uint256.Int, baseFee *uint256.Int) map[common.Address]types.Transactions {
+func (pool *TxPool) Pending(minTip *big.Int, baseFee *big.Int) map[common.Address]types.Transactions {
 	return pool.pendingWithMax(minTip, baseFee, math.MaxInt)
 }
 
 // PendingWithMax works similar to Pending but allows setting an upper limit on how many
 // accounts to return
-func (pool *TxPool) PendingWithMax(minTip *uint256.Int, baseFee *uint256.Int, maxAccountsNum int) map[common.Address]types.Transactions {
+func (pool *TxPool) PendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccountsNum int) map[common.Address]types.Transactions {
 	return pool.pendingWithMax(minTip, baseFee, maxAccountsNum)
 }
 
-func (pool *TxPool) pendingWithMax(minTip *uint256.Int, baseFee *uint256.Int, maxAccountsNum int) map[common.Address]types.Transactions {
+func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccountsNum int) map[common.Address]types.Transactions {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-
-	// Convert the new uint256.Int types to the old big.Int ones used by the legacy pool
-	var (
-		minTipBig  *big.Int
-		baseFeeBig *big.Int
-	)
-	if minTip != nil {
-		minTipBig = minTip.ToBig()
-	}
-	if baseFee != nil {
-		baseFeeBig = baseFee.ToBig()
-	}
 
 	pending := make(map[common.Address]types.Transactions)
 	for addr, list := range pool.pending {
 		txs := list.Flatten()
 
 		// If the miner requests tip enforcement, cap the lists now
-		if minTipBig != nil && !pool.locals.contains(addr) {
+		if minTip != nil && !pool.locals.contains(addr) {
 			for i, tx := range txs {
-				if tx.EffectiveGasTipIntCmp(minTipBig, baseFeeBig) < 0 {
+				if tx.EffectiveGasTipIntCmp(minTip, baseFee) < 0 {
 					txs = txs[:i]
 					break
 				}

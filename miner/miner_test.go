@@ -302,7 +302,7 @@ func TestBuildBlockTimeout(t *testing.T) {
 	require.NoError(t, miner.txpool.AddLocal(tx))
 	tx1, _ := types.SignTx(types.NewTransaction(testNonce+1, destAddr, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil), types.LatestSigner(miner.chainConfig), testKey1)
 	require.NoError(t, miner.txpool.AddLocal(tx1))
-	miner.circuitCapacityChecker.SetApplyLatency(tx1.Hash(), 400*time.Millisecond)
+	miner.circuitCapacityChecker.SetApplyLatency(tx1.Hash(), 1000*time.Millisecond)
 	tx2, _ := types.SignTx(types.NewTransaction(testNonce+2, destAddr, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil), types.LatestSigner(miner.chainConfig), testKey1)
 	require.NoError(t, miner.txpool.AddLocal(tx2))
 

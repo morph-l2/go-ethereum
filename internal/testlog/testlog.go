@@ -21,7 +21,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // Handler returns a log handler which logs to the unit test log of t.

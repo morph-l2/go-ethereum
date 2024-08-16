@@ -21,8 +21,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/event"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/event"
 )
 
 // managerSubBufferSize determines how many incoming wallet events

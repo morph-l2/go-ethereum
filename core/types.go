@@ -17,9 +17,9 @@
 package core
 
 import (
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 )
 
 // Validator is an interface which defines the standard for block validation. It
@@ -33,8 +33,8 @@ type Validator interface {
 	// gas used.
 	ValidateState(block *types.Block, state *state.StateDB, receipts types.Receipts, usedGas uint64) error
 
-	// SetupTracerAndCircuitCapacityChecker sets up ScrollTracerWrapper and CircuitCapacityChecker for validator,
-	// to get scroll-related traces and to validate the circuit row consumption
+	// SetupTracerAndCircuitCapacityChecker sets up MorphTracerWrapper and CircuitCapacityChecker for validator,
+	// to get morph-related traces and to validate the circuit row consumption
 	SetupTracerAndCircuitCapacityChecker(tracer tracerWrapper)
 }
 

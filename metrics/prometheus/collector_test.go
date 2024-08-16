@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/metrics"
 )
 
 func TestMain(m *testing.M) {

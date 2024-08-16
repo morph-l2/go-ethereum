@@ -22,9 +22,9 @@ import (
 
 	"github.com/holiman/uint256"
 
-	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common"
 
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 var activators = map[int]func(*JumpTable){
@@ -148,7 +148,7 @@ func enable2929(jt *JumpTable) {
 	jt[DELEGATECALL].constantGas = params.WarmStorageReadCostEIP2929
 	jt[DELEGATECALL].dynamicGas = gasDelegateCallEIP2929
 
-	// SELFDESTRUCT is disabled in Scroll
+	// SELFDESTRUCT is disabled in Morph
 	// jt[SELFDESTRUCT].constantGas = params.SelfdestructGasEIP150
 	// jt[SELFDESTRUCT].dynamicGas = gasSelfdestructEIP2929
 }
@@ -160,7 +160,7 @@ func enable2929(jt *JumpTable) {
 func enable3529(jt *JumpTable) {
 	jt[SSTORE].dynamicGas = gasSStoreEIP3529
 
-	// SELFDESTRUCT is disabled in Scroll
+	// SELFDESTRUCT is disabled in Morph
 	// jt[SELFDESTRUCT].dynamicGas = gasSelfdestructEIP3529
 }
 

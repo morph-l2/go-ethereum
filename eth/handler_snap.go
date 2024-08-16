@@ -17,9 +17,9 @@
 package eth
 
 import (
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/eth/protocols/snap"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/eth/protocols/snap"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
 )
 
 // snapHandler implements the snap.Backend interface to handle the various network

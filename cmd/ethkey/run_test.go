@@ -23,7 +23,7 @@ import (
 
 	"github.com/docker/docker/pkg/reexec"
 
-	"github.com/scroll-tech/go-ethereum/internal/cmdtest"
+	"github.com/morph-l2/go-ethereum/internal/cmdtest"
 )
 
 type testEthkey struct {

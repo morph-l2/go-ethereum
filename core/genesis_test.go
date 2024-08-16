@@ -23,12 +23,12 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/consensus/ethash"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/consensus/ethash"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 func TestInvalidCliqueConfig(t *testing.T) {
@@ -173,9 +173,6 @@ func TestGenesisHashes(t *testing.T) {
 		// {DefaultRopstenGenesisBlock(), params.RopstenGenesisHash},
 		// {DefaultRinkebyGenesisBlock(), params.RinkebyGenesisHash},
 		// {DefaultSepoliaGenesisBlock(), params.SepoliaGenesisHash},
-		// {DefaultScrollAlphaGenesisBlock(), params.ScrollAlphaGenesisHash},
-		// {DefaultScrollSepoliaGenesisBlock(), params.ScrollSepoliaGenesisHash},
-		// {DefaultScrollMainnetGenesisBlock(), params.ScrollMainnetGenesisHash},
 		{DefaultMorphHoleskyGenesisBlock(), params.MorphHoleskyGenesisHash},
 	} {
 		// Test via MustCommit

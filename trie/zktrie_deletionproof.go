@@ -7,7 +7,7 @@ import (
 	zktrie "github.com/scroll-tech/zktrie/trie"
 	zkt "github.com/scroll-tech/zktrie/types"
 
-	"github.com/scroll-tech/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/ethdb"
 )
 
 type ProofTracer struct {

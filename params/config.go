@@ -23,21 +23,17 @@ import (
 
 	"golang.org/x/crypto/sha3"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
+	"github.com/morph-l2/go-ethereum/common"
 )
 
 // Genesis hashes to enforce below configs on.
 var (
-	MainnetGenesisHash       = common.HexToHash("0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
-	RopstenGenesisHash       = common.HexToHash("0x41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d")
-	SepoliaGenesisHash       = common.HexToHash("0x25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9")
-	RinkebyGenesisHash       = common.HexToHash("0x6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177")
-	GoerliGenesisHash        = common.HexToHash("0xbf7e331f7f7c1dd2e05159666b3bf8bc7a8a3a9eb1d518969eab529dd9b88c1a")
-	ScrollAlphaGenesisHash   = common.HexToHash("0xa4fc62b9b0643e345bdcebe457b3ae898bef59c7203c3db269200055e037afda")
-	ScrollSepoliaGenesisHash = common.HexToHash("0xaa62d1a8b2bffa9e5d2368b63aae0d98d54928bd713125e3fd9e5c896c68592c")
-	ScrollMainnetGenesisHash = common.HexToHash("0xbbc05efd412b7cd47a2ed0e5ddfcf87af251e414ea4c801d78b6784513180a80")
-	MorphHoleskyGenesisHash  = common.HexToHash("0x74c3b27ba96d1f17f35849f51f5d786767bae9b1b63c338069a8cbd0e1d0b0b7")
+	MainnetGenesisHash      = common.HexToHash("0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+	RopstenGenesisHash      = common.HexToHash("0x41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d")
+	SepoliaGenesisHash      = common.HexToHash("0x25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9")
+	RinkebyGenesisHash      = common.HexToHash("0x6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177")
+	GoerliGenesisHash       = common.HexToHash("0xbf7e331f7f7c1dd2e05159666b3bf8bc7a8a3a9eb1d518969eab529dd9b88c1a")
+	MorphHoleskyGenesisHash = common.HexToHash("0x74c3b27ba96d1f17f35849f51f5d786767bae9b1b63c338069a8cbd0e1d0b0b7")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -258,108 +254,8 @@ var (
 		Threshold: 2,
 	}
 
-	// ScrollAlphaChainConfig contains the chain parameters to run a node on the Scroll Alpha test network.
-	ScrollMaxTxPerBlock             = 100
-	ScrollMaxTxPayloadBytesPerBlock = 120 * 1024
-
-	ScrollAlphaChainConfig = &ChainConfig{
-		ChainID:             big.NewInt(534353),
-		HomesteadBlock:      big.NewInt(0),
-		DAOForkBlock:        nil,
-		DAOForkSupport:      true,
-		EIP150Block:         big.NewInt(0),
-		EIP155Block:         big.NewInt(0),
-		EIP158Block:         big.NewInt(0),
-		ByzantiumBlock:      big.NewInt(0),
-		ConstantinopleBlock: big.NewInt(0),
-		PetersburgBlock:     big.NewInt(0),
-		IstanbulBlock:       big.NewInt(0),
-		MuirGlacierBlock:    nil,
-		BerlinBlock:         big.NewInt(0),
-		LondonBlock:         big.NewInt(0),
-		ArrowGlacierBlock:   nil,
-		ArchimedesBlock:     big.NewInt(2646311),
-		ShanghaiBlock:       nil,
-		BernoulliBlock:      nil,
-		CurieBlock:          nil,
-		DarwinTime:          nil,
-		Clique: &CliqueConfig{
-			Period: 3,
-			Epoch:  30000,
-		},
-		Scroll: ScrollConfig{
-			UseZktrie:                 true,
-			MaxTxPerBlock:             &ScrollMaxTxPerBlock,
-			MaxTxPayloadBytesPerBlock: &ScrollMaxTxPayloadBytesPerBlock,
-			FeeVaultAddress:           &rcfg.ScrollFeeVaultAddress,
-		},
-	}
-
-	ScrollSepoliaChainConfig = &ChainConfig{
-		ChainID:             big.NewInt(534351),
-		HomesteadBlock:      big.NewInt(0),
-		DAOForkBlock:        nil,
-		DAOForkSupport:      true,
-		EIP150Block:         big.NewInt(0),
-		EIP155Block:         big.NewInt(0),
-		EIP158Block:         big.NewInt(0),
-		ByzantiumBlock:      big.NewInt(0),
-		ConstantinopleBlock: big.NewInt(0),
-		PetersburgBlock:     big.NewInt(0),
-		IstanbulBlock:       big.NewInt(0),
-		MuirGlacierBlock:    nil,
-		BerlinBlock:         big.NewInt(0),
-		LondonBlock:         big.NewInt(0),
-		ArrowGlacierBlock:   nil,
-		ArchimedesBlock:     big.NewInt(0),
-		ShanghaiBlock:       big.NewInt(0),
-		BernoulliBlock:      big.NewInt(3747132),
-		CurieBlock:          big.NewInt(4740239),
-		DarwinTime:          nil,
-		Clique: &CliqueConfig{
-			Period: 3,
-			Epoch:  30000,
-		},
-		Scroll: ScrollConfig{
-			UseZktrie:                 true,
-			MaxTxPerBlock:             &ScrollMaxTxPerBlock,
-			MaxTxPayloadBytesPerBlock: &ScrollMaxTxPayloadBytesPerBlock,
-			FeeVaultAddress:           &rcfg.ScrollFeeVaultAddress,
-		},
-	}
-
-	ScrollMainnetChainConfig = &ChainConfig{
-		ChainID:             big.NewInt(534352),
-		HomesteadBlock:      big.NewInt(0),
-		DAOForkBlock:        nil,
-		DAOForkSupport:      true,
-		EIP150Block:         big.NewInt(0),
-		EIP155Block:         big.NewInt(0),
-		EIP158Block:         big.NewInt(0),
-		ByzantiumBlock:      big.NewInt(0),
-		ConstantinopleBlock: big.NewInt(0),
-		PetersburgBlock:     big.NewInt(0),
-		IstanbulBlock:       big.NewInt(0),
-		MuirGlacierBlock:    nil,
-		BerlinBlock:         big.NewInt(0),
-		LondonBlock:         big.NewInt(0),
-		ArrowGlacierBlock:   nil,
-		ArchimedesBlock:     big.NewInt(0),
-		ShanghaiBlock:       big.NewInt(0),
-		BernoulliBlock:      big.NewInt(5220340),
-		CurieBlock:          big.NewInt(7096836),
-		DarwinTime:          nil,
-		Clique: &CliqueConfig{
-			Period: 3,
-			Epoch:  30000,
-		},
-		Scroll: ScrollConfig{
-			UseZktrie:                 true,
-			MaxTxPerBlock:             &ScrollMaxTxPerBlock,
-			MaxTxPayloadBytesPerBlock: &ScrollMaxTxPayloadBytesPerBlock,
-			FeeVaultAddress:           &rcfg.ScrollFeeVaultAddress,
-		},
-	}
+	MorphMaxTxPerBlock             = 100
+	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
 
 	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
 	MorphHoleskyChainConfig = &ChainConfig{
@@ -384,10 +280,10 @@ var (
 		CurieBlock:              nil,
 		DarwinTime:              nil,
 		TerminalTotalDifficulty: big.NewInt(0),
-		Scroll: ScrollConfig{
+		Morph: MorphConfig{
 			UseZktrie:                 true,
-			MaxTxPerBlock:             &ScrollMaxTxPerBlock,
-			MaxTxPayloadBytesPerBlock: &ScrollMaxTxPayloadBytesPerBlock,
+			MaxTxPerBlock:             &MorphMaxTxPerBlock,
+			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphFeeVaultAddress,
 		},
 	}
@@ -422,7 +318,7 @@ var (
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
-		Scroll: ScrollConfig{
+		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
 			MaxTxPerBlock:             nil,
@@ -459,7 +355,7 @@ var (
 		TerminalTotalDifficulty: nil,
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
-		Scroll: ScrollConfig{
+		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
 			MaxTxPerBlock:             nil,
@@ -491,7 +387,7 @@ var (
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
-		Scroll: ScrollConfig{
+		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           &common.Address{123},
 			MaxTxPerBlock:             nil,
@@ -524,7 +420,7 @@ var (
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
-		Scroll: ScrollConfig{
+		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
 			MaxTxPerBlock:             nil,
@@ -622,11 +518,11 @@ type ChainConfig struct {
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
-	// Scroll genesis extension: enable scroll rollup-related traces & state transition
-	Scroll ScrollConfig `json:"scroll,omitempty"`
+	// Morph genesis extension: enable morph rollup-related traces & state transition
+	Morph MorphConfig `json:"morph,omitempty"`
 }
 
-type ScrollConfig struct {
+type MorphConfig struct {
 	// Use zktrie [optional]
 	UseZktrie bool `json:"useZktrie,omitempty"`
 
@@ -640,15 +536,15 @@ type ScrollConfig struct {
 	FeeVaultAddress *common.Address `json:"feeVaultAddress,omitempty"`
 }
 
-func (s ScrollConfig) FeeVaultEnabled() bool {
+func (s MorphConfig) FeeVaultEnabled() bool {
 	return s.FeeVaultAddress != nil
 }
 
-func (s ScrollConfig) ZktrieEnabled() bool {
+func (s MorphConfig) ZktrieEnabled() bool {
 	return s.UseZktrie
 }
 
-func (s ScrollConfig) String() string {
+func (s MorphConfig) String() string {
 	maxTxPerBlock := "<nil>"
 	if s.MaxTxPerBlock != nil {
 		maxTxPerBlock = fmt.Sprintf("%v", *s.MaxTxPerBlock)
@@ -665,12 +561,12 @@ func (s ScrollConfig) String() string {
 
 // IsValidTxCount returns whether the given block's transaction count is below the limit.
 // This limit corresponds to the number of ECDSA signature checks that we can fit into the zkEVM.
-func (s ScrollConfig) IsValidTxCount(count int) bool {
+func (s MorphConfig) IsValidTxCount(count int) bool {
 	return s.MaxTxPerBlock == nil || count <= *s.MaxTxPerBlock
 }
 
 // IsValidBlockSize returns whether the given block's transaction payload size is below the limit.
-func (s ScrollConfig) IsValidBlockSize(size common.StorageSize) bool {
+func (s MorphConfig) IsValidBlockSize(size common.StorageSize) bool {
 	return s.MaxTxPayloadBytesPerBlock == nil || size <= common.StorageSize(*s.MaxTxPayloadBytesPerBlock)
 }
 
@@ -704,7 +600,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Darwin: %v, Engine: %v, Scroll config: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Darwin: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -726,7 +622,7 @@ func (c *ChainConfig) String() string {
 		c.CurieBlock,
 		c.DarwinTime,
 		engine,
-		c.Scroll,
+		c.Morph,
 	)
 }
 

@@ -21,7 +21,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
 )
 
 func TestBytesPadding(t *testing.T) {

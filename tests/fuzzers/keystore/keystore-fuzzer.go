@@ -19,7 +19,7 @@ package keystore
 import (
 	"os"
 
-	"github.com/scroll-tech/go-ethereum/accounts/keystore"
+	"github.com/morph-l2/go-ethereum/accounts/keystore"
 )
 
 func Fuzz(input []byte) int {

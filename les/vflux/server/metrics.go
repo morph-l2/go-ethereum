@@ -17,7 +17,7 @@
 package server
 
 import (
-	"github.com/scroll-tech/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/metrics"
 )
 
 var (

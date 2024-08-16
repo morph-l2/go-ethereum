@@ -24,8 +24,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/crypto"
-	"github.com/scroll-tech/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/p2p"
 )
 
 // Tests that datadirs can be successfully created, be them manually configured

@@ -24,10 +24,10 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/cmd/utils"
-	"github.com/scroll-tech/go-ethereum/console"
-	"github.com/scroll-tech/go-ethereum/node"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/console"
+	"github.com/morph-l2/go-ethereum/node"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 var (
@@ -137,12 +137,6 @@ func remoteConsole(ctx *cli.Context) error {
 				path = filepath.Join(path, "goerli")
 			} else if ctx.GlobalBool(utils.SepoliaFlag.Name) {
 				path = filepath.Join(path, "sepolia")
-			} else if ctx.GlobalBool(utils.ScrollAlphaFlag.Name) {
-				path = filepath.Join(path, "scroll-alpha")
-			} else if ctx.GlobalBool(utils.ScrollSepoliaFlag.Name) {
-				path = filepath.Join(path, "scroll-sepolia")
-			} else if ctx.GlobalBool(utils.ScrollFlag.Name) {
-				path = filepath.Join(path, "scroll")
 			} else if ctx.GlobalBool(utils.MorphHoleskyFlag.Name) {
 				path = filepath.Join(path, "morph-holesky")
 			}

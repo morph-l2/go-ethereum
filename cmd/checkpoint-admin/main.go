@@ -24,9 +24,9 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/common/fdlimit"
-	"github.com/scroll-tech/go-ethereum/internal/flags"
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/common/fdlimit"
+	"github.com/morph-l2/go-ethereum/internal/flags"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 var (

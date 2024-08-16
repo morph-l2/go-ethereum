@@ -27,7 +27,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-const pathOfPackageRLP = "github.com/scroll-tech/go-ethereum/rlp"
+const pathOfPackageRLP = "github.com/morph-l2/go-ethereum/rlp"
 
 func main() {
 	var (
@@ -74,7 +74,7 @@ func (cfg *Config) process() (code []byte, err error) {
 	// Load packages.
 	pcfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes,
-		Dir:        cfg.Dir,
+		Dir:  cfg.Dir,
 	}
 	ps, err := packages.Load(pcfg, pathOfPackageRLP, ".")
 	if err != nil {

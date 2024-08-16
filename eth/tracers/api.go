@@ -29,21 +29,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
-	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/internal/ethapi"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rlp"
-	"github.com/scroll-tech/go-ethereum/rollup/fees"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/internal/ethapi"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rlp"
+	"github.com/morph-l2/go-ethereum/rollup/fees"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 const (
@@ -86,13 +86,13 @@ type Backend interface {
 
 // API is the collection of tracing APIs exposed over the private debugging endpoint.
 type API struct {
-	backend             Backend
-	scrollTracerWrapper scrollTracerWrapper
+	backend            Backend
+	morphTracerWrapper morphTracerWrapper
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
-func NewAPI(backend Backend, scrollTracerWrapper scrollTracerWrapper) *API {
-	return &API{backend: backend, scrollTracerWrapper: scrollTracerWrapper}
+func NewAPI(backend Backend, morphTracerWrapper morphTracerWrapper) *API {
+	return &API{backend: backend, morphTracerWrapper: morphTracerWrapper}
 }
 
 type chainContext struct {
@@ -993,19 +993,19 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 }
 
 // APIs return the collection of RPC services the tracer package offers.
-func APIs(backend Backend, scrollTracerWrapper scrollTracerWrapper) []rpc.API {
+func APIs(backend Backend, morphTracerWrapper morphTracerWrapper) []rpc.API {
 	// Append all the local APIs and return
 	return []rpc.API{
 		{
 			Namespace: "debug",
 			Version:   "1.0",
-			Service:   NewAPI(backend, scrollTracerWrapper),
+			Service:   NewAPI(backend, morphTracerWrapper),
 			Public:    false,
 		},
 		{
 			Namespace: "morph",
 			Version:   "1.0",
-			Service:   TraceBlock(NewAPI(backend, scrollTracerWrapper)),
+			Service:   TraceBlock(NewAPI(backend, morphTracerWrapper)),
 			Public:    true,
 		},
 	}

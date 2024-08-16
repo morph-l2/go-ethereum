@@ -19,11 +19,11 @@ package core
 import (
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 // ChainContext supports retrieving headers and consensus parameters from the
@@ -44,8 +44,8 @@ func NewEVMBlockContext(header *types.Header, chain ChainContext, chainConfig *p
 	)
 
 	// If we don't have an explicit author (i.e. not mining), extract from the header
-	if chainConfig.Scroll.FeeVaultEnabled() {
-		beneficiary = *chainConfig.Scroll.FeeVaultAddress
+	if chainConfig.Morph.FeeVaultEnabled() {
+		beneficiary = *chainConfig.Morph.FeeVaultAddress
 	} else if author == nil {
 		beneficiary, _ = chain.Engine().Author(header) // Ignore error, we're past header validation
 	} else {

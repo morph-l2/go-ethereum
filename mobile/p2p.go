@@ -21,7 +21,7 @@ package geth
 import (
 	"errors"
 
-	"github.com/scroll-tech/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/p2p"
 )
 
 // NodeInfo represents pi short summary of the information known about the host.

@@ -17,8 +17,8 @@
 package runtime
 
 import (
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/vm"
 )
 
 func NewEnv(cfg *Config) *vm.EVM {

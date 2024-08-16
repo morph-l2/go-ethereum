@@ -30,14 +30,14 @@ import (
 
 	"gopkg.in/olebedev/go-duktape.v3"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/crypto"
-	tracers2 "github.com/scroll-tech/go-ethereum/eth/tracers"
-	"github.com/scroll-tech/go-ethereum/eth/tracers/js/internal/tracers"
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
+	tracers2 "github.com/morph-l2/go-ethereum/eth/tracers"
+	"github.com/morph-l2/go-ethereum/eth/tracers/js/internal/tracers"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // camel converts a snake cased input string into a camel cased output.

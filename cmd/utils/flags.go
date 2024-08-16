@@ -38,43 +38,43 @@ import (
 	gopsutil "github.com/shirou/gopsutil/mem"
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/accounts"
-	"github.com/scroll-tech/go-ethereum/accounts/keystore"
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/common/fdlimit"
-	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/consensus/clique"
-	"github.com/scroll-tech/go-ethereum/consensus/ethash"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/crypto"
-	"github.com/scroll-tech/go-ethereum/eth"
-	"github.com/scroll-tech/go-ethereum/eth/catalyst"
-	"github.com/scroll-tech/go-ethereum/eth/downloader"
-	"github.com/scroll-tech/go-ethereum/eth/ethconfig"
-	"github.com/scroll-tech/go-ethereum/eth/filters"
-	"github.com/scroll-tech/go-ethereum/eth/gasprice"
-	"github.com/scroll-tech/go-ethereum/eth/tracers"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/ethstats"
-	"github.com/scroll-tech/go-ethereum/graphql"
-	"github.com/scroll-tech/go-ethereum/internal/ethapi"
-	"github.com/scroll-tech/go-ethereum/internal/flags"
-	"github.com/scroll-tech/go-ethereum/les"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/metrics"
-	"github.com/scroll-tech/go-ethereum/metrics/exp"
-	"github.com/scroll-tech/go-ethereum/metrics/influxdb"
-	"github.com/scroll-tech/go-ethereum/miner"
-	"github.com/scroll-tech/go-ethereum/node"
-	"github.com/scroll-tech/go-ethereum/p2p"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
-	"github.com/scroll-tech/go-ethereum/p2p/nat"
-	"github.com/scroll-tech/go-ethereum/p2p/netutil"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/tracing"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/accounts"
+	"github.com/morph-l2/go-ethereum/accounts/keystore"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/fdlimit"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/consensus/clique"
+	"github.com/morph-l2/go-ethereum/consensus/ethash"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/eth"
+	"github.com/morph-l2/go-ethereum/eth/catalyst"
+	"github.com/morph-l2/go-ethereum/eth/downloader"
+	"github.com/morph-l2/go-ethereum/eth/ethconfig"
+	"github.com/morph-l2/go-ethereum/eth/filters"
+	"github.com/morph-l2/go-ethereum/eth/gasprice"
+	"github.com/morph-l2/go-ethereum/eth/tracers"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/ethstats"
+	"github.com/morph-l2/go-ethereum/graphql"
+	"github.com/morph-l2/go-ethereum/internal/ethapi"
+	"github.com/morph-l2/go-ethereum/internal/flags"
+	"github.com/morph-l2/go-ethereum/les"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/metrics/exp"
+	"github.com/morph-l2/go-ethereum/metrics/influxdb"
+	"github.com/morph-l2/go-ethereum/miner"
+	"github.com/morph-l2/go-ethereum/node"
+	"github.com/morph-l2/go-ethereum/p2p"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/p2p/nat"
+	"github.com/morph-l2/go-ethereum/p2p/netutil"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/tracing"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 func init() {
@@ -169,18 +169,6 @@ var (
 	SepoliaFlag = cli.BoolFlag{
 		Name:  "sepolia",
 		Usage: "Sepolia network: pre-configured proof-of-work test network",
-	}
-	ScrollAlphaFlag = cli.BoolFlag{
-		Name:  "scroll-alpha",
-		Usage: "Scroll Alpha test network",
-	}
-	ScrollSepoliaFlag = cli.BoolFlag{
-		Name:  "scroll-sepolia",
-		Usage: "Scroll Sepolia test network",
-	}
-	ScrollFlag = cli.BoolFlag{
-		Name:  "scroll",
-		Usage: "Scroll mainnet",
 	}
 	MorphHoleskyFlag = cli.BoolFlag{
 		Name:  "morph-holesky",
@@ -891,15 +879,6 @@ func MakeDataDir(ctx *cli.Context) string {
 		if ctx.GlobalBool(SepoliaFlag.Name) {
 			return filepath.Join(path, "sepolia")
 		}
-		if ctx.GlobalBool(ScrollAlphaFlag.Name) {
-			return filepath.Join(path, "scroll-alpha")
-		}
-		if ctx.GlobalBool(ScrollSepoliaFlag.Name) {
-			return filepath.Join(path, "scroll-sepolia")
-		}
-		if ctx.GlobalBool(ScrollFlag.Name) {
-			return filepath.Join(path, "scroll")
-		}
 		if ctx.GlobalBool(MorphHoleskyFlag.Name) {
 			return filepath.Join(path, "morph-holesky")
 		}
@@ -959,12 +938,6 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.RinkebyBootnodes
 	case ctx.GlobalBool(GoerliFlag.Name):
 		urls = params.GoerliBootnodes
-	case ctx.GlobalBool(ScrollAlphaFlag.Name):
-		urls = params.ScrollAlphaBootnodes
-	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
-		urls = params.ScrollSepoliaBootnodes
-	case ctx.GlobalBool(ScrollFlag.Name):
-		urls = params.ScrollMainnetBootnodes
 	case ctx.GlobalBool(MorphHoleskyFlag.Name):
 		urls = params.MorphHoleskyBootnodes
 	case cfg.BootstrapNodes != nil || len(urls) == 0:
@@ -1413,12 +1386,6 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "goerli")
 	case ctx.GlobalBool(SepoliaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "sepolia")
-	case ctx.GlobalBool(ScrollAlphaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
-		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-alpha")
-	case ctx.GlobalBool(ScrollSepoliaFlag.Name) && cfg.DataDir == node.DefaultDataDir():
-		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll-sepolia")
-	case ctx.GlobalBool(ScrollFlag.Name) && cfg.DataDir == node.DefaultDataDir():
-		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "scroll")
 	case ctx.GlobalBool(MorphHoleskyFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "morph-holesky")
 
@@ -1626,7 +1593,7 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, ScrollAlphaFlag, ScrollSepoliaFlag, ScrollFlag, MorphHoleskyFlag)
+	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphHoleskyFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	if ctx.GlobalString(GCModeFlag.Name) == GCModeArchive && ctx.GlobalUint64(TxLookupLimitFlag.Name) != 0 {
@@ -1793,41 +1760,6 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		}
 		cfg.Genesis = core.DefaultGoerliGenesisBlock()
 		SetDNSDiscoveryDefaults(cfg, params.GoerliGenesisHash)
-	case ctx.GlobalBool(ScrollAlphaFlag.Name):
-		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
-			cfg.NetworkId = 534353
-		}
-		cfg.Genesis = core.DefaultScrollAlphaGenesisBlock()
-		// SetDNSDiscoveryDefaults(cfg, params.ScrollAlphaGenesisHash)
-	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
-		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
-			cfg.NetworkId = 534351
-		}
-		cfg.Genesis = core.DefaultScrollSepoliaGenesisBlock()
-		// disable pruning
-		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-			log.Crit("Must use --gcmode=archive")
-		}
-		log.Info("Pruning disabled")
-		cfg.NoPruning = true
-		// disable prefetch
-		log.Info("Prefetch disabled")
-		cfg.NoPrefetch = true
-	case ctx.GlobalBool(ScrollFlag.Name):
-		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
-			cfg.NetworkId = 534352
-		}
-		cfg.Genesis = core.DefaultScrollMainnetGenesisBlock()
-		// forced for mainnet
-		// disable pruning
-		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-			log.Crit("Must use --gcmode=archive")
-		}
-		log.Info("Pruning disabled")
-		cfg.NoPruning = true
-		// disable prefetch
-		log.Info("Prefetch disabled")
-		cfg.NoPrefetch = true
 	case ctx.GlobalBool(MorphHoleskyFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2810
@@ -1935,8 +1867,8 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 		if err != nil {
 			Fatalf("Failed to register the Ethereum service: %v", err)
 		}
-		scrollTracerWrapper := tracing.NewTracerWrapper()
-		stack.RegisterAPIs(tracers.APIs(backend.ApiBackend, scrollTracerWrapper))
+		morphTracerWrapper := tracing.NewTracerWrapper()
+		stack.RegisterAPIs(tracers.APIs(backend.ApiBackend, morphTracerWrapper))
 		return backend.ApiBackend, nil
 	}
 
@@ -1954,8 +1886,8 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 		Fatalf("Failed to register the Engine API service: %v", err)
 	}
 
-	scrollTracerWrapper := tracing.NewTracerWrapper()
-	stack.RegisterAPIs(tracers.APIs(backend.APIBackend, scrollTracerWrapper))
+	morphTracerWrapper := tracing.NewTracerWrapper()
+	stack.RegisterAPIs(tracers.APIs(backend.APIBackend, morphTracerWrapper))
 
 	return backend.APIBackend, backend
 }
@@ -2099,12 +2031,6 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultRinkebyGenesisBlock()
 	case ctx.GlobalBool(GoerliFlag.Name):
 		genesis = core.DefaultGoerliGenesisBlock()
-	case ctx.GlobalBool(ScrollAlphaFlag.Name):
-		genesis = core.DefaultScrollAlphaGenesisBlock()
-	case ctx.GlobalBool(ScrollSepoliaFlag.Name):
-		genesis = core.DefaultScrollSepoliaGenesisBlock()
-	case ctx.GlobalBool(ScrollFlag.Name):
-		genesis = core.DefaultScrollMainnetGenesisBlock()
 	case ctx.GlobalBool(MorphHoleskyFlag.Name):
 		genesis = core.DefaultMorphHoleskyGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):

@@ -2,8 +2,9 @@ package authclient
 
 import (
 	"context"
-	"github.com/scroll-tech/go-ethereum/node"
-	"github.com/scroll-tech/go-ethereum/rpc"
+
+	"github.com/morph-l2/go-ethereum/node"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 type Client struct {

@@ -22,9 +22,9 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/scroll-tech/go-ethereum/cmd/devp2p/internal/v5test"
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/p2p/discover"
+	"github.com/morph-l2/go-ethereum/cmd/devp2p/internal/v5test"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/p2p/discover"
 )
 
 var (

@@ -22,16 +22,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/metrics"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
-	"github.com/scroll-tech/go-ethereum/trie"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/circuitcapacitychecker"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 var (
@@ -53,7 +53,7 @@ type BlockValidator struct {
 	// circuit capacity checker related fields
 	checkCircuitCapacity   bool                                           // whether enable circuit capacity check
 	cMu                    sync.Mutex                                     // mutex for circuit capacity checker
-	tracer                 tracerWrapper                                  // scroll tracer wrapper
+	tracer                 tracerWrapper                                  // morph tracer wrapper
 	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker // circuit capacity checker instance
 }
 
@@ -87,11 +87,11 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 		len(block.Transactions()) > 0 { // we allow the same state root when a block with no transactions
 		return ErrKnownBlock
 	}
-	if !v.config.Scroll.IsValidTxCount(len(block.Transactions())) {
+	if !v.config.Morph.IsValidTxCount(len(block.Transactions())) {
 		return consensus.ErrInvalidTxCount
 	}
 	// Check if block payload size is smaller than the max size
-	if !v.config.Scroll.IsValidBlockSize(block.PayloadSize()) {
+	if !v.config.Morph.IsValidBlockSize(block.PayloadSize()) {
 		return ErrInvalidBlockPayloadSize
 	}
 	// Header validity is known at this point, check the uncles and transactions

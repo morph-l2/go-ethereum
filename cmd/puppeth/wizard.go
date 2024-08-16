@@ -33,10 +33,10 @@ import (
 	"github.com/peterh/liner"
 	"golang.org/x/crypto/ssh/terminal"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/console/prompt"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/console/prompt"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // config contains all the configurations needed by puppeth that should be saved

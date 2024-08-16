@@ -19,9 +19,9 @@ package downloader
 import (
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/eth/protocols/eth"
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/eth/protocols/eth"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // bodyQueue implements typedQueue and is a type adapter between the generic

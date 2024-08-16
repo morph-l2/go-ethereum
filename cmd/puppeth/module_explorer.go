@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/scroll-tech/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/log"
 )
 
 // explorerDockerfile is the Dockerfile required to run a block explorer.

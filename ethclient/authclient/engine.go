@@ -3,11 +3,12 @@ package authclient
 import (
 	"context"
 	"fmt"
-	"github.com/scroll-tech/go-ethereum/common"
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/eth/catalyst"
+	"github.com/morph-l2/go-ethereum/common"
+
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/eth/catalyst"
 )
 
 // AssembleL2Block assembles L2 Block used for L2 sequencer to propose a block in L2 consensus progress

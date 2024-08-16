@@ -17,7 +17,7 @@
 package vm
 
 import (
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 type (
@@ -1050,7 +1050,7 @@ func newFrontierInstructionSet() JumpTable {
 			memorySize: memoryReturn,
 			halts:      true,
 		},
-		// SELFDESTRUCT is disabled in Scroll.
+		// SELFDESTRUCT is disabled in Morph.
 		// SELFDESTRUCT has the same behavior as INVALID.
 		SELFDESTRUCT: nil,
 	}

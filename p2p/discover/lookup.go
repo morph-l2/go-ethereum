@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
 )
 
 // lookup performs a network search for nodes close to the given target. It approaches the

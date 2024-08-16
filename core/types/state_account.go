@@ -19,7 +19,7 @@ package types
 import (
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common"
 )
 
 // StateAccount is the Ethereum consensus representation of accounts.
@@ -30,7 +30,7 @@ type StateAccount struct {
 	Root           common.Hash // merkle root of the storage trie
 	KeccakCodeHash []byte
 
-	// StateAccount Scroll extensions
+	// StateAccount Morph extensions
 	PoseidonCodeHash []byte
 	CodeSize         uint64
 }

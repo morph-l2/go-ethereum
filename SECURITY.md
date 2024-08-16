@@ -6,7 +6,7 @@ Please see [Releases](https://github.com/morph-l2/go-ethereum/releases). We reco
 
 ## Audit reports
 
-Audit reports are published in the `docs` folder: https://github.com/morph-l2/go-ethereum/tree/master/docs/audits 
+Audit reports are published in the `docs` folder: https://github.com/morph-l2/go-ethereum/tree/main/docs/audits 
 
 | Scope | Date | Report Link |
 | ------- | ------- | ----------- |

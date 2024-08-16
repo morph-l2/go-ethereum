@@ -19,7 +19,7 @@ package event_test
 import (
 	"fmt"
 
-	"github.com/scroll-tech/go-ethereum/event"
+	"github.com/morph-l2/go-ethereum/event"
 )
 
 func ExampleNewSubscription() {

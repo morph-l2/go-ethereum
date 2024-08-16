@@ -8,25 +8,25 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
-	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/crypto/codehash"
-	"github.com/scroll-tech/go-ethereum/eth/tracers"
-	_ "github.com/scroll-tech/go-ethereum/eth/tracers/native"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/metrics"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/fees"
-	"github.com/scroll-tech/go-ethereum/rollup/rcfg"
-	"github.com/scroll-tech/go-ethereum/rollup/sequencer"
-	"github.com/scroll-tech/go-ethereum/rollup/withdrawtrie"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto/codehash"
+	"github.com/morph-l2/go-ethereum/eth/tracers"
+	_ "github.com/morph-l2/go-ethereum/eth/tracers/native"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/fees"
+	"github.com/morph-l2/go-ethereum/rollup/rcfg"
+	"github.com/morph-l2/go-ethereum/rollup/sequencer"
+	"github.com/morph-l2/go-ethereum/rollup/withdrawtrie"
 )
 
 var (
@@ -38,7 +38,7 @@ var (
 	fillBlockTraceTimer          = metrics.NewRegisteredTimer("rollup/tracing/fill_block_trace", nil)
 )
 
-// TracerWrapper implements ScrollTracerWrapper interface
+// TracerWrapper implements MprphTracerWrapper interface
 type TracerWrapper struct{}
 
 // NewTracerWrapper TracerWrapper creates a new TracerWrapper
@@ -127,8 +127,8 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 	var coinbase common.Address
 
 	var err error
-	if chainConfig.Scroll.FeeVaultEnabled() {
-		coinbase = *chainConfig.Scroll.FeeVaultAddress
+	if chainConfig.Morph.FeeVaultEnabled() {
+		coinbase = *chainConfig.Morph.FeeVaultAddress
 	} else {
 		coinbase, err = engine.Author(block.Header())
 		if err != nil {

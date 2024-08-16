@@ -22,9 +22,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/scroll-tech/go-ethereum/crypto"
-	"github.com/scroll-tech/go-ethereum/p2p/discover/v4wire"
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/p2p/discover/v4wire"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
 )
 
 const waitTime = 300 * time.Millisecond

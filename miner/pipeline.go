@@ -9,18 +9,18 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/core"
-	"github.com/scroll-tech/go-ethereum/core/rawdb"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/core/vm"
-	"github.com/scroll-tech/go-ethereum/ethdb"
-	"github.com/scroll-tech/go-ethereum/log"
-	"github.com/scroll-tech/go-ethereum/metrics"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rollup/circuitcapacitychecker"
-	"github.com/scroll-tech/go-ethereum/rollup/tracing"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/metrics"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/circuitcapacitychecker"
+	"github.com/morph-l2/go-ethereum/rollup/tracing"
 )
 
 type txsOP func(*types.TransactionsByPriceAndNonce)
@@ -231,7 +231,7 @@ func (p *Pipeline) traceAndApplyStage(txsIn <-chan *types.Transaction) (<-chan t
 			}
 
 			// If we have collected enough transactions then we're done
-			if !p.chain.Config().Scroll.IsValidTxCount(p.txs.Len() + 1) {
+			if !p.chain.Config().Morph.IsValidTxCount(p.txs.Len() + 1) {
 				return
 			}
 
@@ -256,9 +256,9 @@ func (p *Pipeline) traceAndApplyStage(txsIn <-chan *types.Transaction) (<-chan t
 				continue
 			}
 
-			if !tx.IsL1MessageTx() && !p.chain.Config().Scroll.IsValidBlockSize(p.blockSize+tx.Size()) {
+			if !tx.IsL1MessageTx() && !p.chain.Config().Morph.IsValidBlockSize(p.blockSize+tx.Size()) {
 				// can't fit this txn in this block, silently ignore and continue looking for more txns
-				log.Trace("Block size limit reached", "have", p.blockSize, "want", p.chain.Config().Scroll.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
+				log.Trace("Block size limit reached", "have", p.blockSize, "want", p.chain.Config().Morph.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 
 				sendCancellable(resCh, txsPop, p.ctx.Done()) // shift the txs, includes other txns if possible
 				continue
@@ -621,7 +621,7 @@ func (p *Pipeline) traceAndApply(tx *types.Transaction) (*types.Receipt, *types.
 	snap := p.state.Snapshot()
 
 	var receipt *types.Receipt
-	receipt, err = core.ApplyTransaction(p.chain.Config(), p.chain, nil /* coinbase will default to chainConfig.Scroll.FeeVaultAddress */, p.gasPool,
+	receipt, err = core.ApplyTransaction(p.chain.Config(), p.chain, nil /* coinbase will default to chainConfig.Morph.FeeVaultAddress */, p.gasPool,
 		p.state, p.header, tx, &p.header.GasUsed, p.vmConfig)
 	if err != nil {
 		p.state.RevertToSnapshot(snap)
@@ -651,8 +651,8 @@ type Result struct {
 // It aims to minimize stalls caused by different computational costs of different transactions
 func (p *Pipeline) downstreamChCapacity() int {
 	cap := 1
-	if p.chain.Config().Scroll.MaxTxPerBlock != nil {
-		cap = *p.chain.Config().Scroll.MaxTxPerBlock
+	if p.chain.Config().Morph.MaxTxPerBlock != nil {
+		cap = *p.chain.Config().Morph.MaxTxPerBlock
 	}
 	return cap
 }

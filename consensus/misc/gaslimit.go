@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 // VerifyGaslimit verifies the header gas limit according increase/decrease

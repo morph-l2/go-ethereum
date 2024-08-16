@@ -19,7 +19,7 @@ package eth
 import (
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
 )
 
 // MinerAPI provides an API to control the miner.

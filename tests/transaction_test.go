@@ -19,7 +19,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/scroll-tech/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 func TestTransaction(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 
 	"github.com/docker/docker/pkg/reexec"
 
-	"github.com/scroll-tech/go-ethereum/cmd/evm/internal/t8ntool"
-	"github.com/scroll-tech/go-ethereum/internal/cmdtest"
+	"github.com/morph-l2/go-ethereum/cmd/evm/internal/t8ntool"
+	"github.com/morph-l2/go-ethereum/internal/cmdtest"
 )
 
 func TestMain(m *testing.M) {

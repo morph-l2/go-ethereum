@@ -32,11 +32,11 @@ import (
 	"github.com/mattn/go-colorable"
 	"github.com/peterh/liner"
 
-	"github.com/scroll-tech/go-ethereum/console/prompt"
-	"github.com/scroll-tech/go-ethereum/internal/jsre"
-	"github.com/scroll-tech/go-ethereum/internal/jsre/deps"
-	"github.com/scroll-tech/go-ethereum/internal/web3ext"
-	"github.com/scroll-tech/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/console/prompt"
+	"github.com/morph-l2/go-ethereum/internal/jsre"
+	"github.com/morph-l2/go-ethereum/internal/jsre/deps"
+	"github.com/morph-l2/go-ethereum/internal/web3ext"
+	"github.com/morph-l2/go-ethereum/rpc"
 )
 
 var (

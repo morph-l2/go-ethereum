@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/scroll-tech/go-ethereum/common"
-	"github.com/scroll-tech/go-ethereum/consensus"
-	"github.com/scroll-tech/go-ethereum/consensus/misc"
-	"github.com/scroll-tech/go-ethereum/core/state"
-	"github.com/scroll-tech/go-ethereum/core/types"
-	"github.com/scroll-tech/go-ethereum/params"
-	"github.com/scroll-tech/go-ethereum/rpc"
-	"github.com/scroll-tech/go-ethereum/trie"
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/consensus/misc"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 var (
@@ -142,7 +142,7 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 		return errInvalidUncleHash
 	}
 
-	if l2.config.Scroll.FeeVaultEnabled() && header.Coinbase != types.EmptyAddress {
+	if l2.config.Morph.FeeVaultEnabled() && header.Coinbase != types.EmptyAddress {
 		return errInvalidCoinbase
 	}
 	// Verify the timestamp
@@ -188,7 +188,7 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 	header.UncleHash = types.EmptyUncleHash
 	header.Extra = []byte{} // disable extra field filling with bytes
 	// set coinbase to empty address, if feeVault is enabled
-	if l2.config.Scroll.FeeVaultEnabled() {
+	if l2.config.Morph.FeeVaultEnabled() {
 		header.Coinbase = types.EmptyAddress
 	}
 	return nil

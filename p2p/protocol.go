@@ -19,8 +19,8 @@ package p2p
 import (
 	"fmt"
 
-	"github.com/scroll-tech/go-ethereum/p2p/enode"
-	"github.com/scroll-tech/go-ethereum/p2p/enr"
+	"github.com/morph-l2/go-ethereum/p2p/enode"
+	"github.com/morph-l2/go-ethereum/p2p/enr"
 )
 
 // Protocol represents a P2P subprotocol implementation.

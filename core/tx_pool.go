@@ -545,17 +545,17 @@ func (pool *TxPool) ContentFrom(addr common.Address) (types.Transactions, types.
 // The enforceTips parameter can be used to do an extra filtering on the pending
 // transactions and only return those whose **effective** tip is large enough in
 // the next pending execution environment.
-func (pool *TxPool) Pending(enforceTips bool) map[common.Address]types.Transactions {
-	return pool.pendingWithMax(enforceTips, math.MaxInt)
+func (pool *TxPool) Pending(minTip *big.Int, baseFee *big.Int) map[common.Address]types.Transactions {
+	return pool.pendingWithMax(minTip, baseFee, math.MaxInt)
 }
 
 // PendingWithMax works similar to Pending but allows setting an upper limit on how many
 // accounts to return
-func (pool *TxPool) PendingWithMax(enforceTips bool, maxAccountsNum int) map[common.Address]types.Transactions {
-	return pool.pendingWithMax(enforceTips, maxAccountsNum)
+func (pool *TxPool) PendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccountsNum int) map[common.Address]types.Transactions {
+	return pool.pendingWithMax(minTip, baseFee, maxAccountsNum)
 }
 
-func (pool *TxPool) pendingWithMax(enforceTips bool, maxAccountsNum int) map[common.Address]types.Transactions {
+func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccountsNum int) map[common.Address]types.Transactions {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
@@ -564,9 +564,9 @@ func (pool *TxPool) pendingWithMax(enforceTips bool, maxAccountsNum int) map[com
 		txs := list.Flatten()
 
 		// If the miner requests tip enforcement, cap the lists now
-		if enforceTips && !pool.locals.contains(addr) {
+		if minTip != nil && !pool.locals.contains(addr) {
 			for i, tx := range txs {
-				if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 {
+				if tx.EffectiveGasTipIntCmp(minTip, baseFee) < 0 {
 					txs = txs[:i]
 					break
 				}

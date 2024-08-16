@@ -44,7 +44,7 @@ func (h *handler) syncTransactions(p *eth.Peer) {
 	//
 	// TODO(karalabe): Figure out if we could get away with random order somehow
 	var txs types.Transactions
-	pending := h.txpool.Pending(false)
+	pending := h.txpool.Pending(nil, nil)
 	for _, batch := range pending {
 		txs = append(txs, batch...)
 	}

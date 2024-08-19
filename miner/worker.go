@@ -159,6 +159,7 @@ func (miner *Miner) generateWork(genParams *generateParams) (*NewBlockResult, er
 	if err != nil {
 		return nil, err
 	}
+	miner.prioritizedTx = pipeline.prioritizedTx
 
 	return miner.handlePipelineResult(pipeline, result)
 
@@ -176,12 +177,15 @@ func (miner *Miner) startPipeline(
 
 	// Do not collect txns from txpool, if `simulate` is true
 	if !genParams.simulate {
-		// Retrieve the pending transactions pre-filtered by the 1559/4844 dynamic fees
-
 		pending = miner.txpool.PendingWithMax(tip, pipeline.header.BaseFee, miner.config.MaxAccountsNum)
 	}
+
+	if miner.prioritizedTx != nil && miner.txpool.Get(miner.prioritizedTx.tx.Hash()) == nil { // ignore the tx if it is removed from pool(maybe included by other miners)
+		miner.prioritizedTx = nil
+	}
+
 	// if no txs, return immediately without starting pipeline
-	if genParams.transactions.Len() == 0 && len(pending) == 0 {
+	if genParams.transactions.Len() == 0 && len(pending) == 0 && miner.prioritizedTx == nil {
 		log.Info("no txs found, return immediately")
 		return nil, nil
 	}
@@ -209,6 +213,17 @@ func (miner *Miner) startPipeline(
 		}
 		l1Messages = types.NewTransactionsByPriceAndNonce(signer, l1Txs, header.BaseFee)
 		if result := pipeline.TryPushTxns(l1Messages); result != nil {
+			return result, nil
+		}
+	}
+
+	if !genParams.simulate && miner.prioritizedTx != nil && pipeline.header.Number.Uint64() >= miner.prioritizedTx.blockNumber {
+		tx := miner.prioritizedTx.tx
+		from, _ := types.Sender(signer, tx) // error already checked before
+		txList := map[common.Address]types.Transactions{from: []*types.Transaction{miner.prioritizedTx.tx}}
+		txs := types.NewTransactionsByPriceAndNonce(signer, txList, header.BaseFee)
+		miner.prioritizedTx = nil // clear prioritizedTx before commitTransactions
+		if result := pipeline.TryPushTxns(txs); result != nil {
 			return result, nil
 		}
 	}

@@ -535,6 +535,7 @@ func (p *Pipeline) cccStage(candidates <-chan *BlockCandidate, timeout time.Dura
 							blockNumber: p.header.Number.Uint64() + 1,
 							tx:          lastTxn,
 						}
+						log.Info("mark tx to prioritizedTx", "tx", lastTxn.Hash().String(), "block", p.header.Number)
 					}
 
 				// the error here could be:

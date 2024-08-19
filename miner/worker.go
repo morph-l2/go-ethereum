@@ -181,6 +181,7 @@ func (miner *Miner) startPipeline(
 	}
 
 	if miner.prioritizedTx != nil && miner.txpool.Get(miner.prioritizedTx.tx.Hash()) == nil { // ignore the tx if it is removed from pool(maybe included by other miners)
+		log.Info("prioritizedTx has been removed from txpool", "hash", miner.prioritizedTx.tx.Hash().String())
 		miner.prioritizedTx = nil
 	}
 
@@ -218,6 +219,7 @@ func (miner *Miner) startPipeline(
 	}
 
 	if !genParams.simulate && miner.prioritizedTx != nil && pipeline.header.Number.Uint64() >= miner.prioritizedTx.blockNumber {
+		log.Info("start to handle the prioritizedTx", "hash", miner.prioritizedTx.tx.Hash().String(), "number", miner.prioritizedTx.blockNumber)
 		tx := miner.prioritizedTx.tx
 		from, _ := types.Sender(signer, tx) // error already checked before
 		txList := map[common.Address]types.Transactions{from: []*types.Transaction{miner.prioritizedTx.tx}}

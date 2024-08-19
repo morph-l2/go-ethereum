@@ -320,6 +320,24 @@ func TestBuildBlockTimeout(t *testing.T) {
 	require.EqualValues(t, 0, len(newBlockResult.SkippedTxs))
 }
 
+func TestPriorizeTx(t *testing.T) {
+	miner := createMiner(t, nil, nil)
+	l2tx, _ := types.SignTx(types.NewTransaction(testNonce, destAddr, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil), types.LatestSigner(miner.chainConfig), testKey1)
+	l2tx1, _ := types.SignTx(types.NewTransaction(testNonce+1, destAddr, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil), types.LatestSigner(miner.chainConfig), testKey1)
+	l2tx2, _ := types.SignTx(types.NewTransaction(testNonce+2, destAddr, big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil), types.LatestSigner(miner.chainConfig), testKey1)
+	require.NoError(t, miner.txpool.AddLocal(l2tx))
+	require.NoError(t, miner.txpool.AddLocal(l2tx1))
+	require.NoError(t, miner.txpool.AddLocal(l2tx2))
+	miner.circuitCapacityChecker.Skip(l2tx1.Hash(), circuitcapacitychecker.ErrBlockRowConsumptionOverflow)
+	parentHeader := miner.chain.CurrentHeader()
+	timestamp := time.Now().Add(3 * time.Second)
+	newBlockResult, err := miner.BuildBlock(parentHeader.ParentHash, timestamp, types.Transactions{})
+	require.NoError(t, err)
+	require.NotNil(t, miner.prioritizedTx)
+	require.EqualValues(t, l2tx1.Hash().Hex(), miner.prioritizedTx.tx.Hash().Hex())
+	require.EqualValues(t, 1, newBlockResult.Block.Transactions().Len())
+}
+
 func TestBuildBlockErrorOnApplyStage(t *testing.T) {
 	t.Run("wrong l1 index", func(t *testing.T) {
 		miner := createMiner(t, nil, nil)

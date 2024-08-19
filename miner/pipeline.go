@@ -87,6 +87,7 @@ type Pipeline struct {
 	receipts      types.Receipts
 	gasPool       *core.GasPool
 	skippedL1Txs  []*types.SkippedTransaction
+	prioritizedTx *prioritizedTransaction
 
 	// com channels
 	txnQueue         chan *types.Transaction
@@ -512,6 +513,7 @@ func (p *Pipeline) cccStage(candidates <-chan *BlockCandidate, timeout time.Dura
 					// if no error happens, and dealine has not been reached, then continue consuming txs
 					continue
 				case errors.Is(err, circuitcapacitychecker.ErrBlockRowConsumptionOverflow):
+					log.Info("Circuit capacity limit reached for a single tx", "tx", lastTxn.Hash().String(), "isL1Message", lastTxn.IsL1MessageTx(), "block", p.header.Number, "error", err)
 					if candidate.Txs.Len() == 1 { // It is the first tx that causes row consumption overflow
 						if lastTxn.IsL1MessageTx() {
 							p.skippedL1Txs = append(p.skippedL1Txs, &types.SkippedTransaction{
@@ -525,6 +527,15 @@ func (p *Pipeline) cccStage(candidates <-chan *BlockCandidate, timeout time.Dura
 							p.txpool.RemoveTx(lastTxn.Hash(), true)
 							l2TxRowConsumptionOverflowCounter.Inc(1)
 						}
+					} else if !lastTxn.IsL1MessageTx() {
+						// prioritize overflowing L2 message as the first txn next block
+						// no need to prioritize L1 messages, they are fetched in order
+						// and processed first in every block anyways
+						p.prioritizedTx = &prioritizedTransaction{
+							blockNumber: p.header.Number.Uint64() + 1,
+							tx:          lastTxn,
+						}
+						log.Info("mark tx to prioritizedTx", "tx", lastTxn.Hash().String(), "block", p.header.Number)
 					}
 
 				// the error here could be:

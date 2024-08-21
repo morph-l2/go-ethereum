@@ -72,6 +72,13 @@ var DefaultConfig = Config{
 	Recommit: 2 * time.Second,
 }
 
+// prioritizedTransaction represents a single transaction that
+// should be processed as the first transaction in the next block.
+type prioritizedTransaction struct {
+	blockNumber uint64
+	tx          *types.Transaction
+}
+
 // Miner creates blocks and searches for proof-of-work values.
 type Miner struct {
 	confMu      sync.RWMutex // The lock used to protect the config fields: GasCeil, GasTip and Extradata
@@ -93,6 +100,7 @@ type Miner struct {
 
 	// Make sure the checker here is used by a single block one time, and must be reset for another block.
 	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
+	prioritizedTx          *prioritizedTransaction
 
 	getWorkCh chan *getWorkReq
 	exitCh    chan struct{}

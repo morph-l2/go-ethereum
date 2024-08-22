@@ -215,6 +215,15 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	eth.txPool = core.NewTxPool(config.TxPool, chainConfig, eth.blockchain)
 
+	if config.TxPool.Blacklist {
+		blackListDB, err := stack.OpenDatabase("blacklist", config.DatabaseCache, config.DatabaseHandles, "eth/db/blacklist/", false)
+		if err != nil {
+			return nil, err
+		}
+		eth.txPool.EnableBlacklist(blackListDB)
+		log.Info("Blacklist is enabled")
+	}
+
 	// Permit the downloader to use the trie cache allowance during fast sync
 	cacheLimit := cacheConfig.TrieCleanLimit + cacheConfig.TrieDirtyLimit + cacheConfig.SnapshotLimit
 	checkpoint := config.Checkpoint
@@ -346,6 +355,10 @@ func (s *Ethereum) APIs() []rpc.API {
 			Version:   "1.0",
 			Service:   NewMorphAPI(s),
 			Public:    false,
+		}, {
+			Namespace: "blacklist",
+			Version:   "1.0",
+			Service:   NewBlocklistAPI(s),
 		},
 	}...)
 }

@@ -13,6 +13,10 @@
     "berlinBlock": 0,
     "londonBlock": 0,
     "terminalTotalDifficulty": 0,
+    "archimedesBlock": 0, 
+    "shanghaiBlock": 0,
+    "bernoulliBlock": 0,
+    "curieBlock": 0,
     "morph": {
       "maxTxPerBlock": 1000,
       "useZktrie": true,

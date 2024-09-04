@@ -1,20 +1,3 @@
-// Copyright 2014 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package miner implements Ethereum block creation and mining.
 package miner
 
 import (
@@ -23,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -70,13 +54,6 @@ var DefaultConfig = Config{
 	// for payload generation. It should be enough for Geth to
 	// run 3 rounds.
 	Recommit: 2 * time.Second,
-}
-
-// prioritizedTransaction represents a single transaction that
-// should be processed as the first transaction in the next block.
-type prioritizedTransaction struct {
-	blockNumber uint64
-	tx          *types.Transaction
 }
 
 // Miner creates blocks and searches for proof-of-work values.
@@ -188,9 +165,16 @@ func (miner *Miner) GetCCC() *circuitcapacitychecker.CircuitCapacityChecker {
 }
 
 func (miner *Miner) getSealingBlockAndState(params *generateParams) (*NewBlockResult, error) {
+	interrupt := new(int32)
+	timer := time.AfterFunc(params.timeout, func() {
+		atomic.StoreInt32(interrupt, commitInterruptTimeout)
+	})
+	defer timer.Stop()
+
 	req := &getWorkReq{
-		params: params,
-		result: make(chan getWorkResp),
+		interrupt: interrupt,
+		params:    params,
+		result:    make(chan getWorkResp),
 	}
 	select {
 	case miner.getWorkCh <- req:
@@ -208,6 +192,7 @@ func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, tran
 		parentHash:   parentHash,
 		transactions: transactions,
 		timeout:      miner.newBlockTimeout,
+		skipCCC:      true,
 	})
 }
 
@@ -241,6 +226,12 @@ func (miner *Miner) getPending() *NewBlockResult {
 		return cached
 	}
 
+	interrupt := new(int32)
+	timer := time.AfterFunc(miner.newBlockTimeout, func() {
+		atomic.StoreInt32(interrupt, commitInterruptTimeout)
+	})
+	defer timer.Stop()
+
 	// It may cause the `generateWork` fall into concurrent case,
 	// but it is ok here, as it skips CCC so that will not reset ccc unexpectedly.
 	ret, err := miner.generateWork(&generateParams{
@@ -248,8 +239,7 @@ func (miner *Miner) getPending() *NewBlockResult {
 		parentHash: header.Hash(),
 		coinbase:   miner.config.PendingFeeRecipient,
 		skipCCC:    true,
-		timeout:    miner.newBlockTimeout,
-	})
+	}, interrupt)
 
 	if err != nil {
 		return nil

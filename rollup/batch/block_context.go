@@ -40,21 +40,19 @@ func (wb *BlockContext) DecodeBlockContext(bc []byte) error {
 	return nil
 }
 
-func BlockContextsFromChunks(chunks [][]byte) (bcs []BlockContext, err error) {
-	if len(chunks) == 0 {
+func BlockContextsFromBytes(bz []byte) (bcs []BlockContext, err error) {
+	if len(bz) == 0 {
 		return nil, nil
 	}
-	for _, chunk := range chunks {
-		blockCount := chunk[0]
-		rawChunk := chunk[1:]
-		for i := 0; i < int(blockCount); i++ {
-			bc := new(BlockContext)
-			err = bc.DecodeBlockContext(rawChunk[i*60 : i*60+60])
-			if err != nil {
-				return nil, err
-			}
-			bcs = append(bcs, *bc)
+	blockCount := binary.BigEndian.Uint16(bz[:2])
+	bz = bz[2:]
+	for i := 0; i < int(blockCount); i++ {
+		bc := new(BlockContext)
+		err = bc.DecodeBlockContext(bz[i*60 : i*60+60])
+		if err != nil {
+			return nil, err
 		}
+		bcs = append(bcs, *bc)
 	}
 	return bcs, nil
 }

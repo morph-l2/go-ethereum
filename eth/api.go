@@ -624,15 +624,15 @@ func (api *MorphAPI) GetSkippedTransactionHashes(ctx context.Context, from uint6
 }
 
 type RPCRollupBatch struct {
-	Version                  uint            `json:"version"`
-	Hash                     common.Hash     `json:"hash"`
-	ParentBatchHeader        hexutil.Bytes   `json:"parentBatchHeader"`
-	Chunks                   []hexutil.Bytes `json:"chunks"`
-	SkippedL1MessageBitmap   hexutil.Bytes   `json:"skippedL1MessageBitmap"`
-	CurrentSequencerSetBytes hexutil.Bytes   `json:"currentSequencerSetBytes"`
-	PrevStateRoot            common.Hash     `json:"prevStateRoot"`
-	PostStateRoot            common.Hash     `json:"postStateRoot"`
-	WithdrawRoot             common.Hash     `json:"withdrawRoot"`
+	Version                  uint          `json:"version"`
+	Hash                     common.Hash   `json:"hash"`
+	ParentBatchHeader        hexutil.Bytes `json:"parentBatchHeader"`
+	BlockContexts            hexutil.Bytes `json:"blockContexts"`
+	SkippedL1MessageBitmap   hexutil.Bytes `json:"skippedL1MessageBitmap"`
+	CurrentSequencerSetBytes hexutil.Bytes `json:"currentSequencerSetBytes"`
+	PrevStateRoot            common.Hash   `json:"prevStateRoot"`
+	PostStateRoot            common.Hash   `json:"postStateRoot"`
+	WithdrawRoot             common.Hash   `json:"withdrawRoot"`
 
 	Sidecar    types.BlobTxSidecar `json:"sidecar"`
 	Signatures []RPCBatchSignature `json:"signatures"`
@@ -659,11 +659,6 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 		return nil, errors.New("failed to read signatures")
 	}
 
-	hexChunks := make([]hexutil.Bytes, len(rollupBatch.Chunks))
-	for i, chunk := range rollupBatch.Chunks {
-		hexChunks[i] = chunk
-	}
-
 	rpcSignatures := make([]RPCBatchSignature, len(signatures))
 	for i, sig := range signatures {
 		rpcSignatures[i] = RPCBatchSignature{
@@ -688,7 +683,7 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 		Version:                  rollupBatch.Version,
 		Hash:                     rollupBatch.Hash,
 		ParentBatchHeader:        rollupBatch.ParentBatchHeader,
-		Chunks:                   hexChunks,
+		BlockContexts:            rollupBatch.BlockContexts,
 		CurrentSequencerSetBytes: rollupBatch.CurrentSequencerSetBytes,
 		SkippedL1MessageBitmap:   rollupBatch.SkippedL1MessageBitmap,
 		PrevStateRoot:            rollupBatch.PrevStateRoot,

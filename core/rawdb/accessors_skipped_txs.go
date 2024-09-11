@@ -3,7 +3,6 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"math/big"
 	"sync"
 
@@ -85,18 +84,13 @@ type SkippedTransactionV2 struct {
 }
 
 // writeSkippedTransaction writes a skipped transaction to the database.
-func writeSkippedTransaction(db ethdb.KeyValueWriter, tx *types.Transaction, traces *types.BlockTrace, reason string, blockNumber uint64, blockHash *common.Hash) {
+func writeSkippedTransaction(db ethdb.KeyValueWriter, tx *types.Transaction, reason string, blockNumber uint64, blockHash *common.Hash) {
 	var err error
 	// workaround: RLP decoding fails if this is nil
 	if blockHash == nil {
 		blockHash = &common.Hash{}
 	}
 	stx := SkippedTransactionV2{Tx: tx, Reason: reason, BlockNumber: blockNumber, BlockHash: blockHash}
-	if traces != nil {
-		if stx.TracesBytes, err = json.Marshal(traces); err != nil {
-			log.Crit("Failed to json marshal skipped transaction", "hash", tx.Hash().String(), "err", err)
-		}
-	}
 	bytes, err := rlp.EncodeToBytes(stx)
 	if err != nil {
 		log.Crit("Failed to RLP encode skipped transaction", "hash", tx.Hash().String(), "err", err)
@@ -180,7 +174,7 @@ func ReadSkippedTransactionHash(db ethdb.Reader, index uint64) *common.Hash {
 
 // WriteSkippedTransaction writes a skipped transaction to the database and also updates the count and lookup index.
 // Note: The lookup index and count will include duplicates if there are chain reorgs.
-func WriteSkippedTransaction(db ethdb.Database, tx *types.Transaction, traces *types.BlockTrace, reason string, blockNumber uint64, blockHash *common.Hash) {
+func WriteSkippedTransaction(db ethdb.Database, tx *types.Transaction, reason string, blockNumber uint64, blockHash *common.Hash) {
 	// this method is not accessed concurrently, but just to be sure...
 	mu.Lock()
 	defer mu.Unlock()
@@ -189,7 +183,7 @@ func WriteSkippedTransaction(db ethdb.Database, tx *types.Transaction, traces *t
 
 	// update in a batch
 	batch := db.NewBatch()
-	writeSkippedTransaction(batch, tx, traces, reason, blockNumber, blockHash)
+	writeSkippedTransaction(batch, tx, reason, blockNumber, blockHash)
 	writeSkippedTransactionHash(batch, index, tx.Hash())
 	writeNumSkippedTransactions(batch, index+1)
 

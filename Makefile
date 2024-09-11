@@ -8,16 +8,8 @@ GOBIN = ./build/bin
 GO ?= latest
 GORUN = env GO111MODULE=on go run
 
-libzkp:
-	cd $(PWD)/rollup/circuitcapacitychecker/libzkp && make libzkp
-
-nccc_geth: ## geth without circuit capacity checker
+geth:
 	$(GORUN) build/ci.go install ./cmd/geth
-	@echo "Done building."
-	@echo "Run \"$(GOBIN)/geth\" to launch geth."
-
-geth: libzkp
-	$(GORUN) build/ci.go install -buildtags circuit_capacity_checker ./cmd/geth
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/geth\" to launch geth."
 
@@ -79,11 +71,5 @@ image:
 	docker build -f Dockerfile -t morph-geth:latest .
 
 docker:
-	docker build --platform linux/x86_64 -t morph/l2geth:latest ./ -f Dockerfile
-
-mockccc_docker:
-	docker build --platform linux/x86_64 -t morph/l2geth:latest ./ -f Dockerfile.mockccc
-
-mockccc_alpine_docker:
-	docker build -t morph/l2geth:latest ./ -f Dockerfile.mockccc.alpine
+	docker build -t morph/l2geth:latest ./ -f Dockerfile
 

@@ -254,7 +254,6 @@ var (
 		Threshold: 2,
 	}
 
-	MorphMaxTxPerBlock             = 100
 	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
 
 	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
@@ -282,7 +281,6 @@ var (
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
-			MaxTxPerBlock:             &MorphMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphFeeVaultAddress,
 		},
@@ -321,7 +319,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 
@@ -358,7 +355,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 
@@ -390,7 +386,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           &common.Address{123},
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 	TestRules = TestChainConfig.Rules(new(big.Int), 0)
@@ -423,7 +418,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 )
@@ -526,9 +520,6 @@ type MorphConfig struct {
 	// Use zktrie [optional]
 	UseZktrie bool `json:"useZktrie,omitempty"`
 
-	// Maximum number of transactions per block [optional]
-	MaxTxPerBlock *int `json:"maxTxPerBlock,omitempty"`
-
 	// Maximum tx payload size of blocks that we produce [optional]
 	MaxTxPayloadBytesPerBlock *int `json:"maxTxPayloadBytesPerBlock,omitempty"`
 
@@ -545,24 +536,13 @@ func (s MorphConfig) ZktrieEnabled() bool {
 }
 
 func (s MorphConfig) String() string {
-	maxTxPerBlock := "<nil>"
-	if s.MaxTxPerBlock != nil {
-		maxTxPerBlock = fmt.Sprintf("%v", *s.MaxTxPerBlock)
-	}
-
 	maxTxPayloadBytesPerBlock := "<nil>"
 	if s.MaxTxPayloadBytesPerBlock != nil {
 		maxTxPayloadBytesPerBlock = fmt.Sprintf("%v", *s.MaxTxPayloadBytesPerBlock)
 	}
 
-	return fmt.Sprintf("{useZktrie: %v, maxTxPerBlock: %v, MaxTxPayloadBytesPerBlock: %v, feeVaultAddress: %v}",
-		s.UseZktrie, maxTxPerBlock, maxTxPayloadBytesPerBlock, s.FeeVaultAddress)
-}
-
-// IsValidTxCount returns whether the given block's transaction count is below the limit.
-// This limit corresponds to the number of ECDSA signature checks that we can fit into the zkEVM.
-func (s MorphConfig) IsValidTxCount(count int) bool {
-	return s.MaxTxPerBlock == nil || count <= *s.MaxTxPerBlock
+	return fmt.Sprintf("{useZktrie: %v, MaxTxPayloadBytesPerBlock: %v, feeVaultAddress: %v}",
+		s.UseZktrie, maxTxPayloadBytesPerBlock, s.FeeVaultAddress)
 }
 
 // IsValidBlockSize returns whether the given block's transaction payload size is below the limit.

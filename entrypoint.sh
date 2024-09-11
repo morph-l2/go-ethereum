@@ -2,7 +2,6 @@ GETH_DATA_DIR="${GETH_DATA_DIR:-/db}"
 GETH_CHAINDATA_DIR="$GETH_DATA_DIR/geth/chaindata"
 GENESIS_FILE_PATH="${GENESIS_FILE_PATH:-/genesis.json}"
 JWT_SECRET_PATH="${JWT_SECRET_PATH:-/jwt-secret.txt}"
-DEFAULE_MINER_ETHERBASE="0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
 
 if [[ ! -e "$GETH_CHAINDATA_DIR" ]]; then
   echo "$GETH_CHAINDATA_DIR missing, running init"
@@ -10,11 +9,6 @@ if [[ ! -e "$GETH_CHAINDATA_DIR" ]]; then
   geth --verbosity=3 init --datadir="$GETH_DATA_DIR"  "$GENESIS_FILE_PATH"
 else
 	echo "$GETH_KEYSTORE_DIR exists."
-fi
-
-if [[ -z "$MINER_ETHERBASE" ]]; then
-  # the environment variable is missing, set a default value
-  MINER_ETHERBASE=$DEFAULE_MINER_ETHERBASE
 fi
 
 optional_bootnodes=${BOOT_NODES:+"--bootnodes=$BOOT_NODES"}
@@ -34,8 +28,6 @@ COMMAND="geth \
 --authrpc.port="8551" \
 --authrpc.vhosts="*" \
 --authrpc.jwtsecret=$JWT_SECRET_PATH \
---gcmode=archive \
---mine \
---miner.etherbase=$MINER_ETHERBASE $optional_bootnodes"
+--gcmode=archive $optional_bootnodes"
 
 $COMMAND

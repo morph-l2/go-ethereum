@@ -529,12 +529,6 @@ func (api *MorphAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, fullTx
 	fields["batchHash"] = b.BatchHash()
 	fields["nextL1MsgIndex"] = hexutil.Uint64(b.Header().NextL1MsgIndex)
 	fields["totalDifficulty"] = (*hexutil.Big)(api.eth.APIBackend.GetTd(ctx, b.Hash()))
-	rc := rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), b.Hash())
-	if rc != nil {
-		fields["rowConsumption"] = rc
-	} else {
-		fields["rowConsumption"] = nil
-	}
 	return fields, err
 }
 

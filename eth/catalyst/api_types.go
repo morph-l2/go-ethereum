@@ -106,7 +106,6 @@ type ExecutableL2Data struct {
 	ReceiptRoot      common.Hash                 `json:"receiptsRoot"`
 	LogsBloom        []byte                      `json:"logsBloom"`
 	WithdrawTrieRoot common.Hash                 `json:"withdrawTrieRoot"`
-	RowUsages        types.RowConsumption        `json:"rowUsages"`
 	SkippedTxs       []*types.SkippedTransaction `json:"skippedTxs"`
 
 	NextL1MessageIndex uint64 `json:"nextL1MessageIndex"`

@@ -129,8 +129,6 @@ var (
 		utils.MinerEtherbaseFlag, // deprecated
 		utils.MinerExtraDataFlag,
 		utils.MinerPendingFeeRecipientFlag,
-		utils.MinerRecommitIntervalFlag,
-		utils.MinerStoreSkippedTxTracesFlag,
 		utils.MinerMaxAccountsNumFlag,
 		utils.NATFlag,
 		utils.NoDiscoverFlag,
@@ -159,7 +157,6 @@ var (
 		utils.GpoIgnoreGasPriceFlag,
 		configFileFlag,
 		utils.CatalystFlag,
-		utils.CircuitCapacityCheckEnabledFlag,
 	}
 
 	rpcFlags = []cli.Flag{

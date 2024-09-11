@@ -18,7 +18,6 @@ import (
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/params"
-	"github.com/morph-l2/go-ethereum/rollup/circuitcapacitychecker"
 )
 
 // Backend wraps all methods required for mining.
@@ -31,29 +30,20 @@ type Backend interface {
 
 // Config is the configuration parameters of mining.
 type Config struct {
-	Etherbase           common.Address `toml:"-"`          // Deprecated
 	PendingFeeRecipient common.Address `toml:"-"`          // Address for pending block rewards.
 	ExtraData           hexutil.Bytes  `toml:",omitempty"` // Block extra data set by the miner
 	GasFloor            uint64         // Target gas floor for mined blocks.
 	GasCeil             uint64         // Target gas ceiling for mined blocks.
 	GasPrice            *big.Int       // Minimum gas price for mining a transaction
-	Recommit            time.Duration  // The time interval for miner to re-create mining work.
 
-	NewBlockTimeout      time.Duration // The maximum time allowance for creating a new block
-	StoreSkippedTxTraces bool          // Whether store the wrapped traces when storing a skipped tx
-	MaxAccountsNum       int           // Maximum number of accounts that miner will fetch the pending transactions of when building a new block
+	NewBlockTimeout time.Duration // The maximum time allowance for creating a new block
+	MaxAccountsNum  int           // Maximum number of accounts that miner will fetch the pending transactions of when building a new block
 }
 
 // DefaultConfig contains default settings for miner.
 var DefaultConfig = Config{
-	GasCeil:  8000000,
+	GasCeil:  30_000_000,
 	GasPrice: big.NewInt(params.GWei / 1000),
-
-	// The default recommit time is chosen as two seconds since
-	// consensus-layer usually will wait a half slot of time(6s)
-	// for payload generation. It should be enough for Geth to
-	// run 3 rounds.
-	Recommit: 2 * time.Second,
 }
 
 // Miner creates blocks and searches for proof-of-work values.
@@ -75,10 +65,6 @@ type Miner struct {
 	// in case there are some computation expensive transactions in txpool.
 	newBlockTimeout time.Duration
 
-	// Make sure the checker here is used by a single block one time, and must be reset for another block.
-	circuitCapacityChecker *circuitcapacitychecker.CircuitCapacityChecker
-	prioritizedTx          *prioritizedTransaction
-
 	getWorkCh chan *getWorkReq
 	exitCh    chan struct{}
 	wg        sync.WaitGroup
@@ -96,14 +82,13 @@ func New(eth Backend, config Config, engine consensus.Engine) *Miner {
 	}
 
 	miner := &Miner{
-		config:                 &config,
-		chainConfig:            eth.BlockChain().Config(),
-		chainDB:                eth.ChainDb(),
-		engine:                 engine,
-		txpool:                 eth.TxPool(),
-		chain:                  eth.BlockChain(),
-		pending:                &pending{},
-		circuitCapacityChecker: circuitcapacitychecker.NewCircuitCapacityChecker(true),
+		config:      &config,
+		chainConfig: eth.BlockChain().Config(),
+		chainDB:     eth.ChainDb(),
+		engine:      engine,
+		txpool:      eth.TxPool(),
+		chain:       eth.BlockChain(),
+		pending:     &pending{},
 
 		newBlockTimeout: newBlockTimeout,
 		getWorkCh:       make(chan *getWorkReq),
@@ -160,10 +145,6 @@ func (miner *Miner) SetGasCeil(ceil uint64) {
 	miner.confMu.Unlock()
 }
 
-func (miner *Miner) GetCCC() *circuitcapacitychecker.CircuitCapacityChecker {
-	return miner.circuitCapacityChecker
-}
-
 func (miner *Miner) getSealingBlockAndState(params *generateParams) (*NewBlockResult, error) {
 	interrupt := new(int32)
 	timer := time.AfterFunc(params.timeout, func() {
@@ -192,7 +173,6 @@ func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, tran
 		parentHash:   parentHash,
 		transactions: transactions,
 		timeout:      miner.newBlockTimeout,
-		skipCCC:      true,
 	})
 }
 
@@ -232,13 +212,11 @@ func (miner *Miner) getPending() *NewBlockResult {
 	})
 	defer timer.Stop()
 
-	// It may cause the `generateWork` fall into concurrent case,
-	// but it is ok here, as it skips CCC so that will not reset ccc unexpectedly.
+	// It may cause the `generateWork` fall into concurrent case
 	ret, err := miner.generateWork(&generateParams{
 		timestamp:  uint64(time.Now().Unix()),
 		parentHash: header.Hash(),
 		coinbase:   miner.config.PendingFeeRecipient,
-		skipCCC:    true,
 	}, interrupt)
 
 	if err != nil {

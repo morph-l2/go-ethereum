@@ -44,7 +44,7 @@ func newTestTransaction(queueIndex uint64) *types.Transaction {
 func TestReadWriteSkippedTransactionNoIndex(t *testing.T) {
 	tx := newTestTransaction(123)
 	db := NewMemoryDatabase()
-	writeSkippedTransaction(db, tx, nil, "random reason", 1, &common.Hash{1})
+	writeSkippedTransaction(db, tx, "random reason", 1, &common.Hash{1})
 	got := ReadSkippedTransaction(db, tx.Hash())
 	if got == nil || got.Tx.Hash() != tx.Hash() || got.Reason != "random reason" || got.BlockNumber != 1 || got.BlockHash == nil || *got.BlockHash != (common.Hash{1}) {
 		t.Fatal("Skipped transaction mismatch", "got", got)
@@ -64,7 +64,7 @@ func TestReadSkippedTransactionV1AsV2(t *testing.T) {
 func TestReadWriteSkippedTransaction(t *testing.T) {
 	tx := newTestTransaction(123)
 	db := NewMemoryDatabase()
-	WriteSkippedTransaction(db, tx, nil, "random reason", 1, &common.Hash{1})
+	WriteSkippedTransaction(db, tx, "random reason", 1, &common.Hash{1})
 	got := ReadSkippedTransaction(db, tx.Hash())
 	if got == nil || got.Tx.Hash() != tx.Hash() || got.Reason != "random reason" || got.BlockNumber != 1 || got.BlockHash == nil || *got.BlockHash != (common.Hash{1}) {
 		t.Fatal("Skipped transaction mismatch", "got", got)
@@ -88,7 +88,7 @@ func TestSkippedTransactionConcurrentUpdate(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			WriteSkippedTransaction(db, tx, nil, "random reason", 1, &common.Hash{1})
+			WriteSkippedTransaction(db, tx, "random reason", 1, &common.Hash{1})
 		}()
 	}
 	wg.Wait()
@@ -110,12 +110,12 @@ func TestIterateSkippedTransactions(t *testing.T) {
 	}
 
 	for _, tx := range txs {
-		WriteSkippedTransaction(db, tx, nil, "random reason", 1, &common.Hash{1})
+		WriteSkippedTransaction(db, tx, "random reason", 1, &common.Hash{1})
 	}
 
 	// simulate skipped L2 tx that's not included in the index
 	l2tx := newTestTransaction(6)
-	writeSkippedTransaction(db, l2tx, nil, "random reason", 1, &common.Hash{1})
+	writeSkippedTransaction(db, l2tx, "random reason", 1, &common.Hash{1})
 
 	it := IterateSkippedTransactionsFrom(db, 2)
 	defer it.Release()

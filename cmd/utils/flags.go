@@ -481,11 +481,6 @@ var (
 		Name:  "miner.extradata",
 		Usage: "Block extra data set by the miner (default = client version)",
 	}
-	MinerRecommitIntervalFlag = cli.DurationFlag{
-		Name:  "miner.recommit",
-		Usage: "Time interval to recreate the block being mined",
-		Value: ethconfig.Defaults.Miner.Recommit,
-	}
 
 	MinerNewBlockTimeout = &cli.DurationFlag{
 		Name:  "miner.newblock-timeout",
@@ -493,10 +488,6 @@ var (
 		Value: ethconfig.Defaults.Miner.NewBlockTimeout,
 	}
 
-	MinerStoreSkippedTxTracesFlag = cli.BoolFlag{
-		Name:  "miner.storeskippedtxtraces",
-		Usage: "Store the wrapped traces when storing a skipped tx",
-	}
 	MinerMaxAccountsNumFlag = cli.IntFlag{
 		Name:  "miner.maxaccountsnum",
 		Usage: "Maximum number of accounts that miner will fetch the pending transactions of when building a new block",
@@ -849,12 +840,6 @@ var (
 	CatalystFlag = cli.BoolFlag{
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
-	}
-
-	// Circuit capacity check settings
-	CircuitCapacityCheckEnabledFlag = cli.BoolFlag{
-		Name:  "ccc",
-		Usage: "Enable circuit capacity check during block validation",
 	}
 
 	// Max block range for `eth_getLogs` method
@@ -1502,12 +1487,6 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.GlobalIsSet(MinerGasPriceFlag.Name) {
 		cfg.GasPrice = GlobalBig(ctx, MinerGasPriceFlag.Name)
 	}
-	if ctx.GlobalIsSet(MinerRecommitIntervalFlag.Name) {
-		cfg.Recommit = ctx.GlobalDuration(MinerRecommitIntervalFlag.Name)
-	}
-	if ctx.GlobalIsSet(MinerStoreSkippedTxTracesFlag.Name) {
-		cfg.StoreSkippedTxTraces = ctx.GlobalBool(MinerStoreSkippedTxTracesFlag.Name)
-	}
 	if ctx.GlobalIsSet(MinerMaxAccountsNumFlag.Name) {
 		cfg.MaxAccountsNum = ctx.GlobalInt(MinerMaxAccountsNumFlag.Name)
 	}
@@ -1539,12 +1518,6 @@ func setWhitelist(ctx *cli.Context, cfg *ethconfig.Config) {
 			Fatalf("Invalid whitelist hash %s: %v", parts[1], err)
 		}
 		cfg.Whitelist[number] = hash
-	}
-}
-
-func setCircuitCapacityCheck(ctx *cli.Context, cfg *ethconfig.Config) {
-	if ctx.GlobalIsSet(CircuitCapacityCheckEnabledFlag.Name) {
-		cfg.CheckCircuitCapacity = ctx.GlobalBool(CircuitCapacityCheckEnabledFlag.Name)
 	}
 }
 
@@ -1621,7 +1594,6 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	setMiner(ctx, &cfg.Miner)
 	setWhitelist(ctx, cfg)
 	setLes(ctx, cfg)
-	setCircuitCapacityCheck(ctx, cfg)
 	setMaxBlockRange(ctx, cfg)
 
 	// Cap the cache allowance and tune the garbage collector

@@ -371,28 +371,8 @@ func (ec *Client) GetSkippedTransaction(ctx context.Context, txHash common.Hash)
 	return tx, ec.c.CallContext(ctx, &tx, "morph_getSkippedTransaction", txHash)
 }
 
-type rpcRowConsumption struct {
-	RowConsumption types.RowConsumption `json:"rowConsumption"`
-}
-
-// UnmarshalJSON unmarshals from JSON.
-func (r *rpcRowConsumption) UnmarshalJSON(input []byte) error {
-	type rpcRowConsumption struct {
-		RowConsumption types.RowConsumption `json:"rowConsumption"`
-	}
-	var dec rpcRowConsumption
-	if err := json.Unmarshal(input, &dec); err != nil {
-		return err
-	}
-	if dec.RowConsumption == nil {
-		return errors.New("missing required field 'RowConsumption' for rpcRowConsumption")
-	}
-	r.RowConsumption = dec.RowConsumption
-	return nil
-}
-
 // GetBlockByNumberOrHash returns the requested block
-func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.BlockWithRowConsumption, error) {
+func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.BlockMore, error) {
 	var raw json.RawMessage
 	var err error
 	if number, ok := blockNrOrHash.Number(); ok {
@@ -409,8 +389,6 @@ func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	// Decode header and transactions.
 	var head *types.Header
 	var body rpcBlock
-	var rpcRc rpcRowConsumption
-	var rc *types.RowConsumption
 	var startL1Index struct {
 		StartL1QueueIndex hexutil.Uint64 `json:"startL1QueueIndex"`
 	}
@@ -428,13 +406,6 @@ func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, err
-	}
-	if err := json.Unmarshal(raw, &rpcRc); err != nil {
-		// don't return error here if there is no RowConsumption data, because many l2geth nodes will not have this data
-		// instead of error l2_watcher and other services that require RowConsumption should check it
-		rc = nil
-	} else {
-		rc = &rpcRc.RowConsumption
 	}
 	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
 	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
@@ -482,9 +453,8 @@ func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 		txs[i] = tx.tx
 	}
 	block := types.NewBlockWithHeader(head).WithBody(txs, uncles)
-	return &types.BlockWithRowConsumption{
+	return &types.BlockMore{
 		Block:             block,
-		RowConsumption:    rc,
 		StartL1QueueIndex: uint64(startL1Index.StartL1QueueIndex),
 		WithdrawTrieRoot:  withdrawTrieRoot.WithdrawTrieRoot,
 	}, nil

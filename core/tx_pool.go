@@ -418,6 +418,8 @@ func (pool *TxPool) loop() {
 					list := pool.queue[addr].Flatten()
 					for _, tx := range list {
 						pool.removeTx(tx.Hash(), true)
+
+						log.Info("[tx_pool_trace_txn]", "func", "loop", "remove by lifetime", fmt.Sprintf("%v", tx.Hash()))
 					}
 					queuedEvictionMeter.Mark(int64(len(list)))
 				}
@@ -480,6 +482,8 @@ func (pool *TxPool) SetGasPrice(price *big.Int) {
 		drop := pool.all.RemotesBelowTip(price)
 		for _, tx := range drop {
 			pool.removeTx(tx.Hash(), false)
+
+			log.Info("[tx_pool_trace_txn]", "func", "SetGasPrice", "remove by new gasPrice", fmt.Sprintf("%v", tx.Hash()))
 		}
 		pool.priced.Removed(len(drop))
 	}
@@ -753,9 +757,11 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		pool.changesSinceReorg += len(drop)
 		// Kick out the underpriced remote transactions.
 		for _, tx := range drop {
-			log.Trace("Discarding freshly underpriced transaction", "hash", tx.Hash(), "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
+			// log.Trace("Discarding freshly underpriced transaction", "hash", tx.Hash(), "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
 			underpricedTxMeter.Mark(1)
 			pool.removeTx(tx.Hash(), false)
+
+			log.Info("[tx_pool_trace_txn]", "func", "add", "discard by global slot", fmt.Sprintf("%v", tx.Hash()))
 		}
 	}
 	// Try to replace an existing transaction in the pending pool
@@ -772,6 +778,8 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 			pool.all.Remove(old.Hash())
 			pool.priced.Removed(1)
 			pendingReplaceMeter.Mark(1)
+
+			log.Info("[tx_pool_trace_txn]", "func", "add", "replace old -> true, add new txn hash", fmt.Sprintf("%v", hash), "remove old txn hash", fmt.Sprintf("%v", old.Hash()))
 		}
 		pool.all.Add(tx, isLocal)
 		pool.priced.Put(tx, isLocal)
@@ -823,6 +831,8 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 		pool.all.Remove(old.Hash())
 		pool.priced.Removed(1)
 		queuedReplaceMeter.Mark(1)
+
+		log.Info("[tx_pool_trace_txn]", "func", "enqueueTx", "replace old -> true, add new txn hash", fmt.Sprintf("%v", tx.Hash()), "remove old txn hash", fmt.Sprintf("%v", old.Hash()))
 	} else {
 		// Nothing was replaced, bump the queued counter
 		queuedGauge.Inc(1)
@@ -872,6 +882,8 @@ func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.T
 		pool.all.Remove(hash)
 		pool.priced.Removed(1)
 		pendingDiscardMeter.Mark(1)
+
+		log.Info("[tx_pool_trace_txn]", "func", "promoteTx", "replace old -> false, remove new txn hash", fmt.Sprintf("%v", hash))
 		return false
 	}
 	// Otherwise discard any previous transaction and mark this
@@ -879,6 +891,8 @@ func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.T
 		pool.all.Remove(old.Hash())
 		pool.priced.Removed(1)
 		pendingReplaceMeter.Mark(1)
+
+		log.Info("[tx_pool_trace_txn]", "func", "promoteTx", "replace old -> true, add new txn hash", fmt.Sprintf("%v", hash), "remove old txn hash", fmt.Sprintf("%v", old.Hash()))
 	} else {
 		// Nothing was replaced, bump the pending counter
 		pendingGauge.Inc(1)
@@ -1043,6 +1057,8 @@ func (pool *TxPool) RemoveTx(hash common.Hash, outofbound bool) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
+	log.Info("[tx_pool_trace_txn]", "func", "RemoveTx", "remove by external calls", fmt.Sprintf("%v", hash))
+
 	pool.removeTx(hash, outofbound)
 }
 
@@ -1058,6 +1074,8 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 
 	// Remove it from the list of known transactions
 	pool.all.Remove(hash)
+	log.Info("[tx_pool_trace_txn]", "func", "removeTx", "txn hash", fmt.Sprintf("%v", hash))
+
 	if outofbound {
 		pool.priced.Removed(1)
 	}
@@ -1387,6 +1405,8 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		for _, tx := range forwards {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
+
+			log.Info("[tx_pool_trace_txn]", "func", "promoteExecutables", "remove low nonce txn hash", fmt.Sprintf("%v", hash))
 		}
 		log.Trace("Removed old queued transactions", "count", len(forwards))
 		// Drop all transactions that are too costly (low balance or out of gas)
@@ -1394,6 +1414,8 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		for _, tx := range drops {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
+
+			log.Info("[tx_pool_trace_txn]", "func", "promoteExecutables", "remove low balance or out of gas", fmt.Sprintf("%v", hash))
 		}
 		log.Trace("Removed unpayable queued transactions", "count", len(drops))
 		queuedNofundsMeter.Mark(int64(len(drops)))
@@ -1416,7 +1438,9 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 			for _, tx := range caps {
 				hash := tx.Hash()
 				pool.all.Remove(hash)
-				log.Trace("Removed cap-exceeding queued transaction", "hash", hash)
+				// log.Trace("Removed cap-exceeding queued transaction", "hash", hash)
+
+				log.Info("[tx_pool_trace_txn]", "func", "promoteExecutables", "remove by cap-exceeding AccountQueue", fmt.Sprintf("%v", hash))
 			}
 			queuedRateLimitMeter.Mark(int64(len(caps)))
 		}
@@ -1482,7 +1506,9 @@ func (pool *TxPool) truncatePending() {
 
 						// Update the account nonce to the dropped transaction
 						pool.pendingNonces.setIfLower(offenders[i], tx.Nonce())
-						log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
+						// log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
+
+						log.Info("[tx_pool_trace_txn]", "func", "truncatePending", "remove by GlobalSlots limit", fmt.Sprintf("%v", hash))
 					}
 					pool.priced.Removed(len(caps))
 					pendingGauge.Dec(int64(len(caps)))
@@ -1509,7 +1535,9 @@ func (pool *TxPool) truncatePending() {
 
 					// Update the account nonce to the dropped transaction
 					pool.pendingNonces.setIfLower(addr, tx.Nonce())
-					log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
+					// log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
+
+					log.Info("[tx_pool_trace_txn]", "func", "truncatePending", "remove by GlobalSlots limit & AccountSlots", fmt.Sprintf("%v", hash))
 				}
 				pool.priced.Removed(len(caps))
 				pendingGauge.Dec(int64(len(caps)))
@@ -1554,6 +1582,8 @@ func (pool *TxPool) truncateQueue() {
 		if size := uint64(list.Len()); size <= drop {
 			for _, tx := range list.Flatten() {
 				pool.removeTx(tx.Hash(), true)
+
+				log.Info("[tx_pool_trace_txn]", "func", "truncateQueue", "remove by GlobalQueue limit", fmt.Sprintf("%v", tx.Hash()))
 			}
 			drop -= size
 			queuedRateLimitMeter.Mark(int64(size))
@@ -1563,6 +1593,8 @@ func (pool *TxPool) truncateQueue() {
 		txs := list.Flatten()
 		for i := len(txs) - 1; i >= 0 && drop > 0; i-- {
 			pool.removeTx(txs[i].Hash(), true)
+
+			log.Info("[tx_pool_trace_txn]", "func", "truncateQueue", "remove by GlobalQueue limit again", fmt.Sprintf("%v", txs[i].Hash()))
 			drop--
 			queuedRateLimitMeter.Mark(1)
 		}
@@ -1586,14 +1618,18 @@ func (pool *TxPool) demoteUnexecutables() {
 		for _, tx := range olds {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
-			log.Trace("Removed old pending transaction", "hash", hash)
+			// log.Trace("Removed old pending transaction", "hash", hash)
+
+			log.Info("[tx_pool_trace_txn]", "func", "demoteUnexecutables", "remove by old nonce", fmt.Sprintf("%v", hash))
 		}
 		// Drop all transactions that are too costly (low balance or out of gas), and queue any invalids back for later
 		drops, invalids := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
 		for _, tx := range drops {
 			hash := tx.Hash()
-			log.Trace("Removed unpayable pending transaction", "hash", hash)
+			// log.Trace("Removed unpayable pending transaction", "hash", hash)
 			pool.all.Remove(hash)
+
+			log.Info("[tx_pool_trace_txn]", "func", "demoteUnexecutables", "remove by low balance or out of gas", fmt.Sprintf("%v", hash))
 		}
 		pendingNofundsMeter.Mark(int64(len(drops)))
 

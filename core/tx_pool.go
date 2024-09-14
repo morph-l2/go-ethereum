@@ -1616,9 +1616,7 @@ func (pool *TxPool) demoteUnexecutables() {
 		for _, tx := range olds {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
-			// log.Trace("Removed old pending transaction", "hash", hash)
-
-			log.Info("[tx_pool_trace_txn]", "func", "demoteUnexecutables", "remove by old nonce", fmt.Sprintf("%v", hash))
+			log.Trace("Removed old pending transaction", "hash", hash)
 		}
 		// Drop all transactions that are too costly (low balance or out of gas), and queue any invalids back for later
 		drops, invalids := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)

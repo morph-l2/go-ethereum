@@ -1405,8 +1405,6 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		for _, tx := range forwards {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
-
-			log.Info("[tx_pool_trace_txn]", "func", "promoteExecutables", "remove low nonce txn hash", fmt.Sprintf("%v", hash))
 		}
 		log.Trace("Removed old queued transactions", "count", len(forwards))
 		// Drop all transactions that are too costly (low balance or out of gas)

@@ -186,6 +186,18 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 
 	if genesis == nil {
 		storedcfg := rawdb.ReadChainConfig(db, stored)
+
+		// copy configs named under scroll to morph
+		if storedcfg.Morph.FeeVaultAddress == nil {
+			if storedcfg.Scroll.FeeVaultAddress == nil {
+				log.Error("something wrong with store chain config, both morph and scroll are empty")
+				return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
+			}
+			storedcfg.Morph.UseZktrie = storedcfg.Scroll.UseZktrie
+			storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
+			storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
+			storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
+		}
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
@@ -212,7 +224,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		}
 		return genesis.Config, block.Hash(), nil
 	}
-	log.Info("check genesis", "is nil", genesis == nil)
 	// Check whether the genesis block is already written.
 	if genesis != nil {
 		hash := genesis.ToBlock(nil).Hash()

@@ -515,7 +515,8 @@ type ChainConfig struct {
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
 	// Morph genesis extension: enable morph rollup-related traces & state transition
-	Morph MorphConfig `json:"morph,omitempty"`
+	Morph  MorphConfig `json:"morph,omitempty"`
+	Scroll MorphConfig `json:"scroll,omitempty"`
 }
 
 type MorphConfig struct {

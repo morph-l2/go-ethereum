@@ -196,7 +196,7 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
-		log.Error("failed to new state in SetupGenesisBlockWithOverride", "error", err)
+		log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
 		}

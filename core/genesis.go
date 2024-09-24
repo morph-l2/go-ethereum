@@ -196,6 +196,7 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
+		log.Error("failed to new state in SetupGenesisBlockWithOverride", "error", err)
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
 		}
@@ -210,6 +211,7 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		}
 		return genesis.Config, block.Hash(), nil
 	}
+	log.Info("check genesis", "is nil", genesis == nil)
 	// Check whether the genesis block is already written.
 	if genesis != nil {
 		hash := genesis.ToBlock(nil).Hash()

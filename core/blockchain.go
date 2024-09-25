@@ -448,6 +448,7 @@ func (bc *BlockChain) loadLastState() error {
 		log.Warn("Empty database, resetting chain")
 		return bc.Reset()
 	}
+	log.Info("loadLastState ReadHeadBlockHash", "head", head.Hex())
 	// Make sure the entire head block is available
 	currentBlock := bc.GetBlockByHash(head)
 	if currentBlock == nil {
@@ -455,6 +456,7 @@ func (bc *BlockChain) loadLastState() error {
 		log.Warn("Head block missing, resetting chain", "hash", head)
 		return bc.Reset()
 	}
+	log.Info("loadLastState GetBlockByHash", "currentBlock.Header().Number", currentBlock.Header().Number.Uint64())
 	// Everything seems to be fine, set as the head block
 	bc.currentBlock.Store(currentBlock)
 	headBlockGauge.Update(int64(currentBlock.NumberU64()))
@@ -462,7 +464,9 @@ func (bc *BlockChain) loadLastState() error {
 	// Restore the last known head header
 	currentHeader := currentBlock.Header()
 	if head := rawdb.ReadHeadHeaderHash(bc.db); head != (common.Hash{}) {
+		log.Info("loadLastState ReadHeadHeaderHash", "head", head.Hex())
 		if header := bc.GetHeaderByHash(head); header != nil {
+			log.Info("loadLastState GetHeaderByHash", "header.Number", header.Number.Uint64())
 			currentHeader = header
 		}
 	}
@@ -473,7 +477,9 @@ func (bc *BlockChain) loadLastState() error {
 	headFastBlockGauge.Update(int64(currentBlock.NumberU64()))
 
 	if head := rawdb.ReadHeadFastBlockHash(bc.db); head != (common.Hash{}) {
+		log.Info("loadLastState ReadHeadFastBlockHash", "head", head.Hex())
 		if block := bc.GetBlockByHash(head); block != nil {
+			log.Info("loadLastState GetBlockByHash", "block.Number", block.Header().Number.Uint64())
 			bc.currentFastBlock.Store(block)
 			headFastBlockGauge.Update(int64(block.NumberU64()))
 		}

@@ -175,6 +175,8 @@ func (miner *Miner) startPipeline(
 	tip := miner.config.GasPrice
 	miner.confMu.RUnlock()
 
+	log.Info("[miner_pipeline]", "tip", tip)
+
 	// Do not collect txns from txpool, if `simulate` is true
 	if !genParams.simulate {
 		pending = miner.txpool.PendingWithMax(tip, pipeline.header.BaseFee, miner.config.MaxAccountsNum)

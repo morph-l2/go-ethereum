@@ -201,7 +201,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			log.Info("stored cfg: ", storedcfg.String())
 			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled()}
 		}
 	} else {

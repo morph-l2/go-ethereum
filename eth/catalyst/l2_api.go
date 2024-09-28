@@ -95,10 +95,6 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	// }
 	procTime := time.Since(start)
 	withdrawTrieRoot := api.writeVerified(newBlockResult.State, newBlockResult.Block, newBlockResult.Receipts, newBlockResult.SkippedTxs, procTime)
-	var resRc types.RowConsumption
-	if newBlockResult.RowConsumption != nil {
-		resRc = *newBlockResult.RowConsumption
-	}
 	return &ExecutableL2Data{
 		ParentHash:   newBlockResult.Block.ParentHash(),
 		Number:       newBlockResult.Block.NumberU64(),
@@ -114,7 +110,6 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		LogsBloom:          newBlockResult.Block.Bloom().Bytes(),
 		NextL1MessageIndex: newBlockResult.Block.Header().NextL1MsgIndex,
 		WithdrawTrieRoot:   withdrawTrieRoot,
-		RowUsages:          resRc,
 		SkippedTxs:         newBlockResult.SkippedTxs,
 
 		Hash: newBlockResult.Block.Hash(),
@@ -227,23 +222,12 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 		return err
 	}
 
-	defer func() {
-		if err == nil {
-			api.verified = make(map[common.Hash]executionResult) // clear cached pending block
-			if len(params.RowUsages) > 0 {
-				if rawdb.ReadBlockRowConsumption(api.eth.ChainDb(), block.Hash()) == nil {
-					rawdb.WriteBlockRowConsumption(api.eth.ChainDb(), block.Hash(), &params.RowUsages)
-				}
-			}
-		}
-	}()
-
 	bas, verified := api.isVerified(block.Hash())
 	if verified {
 		api.eth.BlockChain().UpdateBlockProcessMetrics(bas.state, bas.procTime)
 		for _, skipped := range bas.skippedTxs {
 			bh := block.Hash()
-			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skipped.Tx, skipped.Trace, skipped.Reason, block.NumberU64(), &bh)
+			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skipped.Tx, skipped.Reason, block.NumberU64(), &bh)
 		}
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
@@ -260,7 +244,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 
 	bh := block.Hash()
 	for _, skippedL1Tx := range params.SkippedTxs {
-		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skippedL1Tx.Tx, skippedL1Tx.Trace, skippedL1Tx.Reason, block.NumberU64(), &bh)
+		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skippedL1Tx.Tx, skippedL1Tx.Reason, block.NumberU64(), &bh)
 	}
 
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)

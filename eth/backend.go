@@ -53,7 +53,6 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/rollup/batch"
-	"github.com/morph-l2/go-ethereum/rollup/tracing"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
@@ -196,10 +195,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	eth.blockchain, err = core.NewBlockChain(chainDb, cacheConfig, chainConfig, eth.engine, vmConfig, shouldPreserve, &config.TxLookupLimit)
 	if err != nil {
 		return nil, err
-	}
-	if config.CheckCircuitCapacity {
-		tracer := tracing.NewTracerWrapper()
-		eth.blockchain.Validator().SetupTracerAndCircuitCapacityChecker(tracer)
 	}
 
 	// Rewind the chain in case of an incompatible config upgrade.

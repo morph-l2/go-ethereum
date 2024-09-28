@@ -188,8 +188,6 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.MinerGasLimitFlag,
 			utils.MinerEtherbaseFlag,
 			utils.MinerExtraDataFlag,
-			utils.MinerRecommitIntervalFlag,
-			utils.MinerStoreSkippedTxTracesFlag,
 			utils.MinerMaxAccountsNumFlag,
 		},
 	},

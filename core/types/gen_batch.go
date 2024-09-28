@@ -18,7 +18,7 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 		Hash                     common.Hash
 		Version                  hexutil.Uint
 		ParentBatchHeader        hexutil.Bytes
-		Chunks                   []hexutil.Bytes
+		BlockContexts            hexutil.Bytes
 		SkippedL1MessageBitmap   hexutil.Bytes
 		CurrentSequencerSetBytes hexutil.Bytes
 		PrevStateRoot            common.Hash
@@ -31,12 +31,7 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 	enc.Hash = r.Hash
 	enc.Version = hexutil.Uint(r.Version)
 	enc.ParentBatchHeader = r.ParentBatchHeader
-	if r.Chunks != nil {
-		enc.Chunks = make([]hexutil.Bytes, len(r.Chunks))
-		for k, v := range r.Chunks {
-			enc.Chunks[k] = v
-		}
-	}
+	enc.BlockContexts = r.BlockContexts
 	enc.SkippedL1MessageBitmap = r.SkippedL1MessageBitmap
 	enc.CurrentSequencerSetBytes = r.CurrentSequencerSetBytes
 	enc.PrevStateRoot = r.PrevStateRoot
@@ -53,7 +48,7 @@ func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 		Hash                     *common.Hash
 		Version                  *hexutil.Uint
 		ParentBatchHeader        *hexutil.Bytes
-		Chunks                   []hexutil.Bytes
+		BlockContexts            *hexutil.Bytes
 		SkippedL1MessageBitmap   *hexutil.Bytes
 		CurrentSequencerSetBytes *hexutil.Bytes
 		PrevStateRoot            *common.Hash
@@ -77,11 +72,8 @@ func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 	if dec.ParentBatchHeader != nil {
 		r.ParentBatchHeader = *dec.ParentBatchHeader
 	}
-	if dec.Chunks != nil {
-		r.Chunks = make([][]byte, len(dec.Chunks))
-		for k, v := range dec.Chunks {
-			r.Chunks[k] = v
-		}
+	if dec.BlockContexts != nil {
+		r.BlockContexts = *dec.BlockContexts
 	}
 	if dec.SkippedL1MessageBitmap != nil {
 		r.SkippedL1MessageBitmap = *dec.SkippedL1MessageBitmap

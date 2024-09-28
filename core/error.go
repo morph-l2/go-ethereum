@@ -26,6 +26,9 @@ var (
 	// ErrKnownBlock is returned when a block to import is already known locally.
 	ErrKnownBlock = errors.New("block already known")
 
+	// ErrInvalidTxCount is returned if a block contains too many transactions.
+	ErrInvalidTxCount = errors.New("invalid transaction count")
+
 	// ErrInvalidBlockPayloadSize is returned when a block to import has an oversized payload.
 	ErrInvalidBlockPayloadSize = errors.New("invalid block payload size")
 

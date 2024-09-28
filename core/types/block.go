@@ -521,9 +521,8 @@ func (b *Block) CountL2Tx() int {
 
 type Blocks []*Block
 
-type BlockWithRowConsumption struct {
+type BlockMore struct {
 	*Block
-	*RowConsumption
 	StartL1QueueIndex uint64
 	WithdrawTrieRoot  common.Hash
 }

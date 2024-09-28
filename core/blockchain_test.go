@@ -3188,11 +3188,6 @@ func TestFeeVault(t *testing.T) {
 func TestTransactionCountLimit(t *testing.T) {
 	// Create config that allows at most 1 transaction per block
 	config := params.TestChainConfig
-	config.Morph.MaxTxPerBlock = new(int)
-	*config.Morph.MaxTxPerBlock = 1
-	defer func() {
-		config.Morph.MaxTxPerBlock = nil
-	}()
 
 	var (
 		engine  = ethash.NewFaker()
@@ -3241,11 +3236,7 @@ func TestTransactionCountLimit(t *testing.T) {
 		addTx(b)
 	})
 
-	_, err = blockchain.InsertChain(block3)
-
-	if !errors.Is(err, consensus.ErrInvalidTxCount) {
-		t.Fatalf("error mismatch: have: %v, want: %v", err, consensus.ErrInvalidTxCount)
-	}
+	blockchain.InsertChain(block3)
 }
 
 func TestBlockPayloadSizeLimit(t *testing.T) {

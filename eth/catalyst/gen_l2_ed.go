@@ -29,7 +29,6 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 		ReceiptRoot        common.Hash                 `json:"receiptsRoot"`
 		LogsBloom          hexutil.Bytes               `json:"logsBloom"`
 		WithdrawTrieRoot   common.Hash                 `json:"withdrawTrieRoot"`
-		RowUsages          types.RowConsumption        `json:"rowUsages"`
 		SkippedTxs         []*types.SkippedTransaction `json:"skippedTxs"`
 		NextL1MessageIndex uint64                      `json:"nextL1MessageIndex"`
 		Hash               common.Hash                 `json:"hash"`
@@ -52,7 +51,6 @@ func (e ExecutableL2Data) MarshalJSON() ([]byte, error) {
 	enc.ReceiptRoot = e.ReceiptRoot
 	enc.LogsBloom = e.LogsBloom
 	enc.WithdrawTrieRoot = e.WithdrawTrieRoot
-	enc.RowUsages = e.RowUsages
 	enc.SkippedTxs = e.SkippedTxs
 	enc.NextL1MessageIndex = e.NextL1MessageIndex
 	enc.Hash = e.Hash
@@ -74,7 +72,6 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 		ReceiptRoot        *common.Hash                `json:"receiptsRoot"`
 		LogsBloom          *hexutil.Bytes              `json:"logsBloom"`
 		WithdrawTrieRoot   *common.Hash                `json:"withdrawTrieRoot"`
-		RowUsages          *types.RowConsumption       `json:"rowUsages"`
 		SkippedTxs         []*types.SkippedTransaction `json:"skippedTxs"`
 		NextL1MessageIndex *uint64                     `json:"nextL1MessageIndex"`
 		Hash               *common.Hash                `json:"hash"`
@@ -127,9 +124,6 @@ func (e *ExecutableL2Data) UnmarshalJSON(input []byte) error {
 	}
 	if dec.WithdrawTrieRoot != nil {
 		e.WithdrawTrieRoot = *dec.WithdrawTrieRoot
-	}
-	if dec.RowUsages != nil {
-		e.RowUsages = *dec.RowUsages
 	}
 	if dec.SkippedTxs != nil {
 		e.SkippedTxs = dec.SkippedTxs

@@ -254,8 +254,8 @@ var (
 		Threshold: 2,
 	}
 
-	MorphMaxTxPerBlock             = 100
 	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
+	MorphMaxTxPerBlock             = 100
 
 	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
 	MorphHoleskyChainConfig = &ChainConfig{
@@ -321,7 +321,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 
@@ -358,7 +357,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 
@@ -390,7 +388,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           &common.Address{123},
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 	TestRules = TestChainConfig.Rules(new(big.Int), 0)
@@ -423,7 +420,6 @@ var (
 		Morph: MorphConfig{
 			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
-			MaxTxPerBlock:             nil,
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
 )
@@ -519,7 +515,8 @@ type ChainConfig struct {
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
 	// Morph genesis extension: enable morph rollup-related traces & state transition
-	Morph MorphConfig `json:"morph,omitempty"`
+	Morph  MorphConfig `json:"morph,omitempty"`
+	Scroll MorphConfig `json:"scroll,omitempty"`
 }
 
 type MorphConfig struct {

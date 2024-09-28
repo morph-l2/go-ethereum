@@ -14,7 +14,7 @@ type RollupBatch struct {
 	Hash                     common.Hash
 	Version                  uint
 	ParentBatchHeader        []byte
-	Chunks                   [][]byte
+	BlockContexts            []byte
 	SkippedL1MessageBitmap   []byte
 	CurrentSequencerSetBytes []byte
 	PrevStateRoot            common.Hash
@@ -28,7 +28,7 @@ type rollupBatchMarshaling struct {
 	Version                  hexutil.Uint
 	Index                    hexutil.Uint64
 	ParentBatchHeader        hexutil.Bytes
-	Chunks                   []hexutil.Bytes
+	BlockContexts            hexutil.Bytes
 	SkippedL1MessageBitmap   hexutil.Bytes
 	CurrentSequencerSetBytes hexutil.Bytes
 }

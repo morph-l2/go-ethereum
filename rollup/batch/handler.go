@@ -93,7 +93,7 @@ func (h *Handler) CollectL1FeeLoop() {
 			if h.latestBatchIndex < newBatch.Index {
 				h.latestBatchIndex = newBatch.Index
 			}
-			h.calculateL1FeeForBatch(newBatch.Index, newBatch.Chunks)
+			h.calculateL1FeeForBatch(newBatch.Index, newBatch.BlockContexts)
 			rawdb.WriteHeadBatchIndexHasFee(h.db, newBatch.Index)
 			h.latestBatchIndexHasFee++
 		case <-h.stopCh:
@@ -103,10 +103,10 @@ func (h *Handler) CollectL1FeeLoop() {
 	}
 }
 
-func (h *Handler) calculateL1FeeForBatch(index uint64, chunks [][]byte) {
-	blockContexts, err := BlockContextsFromChunks(chunks)
+func (h *Handler) calculateL1FeeForBatch(index uint64, blockContextsBytes []byte) {
+	blockContexts, err := BlockContextsFromBytes(blockContextsBytes)
 	if err != nil {
-		h.logger.Error("failed to parse block contexts from chunks", "err", err)
+		h.logger.Error("failed to parse block contexts from bytes", "err", err)
 		return
 	}
 
@@ -143,7 +143,7 @@ func (h *Handler) fillMissingFeeCalc() {
 			h.latestBatchIndexHasFee++
 			continue
 		}
-		h.calculateL1FeeForBatch(processIndex, batch.Chunks)
+		h.calculateL1FeeForBatch(processIndex, batch.BlockContexts)
 		h.latestBatchIndexHasFee++
 	}
 	rawdb.WriteHeadBatchIndexHasFee(h.db, h.latestBatchIndex)

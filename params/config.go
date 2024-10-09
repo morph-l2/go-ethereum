@@ -255,7 +255,7 @@ var (
 	}
 
 	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
-	MorphMaxTxPerBlock             = 100
+	MorphMaxTxPerBlock             = 1000
 
 	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
 	MorphHoleskyChainConfig = &ChainConfig{

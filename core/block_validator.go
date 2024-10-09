@@ -55,9 +55,6 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 		len(block.Transactions()) > 0 { // we allow the same state root when a block with no transactions
 		return ErrKnownBlock
 	}
-	if !v.config.Morph.IsValidTxCount(len(block.Transactions())) {
-		return ErrInvalidTxCount
-	}
 	// Check if block payload size is smaller than the max size
 	if !v.config.Morph.IsValidBlockSize(block.PayloadSize()) {
 		return ErrInvalidBlockPayloadSize

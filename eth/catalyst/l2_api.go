@@ -222,6 +222,12 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 		return err
 	}
 
+	defer func() {
+		if err == nil {
+			api.verified = make(map[common.Hash]executionResult) // clear cached pending block
+		}
+	}()
+
 	bas, verified := api.isVerified(block.Hash())
 	if verified {
 		api.eth.BlockChain().UpdateBlockProcessMetrics(bas.state, bas.procTime)

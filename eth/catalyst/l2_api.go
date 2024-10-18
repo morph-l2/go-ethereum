@@ -204,6 +204,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 
 	parent := api.eth.BlockChain().CurrentBlock()
 	expectedBlockNumber := parent.NumberU64() + 1
+	log.Info("[debug]NewL2Block request", "block number", params.Number, "current block number", parent.NumberU64())
 	if params.Number != expectedBlockNumber {
 		if params.Number < expectedBlockNumber {
 			log.Warn("ignore the past block number", "block number", params.Number, "current block number", parent.NumberU64())

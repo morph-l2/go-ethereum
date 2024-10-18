@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/morph-l2/go-ethereum/log"
 
 	"github.com/morph-l2/go-ethereum/consensus"
 	"github.com/morph-l2/go-ethereum/core/state"
@@ -53,6 +54,7 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	// Check whether the block's known, and if not, that it's linkable
 	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) &&
 		len(block.Transactions()) > 0 { // we allow the same state root when a block with no transactions
+		log.Info("[debug]ValidateBody", "block height", block.NumberU64())
 		return ErrKnownBlock
 	}
 	// Check if block payload size is smaller than the max size

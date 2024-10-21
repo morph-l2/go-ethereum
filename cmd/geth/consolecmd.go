@@ -137,6 +137,8 @@ func remoteConsole(ctx *cli.Context) error {
 				path = filepath.Join(path, "goerli")
 			} else if ctx.GlobalBool(utils.SepoliaFlag.Name) {
 				path = filepath.Join(path, "sepolia")
+			} else if ctx.GlobalBool(utils.MorphFlag.Name) {
+				path = filepath.Join(path, "morph")
 			} else if ctx.GlobalBool(utils.MorphHoleskyFlag.Name) {
 				path = filepath.Join(path, "morph-holesky")
 			}

@@ -60,6 +60,7 @@ var (
 				Category:  "MISCELLANEOUS COMMANDS",
 				Flags: []cli.Flag{
 					utils.DataDirFlag,
+					utils.MorphFlag,
 					utils.MorphHoleskyFlag,
 					utils.BloomFilterSizeFlag,
 				},
@@ -91,6 +92,7 @@ the trie clean cache with default directory will be deleted.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
+					utils.MorphFlag,
 					utils.MorphHoleskyFlag,
 					utils.CacheTrieJournalFlag,
 					utils.BloomFilterSizeFlag,
@@ -123,6 +125,7 @@ the trie clean cache with default directory will be deleted.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
+					utils.MorphFlag,
 					utils.MorphHoleskyFlag,
 				},
 				Description: `
@@ -145,6 +148,7 @@ In other words, this command does the snapshot to trie conversion.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
+					utils.MorphFlag,
 					utils.MorphHoleskyFlag,
 				},
 				Description: `
@@ -169,6 +173,7 @@ It's also usable without snapshot enabled.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
+					utils.MorphFlag,
 					utils.MorphHoleskyFlag,
 				},
 				Description: `
@@ -194,6 +199,7 @@ It's also usable without snapshot enabled.
 					utils.SepoliaFlag,
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
+					utils.MorphFlag,
 					utils.MorphHoleskyFlag,
 					utils.ExcludeCodeFlag,
 					utils.ExcludeStorageFlag,

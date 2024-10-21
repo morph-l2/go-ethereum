@@ -458,6 +458,17 @@ func DefaultSepoliaGenesisBlock() *Genesis {
 	}
 }
 
+func DefaultMorphMainnetGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.MorphMainnetChainConfig,
+		Timestamp:  0x6715ede0,
+		ExtraData:  []byte{},
+		GasLimit:   30000000,
+		Difficulty: big.NewInt(0),
+		Alloc:      decodePrealloc(morphMainnetAllocData),
+	}
+}
+
 // DefaultMorphHoleskyGenesisBlock returns the Morph holesky genesis block.
 func DefaultMorphHoleskyGenesisBlock() *Genesis {
 	return &Genesis{

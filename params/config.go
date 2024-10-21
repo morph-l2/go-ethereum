@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/sha3"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/rollup/rcfg"
 )
 
 // Genesis hashes to enforce below configs on.
@@ -34,6 +35,7 @@ var (
 	RinkebyGenesisHash      = common.HexToHash("0x6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177")
 	GoerliGenesisHash       = common.HexToHash("0xbf7e331f7f7c1dd2e05159666b3bf8bc7a8a3a9eb1d518969eab529dd9b88c1a")
 	MorphHoleskyGenesisHash = common.HexToHash("0x74c3b27ba96d1f17f35849f51f5d786767bae9b1b63c338069a8cbd0e1d0b0b7")
+	MorphMainnetGenesisHash = common.HexToHash("0x649c9b1f9f831771529dbf286a63dd071530d73c8fa410997eebaf449acfa7a9")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -285,6 +287,36 @@ var (
 			MaxTxPerBlock:             &MorphMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphFeeVaultAddress,
+		},
+	}
+
+	MorphMainnetChainConfig = &ChainConfig{
+		ChainID:                 big.NewInt(2818),
+		HomesteadBlock:          big.NewInt(0),
+		DAOForkBlock:            nil,
+		DAOForkSupport:          false,
+		EIP150Block:             big.NewInt(0),
+		EIP155Block:             big.NewInt(0),
+		EIP158Block:             big.NewInt(0),
+		ByzantiumBlock:          big.NewInt(0),
+		ConstantinopleBlock:     big.NewInt(0),
+		PetersburgBlock:         big.NewInt(0),
+		IstanbulBlock:           big.NewInt(0),
+		MuirGlacierBlock:        nil,
+		BerlinBlock:             big.NewInt(0),
+		LondonBlock:             big.NewInt(0),
+		ArrowGlacierBlock:       nil,
+		ArchimedesBlock:         big.NewInt(0),
+		ShanghaiBlock:           big.NewInt(0),
+		BernoulliBlock:          big.NewInt(0),
+		CurieBlock:              big.NewInt(0),
+		DarwinTime:              nil,
+		TerminalTotalDifficulty: big.NewInt(0),
+		Morph: MorphConfig{
+			UseZktrie:                 true,
+			MaxTxPerBlock:             &MorphMaxTxPerBlock,
+			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
+			FeeVaultAddress:           &rcfg.MorphFeeVaultAddress,
 		},
 	}
 

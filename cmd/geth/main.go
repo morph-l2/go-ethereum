@@ -145,6 +145,7 @@ var (
 		utils.SepoliaFlag,
 		utils.RinkebyFlag,
 		utils.GoerliFlag,
+		utils.MorphFlag,
 		utils.MorphHoleskyFlag,
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
-	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/eth"
@@ -60,7 +59,6 @@ type executionResult struct {
 	block            *types.Block
 	state            *state.StateDB
 	receipts         types.Receipts
-	skippedTxs       []*types.SkippedTransaction
 	procTime         time.Duration
 	withdrawTrieRoot common.Hash
 }
@@ -83,7 +81,6 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	//block, stateDB, receipts, rc, skippedTxs, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
 	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
 	if err != nil {
 		return nil, err
@@ -94,7 +91,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	//	 return nil, nil
 	// }
 	procTime := time.Since(start)
-	withdrawTrieRoot := api.writeVerified(newBlockResult.State, newBlockResult.Block, newBlockResult.Receipts, newBlockResult.SkippedTxs, procTime)
+	withdrawTrieRoot := api.writeVerified(newBlockResult.State, newBlockResult.Block, newBlockResult.Receipts, procTime)
 	return &ExecutableL2Data{
 		ParentHash:   newBlockResult.Block.ParentHash(),
 		Number:       newBlockResult.Block.NumberU64(),
@@ -110,7 +107,6 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 		LogsBloom:          newBlockResult.Block.Bloom().Bytes(),
 		NextL1MessageIndex: newBlockResult.Block.Header().NextL1MsgIndex,
 		WithdrawTrieRoot:   withdrawTrieRoot,
-		SkippedTxs:         newBlockResult.SkippedTxs,
 
 		Hash: newBlockResult.Block.Hash(),
 	}, nil
@@ -155,29 +151,6 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		}, nil
 	}
 
-	// check whether the skipped transactions should be skipped.
-	var skippedTransactions []*types.SkippedTransaction
-	if len(params.SkippedTxs) > 0 {
-		l1Transactions := make(types.Transactions, len(params.SkippedTxs))
-		for i, st := range params.SkippedTxs {
-			l1Transactions[i] = st.Tx
-		}
-		involvedTxs, realSkipped, err := api.eth.Miner().SimulateL1Messages(params.ParentHash, l1Transactions)
-		if err != nil {
-			log.Error("failed to simulate L1Messages", "error", err)
-			return &GenericResponse{
-				false,
-			}, nil
-		}
-		if len(involvedTxs) > 0 {
-			log.Error("found the skipped transactions that should not be skipped", "involved tx count", len(involvedTxs))
-			return &GenericResponse{
-				false,
-			}, nil
-		}
-		skippedTransactions = realSkipped
-	}
-
 	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), false)
 	if err != nil {
 		log.Error("error processing block", "error", err)
@@ -192,7 +165,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 			false,
 		}, nil
 	}
-	api.writeVerified(stateDB, block, receipts, skippedTransactions, procTime)
+	api.writeVerified(stateDB, block, receipts, procTime)
 	return &GenericResponse{
 		true,
 	}, nil
@@ -231,10 +204,6 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 	bas, verified := api.isVerified(block.Hash())
 	if verified {
 		api.eth.BlockChain().UpdateBlockProcessMetrics(bas.state, bas.procTime)
-		for _, skipped := range bas.skippedTxs {
-			bh := block.Hash()
-			rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skipped.Tx, skipped.Reason, block.NumberU64(), &bh)
-		}
 		return api.eth.BlockChain().WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
 
@@ -246,11 +215,6 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 	stateDB, receipts, _, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), false)
 	if err != nil {
 		return err
-	}
-
-	bh := block.Hash()
-	for _, skippedL1Tx := range params.SkippedTxs {
-		rawdb.WriteSkippedTransaction(api.eth.ChainDb(), skippedL1Tx.Tx, skippedL1Tx.Reason, block.NumberU64(), &bh)
 	}
 
 	return api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
@@ -363,7 +327,7 @@ func (api *l2ConsensusAPI) verifyBlock(block *types.Block) error {
 	return nil
 }
 
-func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, skipped []*types.SkippedTransaction, procTime time.Duration) common.Hash {
+func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Block, receipts types.Receipts, procTime time.Duration) common.Hash {
 	withdrawTrieRoot := withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, state)
 	api.verifiedMapLock.Lock()
 	defer api.verifiedMapLock.Unlock()
@@ -371,7 +335,6 @@ func (api *l2ConsensusAPI) writeVerified(state *state.StateDB, block *types.Bloc
 		block:            block,
 		state:            state,
 		receipts:         receipts,
-		skippedTxs:       skipped,
 		procTime:         procTime,
 		withdrawTrieRoot: withdrawTrieRoot,
 	}

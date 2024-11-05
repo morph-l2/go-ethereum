@@ -71,10 +71,9 @@ type getWorkReq struct {
 }
 
 type NewBlockResult struct {
-	Block      *types.Block
-	State      *state.StateDB
-	Receipts   types.Receipts
-	SkippedTxs []*types.SkippedTransaction
+	Block    *types.Block
+	State    *state.StateDB
+	Receipts types.Receipts
 }
 
 // generateParams wraps various of settings for generating sealing task.
@@ -123,10 +122,9 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 			return nil, finalizeErr
 		}
 		return &NewBlockResult{
-			Block:      block,
-			State:      work.state,
-			Receipts:   work.receipts,
-			SkippedTxs: nil,
+			Block:    block,
+			State:    work.state,
+			Receipts: work.receipts,
 		}, nil
 	}
 
@@ -134,7 +132,7 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	fillTxErr, skippedTxs := miner.fillTransactions(work, genParams.transactions, interrupt)
+	fillTxErr := miner.fillTransactions(work, genParams.transactions, interrupt)
 	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
 	}
@@ -144,10 +142,9 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		return nil, finalizeErr
 	}
 	return &NewBlockResult{
-		Block:      block,
-		State:      work.state,
-		Receipts:   work.receipts,
-		SkippedTxs: skippedTxs,
+		Block:    block,
+		State:    work.state,
+		Receipts: work.receipts,
 	}, nil
 }
 
@@ -261,14 +258,14 @@ func (miner *Miner) commitTransaction(env *environment, tx *types.Transaction, c
 	return nil
 }
 
-func (miner *Miner) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) (error, []*types.SkippedTransaction) {
+func (miner *Miner) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, coinbase common.Address, interrupt *int32) error {
 	defer func(t0 time.Time) {
 		l2CommitTxsTimer.Update(time.Since(t0))
 	}(time.Now())
 
 	// Short circuit if current is nil
 	if env == nil {
-		return errors.New("no env found"), nil
+		return errors.New("no env found")
 	}
 
 	gasLimit := env.header.GasLimit
@@ -276,10 +273,7 @@ func (miner *Miner) commitTransactions(env *environment, txs *types.Transactions
 		env.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
-	var (
-		loops        int64
-		skippedL1Txs = make([]*types.SkippedTransaction, 0)
-	)
+	var loops int64
 
 loop:
 	for {
@@ -287,7 +281,7 @@ loop:
 		loops++
 		if interrupt != nil {
 			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
-				return signalToErr(signal), skippedL1Txs
+				return signalToErr(signal)
 			}
 		}
 		if env.gasPool.Gas() < params.TxGas {
@@ -340,20 +334,11 @@ loop:
 		case errors.Is(err, core.ErrGasLimitReached) && tx.IsL1MessageTx():
 			// If this block already contains some L1 messages,
 			// terminate here and try again in the next block.
-			if env.l1TxCount > 0 {
-				break loop
+			if env.l1TxCount == 0 {
+				l1TxGasLimitExceededCounter.Inc(1)
+				log.Warn("Single L1 message gas limit exceeded for current block", "L1 message gas limit", tx.Gas(), "block gas limit", env.header.GasLimit, "tx hash", tx.Hash())
 			}
-			// A single L1 message leads to out-of-gas. Skip it.
-			queueIndex := tx.AsL1MessageTx().QueueIndex
-			log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "gas limit exceeded")
-			env.nextL1MsgIndex = queueIndex + 1
-			txs.Shift()
-
-			skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
-				Tx:     tx,
-				Reason: "gas limit exceeded",
-			})
-			l1TxGasLimitExceededCounter.Inc(1)
+			break loop
 
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account
@@ -400,30 +385,23 @@ loop:
 			// nonce-too-high clause will prevent us from executing in vain).
 			log.Debug("Transaction failed, account skipped", "hash", tx.Hash().String(), "err", err)
 			if tx.IsL1MessageTx() {
-				queueIndex := tx.AsL1MessageTx().QueueIndex
-				log.Info("Skipping L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String(), "block", env.header.Number, "reason", "strange error", "err", err)
-				env.nextL1MsgIndex = queueIndex + 1
-
-				skippedL1Txs = append(skippedL1Txs, &types.SkippedTransaction{
-					Tx:     tx,
-					Reason: fmt.Sprintf("strange error: %v", err),
-				})
+				log.Warn("L1 messages encounter strange error, stops filling following L1 messages")
 				l1TxStrangeErrCounter.Inc(1)
+				break loop
 			}
 			txs.Shift()
 		}
 	}
 
-	return nil, skippedL1Txs
+	return nil
 }
 
 // fillTransactions retrieves the pending transactions from the txpool and fills them
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
-func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) (error, []*types.SkippedTransaction) {
+func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Transactions, interrupt *int32) error {
 	var (
-		err          error
-		skippedL1Txs []*types.SkippedTransaction
+		err error
 	)
 
 	defer func(env *environment) {
@@ -445,15 +423,15 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		err, skippedL1Txs = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		err = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil {
-			return err, skippedL1Txs
+			return err
 		}
 	}
 
 	// Giving up involving L2 transactions if it is simulation for L1Messages
 	if env.isSimulate {
-		return err, skippedL1Txs
+		return err
 	}
 
 	// Split the pending transactions into locals and remotes
@@ -469,17 +447,17 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		err, _ = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
+		err = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil {
-			return err, skippedL1Txs
+			return err
 		}
 	}
 	if len(remoteTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		err, _ = miner.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
+		err = miner.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
 	}
 
-	return err, skippedL1Txs
+	return err
 }
 
 func withTimer(timer metrics.Timer, f func()) {

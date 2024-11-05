@@ -19,11 +19,9 @@ package eth
 import (
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"os"
 	"strings"
 	"time"
@@ -552,11 +550,6 @@ func (api *MorphAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumbe
 	return nil, err
 }
 
-// GetNumSkippedTransactions returns the number of skipped transactions.
-func (api *MorphAPI) GetNumSkippedTransactions(ctx context.Context) (uint64, error) {
-	return rawdb.ReadNumSkippedTransactions(api.eth.ChainDb()), nil
-}
-
 // EstimateL1DataFee returns an estimate of the L1 data fee required to
 // process the given transaction against the current pending block.
 func (api *MorphAPI) EstimateL1DataFee(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
@@ -583,44 +576,6 @@ type RPCTransaction struct {
 
 	// wrapped traces, currently only available for `morph_getSkippedTransaction` API, when `MinerStoreSkippedTxTracesFlag` is set
 	Traces *types.BlockTrace `json:"traces,omitempty"`
-}
-
-// GetSkippedTransaction returns a skipped transaction by its hash.
-func (api *MorphAPI) GetSkippedTransaction(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
-	stx := rawdb.ReadSkippedTransaction(api.eth.ChainDb(), hash)
-	if stx == nil {
-		return nil, nil
-	}
-	var rpcTx RPCTransaction
-	rpcTx.RPCTransaction = *ethapi.NewRPCTransaction(stx.Tx, common.Hash{}, 0, 0, nil, api.eth.blockchain.Config())
-	rpcTx.SkipReason = stx.Reason
-	rpcTx.SkipBlockNumber = (*hexutil.Big)(new(big.Int).SetUint64(stx.BlockNumber))
-	rpcTx.SkipBlockHash = stx.BlockHash
-	if len(stx.TracesBytes) != 0 {
-		traces := &types.BlockTrace{}
-		if err := json.Unmarshal(stx.TracesBytes, traces); err != nil {
-			return nil, fmt.Errorf("fail to Unmarshal traces for skipped tx, hash: %s, err: %w", hash.String(), err)
-		}
-		rpcTx.Traces = traces
-	}
-	return &rpcTx, nil
-}
-
-// GetSkippedTransactionHashes returns a list of skipped transaction hashes between the two indices provided (inclusive).
-func (api *MorphAPI) GetSkippedTransactionHashes(ctx context.Context, from uint64, to uint64) ([]common.Hash, error) {
-	it := rawdb.IterateSkippedTransactionsFrom(api.eth.ChainDb(), from)
-	defer it.Release()
-
-	var hashes []common.Hash
-
-	for it.Next() {
-		if it.Index() > to {
-			break
-		}
-		hashes = append(hashes, it.TransactionHash())
-	}
-
-	return hashes, nil
 }
 
 type RPCRollupBatch struct {

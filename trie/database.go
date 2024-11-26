@@ -36,6 +36,7 @@ import (
 	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/triedb/hashdb"
 	"github.com/morph-l2/go-ethereum/triedb/pathdb"
+	zktrie "github.com/scroll-tech/zktrie/trie"
 	zkt "github.com/scroll-tech/zktrie/types"
 )
 
@@ -1113,10 +1114,19 @@ func (db *Database) GetFrom(root, key []byte) ([]byte, error) {
 		r := common.BytesToHash(zkt.ReverseByteOrder(root[:]))
 		reader, _ := pdb.Reader(r)
 		if reader != nil {
-			return reader.Node(key)
+			n, err := reader.Node(key)
+			if err != nil {
+				return nil, err
+			}
+
+			if n == nil {
+				return nil, zktrie.ErrKeyNotFound
+			}
+			return n, nil
 		}
 
-		log.Info("pathdb get node reader is nill", "root", r.Hex())
+		log.Info("pathdb get node reader is nil", "root", r.Hex())
+		return nil, errors.New("reader is nil")
 	}
 	return nil, nil
 }

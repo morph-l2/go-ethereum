@@ -230,12 +230,20 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 		return err
 	}
 
+	// flush persists every 3600 blocks
+	force := blockNumber%3600 == 0
+
+	layers := maxDiffLayers
+	if force {
+		layers = 0
+	}
+
 	// Keep 128 diff layers in the memory, persistent layer is 129th.
 	// - head layer is paired with HEAD state
 	// - head-1 layer is paired with HEAD-1 state
 	// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
 	// - head-128 layer(disk layer) is paired with HEAD-128 state
-	return db.tree.cap(root, maxDiffLayers)
+	return db.tree.cap(root, layers)
 }
 
 // Close closes the trie database and the held freezer.

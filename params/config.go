@@ -564,6 +564,9 @@ type MorphConfig struct {
 
 	// Transaction fee vault address [optional]
 	FeeVaultAddress *common.Address `json:"feeVaultAddress,omitempty"`
+
+	// Use MorphZkTrie instead of ZkTrie in state
+	MorphZkTrie bool `json:"morphZkTrie,omitempty"`
 }
 
 func (s MorphConfig) FeeVaultEnabled() bool {
@@ -572,6 +575,10 @@ func (s MorphConfig) FeeVaultEnabled() bool {
 
 func (s MorphConfig) ZktrieEnabled() bool {
 	return s.UseZktrie
+}
+
+func (s MorphConfig) MorphZktrieEnabled() bool {
+	return s.MorphZkTrie
 }
 
 func (s MorphConfig) String() string {

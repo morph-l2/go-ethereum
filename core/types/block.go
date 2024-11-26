@@ -32,9 +32,10 @@ import (
 )
 
 var (
-	EmptyRootHash  = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
-	EmptyUncleHash = rlpHash([]*Header(nil))
-	EmptyAddress   = common.Address{}
+	EmptyRootHash   = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+	EmptyUncleHash  = rlpHash([]*Header(nil))
+	EmptyAddress    = common.Address{}
+	GenesisRootHash = common.HexToHash("09688bec5d876538664e62247c2f64fc7a02c54a3f898b42020730c7dd4933aa")
 )
 
 // A BlockNonce is a 64-bit hash which proves (combined with the

@@ -52,10 +52,19 @@ func (s *StateDB) GetStorageTrieForProof(addr common.Address) (Trie, error) {
 
 	// try the trie in stateObject first, else we would create one
 	stateObject := s.getStateObject(addr)
+
+	addrHash := crypto.Keccak256Hash(addr[:])
+	if s.IsMorphZktrie() {
+		k, err := zkt.ToSecureKey(addr.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("can't create storage trie on ToSecureKey %s: %v ", addr.Hex(), err)
+		}
+		addrHash = common.BigToHash(k)
+	}
+
 	if stateObject == nil {
 		// still return a empty trie
-		addrHash := crypto.Keccak256Hash(addr[:])
-		dummy_trie, _ := s.db.OpenStorageTrie(addrHash, common.Hash{})
+		dummy_trie, _ := s.db.OpenStorageTrie(addrHash, common.Hash{}, common.Hash{})
 		return dummy_trie, nil
 	}
 
@@ -63,7 +72,7 @@ func (s *StateDB) GetStorageTrieForProof(addr common.Address) (Trie, error) {
 	var err error
 	if trie == nil {
 		// use a new, temporary trie
-		trie, err = s.db.OpenStorageTrie(stateObject.addrHash, stateObject.data.Root)
+		trie, err = s.db.OpenStorageTrie(addrHash, stateObject.data.Root, s.originalRoot)
 		if err != nil {
 			return nil, fmt.Errorf("can't create storage trie on root %s: %v ", stateObject.data.Root, err)
 		}

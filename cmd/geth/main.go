@@ -158,6 +158,8 @@ var (
 		utils.GpoIgnoreGasPriceFlag,
 		configFileFlag,
 		utils.CatalystFlag,
+		utils.MorphZkTrieFlag,
+		utils.PathDBSyncFlag,
 	}
 
 	rpcFlags = []cli.Flag{

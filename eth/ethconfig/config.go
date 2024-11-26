@@ -90,6 +90,8 @@ var Defaults = Config{
 	GPO:                     FullNodeGPO,
 	RPCTxFeeCap:             1,  // 1 ether
 	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
+	JournalFileName:         "trie.journal",
+	PathSyncFlush:           true,
 }
 
 func init() {
@@ -211,6 +213,12 @@ type Config struct {
 
 	// Max block range for eth_getLogs api method
 	MaxBlockRange int64
+
+	// Path schema journal file name
+	JournalFileName string
+
+	// State scheme used to store ethereum state and merkle trie nodes on top
+	PathSyncFlush bool
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

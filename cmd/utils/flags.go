@@ -851,6 +851,15 @@ var (
 		Name:  "rpc.getlogs.maxrange",
 		Usage: "Limit max fetched block range for `eth_getLogs` method",
 	}
+
+	MorphZkTrieFlag = cli.BoolFlag{
+		Name:  "morphzktrie",
+		Usage: "Use MorphZkTrie instead of ZkTrie in state",
+	}
+	PathDBSyncFlag = cli.BoolFlag{
+		Name:  "pathdb.sync",
+		Usage: "Sync flush nodes cache to disk in path schema",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -1718,6 +1727,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.EthDiscoveryURLs = SplitAndTrim(urls)
 		}
 	}
+	if ctx.GlobalIsSet(PathDBSyncFlag.Name) {
+		cfg.PathSyncFlush = true
+	}
 	// Override any default configs for hard coded networks.
 	switch {
 	case ctx.GlobalBool(MainnetFlag.Name):
@@ -1765,6 +1777,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		// disable prefetch
 		log.Info("Prefetch disabled")
 		cfg.NoPrefetch = true
+
+		// use morph zktrie
+		cfg.Genesis.Config.Morph.MorphZkTrie = ctx.GlobalBool(MorphZkTrieFlag.Name)
 	case ctx.GlobalBool(MorphHoleskyFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2810
@@ -1780,6 +1795,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		// disable prefetch
 		log.Info("Prefetch disabled")
 		cfg.NoPrefetch = true
+
+		// use morph zktrie
+		cfg.Genesis.Config.Morph.MorphZkTrie = ctx.GlobalBool(MorphZkTrieFlag.Name)
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337

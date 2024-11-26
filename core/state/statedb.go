@@ -156,6 +156,10 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 	return sdb, nil
 }
 
+func (s *StateDB) GetOriginRoot() common.Hash {
+	return s.originalRoot
+}
+
 // StartPrefetcher initializes a new trie prefetcher to pull in nodes from the
 // state trie concurrently while the state is mutated so that when we reach the
 // commit phase, most of the needed data is already hot.
@@ -191,6 +195,10 @@ func (s *StateDB) Error() error {
 
 func (s *StateDB) IsZktrie() bool {
 	return s.db.TrieDB().Zktrie
+}
+
+func (s *StateDB) IsMorphZktrie() bool {
+	return s.db.TrieDB().Zktrie && s.db.TrieDB().IsMorphZk()
 }
 
 func (s *StateDB) AddLog(log *types.Log) {

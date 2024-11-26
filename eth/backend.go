@@ -121,6 +121,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		}
 		config.TrieDirtyCache = 0
 	}
+
+	if config.JournalFileName == "" {
+		config.JournalFileName = ethconfig.Defaults.JournalFileName
+	}
+
 	log.Info("Allocated trie memory caches", "clean", common.StorageSize(config.TrieCleanCache)*1024*1024, "dirty", common.StorageSize(config.TrieDirtyCache)*1024*1024)
 
 	// Assemble the Ethereum object
@@ -186,6 +191,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			TrieTimeLimit:       config.TrieTimeout,
 			SnapshotLimit:       config.SnapshotCache,
 			Preimages:           config.Preimages,
+			PathSyncFlush:       config.PathSyncFlush,
+			JournalFilePath:     stack.ResolvePath(config.JournalFileName),
 		}
 	)
 	// TODO (MariusVanDerWijden) get rid of shouldPreserve in a follow-up PR

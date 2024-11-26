@@ -43,6 +43,9 @@ var (
 	// headFastBlockKey tracks the latest known incomplete block's hash during fast sync.
 	headFastBlockKey = []byte("LastFast")
 
+	// persistentStateIDKey tracks the id of latest stored state(for path-based only).
+	persistentStateIDKey = []byte("LastStateID")
+
 	// lastPivotKey tracks the last pivot block used by fast sync (to reenable on sethead).
 	lastPivotKey = []byte("LastPivot")
 
@@ -69,6 +72,9 @@ var (
 
 	// skeletonSyncStatusKey tracks the skeleton sync status across restarts.
 	skeletonSyncStatusKey = []byte("SkeletonSyncStatus")
+
+	// trieJournalKey tracks the in-memory trie node layers across restarts.
+	trieJournalKey = []byte("TrieJournal")
 
 	// txIndexTailKey tracks the oldest block whose transactions have been indexed.
 	txIndexTailKey = []byte("TransactionIndexTail")
@@ -122,6 +128,11 @@ var (
 	rollupBatchSignaturePrefix    = []byte("R-bs")
 	rollupBatchL1DataFeePrefix    = []byte("R-df")
 	rollupBatchHeadBatchHasFeeKey = []byte("R-hbf")
+
+	// Path-based storage scheme of merkle patricia trie.
+	TrieNodeAccountPrefix = []byte("A") // trieNodeAccountPrefix + hexPath -> trie node
+	TrieNodeStoragePrefix = []byte("O") // trieNodeStoragePrefix + accountHash + hexPath -> trie node
+	stateIDPrefix         = []byte("L") // stateIDPrefix + state root -> state id
 )
 
 const (
@@ -309,4 +320,23 @@ func RollupBatchSignatureSignerKey(batchHash common.Hash, signer common.Address)
 // RollupBatchL1DataFeeKey = rollupBatchL1DataFeePrefix + batchIndex
 func RollupBatchL1DataFeeKey(batchIndex uint64) []byte {
 	return append(rollupBatchL1DataFeePrefix, encodeBigEndian(batchIndex)...)
+}
+
+// accountTrieNodeKey = trieNodeAccountPrefix + nodePath.
+func accountTrieNodeKey(path []byte) []byte {
+	return append(TrieNodeAccountPrefix, path...)
+}
+
+// storageTrieNodeKey = trieNodeStoragePrefix + accountHash + nodePath.
+func storageTrieNodeKey(accountHash common.Hash, path []byte) []byte {
+	buf := make([]byte, len(TrieNodeStoragePrefix)+common.HashLength+len(path))
+	n := copy(buf, TrieNodeStoragePrefix)
+	n += copy(buf[n:], accountHash.Bytes())
+	copy(buf[n:], path)
+	return buf
+}
+
+// stateIDKey = stateIDPrefix + root (32 bytes)
+func stateIDKey(root common.Hash) []byte {
+	return append(stateIDPrefix, root.Bytes()...)
 }

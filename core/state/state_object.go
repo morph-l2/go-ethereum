@@ -29,6 +29,8 @@ import (
 	"github.com/morph-l2/go-ethereum/crypto/codehash"
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/rlp"
+
+	zkt "github.com/scroll-tech/zktrie/types"
 )
 
 var emptyPoseidonCodeHash = codehash.EmptyPoseidonCodeHash.Bytes()
@@ -163,9 +165,15 @@ func (s *stateObject) getTrie(db Database) Trie {
 		}
 		if s.trie == nil {
 			var err error
-			s.trie, err = db.OpenStorageTrie(s.addrHash, s.data.Root)
+			addrHash := s.addrHash
+			if db.TrieDB().IsMorphZk() {
+				addr_s, _ := zkt.ToSecureKey(s.address.Bytes())
+				addrHash = common.BigToHash(addr_s)
+			}
+
+			s.trie, err = db.OpenStorageTrie(addrHash, s.data.Root, s.db.originalRoot)
 			if err != nil {
-				s.trie, _ = db.OpenStorageTrie(s.addrHash, common.Hash{})
+				s.trie, _ = db.OpenStorageTrie(addrHash, common.Hash{}, s.db.originalRoot)
 				s.setError(fmt.Errorf("can't create storage trie: %v", err))
 			}
 		}

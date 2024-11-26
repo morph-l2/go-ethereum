@@ -330,6 +330,7 @@ type backend interface {
 	// to disk. Report specifies whether logs will be displayed in info level.
 	CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool) error
 
+	// Commit write custom nodes belong genesis states, only onece
 	CommitGenesis(root common.Hash) error
 
 	// Close closes the trie database backend and releases all held resources.
@@ -382,10 +383,8 @@ func NewDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Database
 	}
 
 	if db.MorphZkTrie {
-		log.Info("PathDB", "NewDatabaseWithConfig use morphzktrie", db.MorphZkTrie)
 		db.backend = pathdb.New(diskdb, config.PathDB)
 	} else {
-		log.Info("PathDB", "NewDatabaseWithConfig use zktrie", db.Zktrie)
 		if db.Zktrie {
 			db.backend = hashdb.NewZkDatabaseWithConfig(diskdb, config.HashDB)
 		}
@@ -1064,7 +1063,7 @@ func (db *Database) Journal(root common.Hash) error {
 	if db.backend != nil {
 		pdb, ok := db.backend.(*pathdb.Database)
 		if !ok {
-			return errors.New("not supported")
+			return errors.New("backend [Journal] not supported")
 		}
 		return pdb.Journal(root)
 	}
@@ -1097,7 +1096,7 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 	if db.backend != nil {
 		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
 		if !ok {
-			return nil, errors.New("not supported")
+			return nil, errors.New("backend [Get] not supported")
 		}
 		return zdb.Get(key)
 	}
@@ -1108,11 +1107,16 @@ func (db *Database) GetFrom(root, key []byte) ([]byte, error) {
 	if db.backend != nil {
 		pdb, ok := db.backend.(*pathdb.Database)
 		if !ok {
-			return nil, errors.New("backend GetFrom not supported")
+			return nil, errors.New("backend [GetFrom] not supported")
 		}
 
-		reader, _ := pdb.Reader(common.BytesToHash(zkt.ReverseByteOrder(root[:])))
-		return reader.Node(key)
+		r := common.BytesToHash(zkt.ReverseByteOrder(root[:]))
+		reader, _ := pdb.Reader(r)
+		if reader != nil {
+			return reader.Node(key)
+		}
+
+		log.Info("pathdb get node reader is nill", "root", r.Hex())
 	}
 	return nil, nil
 }

@@ -212,7 +212,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	head := rawdb.ReadPersistentStateID(db)
 	var verify bool = true
 	// new states already overide genesis states.
-	// if trieCfg.MorphZkTrie && (diskroot == types.EmptyRootHash1 || header.Root != diskroot) {
 	if trieCfg.MorphZkTrie && (diskroot == types.GenesisRootHash || head > 0) {
 		verify = false
 	}

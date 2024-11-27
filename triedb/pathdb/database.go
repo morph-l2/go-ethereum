@@ -216,7 +216,7 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 		return err
 	}
 
-	// only 1 entry, state not change
+	// only 1 entity, state have no changes
 	// some block maybe has no txns, so state do not change
 	if root == parentRoot && len(db.dirties) == 1 {
 		return nil
@@ -231,6 +231,7 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 	}
 
 	// flush persists every 3600 blocks
+	// @todo, use config
 	force := blockNumber%3600 == 0
 
 	layers := maxDiffLayers

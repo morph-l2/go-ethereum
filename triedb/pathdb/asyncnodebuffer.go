@@ -327,11 +327,11 @@ func (nc *nodecache) merge(nc1 *nodecache) (*nodecache, error) {
 	res.limit = immutable.limit
 	res.nodes = make(dbtypes.KvMap)
 	for _, v := range immutable.nodes {
-		res.nodes.Put(v.K, v.K)
+		res.nodes.Put(v.K, v.V)
 	}
 
 	for _, v := range mutable.nodes {
-		res.nodes.Put(v.K, v.K)
+		res.nodes.Put(v.K, v.V)
 	}
 
 	return res, nil

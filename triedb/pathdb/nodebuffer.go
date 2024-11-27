@@ -48,7 +48,7 @@ func newNodeBuffer(limit int, nodes dbtypes.KvMap, layers uint64) *nodebuffer {
 	}
 	var size uint64
 	for _, v := range nodes {
-		size += uint64(len(v.K) + len(v.K))
+		size += uint64(len(v.K) + len(v.V))
 	}
 	return &nodebuffer{
 		layers: layers,

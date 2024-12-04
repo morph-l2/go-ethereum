@@ -176,26 +176,6 @@ func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, tran
 	})
 }
 
-func (miner *Miner) SimulateL1Messages(parentHash common.Hash, transactions types.Transactions) ([]*types.Transaction, []*types.SkippedTransaction, error) {
-	if transactions.Len() == 0 {
-		return nil, nil, nil
-	}
-
-	ret, err := miner.getSealingBlockAndState(&generateParams{
-		timestamp:    uint64(time.Now().Unix()),
-		parentHash:   parentHash,
-		coinbase:     miner.config.PendingFeeRecipient,
-		transactions: transactions,
-		simulate:     true,
-		timeout:      miner.newBlockTimeout * 2, // double the timeout, in case it is blocked due to the previous work
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return ret.Block.Transactions(), ret.SkippedTxs, nil
-}
-
 // getPending retrieves the pending block based on the current head block.
 // The result might be nil if pending generation is failed.
 func (miner *Miner) getPending() *NewBlockResult {

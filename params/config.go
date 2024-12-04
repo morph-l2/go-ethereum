@@ -258,6 +258,7 @@ var (
 
 	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
 	MorphMaxTxPerBlock             = 100
+	MorphHoleskyMaxTxPerBlock      = 1000
 
 	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
 	MorphHoleskyChainConfig = &ChainConfig{
@@ -284,7 +285,7 @@ var (
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
-			MaxTxPerBlock:             &MorphMaxTxPerBlock,
+			MaxTxPerBlock:             &MorphHoleskyMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphFeeVaultAddress,
 		},

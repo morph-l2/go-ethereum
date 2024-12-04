@@ -93,8 +93,10 @@ func (tb *TxBlacklist) Validate(tx *types.Transaction) bool {
 	if _, ok := tb.senders[from]; ok {
 		return false
 	}
-	if _, ok := tb.receivers[*tx.To()]; ok {
-		return false
+	if tx.To() != nil {
+		if _, ok := tb.receivers[*tx.To()]; ok {
+			return false
+		}
 	}
 	return true
 }

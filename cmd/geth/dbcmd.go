@@ -735,5 +735,17 @@ func hbss2pbss(ctx *cli.Context) error {
 		return errors.New("too many arguments")
 	}
 
-	return h2p.Run()
+	lastStateID := rawdb.ReadPersistentStateID(chaindb)
+	if lastStateID == 0 {
+		h2p.Run()
+	}
+
+	// prune hbss trie node
+	err = rawdb.PruneHashTrieNodeInDataBase(chaindb)
+	if err != nil {
+		log.Error("Prune Hash trie node in database failed", "error", err)
+		return err
+	}
+
+	return nil
 }

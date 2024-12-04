@@ -303,3 +303,12 @@ func diffToDisk(layer *diffLayer, force bool) (layer, error) {
 	}
 	return disk.commit(layer, force)
 }
+
+func (dl *diffLayer) reset() {
+	// Hold the lock, ensure the parent won't be changed during the
+	// state accessing.
+	dl.lock.RLock()
+	defer dl.lock.RUnlock()
+
+	dl.nodes = make(dbtypes.KvMap)
+}

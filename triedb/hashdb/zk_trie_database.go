@@ -136,7 +136,7 @@ func (db *ZktrieDatabase) Node(hash common.Hash) ([]byte, error) {
 
 // Put saves a key:value into the Storage
 func (db *ZktrieDatabase) Put(k, v []byte) error {
-	k = common.ReverseBytes(k)
+	k = common.BitReverse(k)
 
 	db.lock.Lock()
 	db.dirties.Put(k, v)
@@ -152,7 +152,7 @@ func (db *ZktrieDatabase) Put(k, v []byte) error {
 
 // Get retrieves a value from a key in the Storage
 func (db *ZktrieDatabase) Get(key []byte) ([]byte, error) {
-	key = common.ReverseBytes(key[:])
+	key = common.BitReverse(key[:])
 
 	db.lock.RLock()
 	value, ok := db.dirties.Get(key)

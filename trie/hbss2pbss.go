@@ -24,6 +24,7 @@ type Hbss2Pbss struct {
 	datadir       string
 	trieCachePath string
 	errChan       chan error
+	headerBlock   *types.Block
 }
 
 func NewHbss2Pbss(chaindb ethdb.Database, datadir, trieCachePath string) (*Hbss2Pbss, error) {
@@ -33,7 +34,7 @@ func NewHbss2Pbss(chaindb ethdb.Database, datadir, trieCachePath string) (*Hbss2
 
 	headBlock := rawdb.ReadHeadBlock(chaindb)
 	root := headBlock.Root()
-	log.Info("current head block", "block number", headBlock.NumberU64(), "root", root.Hex())
+	log.Info("Hbss2pbss converting", "block number", headBlock.NumberU64(), "root", root.Hex(), "hash", headBlock.Header().Hash().Hex())
 	zkTrie, err := NewZkTrie(root, stateCache)
 	if err != nil {
 		return nil, err
@@ -46,6 +47,7 @@ func NewHbss2Pbss(chaindb ethdb.Database, datadir, trieCachePath string) (*Hbss2
 		trieCachePath: trieCachePath,
 		errChan:       make(chan error),
 		wg:            &sync.WaitGroup{},
+		headerBlock:   headBlock,
 	}, nil
 }
 
@@ -82,6 +84,9 @@ func (h2p *Hbss2Pbss) Run() error {
 	}
 	log.Info("Hbss2Pbss complete", "elapsed", common.PrettyDuration(time.Since(start)))
 
+	rawdb.WritePersistentStateID(h2p.db, h2p.headerBlock.NumberU64())
+	rawdb.WriteStateID(h2p.db, h2p.headerBlock.Root(), h2p.headerBlock.NumberU64())
+
 	return nil
 }
 
@@ -96,7 +101,7 @@ func (h2p *Hbss2Pbss) handleGenesis() error {
 	}
 	genesisRoot := genesis.Root()
 
-	log.Info(":", "genesistRoot:", genesisRoot.Hex())
+	log.Info("Hbss2Pbss converting genesis", "root", genesisRoot.Hex())
 
 	h2p.concurrentTraversal(zkt.NewHashFromBytes(genesisRoot[:]), []bool{}, common.Hash{})
 

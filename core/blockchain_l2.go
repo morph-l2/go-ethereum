@@ -121,6 +121,8 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.TrieDirtyDisabled {
 		if triedb.Scheme() == rawdb.PathScheme {
+			// If node is running in path mode, skip explicit gc operation
+			// which is unnecessary in this mode.
 			return triedb.CommitState(root, origin, current, false)
 		}
 		return triedb.Commit(root, false, nil)

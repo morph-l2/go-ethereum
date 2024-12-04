@@ -145,6 +145,7 @@ func (tree *layerTree) cap(root common.Hash, layers int) error {
 		for _, ly := range tree.layers {
 			if dl, ok := ly.(*diffLayer); ok {
 				dl.cache.Remove(dl)
+				dl.reset()
 				log.Debug("Cleanup difflayer hash cache due to cap all", "diff_root", dl.root.String(), "diff_block_number", dl.block)
 			}
 		}

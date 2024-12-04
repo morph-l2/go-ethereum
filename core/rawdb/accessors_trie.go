@@ -17,6 +17,8 @@
 package rawdb
 
 import (
+	"bytes"
+
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/ethdb"
 
@@ -63,4 +65,27 @@ func ReadAccountTrieNode(db ethdb.KeyValueReader, path []byte) ([]byte, common.H
 	}
 
 	return data, common.BytesToHash(zkHash.Bytes())
+}
+
+// IsLegacyTrieNode reports whether a provided database entry is a legacy trie
+// node. The characteristics of legacy trie node are:
+// - the key length is 32 bytes
+// - the key is the hash of val
+func IsLegacyTrieNode(key []byte, val []byte) bool {
+	if len(key) != common.HashLength {
+		return false
+	}
+
+	n, err := zktrie.NewNodeFromBytes(val)
+	if err != nil {
+		return false
+	}
+
+	zkHash, err := n.NodeHash()
+	if err != nil {
+		return false
+	}
+
+	hash := common.BytesToHash(common.BitReverse(zkHash[:]))
+	return bytes.Equal(key[:], hash[:])
 }

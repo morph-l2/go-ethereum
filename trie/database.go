@@ -1022,7 +1022,8 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 		}
 		return db.backend.CommitState(root, parentRoot, blockNumber, report)
 	}
-	return db.Commit(root, report, nil)
+
+	return errors.New("not supported")
 }
 
 // Scheme returns the node scheme used in the database.

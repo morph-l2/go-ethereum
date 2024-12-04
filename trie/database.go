@@ -1126,7 +1126,6 @@ func (db *Database) GetFrom(root, key []byte) ([]byte, error) {
 			return n, nil
 		}
 
-		log.Info("pathdb get node reader is nil", "root", r.Hex())
 		return nil, errors.New("reader is nil")
 	}
 	return nil, nil

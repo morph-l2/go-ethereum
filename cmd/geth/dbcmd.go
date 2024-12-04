@@ -746,6 +746,11 @@ func hbss2pbss(ctx *cli.Context) error {
 		log.Error("Prune Hash trie node in database failed", "error", err)
 		return err
 	}
+	err = h2p.Compact()
+	if err != nil {
+		log.Error("Compact trie node failed", "error", err)
+		return err
+	}
 
 	return nil
 }

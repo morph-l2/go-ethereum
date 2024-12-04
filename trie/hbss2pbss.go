@@ -108,6 +108,27 @@ func (h2p *Hbss2Pbss) handleGenesis() error {
 	return nil
 }
 
+func (h2p *Hbss2Pbss) Compact() error {
+	cstart := time.Now()
+	for b := 0x00; b <= 0xf0; b += 0x10 {
+		var (
+			start = []byte{byte(b)}
+			end   = []byte{byte(b + 0x10)}
+		)
+		if b == 0xf0 {
+			end = nil
+		}
+		log.Info("Compacting database", "range", fmt.Sprintf("%#x-%#x", start, end), "elapsed", common.PrettyDuration(time.Since(cstart)))
+		if err := h2p.db.Compact(start, end); err != nil {
+			log.Error("Database compaction failed", "error", err)
+			return err
+		}
+	}
+	log.Info("Database compaction finished", "elapsed", common.PrettyDuration(time.Since(cstart)))
+
+	return nil
+}
+
 func (h2p *Hbss2Pbss) writeNode(pathKey []bool, n *zktrie.Node, owner common.Hash) {
 	if owner == (common.Hash{}) {
 		h, _ := n.NodeHash()

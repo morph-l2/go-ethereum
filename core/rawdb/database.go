@@ -473,6 +473,8 @@ func PruneHashTrieNodeInDataBase(db ethdb.Database) error {
 	it := db.NewIterator([]byte{}, []byte{})
 	defer it.Release()
 
+	start := time.Now()
+	logged := time.Now()
 	total_num := 0
 	for it.Next() {
 		var key = it.Key()
@@ -481,12 +483,16 @@ func PruneHashTrieNodeInDataBase(db ethdb.Database) error {
 			db.Delete(key)
 			total_num++
 			if total_num%100000 == 0 {
-				log.Info("Pruning hash-base state trie nodes", "Complete progress: ", total_num)
+				log.Info("Pruning hash-base state trie nodes", "Complete progress: ", total_num, "elapsed", common.PrettyDuration(time.Since(start)))
 			}
 		default:
+			if time.Since(logged) > 8*time.Second {
+				log.Info("Pruning hash-base state trie nodes", "Complete progress: ", total_num, "elapsed", common.PrettyDuration(time.Since(start)))
+				logged = time.Now()
+			}
 			continue
 		}
 	}
-	log.Info("Pruning hash-base state trie nodes", "Complete progress", total_num)
+	log.Info("Pruning hash-base state trie nodes", "Complete progress", total_num, "elapsed", common.PrettyDuration(time.Since(start)))
 	return nil
 }

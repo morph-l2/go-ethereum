@@ -200,6 +200,9 @@ func (db *Database) CommitGenesis(root common.Hash) error {
 		return err
 	}
 	batch.Reset()
+
+	// Update stateID
+	rawdb.WriteStateID(db.diskdb, root, 0)
 	return nil
 }
 

@@ -60,7 +60,10 @@ func (h2p *Hbss2Pbss) Run() error {
 	}
 
 	// Write genesis in new state db
-	h2p.handleGenesis()
+	err := h2p.handleGenesis()
+	if err != nil {
+		return err
+	}
 
 	// Convert hbss state db to new state db
 	root, err := h2p.zkTrie.Tree().Root()
@@ -131,9 +134,8 @@ func (h2p *Hbss2Pbss) Compact() error {
 
 func (h2p *Hbss2Pbss) writeNode(pathKey []bool, n *zktrie.Node, owner common.Hash) {
 	if owner == (common.Hash{}) {
-		h, _ := n.NodeHash()
 		rawdb.WriteAccountTrieNode(h2p.db, zkt.PathToKey(pathKey)[:], n.CanonicalValue())
-		log.Debug("WriteNodes account trie node", "type", n.Type, "path", zkt.PathToString(pathKey), "hash", h.Hex())
+		log.Debug("WriteNodes account trie node", "type", n.Type, "path", zkt.PathToString(pathKey))
 	} else {
 		rawdb.WriteStorageTrieNode(h2p.db, owner, zkt.PathToKey(pathKey)[:], n.CanonicalValue())
 		log.Debug("WriteNodes storage trie node", "owner", owner.Hex(), "type", n.Type, "path", zkt.PathToString(pathKey))

@@ -38,7 +38,6 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/trie"
-	zkt "github.com/scroll-tech/zktrie/types"
 )
 
 //go:generate gencodec -type Genesis -field-override genesisSpecMarshaling -out gen_genesis.go
@@ -208,11 +207,10 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled(), MorphZkTrie: genesis.Config.Morph.MorphZktrieEnabled()}
 	}
 
-	_, diskroot := rawdb.ReadAccountTrieNode(db, zkt.TrieRootPathKey[:])
-	head := rawdb.ReadPersistentStateID(db)
+	exist := rawdb.ExistsStateID(db, header.Root)
 	var verify bool = true
 	// new states already overide genesis states.
-	if trieCfg.MorphZkTrie && (diskroot == types.GenesisRootHash || head > 0) {
+	if trieCfg.MorphZkTrie && exist {
 		verify = false
 	}
 

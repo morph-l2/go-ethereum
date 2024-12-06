@@ -221,3 +221,11 @@ func DeleteStateID(db ethdb.KeyValueWriter, root common.Hash) {
 		log.Crit("Failed to delete state ID", "err", err)
 	}
 }
+
+func ExistsStateID(db ethdb.KeyValueReader, root common.Hash) bool {
+	has, err := db.Has(stateIDKey(root))
+	if err != nil {
+		return false
+	}
+	return has
+}

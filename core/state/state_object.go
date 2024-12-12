@@ -68,10 +68,11 @@ func (s Storage) Copy() Storage {
 // Account values can be accessed and modified through the object.
 // Finally, call CommitTrie to write the modified storage trie into a database.
 type stateObject struct {
-	address  common.Address
-	addrHash common.Hash // hash of ethereum address of the account
-	data     types.StateAccount
-	db       *StateDB
+	address          common.Address
+	addrHash         common.Hash // hash of ethereum address of the account
+	addrPoseidonHash common.Hash // hash of ethereum address of the account
+	data             types.StateAccount
+	db               *StateDB
 
 	// DB error.
 	// State objects are used by the consensus core and VM which are
@@ -116,14 +117,20 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *st
 	if data.Root == (common.Hash{}) {
 		data.Root = db.db.TrieDB().EmptyRoot()
 	}
+	var addrPoseidonHash common.Hash
+	if db.db.TrieDB().IsMorphZk() {
+		addr_s, _ := zkt.ToSecureKey(address.Bytes())
+		addrPoseidonHash = common.BigToHash(addr_s)
+	}
 	return &stateObject{
-		db:             db,
-		address:        address,
-		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           data,
-		originStorage:  make(Storage),
-		pendingStorage: make(Storage),
-		dirtyStorage:   make(Storage),
+		db:               db,
+		address:          address,
+		addrHash:         crypto.Keccak256Hash(address[:]),
+		addrPoseidonHash: addrPoseidonHash,
+		data:             data,
+		originStorage:    make(Storage),
+		pendingStorage:   make(Storage),
+		dirtyStorage:     make(Storage),
 	}
 }
 
@@ -167,10 +174,8 @@ func (s *stateObject) getTrie(db Database) Trie {
 			var err error
 			addrHash := s.addrHash
 			if db.TrieDB().IsMorphZk() {
-				addr_s, _ := zkt.ToSecureKey(s.address.Bytes())
-				addrHash = common.BigToHash(addr_s)
+				addrHash = s.addrPoseidonHash
 			}
-
 			s.trie, err = db.OpenStorageTrie(addrHash, s.data.Root, s.db.originalRoot)
 			if err != nil {
 				s.trie, _ = db.OpenStorageTrie(addrHash, common.Hash{}, s.db.originalRoot)

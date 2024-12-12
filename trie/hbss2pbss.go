@@ -108,6 +108,9 @@ func (h2p *Hbss2Pbss) handleGenesis() error {
 
 	h2p.concurrentTraversal(zkt.NewHashFromBytes(genesisRoot[:]), []bool{}, common.Hash{})
 
+	// Mark genesis root state
+	rawdb.WriteStateID(h2p.db, genesisRoot, 0)
+
 	return nil
 }
 

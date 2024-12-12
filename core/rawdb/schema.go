@@ -25,6 +25,7 @@ import (
 	leveldb "github.com/syndtr/goleveldb/leveldb/errors"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb/memorydb"
 	"github.com/morph-l2/go-ethereum/metrics"
 )
@@ -327,16 +328,25 @@ func accountTrieNodeKey(path []byte) []byte {
 	return append(TrieNodeAccountPrefix, path...)
 }
 
-// storageTrieNodeKey = trieNodeStoragePrefix + accountHash + nodePath.
+// storageTrieNodeKey = trieNodeStoragePrefix + Keccak256Hash(accountHash + nodePath).
 func storageTrieNodeKey(accountHash common.Hash, path []byte) []byte {
-	buf := make([]byte, len(TrieNodeStoragePrefix)+common.HashLength+len(path))
+	buf := make([]byte, len(TrieNodeStoragePrefix)+common.HashLength)
 	n := copy(buf, TrieNodeStoragePrefix)
-	n += copy(buf[n:], accountHash.Bytes())
-	copy(buf[n:], path)
+	h := crypto.Keccak256Hash(append(accountHash.Bytes(), path...)).Bytes()
+	copy(buf[n:], h)
 	return buf
 }
 
 // stateIDKey = stateIDPrefix + root (32 bytes)
 func stateIDKey(root common.Hash) []byte {
 	return append(stateIDPrefix, root.Bytes()...)
+}
+
+func CompactStorageTrieNodeKey(key []byte) []byte {
+	if key[0] == TrieNodeStoragePrefix[0] && len(key) > 33 {
+		h := crypto.Keccak256Hash(key[1:]).Bytes()
+		newKey := append(TrieNodeStoragePrefix, h...)
+		return newKey
+	}
+	return key
 }

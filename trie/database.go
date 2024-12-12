@@ -1112,6 +1112,7 @@ func (db *Database) GetFrom(root, key []byte) ([]byte, error) {
 			return nil, errors.New("backend [GetFrom] not supported")
 		}
 
+		key := rawdb.CompactStorageTrieNodeKey(key[:])
 		r := common.BytesToHash(zkt.ReverseByteOrder(root[:]))
 		reader, _ := pdb.Reader(r)
 		if reader != nil {

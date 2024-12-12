@@ -392,6 +392,7 @@ func (db *Database) Put(k, v []byte) error {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
-	db.dirties.Put(k, v)
+	key := rawdb.CompactStorageTrieNodeKey(k[:])
+	db.dirties.Put(key, v)
 	return nil
 }

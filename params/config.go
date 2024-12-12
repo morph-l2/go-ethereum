@@ -538,7 +538,7 @@ type ChainConfig struct {
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
 	DarwinTime          *uint64  `json:"darwinTime,omitempty"`          // Darwin switch time (nil = no fork, 0 = already on darwin)
-	QianxuesenTime      *uint64  `json:"darwinTime,omitempty"`          // Darwin switch time (nil = no fork, 0 = already on qianxuesen)
+	QianxuesenTime      *uint64  `json:"qianxuesenTime,omitempty"`      // Darwin switch time (nil = no fork, 0 = already on qianxuesen)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.

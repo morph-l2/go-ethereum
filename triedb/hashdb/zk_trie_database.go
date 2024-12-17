@@ -11,7 +11,6 @@ import (
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/triedb/types"
-	"github.com/syndtr/goleveldb/leveldb"
 
 	zktrie "github.com/scroll-tech/zktrie/trie"
 )
@@ -170,7 +169,7 @@ func (db *ZktrieDatabase) Get(key []byte) ([]byte, error) {
 	}
 
 	v, err := db.diskdb.Get(key)
-	if err == leveldb.ErrNotFound {
+	if rawdb.IsNotFoundErr(err) {
 		return nil, zktrie.ErrKeyNotFound
 	}
 	if err != nil && db.cleans != nil {

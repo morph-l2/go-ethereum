@@ -288,6 +288,10 @@ func isNotFoundErr(err error) bool {
 	return errors.Is(err, leveldb.ErrNotFound) || errors.Is(err, memorydb.ErrMemorydbNotFound)
 }
 
+func IsNotFoundErr(err error) bool {
+	return isNotFoundErr(err)
+}
+
 // SkippedTransactionKey = skippedTransactionPrefix + tx hash
 func SkippedTransactionKey(txHash common.Hash) []byte {
 	return append(skippedTransactionPrefix, txHash.Bytes()...)

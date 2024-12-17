@@ -30,7 +30,7 @@ func (m KvMap) Put(k, v []byte) {
 	m[sha256.Sum256(k)] = KV{k, v}
 }
 
-// Copy returns a two-dimensional map for internal nodes.
+// Copy returns a map for internal nodes.
 func (m KvMap) Copy() KvMap {
 	nodes := make(KvMap)
 	for _, v := range m {

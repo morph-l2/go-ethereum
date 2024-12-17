@@ -24,15 +24,10 @@ var (
 	cleanReadMeter  = metrics.NewRegisteredMeter("pathdb/clean/read", nil)
 	cleanWriteMeter = metrics.NewRegisteredMeter("pathdb/clean/write", nil)
 
-	dirtyHitMeter         = metrics.NewRegisteredMeter("pathdb/dirty/hit", nil)
-	dirtyMissMeter        = metrics.NewRegisteredMeter("pathdb/dirty/miss", nil)
-	dirtyReadMeter        = metrics.NewRegisteredMeter("pathdb/dirty/read", nil)
-	dirtyWriteMeter       = metrics.NewRegisteredMeter("pathdb/dirty/write", nil)
-	dirtyNodeHitDepthHist = metrics.NewRegisteredHistogram("pathdb/dirty/depth", nil, metrics.NewExpDecaySample(1028, 0.015))
-
-	cleanFalseMeter = metrics.NewRegisteredMeter("pathdb/clean/false", nil)
-	dirtyFalseMeter = metrics.NewRegisteredMeter("pathdb/dirty/false", nil)
-	diskFalseMeter  = metrics.NewRegisteredMeter("pathdb/disk/false", nil)
+	dirtyHitMeter   = metrics.NewRegisteredMeter("pathdb/dirty/hit", nil)
+	dirtyMissMeter  = metrics.NewRegisteredMeter("pathdb/dirty/miss", nil)
+	dirtyReadMeter  = metrics.NewRegisteredMeter("pathdb/dirty/read", nil)
+	dirtyWriteMeter = metrics.NewRegisteredMeter("pathdb/dirty/write", nil)
 
 	commitTimeTimer  = metrics.NewRegisteredTimer("pathdb/commit/time", nil)
 	commitNodesMeter = metrics.NewRegisteredMeter("pathdb/commit/nodes", nil)
@@ -43,10 +38,6 @@ var (
 
 	diffLayerBytesMeter = metrics.NewRegisteredMeter("pathdb/diff/bytes", nil)
 	diffLayerNodesMeter = metrics.NewRegisteredMeter("pathdb/diff/nodes", nil)
-
-	historyBuildTimeMeter  = metrics.NewRegisteredTimer("pathdb/history/time", nil)
-	historyDataBytesMeter  = metrics.NewRegisteredMeter("pathdb/history/bytes/data", nil)
-	historyIndexBytesMeter = metrics.NewRegisteredMeter("pathdb/history/bytes/index", nil)
 
 	diffHashCacheHitMeter      = metrics.NewRegisteredMeter("pathdb/difflayer/hashcache/hit", nil)
 	diffHashCacheReadMeter     = metrics.NewRegisteredMeter("pathdb/difflayer/hashcache/read", nil)

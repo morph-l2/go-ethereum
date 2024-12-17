@@ -53,20 +53,6 @@ type journalNode struct {
 	Blob []byte // RLP-encoded trie node blob, nil means the node is deleted
 }
 
-// journalAccounts represents a list accounts belong to the layer.
-type journalAccounts struct {
-	Addresses []common.Address
-	Accounts  [][]byte
-}
-
-// journalStorage represents a list of storage slots belong to an account.
-type journalStorage struct {
-	Incomplete bool
-	Account    common.Address
-	Hashes     []common.Hash
-	Slots      [][]byte
-}
-
 type JournalWriter interface {
 	io.Writer
 

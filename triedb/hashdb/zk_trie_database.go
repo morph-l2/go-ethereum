@@ -82,7 +82,6 @@ func (db *ZktrieDatabase) CommitState(root common.Hash, parentRoot common.Hash, 
 		return err
 	}
 	memcacheCommitTimeTimer.Update(time.Since(start))
-	// memcacheCommitBytesMeter.Mark(int64(beforeDirtySize - db.dirtiesSize))
 	memcacheCommitNodesMeter.Mark(int64(beforeDirtyCount - len(db.dirties)))
 
 	logger := log.Debug

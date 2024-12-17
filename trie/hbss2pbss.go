@@ -167,20 +167,7 @@ func (h2p *Hbss2Pbss) concurrentTraversal(nodeHash *zkt.Hash, path []bool, owner
 
 			if data.CodeSize > 0 {
 				if !bytes.Equal(data.Root[:], common.Hash{}.Bytes()) {
-					// log.Info("/-------------------\\")
-					// log.Info("concurrentTraversal", "owner", owner.Hex(), "path", zkt.PathToString(path), "nodeHash", nodeHash.Hex(), "key", n.NodeKey.Hex(), "root", data.Root.Hex())
-
-					// codeHash := data.KeccakCodeHash
 					h2p.concurrentTraversal(zkt.NewHashFromBytes(data.Root[:]), []bool{}, common.BytesToHash(n.NodeKey[:]))
-					// h2p.wg.Add(1)
-					// go func(root, o common.Hash) {
-					// 	defer h2p.wg.Done()
-					// 	log.Info("/-------------------\\")
-					// 	log.Info("concurrentTraversal", "owner", owner.Hex(), "path", zkt.PathToString(path), "nodeHash", nodeHash.Hex(), "key", n.NodeKey.Hex())
-					// 	h2p.concurrentTraversal(zkt.NewHashFromBytes(root[:]), []bool{}, o)
-					// 	log.Info("\\-------------------/")
-					// }(data.Root, common.BytesToHash(n.NodeKey.Bytes()))
-					// log.Info("\\-------------------/")
 				}
 			}
 		}

@@ -225,14 +225,11 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 		return nil
 	}
 
-	nodes := db.dirties.Copy()
-	for k := range db.dirties {
-		delete(db.dirties, k)
-	}
-
-	if err := db.tree.add(root, parentRoot, blockNumber, nodes); err != nil {
+	if err := db.tree.add(root, parentRoot, blockNumber, db.dirties); err != nil {
+		db.dirties = make(dbtypes.KvMap)
 		return err
 	}
+	db.dirties = make(dbtypes.KvMap)
 
 	// Keep 128 diff layers in the memory, persistent layer is 129th.
 	// - head layer is paired with HEAD state

@@ -500,11 +500,11 @@ func (db *Database) Journal(root common.Hash) error {
 	}
 	// The stored state in disk might be empty, convert the
 	// root to emptyRoot in this case.
-	_, diskroot := rawdb.ReadAccountTrieNode(db.diskdb, zkt.TrieRootPathKey[:])
+	_, diskRoot := rawdb.ReadAccountTrieNode(db.diskdb, zkt.TrieRootPathKey[:])
 
 	// Secondly write out the state root in disk, ensure all layers
 	// on top are continuous with disk.
-	if err := rlp.Encode(journal, diskroot); err != nil {
+	if err := rlp.Encode(journal, diskRoot); err != nil {
 		return err
 	}
 	// Finally write out the journal of each layer in reverse order.

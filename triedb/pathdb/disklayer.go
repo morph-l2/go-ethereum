@@ -104,7 +104,7 @@ func newDiskLayer(root common.Hash, id uint64, db *Database, cleans *fastcache.C
 	}
 }
 
-// root implements the layer interface, returning root hash of corresponding state.
+// rootHash implements the layer interface, returning root hash of corresponding state.
 func (dl *diskLayer) rootHash() common.Hash {
 	return dl.root
 }
@@ -114,7 +114,7 @@ func (dl *diskLayer) stateID() uint64 {
 	return dl.id
 }
 
-// parent implements the layer interface, returning nil as there's no layer
+// parentLayer implements the layer interface, returning nil as there's no layer
 // below the disk.
 func (dl *diskLayer) parentLayer() layer {
 	return nil

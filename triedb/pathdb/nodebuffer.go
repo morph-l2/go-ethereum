@@ -59,13 +59,13 @@ func newNodeBuffer(limit int, nodes dbtypes.KvMap, layers uint64) *nodebuffer {
 }
 
 // node retrieves the trie node with given node info.
-func (b *nodebuffer) node(path []byte) ([]byte, error) {
+func (b *nodebuffer) node(path []byte) ([]byte, bool) {
 	n, ok := b.nodes.Get(path)
 	if !ok {
-		return nil, nil
+		return nil, false
 	}
 
-	return n, nil
+	return n, true
 }
 
 // commit merges the dirty nodes into the nodebuffer. This operation won't take

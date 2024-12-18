@@ -45,18 +45,15 @@ func newAsyncNodeBuffer(limit int, nodes dbtypes.KvMap, layers uint64) *asyncnod
 }
 
 // node retrieves the trie node with given node info.
-func (a *asyncnodebuffer) node(path []byte) ([]byte, error) {
+func (a *asyncnodebuffer) node(path []byte) ([]byte, bool) {
 	a.mux.RLock()
 	defer a.mux.RUnlock()
 
-	node, err := a.current.node(path)
-	if err != nil {
-		return nil, err
-	}
+	node := a.current.node(path)
 	if node == nil {
-		return a.background.node(path)
+		node = a.background.node(path)
 	}
-	return node, nil
+	return node, node != nil
 }
 
 // commit merges the dirty nodes into the nodebuffer. This operation won't take
@@ -196,12 +193,12 @@ func newNodeCache(limit, size uint64, nodes dbtypes.KvMap, layers uint64) *nodec
 	}
 }
 
-func (nc *nodecache) node(path []byte) ([]byte, error) {
+func (nc *nodecache) node(path []byte) []byte {
 	n, ok := nc.nodes.Get(path)
 	if ok {
-		return n, nil
+		return n
 	}
-	return nil, nil
+	return nil
 }
 
 func (nc *nodecache) commit(nodes dbtypes.KvMap) error {

@@ -32,7 +32,7 @@ import (
 // disk (since it basically is not-yet-written data).
 type trienodebuffer interface {
 	// node retrieves the trie node with given node info.
-	node(path []byte) ([]byte, error)
+	node(path []byte) ([]byte, bool)
 
 	// commit merges the dirty nodes into the trienodebuffer. This operation won't take
 	// the ownership of the nodes map which belongs to the bottom-most diff layer.
@@ -153,11 +153,8 @@ func (dl *diskLayer) Node(path []byte) ([]byte, error) {
 	// node buffer first. Note the buffer is lock free since
 	// it's impossible to mutate the buffer before tagging the
 	// layer as stale.
-	n, err := dl.buffer.node(path)
-	if err != nil {
-		return nil, err
-	}
-	if n != nil {
+	n, found := dl.buffer.node(path)
+	if found {
 		dirtyHitMeter.Mark(1)
 		dirtyReadMeter.Mark(int64(len(n)))
 		return n, nil
@@ -176,7 +173,7 @@ func (dl *diskLayer) Node(path []byte) ([]byte, error) {
 	}
 
 	// Try to retrieve the trie node from the disk.
-	n, err = rawdb.ReadTrieNodeByKey(dl.db.diskdb, path)
+	n, err := rawdb.ReadTrieNodeByKey(dl.db.diskdb, path)
 	if err == nil {
 		if dl.cleans != nil && len(n) > 0 {
 			dl.cleans.Set(key, n)

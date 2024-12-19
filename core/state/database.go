@@ -122,7 +122,7 @@ func NewDatabaseWithConfig(db ethdb.Database, config *trie.Config) Database {
 	csc, _ := lru.New(codeSizeCacheSize)
 	return &cachingDB{
 		zktrie:        config != nil && config.Zktrie,
-		morphZktrie:   config != nil && config.Zktrie && config.PathZkTrie,
+		pathZkTrie:    config != nil && config.Zktrie && config.PathZkTrie,
 		db:            trie.NewDatabaseWithConfig(db, config),
 		codeSizeCache: csc,
 		codeCache:     lru2.NewSizeConstrainedLRU(codeCacheSize),
@@ -134,12 +134,12 @@ type cachingDB struct {
 	codeSizeCache *lru.Cache
 	codeCache     *lru2.SizeConstrainedLRU
 	zktrie        bool
-	morphZktrie   bool
+	pathZkTrie    bool
 }
 
 // OpenTrie opens the main account trie at a specific root hash.
 func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
-	if db.morphZktrie {
+	if db.pathZkTrie {
 		tr, err := trie.NewPathZkTrie(root, root, db.db, rawdb.TrieNodeAccountPrefix)
 		if err != nil {
 			return nil, err
@@ -163,7 +163,7 @@ func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
 
 // OpenStorageTrie opens the storage trie of an account.
 func (db *cachingDB) OpenStorageTrie(addrHash, root, origin common.Hash) (Trie, error) {
-	if db.morphZktrie {
+	if db.pathZkTrie {
 		prefix := append(rawdb.TrieNodeStoragePrefix, zkt.ReverseByteOrder(addrHash.Bytes())...)
 		tr, err := trie.NewPathZkTrie(root, origin, db.db, prefix)
 		if err != nil {

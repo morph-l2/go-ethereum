@@ -220,7 +220,7 @@ type Config struct {
 	// State scheme used to store ethereum state and merkle trie nodes on top
 	PathSyncFlush bool
 
-	StateScheme string `toml:",omitempty"` // State scheme used to store ethereum state and merkle trie nodes on top
+	StateScheme string `toml:",omitempty"` // State scheme used to store zktrie state nodes on top
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

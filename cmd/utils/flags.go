@@ -855,7 +855,7 @@ var (
 
 	StateSchemeFlag = &cli.StringFlag{
 		Name:  "state.scheme",
-		Usage: "Scheme to use for storing ethereum state ('hash' or 'path')",
+		Usage: "Scheme to use for storing zktrie state ('hash' or 'path')",
 	}
 
 	PathDBSyncFlag = cli.BoolFlag{

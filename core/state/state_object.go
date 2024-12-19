@@ -119,8 +119,8 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *st
 	}
 	var addrPoseidonHash common.Hash
 	if db.db.TrieDB().IsPathZkTrie() {
-		addr_s, _ := zkt.ToSecureKey(address.Bytes())
-		addrPoseidonHash = common.BigToHash(addr_s)
+		addressKey, _ := zkt.ToSecureKey(address.Bytes())
+		addrPoseidonHash = common.BigToHash(addressKey)
 	}
 	return &stateObject{
 		db:               db,

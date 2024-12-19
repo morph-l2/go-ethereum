@@ -37,7 +37,7 @@ func (t ZktrieProofTracer) Available() bool {
 
 // NewProofTracer is not in Db interface and used explictily for reading proof in storage trie (not updated by the dirty value)
 func (s *StateDB) NewProofTracer(trieS Trie) ZktrieProofTracer {
-	if s.IsZktrie() {
+	if s.IsZkTrie() {
 		zkTrie := trieS.(*zktrie.ZkTrie)
 		if zkTrie == nil {
 			panic("unexpected trie type for zktrie")
@@ -54,7 +54,7 @@ func (s *StateDB) GetStorageTrieForProof(addr common.Address) (Trie, error) {
 	stateObject := s.getStateObject(addr)
 
 	addrHash := crypto.Keccak256Hash(addr[:])
-	if s.IsPathZktrie() {
+	if s.IsPathZkTrie() {
 		k, err := zkt.ToSecureKey(addr.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("can't create storage trie on ToSecureKey %s: %v ", addr.Hex(), err)
@@ -87,7 +87,7 @@ func (s *StateDB) GetSecureTrieProof(trieProve TrieProve, key common.Hash) ([][]
 
 	var proof proofList
 	var err error
-	if s.IsZktrie() {
+	if s.IsZkTrie() {
 		key_s, _ := zkt.ToSecureKeyBytes(key.Bytes())
 		err = trieProve.Prove(key_s.Bytes(), 0, &proof)
 	} else {

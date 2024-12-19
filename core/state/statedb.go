@@ -193,11 +193,11 @@ func (s *StateDB) Error() error {
 	return s.dbErr
 }
 
-func (s *StateDB) IsZktrie() bool {
+func (s *StateDB) IsZkTrie() bool {
 	return s.db.TrieDB().IsZkTrie()
 }
 
-func (s *StateDB) IsPathZktrie() bool {
+func (s *StateDB) IsPathZkTrie() bool {
 	return s.db.TrieDB().IsPathZkTrie()
 }
 
@@ -337,9 +337,9 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 
 // GetProof returns the Merkle proof for a given account.
 func (s *StateDB) GetProof(addr common.Address) ([][]byte, error) {
-	if s.IsZktrie() {
-		addr_s, _ := zkt.ToSecureKeyBytes(addr.Bytes())
-		return s.GetProofByHash(common.BytesToHash(addr_s.Bytes()))
+	if s.IsZkTrie() {
+		addressKey, _ := zkt.ToSecureKeyBytes(addr.Bytes())
+		return s.GetProofByHash(common.BytesToHash(addressKey.Bytes()))
 	}
 	return s.GetProofByHash(crypto.Keccak256Hash(addr.Bytes()))
 }
@@ -615,7 +615,7 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 		if len(enc) == 0 {
 			return nil
 		}
-		if s.IsZktrie() {
+		if s.IsZkTrie() {
 			data, err = types.UnmarshalStateAccount(enc)
 		} else {
 			data = new(types.StateAccount)

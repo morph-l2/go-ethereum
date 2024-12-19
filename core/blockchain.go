@@ -139,8 +139,8 @@ type CacheConfig struct {
 	SnapshotWait bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
 
 	PathSyncFlush   bool // Whether sync flush the trienodebuffer of pathdb to disk.
-	PathZkTrie      bool // Use path zktrie instead of zktrie
 	JournalFilePath string
+	StateScheme     string // Scheme used to store ethereum states and zktrit nodes on top
 }
 
 // defaultCacheConfig are the default caching values if none are specified by the
@@ -247,7 +247,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 
 	var hashdbConfig *hashdb.Config
 	var pathdbConfig *pathdb.Config
-	if chainConfig.Morph.ZktrieEnabled() && cacheConfig.PathZkTrie {
+	if chainConfig.Morph.ZktrieEnabled() && cacheConfig.StateScheme == rawdb.PathScheme {
 		pathdbConfig = &pathdb.Config{
 			SyncFlush:       cacheConfig.PathSyncFlush,
 			CleanCacheSize:  cacheConfig.TrieCleanLimit * 1024 * 1024,
@@ -273,7 +273,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 			Journal:    cacheConfig.TrieCleanJournal,
 			Preimages:  cacheConfig.Preimages,
 			Zktrie:     chainConfig.Morph.ZktrieEnabled(),
-			PathZkTrie: chainConfig.Morph.ZktrieEnabled() && cacheConfig.PathZkTrie,
+			PathZkTrie: chainConfig.Morph.ZktrieEnabled() && cacheConfig.StateScheme == rawdb.PathScheme,
 			HashDB:     hashdbConfig,
 			PathDB:     pathdbConfig,
 		}),

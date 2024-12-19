@@ -92,7 +92,6 @@ var Defaults = Config{
 	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
 	JournalFileName:         "trie.journal",
 	PathSyncFlush:           true,
-	PathZkTrie:              false,
 }
 
 func init() {
@@ -221,8 +220,7 @@ type Config struct {
 	// State scheme used to store ethereum state and merkle trie nodes on top
 	PathSyncFlush bool
 
-	// Use PathZkTrie instead of ZkTrie in state
-	PathZkTrie bool
+	StateScheme string `toml:",omitempty"` // State scheme used to store ethereum state and merkle trie nodes on top
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

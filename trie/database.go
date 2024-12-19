@@ -296,11 +296,7 @@ type Config struct {
 	PathDB *pathdb.Config // Configs for experimental path-based scheme
 }
 
-var Defaults = &Config{
-	Preimages:  false,
-	Zktrie:     true,
-	PathZkTrie: false,
-}
+var GenesisStateInPathTrie = false
 
 // Reader wraps the Node method of a backing trie reader.
 type Reader interface {

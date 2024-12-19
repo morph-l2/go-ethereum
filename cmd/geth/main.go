@@ -158,7 +158,7 @@ var (
 		utils.GpoIgnoreGasPriceFlag,
 		configFileFlag,
 		utils.CatalystFlag,
-		utils.PathZkTrieFlag,
+		utils.StateSchemeFlag,
 		utils.PathDBSyncFlag,
 	}
 

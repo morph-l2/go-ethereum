@@ -201,10 +201,10 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled(), PathZkTrie: trie.Defaults.PathZkTrie}
+			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled(), PathZkTrie: trie.GenesisStateInPathTrie}
 		}
 	} else {
-		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.Defaults.PathZkTrie}
+		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.GenesisStateInPathTrie}
 	}
 
 	exist := rawdb.ExistsStateID(db, header.Root)
@@ -313,7 +313,7 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.Defaults.PathZkTrie}
+		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.GenesisStateInPathTrie}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)
 	if err != nil {

@@ -57,7 +57,7 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.IdentityFlag,
 			utils.LightKDFFlag,
 			utils.WhitelistFlag,
-			utils.PathZkTrieFlag,
+			utils.StateSchemeFlag,
 			utils.PathDBSyncFlag,
 		},
 	},

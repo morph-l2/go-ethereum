@@ -138,6 +138,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		return nil, genesisErr
 	}
 
+	config.StateScheme, err = rawdb.ParseStateScheme(config.StateScheme, chainDb)
+	if err != nil {
+		return nil, err
+	}
+
 	log.Info("Initialised chain configuration", "config", chainConfig)
 
 	if err := pruner.RecoverPruning(stack.ResolvePath(""), chainDb, stack.ResolvePath(config.TrieCleanCacheJournal)); err != nil {
@@ -193,7 +198,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			SnapshotLimit:       config.SnapshotCache,
 			Preimages:           config.Preimages,
 			PathSyncFlush:       config.PathSyncFlush,
-			PathZkTrie:          config.PathZkTrie,
+			StateScheme:         config.StateScheme,
 			JournalFilePath:     stack.ResolvePath(config.JournalFileName),
 		}
 	)

@@ -18,11 +18,14 @@ package rawdb
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/log"
 
 	zktrie "github.com/scroll-tech/zktrie/trie"
+	zkt "github.com/scroll-tech/zktrie/types"
 )
 
 // HashScheme is the legacy hash-based state scheme with which trie nodes are
@@ -88,4 +91,93 @@ func IsLegacyTrieNode(key []byte, val []byte) bool {
 
 	hash := common.BytesToHash(common.BitReverse(zkHash[:]))
 	return bytes.Equal(key[:], hash[:])
+}
+
+// HasAccountTrieNode checks the presence of the account trie node with the
+// specified node path, regardless of the node hash.
+func HasAccountTrieNode(db ethdb.KeyValueReader, path []byte) bool {
+	has, err := db.Has(accountTrieNodeKey(path))
+	if err != nil {
+		return false
+	}
+	return has
+}
+
+// HasLegacyTrieNode checks if the trie node with the provided hash is present in db.
+func HasLegacyTrieNode(db ethdb.KeyValueReader, hash common.Hash) bool {
+	ok, _ := db.Has(hash.Bytes())
+	return ok
+}
+
+// ReadStateScheme reads the state scheme of persistent state, or none
+// if the state is not present in database.
+func ReadStateScheme(db ethdb.Database) string {
+	// Check if state in path-based scheme is present.
+	if HasAccountTrieNode(db, zkt.TrieRootPathKey[:]) {
+		return PathScheme
+	}
+	// The root node might be deleted during the initial snap sync, check
+	// the persistent state id then.
+	if id := ReadPersistentStateID(db); id != 0 {
+		return PathScheme
+	}
+
+	// In a hash-based scheme, the genesis state is consistently stored
+	// on the disk. To assess the scheme of the persistent state, it
+	// suffices to inspect the scheme of the genesis state.
+	header := ReadHeader(db, ReadCanonicalHash(db, 0), 0)
+	if header == nil {
+		return "" // empty datadir
+	}
+
+	if !HasLegacyTrieNode(db, header.Root) {
+		return "" // no state in disk
+	}
+	return HashScheme
+}
+
+// ValidateStateScheme used to check state scheme whether is valid.
+// Valid state scheme: hash and path.
+func ValidateStateScheme(stateScheme string) bool {
+	if stateScheme == HashScheme || stateScheme == PathScheme {
+		return true
+	}
+	return false
+}
+
+// ParseStateScheme checks if the specified state scheme is compatible with
+// the stored state.
+//
+//   - If the provided scheme is none, use the scheme consistent with persistent
+//     state, or fallback to path-based scheme if state is empty.
+//
+//   - If the provided scheme is hash, use hash-based scheme or error out if not
+//     compatible with persistent state scheme.
+//
+//   - If the provided scheme is path: use path-based scheme or error out if not
+//     compatible with persistent state scheme.
+func ParseStateScheme(provided string, disk ethdb.Database) (string, error) {
+	// If state scheme is not specified, use the scheme consistent
+	// with persistent state, or fallback to hash mode if database
+	// is empty.
+	stored := ReadStateScheme(disk)
+	if provided == "" {
+		if stored == "" {
+			log.Info("State scheme set to default", "scheme", "hash")
+			return HashScheme, nil // use default scheme for empty database
+		}
+		log.Info("State scheme set to already existing disk db", "scheme", stored)
+		return stored, nil // reuse scheme of persistent scheme
+	}
+	// If state scheme is specified, ensure it's valid.
+	if provided != HashScheme && provided != PathScheme {
+		return "", fmt.Errorf("invalid state scheme %s", provided)
+	}
+	// If state scheme is specified, ensure it's compatible with
+	// persistent state.
+	if stored == "" || provided == stored {
+		log.Info("State scheme set by user", "scheme", provided)
+		return provided, nil
+	}
+	return "", fmt.Errorf("incompatible state scheme, stored: %s, user provided: %s", stored, provided)
 }

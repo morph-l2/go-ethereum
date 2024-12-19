@@ -50,7 +50,7 @@ var (
 		ArgsUsage: "<genesisPath>",
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
-			utils.PathZkTrieFlag,
+			utils.StateSchemeFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `

@@ -61,7 +61,7 @@ func NewZkDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Zktrie
 	}
 }
 
-func (db *ZktrieDatabase) Scheme() string { return rawdb.ZkHashScheme }
+func (db *ZktrieDatabase) Scheme() string { return rawdb.HashScheme }
 
 func (db *ZktrieDatabase) Size() (common.StorageSize, common.StorageSize, common.StorageSize) {
 	db.lock.RLock()

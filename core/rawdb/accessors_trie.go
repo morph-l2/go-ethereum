@@ -39,8 +39,6 @@ import (
 // for archive node and some other tries(e.g. light trie).
 const HashScheme = "hash"
 
-const ZkHashScheme = "hashZk"
-
 // PathScheme is the new path-based state scheme with which trie nodes are stored
 // in the disk with node path as the database key. This scheme will only store one
 // version of state data in the disk, which means that the state pruning operation

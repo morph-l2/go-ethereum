@@ -1739,7 +1739,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	}
 	cfg.StateScheme = scheme
 	if cfg.StateScheme == rawdb.PathScheme {
-		trie.GenesisStateInPathTrie = true
+		trie.GenesisStateInPathZkTrie = true
 	}
 
 	// Override any default configs for hard coded networks.

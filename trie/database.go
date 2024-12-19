@@ -296,7 +296,7 @@ type Config struct {
 	PathDB *pathdb.Config // Configs for experimental path-based scheme
 }
 
-var GenesisStateInPathTrie = false
+var GenesisStateInPathZkTrie = false
 
 // Reader wraps the Node method of a backing trie reader.
 type Reader interface {

@@ -29,6 +29,8 @@ import (
 	"github.com/morph-l2/go-ethereum/log"
 )
 
+var magicHashPathTrie []byte = []byte("THIS IS THE MAGIC INDEX FOR PATH ZKTRIE")
+
 // wrap zktrie for trie interface
 type PathZkTrie struct {
 	*pathtrie.ZkTrie
@@ -191,7 +193,7 @@ func (t *PathZkTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWri
 
 	// we put this special kv pair in db so we can distinguish the type and
 	// make suitable Proof
-	return proofDb.Put(magicHash, pathtrie.ProofMagicBytes())
+	return proofDb.Put(magicHashPathTrie, pathtrie.ProofMagicBytes())
 }
 
 // VerifyProof checks merkle proofs. The given proof must contain the value for

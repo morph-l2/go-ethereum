@@ -153,6 +153,33 @@ var defaultCacheConfig = &CacheConfig{
 	SnapshotWait:   true,
 }
 
+// triedbConfig derives the configures for trie database.
+func (c *CacheConfig) triedbConfig(zktrie bool) *trie.Config {
+	config := &trie.Config{
+		Cache:      c.TrieCleanLimit,
+		Journal:    c.TrieCleanJournal,
+		Preimages:  c.Preimages,
+		Zktrie:     zktrie,
+		PathZkTrie: zktrie && c.StateScheme == rawdb.PathScheme,
+	}
+	if config.PathZkTrie {
+		config.PathDB = &pathdb.Config{
+			SyncFlush:       c.PathSyncFlush,
+			CleanCacheSize:  c.TrieCleanLimit * 1024 * 1024,
+			DirtyCacheSize:  c.TrieCleanLimit * 1024 * 1024,
+			JournalFilePath: c.JournalFilePath,
+		}
+	} else {
+		if config.Zktrie {
+			config.HashDB = &hashdb.Config{
+				Cache:   c.TrieCleanLimit,
+				Journal: c.TrieCleanJournal,
+			}
+		}
+	}
+	return config
+}
+
 // BlockChain represents the canonical chain given a database with a genesis
 // block. The Blockchain manages chain imports, reverts, chain reorganisations.
 //
@@ -245,38 +272,12 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		log.Warn("Using fee vault address", "FeeVaultAddress", *chainConfig.Morph.FeeVaultAddress)
 	}
 
-	var hashdbConfig *hashdb.Config
-	var pathdbConfig *pathdb.Config
-	if chainConfig.Morph.ZktrieEnabled() && cacheConfig.StateScheme == rawdb.PathScheme {
-		pathdbConfig = &pathdb.Config{
-			SyncFlush:       cacheConfig.PathSyncFlush,
-			CleanCacheSize:  cacheConfig.TrieCleanLimit * 1024 * 1024,
-			DirtyCacheSize:  cacheConfig.TrieCleanLimit * 1024 * 1024,
-			JournalFilePath: cacheConfig.JournalFilePath,
-		}
-	} else {
-		if chainConfig.Morph.ZktrieEnabled() {
-			hashdbConfig = &hashdb.Config{
-				Cache:   cacheConfig.TrieCleanLimit,
-				Journal: cacheConfig.TrieCleanJournal,
-			}
-		}
-	}
-
 	bc := &BlockChain{
-		chainConfig: chainConfig,
-		cacheConfig: cacheConfig,
-		db:          db,
-		triegc:      prque.New(nil),
-		stateCache: state.NewDatabaseWithConfig(db, &trie.Config{
-			Cache:      cacheConfig.TrieCleanLimit,
-			Journal:    cacheConfig.TrieCleanJournal,
-			Preimages:  cacheConfig.Preimages,
-			Zktrie:     chainConfig.Morph.ZktrieEnabled(),
-			PathZkTrie: chainConfig.Morph.ZktrieEnabled() && cacheConfig.StateScheme == rawdb.PathScheme,
-			HashDB:     hashdbConfig,
-			PathDB:     pathdbConfig,
-		}),
+		chainConfig:    chainConfig,
+		cacheConfig:    cacheConfig,
+		db:             db,
+		triegc:         prque.New(nil),
+		stateCache:     state.NewDatabaseWithConfig(db, cacheConfig.triedbConfig(chainConfig.Morph.ZktrieEnabled())),
 		quit:           make(chan struct{}),
 		chainmu:        syncx.NewClosableMutex(),
 		shouldPreserve: shouldPreserve,

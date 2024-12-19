@@ -19,8 +19,8 @@ package trie
 import (
 	"fmt"
 
+	"github.com/scroll-tech/zktrie/pathtrie"
 	zkt "github.com/scroll-tech/zktrie/types"
-	varienttrie "github.com/scroll-tech/zktrie/varienttrie"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -31,7 +31,7 @@ import (
 
 // wrap zktrie for trie interface
 type PathZkTrie struct {
-	*varienttrie.ZkTrie
+	*pathtrie.ZkTrie
 	db *Database
 }
 
@@ -43,7 +43,7 @@ func init() {
 // NewPathZkTrie bypasses all the buffer mechanism in *Database, it directly uses the
 // underlying diskdb
 func NewPathZkTrie(root common.Hash, origin common.Hash, db *Database, prefix []byte) (*PathZkTrie, error) {
-	tr, err := varienttrie.NewZkTrieWithPrefix(*zkt.NewByte32FromBytes(root.Bytes()), *zkt.NewByte32FromBytes(origin.Bytes()), db, prefix)
+	tr, err := pathtrie.NewZkTrieWithPrefix(*zkt.NewByte32FromBytes(root.Bytes()), *zkt.NewByte32FromBytes(origin.Bytes()), db, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -169,13 +169,13 @@ func (t *PathZkTrie) NodeIterator(start []byte) NodeIterator {
 // nodes of the longest existing prefix of the key (at least the root node), ending
 // with the node that proves the absence of the key.
 func (t *PathZkTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {
-	err := t.ZkTrie.Prove(key, fromLevel, func(n *varienttrie.Node) error {
+	err := t.ZkTrie.Prove(key, fromLevel, func(n *pathtrie.Node) error {
 		nodeHash, err := n.NodeHash()
 		if err != nil {
 			return err
 		}
 
-		if n.Type == varienttrie.NodeTypeLeaf_New {
+		if n.Type == pathtrie.NodeTypeLeaf_New {
 			preImage := t.GetKey(n.NodeKey.Bytes())
 			if len(preImage) > 0 {
 				n.KeyPreimage = &zkt.Byte32{}
@@ -191,7 +191,7 @@ func (t *PathZkTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWri
 
 	// we put this special kv pair in db so we can distinguish the type and
 	// make suitable Proof
-	return proofDb.Put(magicHash, varienttrie.ProofMagicBytes())
+	return proofDb.Put(magicHash, pathtrie.ProofMagicBytes())
 }
 
 // VerifyProof checks merkle proofs. The given proof must contain the value for
@@ -204,12 +204,12 @@ func VerifyProofSMT2(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueRea
 		return nil, err
 	}
 
-	proof, n, err := varienttrie.BuildZkTrieProof(h, k, len(key)*8, func(key *zkt.Hash) (*varienttrie.Node, error) {
+	proof, n, err := pathtrie.BuildZkTrieProof(h, k, len(key)*8, func(key *zkt.Hash) (*pathtrie.Node, error) {
 		buf, _ := proofDb.Get(key[:])
 		if buf == nil {
-			return nil, varienttrie.ErrKeyNotFound
+			return nil, pathtrie.ErrKeyNotFound
 		}
-		n, err := varienttrie.NewNodeFromBytes(buf)
+		n, err := pathtrie.NewNodeFromBytes(buf)
 		return n, err
 	})
 
@@ -220,7 +220,7 @@ func VerifyProofSMT2(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueRea
 		return nil, nil
 	}
 
-	if varienttrie.VerifyProofZkTrie(h, proof, n) {
+	if pathtrie.VerifyProofZkTrie(h, proof, n) {
 		return n.Data(), nil
 	} else {
 		return nil, fmt.Errorf("bad proof node %v", proof)

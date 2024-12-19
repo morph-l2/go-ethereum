@@ -50,6 +50,7 @@ var (
 		ArgsUsage: "<genesisPath>",
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
+			utils.PathZkTrieFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `
@@ -190,7 +191,7 @@ This command dumps out the state for a given block (or latest, if none provided)
 // the zero'd block (i.e. genesis) or will fail hard if it can't succeed.
 func initGenesis(ctx *cli.Context) error {
 	// Make sure we have a valid genesis JSON
-	genesisPath := ctx.Args().First()
+	genesisPath := ctx.GlobalString(utils.DataDirFlag.Name)
 	if len(genesisPath) == 0 {
 		utils.Fatalf("Must supply path to genesis JSON file")
 	}

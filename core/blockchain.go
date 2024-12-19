@@ -139,6 +139,7 @@ type CacheConfig struct {
 	SnapshotWait bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
 
 	PathSyncFlush   bool // Whether sync flush the trienodebuffer of pathdb to disk.
+	PathZkTrie      bool // Use path zktrie instead of zktrie
 	JournalFilePath string
 }
 
@@ -246,7 +247,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 
 	var hashdbConfig *hashdb.Config
 	var pathdbConfig *pathdb.Config
-	if chainConfig.Morph.ZktrieEnabled() && chainConfig.Morph.MorphZktrieEnabled() {
+	if chainConfig.Morph.ZktrieEnabled() && cacheConfig.PathZkTrie {
 		pathdbConfig = &pathdb.Config{
 			SyncFlush:       cacheConfig.PathSyncFlush,
 			CleanCacheSize:  cacheConfig.TrieCleanLimit * 1024 * 1024,
@@ -268,13 +269,13 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		db:          db,
 		triegc:      prque.New(nil),
 		stateCache: state.NewDatabaseWithConfig(db, &trie.Config{
-			Cache:       cacheConfig.TrieCleanLimit,
-			Journal:     cacheConfig.TrieCleanJournal,
-			Preimages:   cacheConfig.Preimages,
-			Zktrie:      chainConfig.Morph.ZktrieEnabled(),
-			MorphZkTrie: chainConfig.Morph.ZktrieEnabled() && chainConfig.Morph.MorphZktrieEnabled(),
-			HashDB:      hashdbConfig,
-			PathDB:      pathdbConfig,
+			Cache:      cacheConfig.TrieCleanLimit,
+			Journal:    cacheConfig.TrieCleanJournal,
+			Preimages:  cacheConfig.Preimages,
+			Zktrie:     chainConfig.Morph.ZktrieEnabled(),
+			PathZkTrie: chainConfig.Morph.ZktrieEnabled() && cacheConfig.PathZkTrie,
+			HashDB:     hashdbConfig,
+			PathDB:     pathdbConfig,
 		}),
 		quit:           make(chan struct{}),
 		chainmu:        syncx.NewClosableMutex(),

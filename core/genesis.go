@@ -201,16 +201,16 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled(), MorphZkTrie: storedcfg.Morph.MorphZktrieEnabled()}
+			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled(), PathZkTrie: trie.Defaults.PathZkTrie}
 		}
 	} else {
-		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled(), MorphZkTrie: genesis.Config.Morph.MorphZktrieEnabled()}
+		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.Defaults.PathZkTrie}
 	}
 
 	exist := rawdb.ExistsStateID(db, header.Root)
 	var verify bool = true
 	// new states already overide genesis states.
-	if trieCfg.MorphZkTrie && exist {
+	if trieCfg.PathZkTrie && exist {
 		verify = false
 	}
 
@@ -263,8 +263,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
 		storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
 		storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
-		storedcfg.Morph.MorphZkTrie = storedcfg.Scroll.MorphZkTrie
-
 	}
 	// Special case: don't change the existing config of a non-mainnet chain if no new
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)
@@ -315,7 +313,7 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled(), MorphZkTrie: g.Config.Morph.MorphZktrieEnabled()}
+		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.Defaults.PathZkTrie}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)
 	if err != nil {

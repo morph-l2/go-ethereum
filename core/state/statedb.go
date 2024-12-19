@@ -194,11 +194,11 @@ func (s *StateDB) Error() error {
 }
 
 func (s *StateDB) IsZktrie() bool {
-	return s.db.TrieDB().Zktrie
+	return s.db.TrieDB().IsZkTrie()
 }
 
-func (s *StateDB) IsMorphZktrie() bool {
-	return s.db.TrieDB().Zktrie && s.db.TrieDB().IsMorphZk()
+func (s *StateDB) IsPathZktrie() bool {
+	return s.db.TrieDB().IsPathZkTrie()
 }
 
 func (s *StateDB) AddLog(log *types.Log) {

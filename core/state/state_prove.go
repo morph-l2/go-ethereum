@@ -54,7 +54,7 @@ func (s *StateDB) GetStorageTrieForProof(addr common.Address) (Trie, error) {
 	stateObject := s.getStateObject(addr)
 
 	addrHash := crypto.Keccak256Hash(addr[:])
-	if s.IsMorphZktrie() {
+	if s.IsPathZktrie() {
 		k, err := zkt.ToSecureKey(addr.Bytes())
 		if err != nil {
 			return nil, fmt.Errorf("can't create storage trie on ToSecureKey %s: %v ", addr.Hex(), err)

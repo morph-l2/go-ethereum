@@ -30,7 +30,7 @@ import (
 )
 
 // wrap zktrie for trie interface
-type MorphZkTrie struct {
+type PathZkTrie struct {
 	*varienttrie.ZkTrie
 	db *Database
 }
@@ -39,20 +39,20 @@ func init() {
 	zkt.InitHashScheme(poseidon.HashFixedWithDomain)
 }
 
-// NewZkTrie creates a trie
-// NewZkTrie bypasses all the buffer mechanism in *Database, it directly uses the
+// NewPathZkTrie creates a trie
+// NewPathZkTrie bypasses all the buffer mechanism in *Database, it directly uses the
 // underlying diskdb
-func NewMorphZkTrie(root common.Hash, origin common.Hash, db *Database, prefix []byte) (*MorphZkTrie, error) {
+func NewPathZkTrie(root common.Hash, origin common.Hash, db *Database, prefix []byte) (*PathZkTrie, error) {
 	tr, err := varienttrie.NewZkTrieWithPrefix(*zkt.NewByte32FromBytes(root.Bytes()), *zkt.NewByte32FromBytes(origin.Bytes()), db, prefix)
 	if err != nil {
 		return nil, err
 	}
-	return &MorphZkTrie{tr, db}, nil
+	return &PathZkTrie{tr, db}, nil
 }
 
 // Get returns the value for key stored in the trie.
 // The value bytes must not be modified by the caller.
-func (t *MorphZkTrie) Get(key []byte) []byte {
+func (t *PathZkTrie) Get(key []byte) []byte {
 	sanityCheckByte32Key(key)
 	res, err := t.TryGet(key)
 	if err != nil {
@@ -63,7 +63,7 @@ func (t *MorphZkTrie) Get(key []byte) []byte {
 
 // TryUpdateAccount will abstract the write of an account to the
 // secure trie.
-func (t *MorphZkTrie) TryUpdateAccount(key []byte, acc *types.StateAccount) error {
+func (t *PathZkTrie) TryUpdateAccount(key []byte, acc *types.StateAccount) error {
 	sanityCheckByte32Key(key)
 	value, flag := acc.MarshalFields()
 	return t.ZkTrie.TryUpdate(key, flag, value)
@@ -75,7 +75,7 @@ func (t *MorphZkTrie) TryUpdateAccount(key []byte, acc *types.StateAccount) erro
 //
 // The value bytes must not be modified by the caller while they are
 // stored in the trie.
-func (t *MorphZkTrie) Update(key, value []byte) {
+func (t *PathZkTrie) Update(key, value []byte) {
 	if err := t.TryUpdate(key, value); err != nil {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
 	}
@@ -83,13 +83,13 @@ func (t *MorphZkTrie) Update(key, value []byte) {
 
 // NOTE: value is restricted to length of bytes32.
 // we override the underlying zktrie's TryUpdate method
-func (t *MorphZkTrie) TryUpdate(key, value []byte) error {
+func (t *PathZkTrie) TryUpdate(key, value []byte) error {
 	sanityCheckByte32Key(key)
 	return t.ZkTrie.TryUpdate(key, 1, []zkt.Byte32{*zkt.NewByte32FromBytes(value)})
 }
 
 // Delete removes any existing value for key from the trie.
-func (t *MorphZkTrie) Delete(key []byte) {
+func (t *PathZkTrie) Delete(key []byte) {
 	sanityCheckByte32Key(key)
 	if err := t.TryDelete(key); err != nil {
 		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
@@ -98,7 +98,7 @@ func (t *MorphZkTrie) Delete(key []byte) {
 
 // GetKey returns the preimage of a hashed key that was
 // previously used to store a value.
-func (t *MorphZkTrie) GetKey(kHashBytes []byte) []byte {
+func (t *PathZkTrie) GetKey(kHashBytes []byte) []byte {
 	// TODO: use a kv cache in memory
 	k, err := zkt.NewBigIntFromHashBytes(kHashBytes)
 	if err != nil {
@@ -115,7 +115,7 @@ func (t *MorphZkTrie) GetKey(kHashBytes []byte) []byte {
 //
 // Committing flushes nodes from memory. Subsequent Get calls will load nodes
 // from the database.
-func (t *MorphZkTrie) Commit(LeafCallback) (common.Hash, int, error) {
+func (t *PathZkTrie) Commit(LeafCallback) (common.Hash, int, error) {
 	if err := t.ZkTrie.Commit(); err != nil {
 		return common.Hash{}, 0, err
 	}
@@ -126,20 +126,20 @@ func (t *MorphZkTrie) Commit(LeafCallback) (common.Hash, int, error) {
 
 // Hash returns the root hash of SecureBinaryTrie. It does not write to the
 // database and can be used even if the trie doesn't have one.
-func (t *MorphZkTrie) Hash() common.Hash {
+func (t *PathZkTrie) Hash() common.Hash {
 	var hash common.Hash
 	hash.SetBytes(t.ZkTrie.Hash())
 	return hash
 }
 
 // Copy returns a copy of SecureBinaryTrie.
-func (t *MorphZkTrie) Copy() *MorphZkTrie {
-	return &MorphZkTrie{t.ZkTrie.Copy(), t.db}
+func (t *PathZkTrie) Copy() *PathZkTrie {
+	return &PathZkTrie{t.ZkTrie.Copy(), t.db}
 }
 
 // NodeIterator returns an iterator that returns nodes of the underlying trie. Iteration
 // starts at the key after the given start key.
-func (t *MorphZkTrie) NodeIterator(start []byte) NodeIterator {
+func (t *PathZkTrie) NodeIterator(start []byte) NodeIterator {
 	/// FIXME
 	panic("not implemented")
 }
@@ -168,7 +168,7 @@ func (t *MorphZkTrie) NodeIterator(start []byte) NodeIterator {
 // If the trie does not contain a value for key, the returned proof contains all
 // nodes of the longest existing prefix of the key (at least the root node), ending
 // with the node that proves the absence of the key.
-func (t *MorphZkTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {
+func (t *PathZkTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {
 	err := t.ZkTrie.Prove(key, fromLevel, func(n *varienttrie.Node) error {
 		nodeHash, err := n.NodeHash()
 		if err != nil {

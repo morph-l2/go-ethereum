@@ -76,8 +76,8 @@ type Database struct {
 	diskdb ethdb.KeyValueStore // Persistent storage for matured trie nodes
 
 	// zktrie related stuff
-	Zktrie      bool
-	MorphZkTrie bool
+	Zktrie     bool
+	PathZkTrie bool
 	// TODO: It's a quick&dirty implementation. FIXME later.
 	rawDirties KvMap
 
@@ -286,27 +286,20 @@ func expandNode(hash hashNode, n node) node {
 
 // Config defines all necessary options for database.
 type Config struct {
-	Cache       int    // Memory allowance (MB) to use for caching trie nodes in memory
-	Journal     string // Journal of clean cache to survive node restarts
-	Preimages   bool   // Flag whether the preimage of trie key is recorded
-	Zktrie      bool   // use zktrie
-	MorphZkTrie bool   // use morph zktrie
+	Cache      int    // Memory allowance (MB) to use for caching trie nodes in memory
+	Journal    string // Journal of clean cache to survive node restarts
+	Preimages  bool   // Flag whether the preimage of trie key is recorded
+	Zktrie     bool   // use zktrie
+	PathZkTrie bool   // use path zktrie
 
 	HashDB *hashdb.Config // Configs for hash-based scheme
 	PathDB *pathdb.Config // Configs for experimental path-based scheme
 }
 
-// HashDefaults represents a config for using hash-based scheme with
-// default settings.
-var HashDefaults = &Config{
-	Preimages: false,
-	HashDB:    hashdb.Defaults,
-}
-
-var ZkHashDefaults = &Config{
-	Preimages: false,
-	HashDB:    hashdb.Defaults,
-	Zktrie:    true,
+var Defaults = &Config{
+	Preimages:  false,
+	Zktrie:     true,
+	PathZkTrie: false,
 }
 
 // Reader wraps the Node method of a backing trie reader.
@@ -374,19 +367,21 @@ func NewDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Database
 		dirties: map[common.Hash]*cachedNode{{}: {
 			children: make(map[common.Hash]uint16),
 		}},
-		rawDirties:  make(KvMap),
-		preimages:   preimage,
-		Zktrie:      config != nil && config.Zktrie,
-		MorphZkTrie: config != nil && config.Zktrie && config.MorphZkTrie,
+		rawDirties: make(KvMap),
+		preimages:  preimage,
+		Zktrie:     config != nil && config.Zktrie,
+		PathZkTrie: config != nil && config.Zktrie && config.PathZkTrie,
 	}
 	if config.HashDB != nil && config.PathDB != nil {
 		log.Crit("Both 'hash' and 'path' mode are configured")
 	}
 
-	if db.MorphZkTrie {
+	if db.PathZkTrie {
+		log.Info("Using pathdb for zktrie backend")
 		db.backend = pathdb.New(diskdb, config.PathDB)
 	} else {
 		if db.Zktrie {
+			log.Info("Using hashdb for zktrie backend")
 			db.backend = hashdb.NewZkDatabaseWithConfig(diskdb, config.HashDB)
 		}
 	}
@@ -1072,8 +1067,8 @@ func (db *Database) Journal(root common.Hash) error {
 	return nil
 }
 
-func (db *Database) IsZk() bool      { return db.Zktrie }
-func (db *Database) IsMorphZk() bool { return db.Zktrie && db.MorphZkTrie }
+func (db *Database) IsZkTrie() bool     { return db.Zktrie }
+func (db *Database) IsPathZkTrie() bool { return db.Zktrie && db.PathZkTrie }
 
 // ZkTrie database interface
 func (db *Database) UpdatePreimage(preimage []byte, hashField *big.Int) {

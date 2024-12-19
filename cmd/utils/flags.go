@@ -75,6 +75,7 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rollup/tracing"
 	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 func init() {
@@ -852,9 +853,9 @@ var (
 		Usage: "Limit max fetched block range for `eth_getLogs` method",
 	}
 
-	MorphZkTrieFlag = cli.BoolFlag{
-		Name:  "morphzktrie",
-		Usage: "Use MorphZkTrie instead of ZkTrie in state",
+	PathZkTrieFlag = cli.BoolFlag{
+		Name:  "pathzktrie",
+		Usage: "Use PathZkTrie instead of ZkTrie in state",
 	}
 	PathDBSyncFlag = cli.BoolFlag{
 		Name:  "pathdb.sync",
@@ -1730,6 +1731,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.GlobalIsSet(PathDBSyncFlag.Name) {
 		cfg.PathSyncFlush = true
 	}
+	if ctx.GlobalIsSet(PathZkTrieFlag.Name) {
+		cfg.PathZkTrie = true
+		trie.Defaults.PathZkTrie = true
+	}
+
 	// Override any default configs for hard coded networks.
 	switch {
 	case ctx.GlobalBool(MainnetFlag.Name):
@@ -1778,8 +1784,10 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		log.Info("Prefetch disabled")
 		cfg.NoPrefetch = true
 
-		// use morph zktrie
-		cfg.Genesis.Config.Morph.MorphZkTrie = ctx.GlobalBool(MorphZkTrieFlag.Name)
+		// cheked for path zktrie
+		if cfg.PathZkTrie && !cfg.Genesis.Config.Morph.ZktrieEnabled() {
+			log.Crit("Must cooperate with zktrie enable to use --pathzktrie")
+		}
 	case ctx.GlobalBool(MorphHoleskyFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2810
@@ -1796,8 +1804,10 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		log.Info("Prefetch disabled")
 		cfg.NoPrefetch = true
 
-		// use morph zktrie
-		cfg.Genesis.Config.Morph.MorphZkTrie = ctx.GlobalBool(MorphZkTrieFlag.Name)
+		// cheked for path zktrie
+		if cfg.PathZkTrie && !cfg.Genesis.Config.Morph.ZktrieEnabled() {
+			log.Crit("Must cooperate with zktrie enable to use --pathzktrie")
+		}
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337

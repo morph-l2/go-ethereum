@@ -118,7 +118,7 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *st
 		data.Root = db.db.TrieDB().EmptyRoot()
 	}
 	var addrPoseidonHash common.Hash
-	if db.db.TrieDB().IsMorphZk() {
+	if db.db.TrieDB().IsPathZkTrie() {
 		addr_s, _ := zkt.ToSecureKey(address.Bytes())
 		addrPoseidonHash = common.BigToHash(addr_s)
 	}
@@ -173,7 +173,7 @@ func (s *stateObject) getTrie(db Database) Trie {
 		if s.trie == nil {
 			var err error
 			addrHash := s.addrHash
-			if db.TrieDB().IsMorphZk() {
+			if db.TrieDB().IsPathZkTrie() {
 				addrHash = s.addrPoseidonHash
 			}
 			s.trie, err = db.OpenStorageTrie(addrHash, s.data.Root, s.db.originalRoot)

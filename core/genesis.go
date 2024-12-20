@@ -207,14 +207,13 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.GenesisStateInPathZkTrie}
 	}
 
-	exist := rawdb.ExistsStateID(db, header.Root)
-	var verify bool = true
+	var inited bool = false
 	// new states already overide genesis states.
-	if trieCfg.PathZkTrie && exist {
-		verify = false
+	if trieCfg.PathZkTrie && rawdb.ExistsStateID(db, header.Root) {
+		inited = true
 	}
 
-	if verify {
+	if !inited {
 		if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
 			log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
 			if genesis == nil {

@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 
+	"github.com/cockroachdb/pebble"
 	leveldb "github.com/syndtr/goleveldb/leveldb/errors"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -285,7 +286,7 @@ func FirstQueueIndexNotInL2BlockKey(l2BlockHash common.Hash) []byte {
 }
 
 func isNotFoundErr(err error) bool {
-	return errors.Is(err, leveldb.ErrNotFound) || errors.Is(err, memorydb.ErrMemorydbNotFound)
+	return errors.Is(err, leveldb.ErrNotFound) || errors.Is(err, memorydb.ErrMemorydbNotFound) || errors.Is(err, pebble.ErrNotFound)
 }
 
 func IsNotFoundErr(err error) bool {

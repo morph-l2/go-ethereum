@@ -19,8 +19,6 @@ package catalyst
 import (
 	"math/big"
 
-	"github.com/morph-l2/go-ethereum/core/types"
-
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 )
@@ -101,12 +99,11 @@ type ExecutableL2Data struct {
 	Transactions [][]byte       `json:"transactions"   gencodec:"required"`
 
 	// execution result
-	StateRoot        common.Hash                 `json:"stateRoot"`
-	GasUsed          uint64                      `json:"gasUsed"`
-	ReceiptRoot      common.Hash                 `json:"receiptsRoot"`
-	LogsBloom        []byte                      `json:"logsBloom"`
-	WithdrawTrieRoot common.Hash                 `json:"withdrawTrieRoot"`
-	SkippedTxs       []*types.SkippedTransaction `json:"skippedTxs"`
+	StateRoot        common.Hash `json:"stateRoot"`
+	GasUsed          uint64      `json:"gasUsed"`
+	ReceiptRoot      common.Hash `json:"receiptsRoot"`
+	LogsBloom        []byte      `json:"logsBloom"`
+	WithdrawTrieRoot common.Hash `json:"withdrawTrieRoot"`
 
 	NextL1MessageIndex uint64 `json:"nextL1MessageIndex"`
 

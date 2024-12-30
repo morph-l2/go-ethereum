@@ -12,10 +12,10 @@ env:
   IMAGE_NAME: go-ethereum
 
 jobs:
-
-  build:
-
+  # Push image to GitHub Packages.
+  push:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
 
     steps:
     - uses: actions/checkout@v4

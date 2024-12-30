@@ -1,9 +1,12 @@
-name: Docker Image CI
+name: Push Docker Image
 
 on:
   push:
     tags: 
       - test-v*
+    branches:
+      - main
+      - release/*
 
 env:
   IMAGE_NAME: go-ethereum

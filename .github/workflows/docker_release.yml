@@ -3,10 +3,7 @@ name: Push Docker Image
 on:
   push:
     tags: 
-      - test-v*
-    branches:
-      - main
-      - release/*
+      - morph-v*
 
 env:
   IMAGE_NAME: go-ethereum
@@ -35,7 +32,7 @@ jobs:
         # Strip git ref prefix from version
         VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
         # Strip "morph-v" prefix from tag name
-        [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^test-v//')
+        [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^morph-v//')
         echo IMAGE_ID=$IMAGE_ID
         echo VERSION=$VERSION
         docker tag $IMAGE_NAME $IMAGE_ID:$VERSION

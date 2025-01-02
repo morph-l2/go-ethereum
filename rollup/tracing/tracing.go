@@ -386,6 +386,13 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	// merge required proof data
 	proofAccounts := structLogger.UpdatedAccounts()
 	proofAccounts[vmenv.FeeRecipient()] = struct{}{}
+	// add from/to address if it does not exist
+	if _, ok := proofAccounts[from]; !ok {
+		proofAccounts[from] = struct{}{}
+	}
+	if _, ok := proofAccounts[*to]; !ok {
+		proofAccounts[*to] = struct{}{}
+	}
 	for addr := range proofAccounts {
 		addrStr := addr.String()
 

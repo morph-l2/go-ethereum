@@ -107,6 +107,8 @@ type StructLogger struct {
 
 	interrupt atomic.Bool // Atomic flag to signal execution interruption
 	reason    error       // Textual reason for the interruption
+
+	ResultL1DataFee *big.Int
 }
 
 // NewStructLogger returns a new logger
@@ -245,6 +247,7 @@ func (l *StructLogger) GetResult() (json.RawMessage, error) {
 		Failed:      failed,
 		ReturnValue: returnVal,
 		StructLogs:  formatLogs(l.StructLogs()),
+		L1DataFee:   (*hexutil.Big)(l.ResultL1DataFee),
 	})
 }
 
@@ -399,6 +402,7 @@ type ExecutionResult struct {
 	Failed      bool           `json:"failed"`
 	ReturnValue string         `json:"returnValue"`
 	StructLogs  []StructLogRes `json:"structLogs"`
+	L1DataFee   *hexutil.Big   `json:"l1DataFee,omitempty"`
 }
 
 // StructLogRes stores a structured log emitted by the EVM while replaying a

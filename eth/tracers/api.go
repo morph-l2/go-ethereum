@@ -960,8 +960,14 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 	}
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
-	if _, err = core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()), l1DataFee); err != nil {
+	result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()), l1DataFee)
+	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)
+	}
+
+	l, ok := tracer.(*logger.StructLogger)
+	if ok {
+		l.ResultL1DataFee = result.L1DataFee
 	}
 	return tracer.GetResult()
 }

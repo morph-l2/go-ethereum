@@ -19,10 +19,12 @@ package vm
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/holiman/uint256"
@@ -165,6 +167,14 @@ type StructLogger struct {
 	logs            []*StructLog
 	output          []byte
 	err             error
+
+	gasLimit uint64
+	usedGas  uint64
+
+	interrupt atomic.Bool // Atomic flag to signal execution interruption
+	reason    error       // Textual reason for the interruption
+
+	ResultL1DataFee *big.Int
 }
 
 // NewStructLogger returns a new logger
@@ -217,6 +227,11 @@ func (l *StructLogger) CaptureStart(env *EVM, from common.Address, to common.Add
 //
 // CaptureState also tracks SLOAD/SSTORE ops to track storage change.
 func (l *StructLogger) CaptureState(pc uint64, op OpCode, gas, cost uint64, scope *ScopeContext, rData []byte, depth int, opErr error) {
+	// If tracing was interrupted, set the error and stop
+	if l.interrupt.Load() {
+		return
+	}
+
 	memory := scope.Memory
 	stack := scope.Stack
 	contract := scope.Contract
@@ -343,9 +358,13 @@ func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, err error) {
 
 }
 
-func (t *StructLogger) CaptureTxStart(gasLimit uint64) {}
+func (l *StructLogger) CaptureTxStart(gasLimit uint64) {
+	l.gasLimit = gasLimit
+}
 
-func (t *StructLogger) CaptureTxEnd(restGas uint64) {}
+func (l *StructLogger) CaptureTxEnd(restGas uint64) {
+	l.usedGas = l.gasLimit - restGas
+}
 
 // UpdatedAccounts is used to collect all "touched" accounts
 func (l *StructLogger) UpdatedAccounts() map[common.Address]struct{} {
@@ -373,6 +392,33 @@ func (l *StructLogger) Error() error { return l.err }
 
 // Output returns the VM return value captured by the trace.
 func (l *StructLogger) Output() []byte { return l.output }
+
+func (l *StructLogger) GetResult() (json.RawMessage, error) {
+	// Tracing aborted
+	if l.reason != nil {
+		return nil, l.reason
+	}
+	failed := l.err != nil
+	returnData := common.CopyBytes(l.output)
+	// Return data when successful and revert reason when reverted, otherwise empty.
+	returnVal := fmt.Sprintf("%x", returnData)
+	if failed && l.err != ErrExecutionReverted {
+		returnVal = ""
+	}
+	return json.Marshal(&types.ExecutionResult{
+		Gas:         l.usedGas,
+		Failed:      failed,
+		ReturnValue: returnVal,
+		StructLogs:  formatLogs(l.StructLogs()),
+		L1DataFee:   (*hexutil.Big)(l.ResultL1DataFee),
+	})
+}
+
+// Stop terminates execution of the tracer at the first opportune moment.
+func (l *StructLogger) Stop(err error) {
+	l.reason = err
+	l.interrupt.Store(true)
+}
 
 // WriteTrace writes a formatted trace to the given writer
 func WriteTrace(writer io.Writer, logs []*StructLog) {
@@ -519,6 +565,47 @@ func FormatLogs(logs []*StructLog) []*types.StructLogRes {
 		}
 
 		formatted = append(formatted, logRes)
+	}
+	return formatted
+}
+
+// formatLogs formats EVM returned structured logs for json output
+func formatLogs(logs []*StructLog) []*types.StructLogRes {
+	formatted := make([]*types.StructLogRes, len(logs))
+	for index, trace := range logs {
+		formatted[index] = &types.StructLogRes{
+			Pc:            trace.Pc,
+			Op:            trace.Op.String(),
+			Gas:           trace.Gas,
+			GasCost:       trace.GasCost,
+			Depth:         trace.Depth,
+			Error:         trace.ErrorString(),
+			RefundCounter: trace.RefundCounter,
+		}
+		if trace.Stack != nil {
+			stack := make([]string, len(trace.Stack))
+			for i, stackValue := range trace.Stack {
+				stack[i] = stackValue.Hex()
+			}
+			formatted[index].Stack = stack
+		}
+		if trace.ReturnData.Len() > 0 {
+			formatted[index].ReturnData = hexutil.Bytes(trace.ReturnData.Bytes()).String()
+		}
+		if trace.Memory.Len() > 0 {
+			memory := make([]string, 0, (trace.Memory.Len()+31)/32)
+			for i := 0; i+32 <= trace.Memory.Len(); i += 32 {
+				memory = append(memory, fmt.Sprintf("%x", trace.Memory.Bytes()[i:i+32]))
+			}
+			formatted[index].Memory = memory
+		}
+		if trace.Storage != nil {
+			storage := make(map[string]string)
+			for i, storageValue := range trace.Storage {
+				storage[fmt.Sprintf("%x", i)] = fmt.Sprintf("%x", storageValue)
+			}
+			formatted[index].Storage = storage
+		}
 	}
 	return formatted
 }

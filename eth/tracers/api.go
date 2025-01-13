@@ -38,7 +38,6 @@ import (
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
-	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
 	"github.com/morph-l2/go-ethereum/log"
@@ -927,7 +926,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 		config = &TraceConfig{}
 	}
 	// Default tracer is the struct logger
-	tracer = logger.NewStructLogger(config.LogConfig)
+	tracer = vm.NewStructLogger(config.LogConfig)
 	if config.Tracer != nil {
 		tracer, err = New(*config.Tracer, txctx, config.TracerConfig)
 		if err != nil {
@@ -965,7 +964,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}
 
-	l, ok := tracer.(*logger.StructLogger)
+	l, ok := tracer.(*vm.StructLogger)
 	if ok {
 		l.ResultL1DataFee = result.L1DataFee
 	}

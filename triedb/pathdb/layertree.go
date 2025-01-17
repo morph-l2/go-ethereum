@@ -49,13 +49,6 @@ func (tree *layerTree) reset(head layer) {
 	tree.lock.Lock()
 	defer tree.lock.Unlock()
 
-	for _, ly := range tree.layers {
-		if dl, ok := ly.(*diffLayer); ok {
-			// Clean up the hash cache of difflayers due to reset.
-			dl.cache.Remove(dl)
-		}
-	}
-
 	var layers = make(map[common.Hash]layer)
 	for head != nil {
 		layers[head.rootHash()] = head
@@ -112,9 +105,6 @@ func (tree *layerTree) add(root common.Hash, parentRoot common.Hash, block uint6
 	}
 	l := parent.update(root, parent.stateID()+1, block, nodes)
 
-	// Before adding layertree, update the hash cache.
-	l.cache.Add(l)
-
 	tree.lock.Lock()
 	tree.layers[l.rootHash()] = l
 	tree.lock.Unlock()
@@ -144,7 +134,6 @@ func (tree *layerTree) cap(root common.Hash, layers int) error {
 		}
 		for _, ly := range tree.layers {
 			if dl, ok := ly.(*diffLayer); ok {
-				dl.cache.Remove(dl)
 				dl.reset()
 				log.Debug("Cleanup difflayer hash cache due to cap all", "diff_root", dl.root.String(), "diff_block_number", dl.block)
 			}
@@ -200,13 +189,6 @@ func (tree *layerTree) cap(root common.Hash, layers int) error {
 	}
 	var remove func(root common.Hash)
 	remove = func(root common.Hash) {
-		if df, exist := tree.layers[root]; exist {
-			if dl, ok := df.(*diffLayer); ok {
-				// Clean up the hash cache of the child difflayer corresponding to the stale parent, include the re-org case.
-				dl.cache.Remove(dl)
-				log.Debug("Cleanup difflayer hash cache due to reorg", "diff_root", dl.root.String(), "diff_block_number", dl.block)
-			}
-		}
 		delete(tree.layers, root)
 		for _, child := range children[root] {
 			remove(child)

@@ -17,7 +17,6 @@
 package pathdb
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"sync"
 
@@ -26,107 +25,6 @@ import (
 	dbtypes "github.com/morph-l2/go-ethereum/triedb/types"
 )
 
-type RefTrieNode struct {
-	refCount uint32
-	blob     []byte
-}
-
-type HashNodeCache struct {
-	lock  sync.RWMutex
-	cache map[[sha256.Size]byte]*RefTrieNode
-}
-
-func (h *HashNodeCache) length() int {
-	if h == nil {
-		return 0
-	}
-	h.lock.RLock()
-	defer h.lock.RUnlock()
-	return len(h.cache)
-}
-
-func (h *HashNodeCache) set(key, val []byte) {
-	if h == nil {
-		return
-	}
-	h.lock.Lock()
-	defer h.lock.Unlock()
-	hash := sha256.Sum256(key)
-	if n, ok := h.cache[hash]; ok {
-		n.refCount++
-		n.blob = val
-	} else {
-		h.cache[hash] = &RefTrieNode{1, val}
-	}
-}
-
-func (h *HashNodeCache) Get(key []byte) []byte {
-	if h == nil {
-		return nil
-	}
-	h.lock.RLock()
-	defer h.lock.RUnlock()
-	hash := sha256.Sum256(key)
-	if n, ok := h.cache[hash]; ok {
-		return n.blob
-	}
-	return nil
-}
-
-func (h *HashNodeCache) del(key []byte) {
-	if h == nil {
-		return
-	}
-	h.lock.Lock()
-	defer h.lock.Unlock()
-
-	hash := sha256.Sum256(key)
-	n, ok := h.cache[hash]
-	if !ok {
-		return
-	}
-	if n.refCount > 0 {
-		n.refCount--
-	}
-	if n.refCount == 0 {
-		delete(h.cache, hash)
-	}
-}
-
-func (h *HashNodeCache) Add(ly layer) {
-	if h == nil {
-		return
-	}
-	dl, ok := ly.(*diffLayer)
-	if !ok {
-		return
-	}
-	beforeAdd := h.length()
-	for _, v := range dl.nodes {
-		h.set(v.K, v.V)
-	}
-	diffHashCacheLengthGauge.Update(int64(h.length()))
-	log.Debug("Add difflayer to hash map", "root", ly.rootHash(), "block_number", dl.block, "map_len", h.length(), "add_delta", h.length()-beforeAdd)
-}
-
-func (h *HashNodeCache) Remove(ly layer) {
-	if h == nil {
-		return
-	}
-	dl, ok := ly.(*diffLayer)
-	if !ok {
-		return
-	}
-	go func() {
-		beforeDel := h.length()
-		for _, v := range dl.nodes {
-			h.del(v.K)
-		}
-		diffHashCacheLengthGauge.Update(int64(h.length()))
-		log.Debug("Remove difflayer from hash map", "root", ly.rootHash(), "block_number", dl.block, "map_len", h.length(), "del_delta", beforeDel-h.length())
-	}()
-}
-
 // diffLayer represents a collection of modifications made to the in-memory tries
 // along with associated state changes after running a block on top.
 //
@@ -134,12 +32,11 @@ func (h *HashNodeCache) Remove(ly layer) {
 // made to the state, that have not yet graduated into a semi-immutable state.
 type diffLayer struct {
 	// Immutables
-	root   common.Hash    // Root hash to which this layer diff belongs to
-	id     uint64         // Corresponding state id
-	block  uint64         // Associated block number
-	nodes  dbtypes.KvMap  // Cached trie nodes indexed by owner and path
-	memory uint64         // Approximate guess as to how much memory we use
-	cache  *HashNodeCache // trienode cache by hash key. cache is immutable, but cache's item can be add/del.
+	root   common.Hash   // Root hash to which this layer diff belongs to
+	id     uint64        // Corresponding state id
+	block  uint64        // Associated block number
+	nodes  dbtypes.KvMap // Cached trie nodes indexed by owner and path
+	memory uint64        // Approximate guess as to how much memory we use
 
 	// mutables
 	origin *diskLayer   // The current difflayer corresponds to the underlying disklayer and is updated during cap.
@@ -164,12 +61,8 @@ func newDiffLayer(parent layer, root common.Hash, id uint64, block uint64, nodes
 	switch l := parent.(type) {
 	case *diskLayer:
 		dl.origin = l
-		dl.cache = &HashNodeCache{
-			cache: make(map[[sha256.Size]byte]*RefTrieNode),
-		}
 	case *diffLayer:
 		dl.origin = l.originDiskLayer()
-		dl.cache = l.cache
 	default:
 		panic("unknown parent type")
 	}
@@ -244,32 +137,6 @@ func (dl *diffLayer) node(path []byte, depth int) ([]byte, error) {
 // Node implements the layer interface, retrieving the trie node blob with the
 // provided node information. No error will be returned if the node is not found.
 func (dl *diffLayer) Node(path []byte) ([]byte, error) {
-	if n := dl.cache.Get(path); n != nil {
-		// The query from the hash map is fastpath,
-		// avoiding recursive query of 128 difflayers.
-		diffHashCacheHitMeter.Mark(1)
-		diffHashCacheReadMeter.Mark(int64(len(n)))
-		return n, nil
-	}
-	diffHashCacheMissMeter.Mark(1)
-
-	persistLayer := dl.originDiskLayer()
-	if persistLayer != nil {
-		blob, err := persistLayer.Node(path)
-		if err != nil {
-			// This is a bad case with a very low probability.
-			// r/w the difflayer cache and r/w the disklayer are not in the same lock,
-			// so in extreme cases, both reading the difflayer cache and reading the disklayer may fail, eg, disklayer is stale.
-			// In this case, fallback to the original 128-layer recursive difflayer query path.
-			diffHashCacheSlowPathMeter.Mark(1)
-			log.Debug("Retry difflayer due to query origin failed", "path", path, "hash", "error", err)
-			return dl.node(path, 0)
-		} else { // This is the fastpath.
-			return blob, nil
-		}
-	}
-	diffHashCacheSlowPathMeter.Mark(1)
-	log.Debug("Retry difflayer due to origin is nil", "path", path)
 	return dl.node(path, 0)
 }
 

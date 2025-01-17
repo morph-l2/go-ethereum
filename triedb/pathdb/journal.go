@@ -359,7 +359,6 @@ func (db *Database) loadDiffLayer(parent layer, r *rlp.Stream, journalTypeForRea
 	log.Debug("Loaded diff layer journal", "root", root, "parent", parent.rootHash(), "id", parent.stateID()+1, "block", block, "nodes", len(nodes))
 	// add cache first
 	l := newDiffLayer(parent, root, parent.stateID()+1, block, nodes)
-	l.cache.Add(l)
 	return db.loadDiffLayer(l, r, journalTypeForReader)
 }
 

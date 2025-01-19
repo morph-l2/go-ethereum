@@ -49,7 +49,7 @@ func NewTracerWrapper() *TracerWrapper {
 // CreateTraceEnvAndGetBlockTrace wraps the whole block tracing logic for a block
 func (tw *TracerWrapper) CreateTraceEnvAndGetBlockTrace(chainConfig *params.ChainConfig, chainContext core.ChainContext, engine consensus.Engine, chaindb ethdb.Database, statedb *state.StateDB, parent *types.Block, block *types.Block, commitAfterApply bool) (*types.BlockTrace, error) {
 	if statedb.IsPathZkTrie() {
-		return nil, fmt.Errorf("@Todo, unimplement, block=%d", block.NumberU64())
+		return nil, fmt.Errorf("@Todo, unimplemention, block=%d", block.NumberU64())
 	}
 	traceEnv, err := CreateTraceEnv(chainConfig, chainContext, engine, chaindb, statedb, parent, block, commitAfterApply)
 	if err != nil {

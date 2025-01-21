@@ -67,3 +67,15 @@ func (t *MuxTracer) CaptureEnd(output []byte, gasUsed uint64, d time.Duration, e
 		tracer.CaptureEnd(output, gasUsed, d, err)
 	}
 }
+
+func (t *MuxTracer) CaptureTxStart(gasLimit uint64) {
+	for _, tracer := range t.tracers {
+		tracer.CaptureTxStart(gasLimit)
+	}
+}
+
+func (t *MuxTracer) CaptureTxEnd(restGas uint64) {
+	for _, tracer := range t.tracers {
+		tracer.CaptureTxEnd(restGas)
+	}
+}

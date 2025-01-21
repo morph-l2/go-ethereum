@@ -8,11 +8,14 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/eth/tracers"
 	"github.com/morph-l2/go-ethereum/log"
 )
+
+//go:generate go run github.com/fjl/gencodec -type account -field-override accountMarshaling -out gen_account_json.go
 
 func init() {
 	register("prestateTracer", newPrestateTracer)
@@ -21,19 +24,10 @@ func init() {
 type state = map[common.Address]*account
 
 type account struct {
-	Balance *big.Int
-	Code    []byte
-	Nonce   uint64
-	Storage map[common.Hash]common.Hash
-}
-
-func (a *account) marshal() accountMarshaling {
-	return accountMarshaling{
-		Balance: bigToHex(a.Balance),
-		Code:    bytesToHex(a.Code),
-		Nonce:   a.Nonce,
-		Storage: a.Storage,
-	}
+	Balance *big.Int                    `json:"balance,omitempty"`
+	Code    []byte                      `json:"code,omitempty"`
+	Nonce   uint64                      `json:"nonce,omitempty"`
+	Storage map[common.Hash]common.Hash `json:"storage,omitempty"`
 }
 
 func (a *account) exists() bool {
@@ -41,10 +35,8 @@ func (a *account) exists() bool {
 }
 
 type accountMarshaling struct {
-	Balance string                      `json:"balance,omitempty"`
-	Code    string                      `json:"code,omitempty"`
-	Nonce   uint64                      `json:"nonce,omitempty"`
-	Storage map[common.Hash]common.Hash `json:"storage,omitempty"`
+	Balance *hexutil.Big
+	Code    hexutil.Bytes
 }
 
 type prestateTracer struct {
@@ -54,20 +46,32 @@ type prestateTracer struct {
 	post      state
 	create    bool
 	to        common.Address
-	gasLimit  uint64      // Amount of gas bought for the whole tx
+	gasLimit  uint64 // Amount of gas bought for the whole tx
+	config    prestateTracerConfig
 	interrupt atomic.Bool // Atomic flag to signal execution interruption
 	reason    error       // Textual reason for the interruption
 	created   map[common.Address]bool
 	deleted   map[common.Address]bool
 }
 
-func newPrestateTracer() tracers.Tracer {
+type prestateTracerConfig struct {
+	DiffMode bool `json:"diffMode"` // If true, this tracer will return state modifications
+}
+
+func newPrestateTracer(ctx *tracers.Context, cfg json.RawMessage) (tracers.Tracer, error) {
+	var config prestateTracerConfig
+	if cfg != nil {
+		if err := json.Unmarshal(cfg, &config); err != nil {
+			return nil, err
+		}
+	}
 	return &prestateTracer{
 		pre:     state{},
 		post:    state{},
+		config:  config,
 		created: make(map[common.Address]bool),
 		deleted: make(map[common.Address]bool),
-	}
+	}, nil
 }
 
 // CaptureStart implements the EVMLogger interface to initialize the tracing operation.
@@ -92,10 +96,18 @@ func (t *prestateTracer) CaptureStart(env *vm.EVM, from common.Address, to commo
 	fromBal.Add(fromBal, new(big.Int).Add(value, consumedGas))
 	t.pre[from].Balance = fromBal
 	t.pre[from].Nonce--
+
+	if create && t.config.DiffMode {
+		t.created[to] = true
+	}
 }
 
 // CaptureEnd is called after the call finishes to finalize the tracing.
-func (t *prestateTracer) CaptureEnd(output []byte, gasUsed uint64, d time.Duration, err error) {
+func (t *prestateTracer) CaptureEnd(output []byte, gasUsed uint64, _ time.Duration, err error) {
+	if t.config.DiffMode {
+		return
+	}
+
 	if t.create {
 		// Keep existing account prior to contract creation at that address
 		if s := t.pre[t.to]; s != nil && !s.exists() {
@@ -157,6 +169,10 @@ func (t *prestateTracer) CaptureTxStart(gasLimit uint64) {
 }
 
 func (t *prestateTracer) CaptureTxEnd(restGas uint64) {
+	if !t.config.DiffMode {
+		return
+	}
+
 	for addr, state := range t.pre {
 		// The deleted account's state is pruned from `post` but kept in `pre`
 		if _, ok := t.deleted[addr]; ok {
@@ -218,15 +234,20 @@ func (t *prestateTracer) CaptureTxEnd(restGas uint64) {
 // GetResult returns the json-encoded nested list of call traces, and any
 // error arising from the encoding or forceful termination (via `Stop`).
 func (t *prestateTracer) GetResult() (json.RawMessage, error) {
-	pre := make(map[string]accountMarshaling)
-	for addr, state := range t.pre {
-		pre[addrToHex(addr)] = state.marshal()
+	var res []byte
+	var err error
+	if t.config.DiffMode {
+		res, err = json.Marshal(struct {
+			Post state `json:"post"`
+			Pre  state `json:"pre"`
+		}{t.post, t.pre})
+	} else {
+		res, err = json.Marshal(t.pre)
 	}
-	res, err := json.Marshal(pre)
 	if err != nil {
 		return nil, err
 	}
-	return res, t.reason
+	return json.RawMessage(res), t.reason
 }
 
 // Stop terminates execution of the tracer at the first opportune moment.

@@ -175,6 +175,10 @@ func (*AccessListTracer) CaptureEnter(typ OpCode, from common.Address, to common
 
 func (*AccessListTracer) CaptureExit(output []byte, gasUsed uint64, err error) {}
 
+func (t *AccessListTracer) CaptureTxStart(gasLimit uint64) {}
+
+func (t *AccessListTracer) CaptureTxEnd(restGas uint64) {}
+
 // AccessList returns the current accesslist maintained by the tracer.
 func (a *AccessListTracer) AccessList() types.AccessList {
 	return a.list.accessList()

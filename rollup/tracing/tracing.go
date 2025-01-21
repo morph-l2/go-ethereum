@@ -310,7 +310,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		TxIndex:   index,
 		TxHash:    tx.Hash(),
 	}
-	callTracer, err := tracers.New("callTracer", &tracerContext)
+	callTracer, err := tracers.New("callTracer", &tracerContext, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create callTracer: %w", err)
 	}

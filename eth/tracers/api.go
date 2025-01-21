@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -173,15 +174,15 @@ type TraceConfig struct {
 	Tracer  *string
 	Timeout *string
 	Reexec  *uint64
+	// Config specific to given tracer. Note struct logger
+	// config are historically embedded in main object.
+	TracerConfig json.RawMessage
 }
 
 // TraceCallConfig is the config for traceCall API. It holds one more
 // field to override the state for tracing.
 type TraceCallConfig struct {
-	*vm.LogConfig
-	Tracer         *string
-	Timeout        *string
-	Reexec         *uint64
+	TraceConfig
 	StateOverrides *ethapi.StateOverride
 }
 
@@ -898,12 +899,7 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 
 	var traceConfig *TraceConfig
 	if config != nil {
-		traceConfig = &TraceConfig{
-			LogConfig: config.LogConfig,
-			Tracer:    config.Tracer,
-			Timeout:   config.Timeout,
-			Reexec:    config.Reexec,
-		}
+		traceConfig = &config.TraceConfig
 	}
 
 	signer := types.MakeSigner(api.backend.ChainConfig(), block.Number())
@@ -921,75 +917,58 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *big.Int) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
-		tracer    vm.EVMLogger
+		tracer    Tracer
 		err       error
+		timeout   = defaultTraceTimeout
 		txContext = core.NewEVMTxContext(message)
 	)
-	switch {
-	case config == nil:
-		tracer = vm.NewStructLogger(nil)
-	case config.Tracer != nil:
-		// Define a meaningful timeout of a single transaction trace
-		timeout := defaultTraceTimeout
-		if config.Timeout != nil {
-			if timeout, err = time.ParseDuration(*config.Timeout); err != nil {
-				return nil, err
-			}
-		}
-		if t, err := New(*config.Tracer, txctx); err != nil {
+	if config == nil {
+		config = &TraceConfig{}
+	}
+	// Default tracer is the struct logger
+	tracer = vm.NewStructLogger(config.LogConfig)
+	if config.Tracer != nil {
+		tracer, err = New(*config.Tracer, txctx, config.TracerConfig)
+		if err != nil {
 			return nil, err
-		} else {
-			deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
-			go func() {
-				<-deadlineCtx.Done()
-				if errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
-					t.Stop(errors.New("execution timeout"))
-				}
-			}()
-			defer cancel()
-			tracer = t
 		}
-	default:
-		tracer = vm.NewStructLogger(config.LogConfig)
 	}
 	// Run the transaction with tracing enabled.
 	vmenv := vm.NewEVM(vmctx, txContext, statedb, api.backend.ChainConfig(), vm.Config{Debug: true, Tracer: tracer, NoBaseFee: true})
+
+	// Define a meaningful timeout of a single transaction trace
+	if config.Timeout != nil {
+		if timeout, err = time.ParseDuration(*config.Timeout); err != nil {
+			return nil, err
+		}
+	}
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	go func() {
+		<-deadlineCtx.Done()
+		if errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
+			tracer.Stop(errors.New("execution timeout"))
+			// Stop evm execution. Note cancellation is not necessarily immediate.
+			vmenv.Cancel()
+		}
+	}()
+	defer cancel()
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
 		statedb.AddBalance(message.From(), l1DataFee)
 	}
-
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
-
 	result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()), l1DataFee)
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}
 
-	// Depending on the tracer type, format and return the output.
-	switch tracer := tracer.(type) {
-	case *vm.StructLogger:
-		// If the result contains a revert reason, return it.
-		returnVal := fmt.Sprintf("%x", result.Return())
-		if len(result.Revert()) > 0 {
-			returnVal = fmt.Sprintf("%x", result.Revert())
-		}
-		return &types.ExecutionResult{
-			Gas:         result.UsedGas,
-			Failed:      result.Failed(),
-			ReturnValue: returnVal,
-			StructLogs:  vm.FormatLogs(tracer.StructLogs()),
-			L1DataFee:   (*hexutil.Big)(result.L1DataFee),
-		}, nil
-
-	case Tracer:
-		return tracer.GetResult()
-
-	default:
-		panic(fmt.Sprintf("bad tracer type %T", tracer))
+	l, ok := tracer.(*vm.StructLogger)
+	if ok {
+		l.ResultL1DataFee = result.L1DataFee
 	}
+	return tracer.GetResult()
 }
 
 // APIs return the collection of RPC services the tracer package offers.

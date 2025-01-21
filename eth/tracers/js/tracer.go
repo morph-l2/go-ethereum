@@ -425,7 +425,7 @@ type jsTracer struct {
 // New instantiates a new tracer instance. code specifies a Javascript snippet,
 // which must evaluate to an expression returning an object with 'step', 'fault'
 // and 'result' functions.
-func newJsTracer(code string, ctx *tracers2.Context) (tracers2.Tracer, error) {
+func newJsTracer(code string, ctx *tracers2.Context, cfg json.RawMessage) (tracers2.Tracer, error) {
 	if c, ok := assetTracers[code]; ok {
 		code = c
 	}
@@ -830,6 +830,10 @@ func (jst *jsTracer) CaptureExit(output []byte, gasUsed uint64, err error) {
 		jst.err = wrapError("exit", err)
 	}
 }
+
+func (t *jsTracer) CaptureTxStart(gasLimit uint64) {}
+
+func (t *jsTracer) CaptureTxEnd(restGas uint64) {}
 
 // GetResult calls the Javascript 'result' function and returns its value, or any accumulated error
 func (jst *jsTracer) GetResult() (json.RawMessage, error) {

@@ -758,6 +758,9 @@ func (db *Database) Commit(node common.Hash, report bool, callback func(common.H
 		if !ok {
 			return errors.New("not supported")
 		}
+		if db.preimages != nil {
+			db.preimages.commit(true)
+		}
 		return zdb.CommitState(node, common.Hash{}, 0, report)
 	}
 

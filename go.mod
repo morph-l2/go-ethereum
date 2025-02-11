@@ -127,4 +127,4 @@ require (
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
 
-replace github.com/scroll-tech/zktrie v0.8.4 => github.com/ryanmorphl2/zktrie v1.9.3
+replace github.com/scroll-tech/zktrie v0.8.4 => github.com/morph-l2/zktrie v0.8.5-alpha

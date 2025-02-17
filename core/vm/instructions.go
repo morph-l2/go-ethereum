@@ -455,22 +455,27 @@ func opBlockhash(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) (
 		lower = upper - 256
 	}
 	if num64 >= lower && num64 < upper {
-		chainId := interpreter.evm.ChainConfig().ChainID
-		chainIdBuf := make([]byte, 8)
-		binary.BigEndian.PutUint64(chainIdBuf, chainId.Uint64())
-		num64Buf := make([]byte, 8)
-		binary.BigEndian.PutUint64(num64Buf, num64)
-
-		if interpreter.hasher == nil {
-			interpreter.hasher = sha3.NewLegacyKeccak256().(keccakState)
+		if interpreter.evm.chainRules.IsQianxuesen {
+			res := interpreter.evm.Context.GetHash(num64)
+			num.SetBytes(res[:])
 		} else {
-			interpreter.hasher.Reset()
-		}
-		interpreter.hasher.Write(chainIdBuf)
-		interpreter.hasher.Write(num64Buf)
-		interpreter.hasher.Read(interpreter.hasherBuf[:])
+			chainId := interpreter.evm.ChainConfig().ChainID
+			chainIdBuf := make([]byte, 8)
+			binary.BigEndian.PutUint64(chainIdBuf, chainId.Uint64())
+			num64Buf := make([]byte, 8)
+			binary.BigEndian.PutUint64(num64Buf, num64)
 
-		num.SetBytes(interpreter.hasherBuf[:])
+			if interpreter.hasher == nil {
+				interpreter.hasher = sha3.NewLegacyKeccak256().(keccakState)
+			} else {
+				interpreter.hasher.Reset()
+			}
+			interpreter.hasher.Write(chainIdBuf)
+			interpreter.hasher.Write(num64Buf)
+			interpreter.hasher.Read(interpreter.hasherBuf[:])
+
+			num.SetBytes(interpreter.hasherBuf[:])
+		}
 	} else {
 		num.Clear()
 	}

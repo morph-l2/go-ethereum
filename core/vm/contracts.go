@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -28,6 +29,7 @@ import (
 	"github.com/morph-l2/go-ethereum/crypto/blake2b"
 	"github.com/morph-l2/go-ethereum/crypto/bls12381"
 	"github.com/morph-l2/go-ethereum/crypto/bn256"
+	"github.com/morph-l2/go-ethereum/crypto/kzg4844"
 	"github.com/morph-l2/go-ethereum/params"
 
 	//lint:ignore SA1019 Needed for precompile
@@ -125,6 +127,21 @@ var PrecompiledContractsBernoulli = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{9}): &blake2FDisabled{},
 }
 
+// PrecompiledContractsQianxuesen contains the default set of pre-compiled Ethereum
+// contracts used in the Qainxuesen release.
+var PrecompiledContractsQianxuesen = map[common.Address]PrecompiledContract{
+	common.BytesToAddress([]byte{0x1}): &ecrecover{},
+	common.BytesToAddress([]byte{0x2}): &sha256hash{},
+	common.BytesToAddress([]byte{0x3}): &ripemd160hash{},
+	common.BytesToAddress([]byte{0x4}): &dataCopy{},
+	common.BytesToAddress([]byte{0x5}): &bigModExp{eip2565: true},
+	common.BytesToAddress([]byte{0x6}): &bn256AddIstanbul{},
+	common.BytesToAddress([]byte{0x7}): &bn256ScalarMulIstanbul{},
+	common.BytesToAddress([]byte{0x8}): &bn256PairingIstanbul{},
+	common.BytesToAddress([]byte{0x9}): &blake2F{},
+	common.BytesToAddress([]byte{0xa}): &kzgPointEvaluation{},
+}
+
 // PrecompiledContractsBLS contains the set of pre-compiled Ethereum
 // contracts specified in EIP-2537. These are exported for testing purposes.
 var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
@@ -140,6 +157,7 @@ var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
 }
 
 var (
+	PrecompiledAddressesQianxuesen []common.Address
 	PrecompiledAddressesBernoulli  []common.Address
 	PrecompiledAddressesArchimedes []common.Address
 	PrecompiledAddressesBerlin     []common.Address
@@ -167,11 +185,16 @@ func init() {
 	for k := range PrecompiledContractsBernoulli {
 		PrecompiledAddressesBernoulli = append(PrecompiledAddressesBernoulli, k)
 	}
+	for k := range PrecompiledContractsQianxuesen {
+		PrecompiledAddressesQianxuesen = append(PrecompiledAddressesQianxuesen, k)
+	}
 }
 
 // ActivePrecompiles returns the precompiles enabled with the current configuration.
 func ActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
+	case rules.IsQianxuesen:
+		return PrecompiledAddressesQianxuesen
 	case rules.IsBernoulli:
 		return PrecompiledAddressesBernoulli
 	case rules.IsArchimedes:
@@ -437,11 +460,6 @@ func (c *bigModExp) Run(input []byte) ([]byte, error) {
 		expLen  = expLenBigInt.Uint64()
 		modLen  = modLenBigInt.Uint64()
 	)
-	// Check that all inputs are `u256` (32 - bytes) or less, revert otherwise
-	var lenLimit = new(big.Int).SetInt64(32)
-	if baseLenBigInt.Cmp(lenLimit) > 0 || expLenBigInt.Cmp(lenLimit) > 0 || modLenBigInt.Cmp(lenLimit) > 0 {
-		return nil, errModexpUnsupportedInput
-	}
 	if len(input) > 96 {
 		input = input[96:]
 	} else {
@@ -578,10 +596,6 @@ var (
 // runBn256Pairing implements the Bn256Pairing precompile, referenced by both
 // Byzantium and Istanbul operations.
 func runBn256Pairing(input []byte) ([]byte, error) {
-	// Allow at most 4 inputs
-	if len(input) > 4*192 {
-		return nil, errBadPairingInput
-	}
 	// Handle some corner cases cheaply
 	if len(input)%192 > 0 {
 		return nil, errBadPairingInput
@@ -1129,4 +1143,68 @@ func (c *bls12381MapG2) Run(input []byte) ([]byte, error) {
 
 	// Encode the G2 point to 256 bytes
 	return g.EncodePoint(r), nil
+}
+
+// kzgPointEvaluation implements the EIP-4844 point evaluation precompile.
+type kzgPointEvaluation struct{}
+
+// RequiredGas estimates the gas required for running the point evaluation precompile.
+func (b *kzgPointEvaluation) RequiredGas(input []byte) uint64 {
+	return params.BlobTxPointEvaluationPrecompileGas
+}
+
+const (
+	blobVerifyInputLength           = 192  // Max input length for the point evaluation precompile.
+	blobCommitmentVersionKZG  uint8 = 0x01 // Version byte for the point evaluation precompile.
+	blobPrecompileReturnValue       = "000000000000000000000000000000000000000000000000000000000000100073eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001"
+)
+
+var (
+	errBlobVerifyInvalidInputLength = errors.New("invalid input length")
+	errBlobVerifyMismatchedVersion  = errors.New("mismatched versioned hash")
+	errBlobVerifyKZGProof           = errors.New("error verifying kzg proof")
+)
+
+// Run executes the point evaluation precompile.
+func (b *kzgPointEvaluation) Run(input []byte) ([]byte, error) {
+	if len(input) != blobVerifyInputLength {
+		return nil, errBlobVerifyInvalidInputLength
+	}
+	// versioned hash: first 32 bytes
+	var versionedHash common.Hash
+	copy(versionedHash[:], input[:])
+
+	var (
+		point kzg4844.Point
+		claim kzg4844.Claim
+	)
+	// Evaluation point: next 32 bytes
+	copy(point[:], input[32:])
+	// Expected output: next 32 bytes
+	copy(claim[:], input[64:])
+
+	// input kzg point: next 48 bytes
+	var commitment kzg4844.Commitment
+	copy(commitment[:], input[96:])
+	if kZGToVersionedHash(commitment) != versionedHash {
+		return nil, errBlobVerifyMismatchedVersion
+	}
+
+	// Proof: next 48 bytes
+	var proof kzg4844.Proof
+	copy(proof[:], input[144:])
+
+	if err := kzg4844.VerifyProof(commitment, point, claim, proof); err != nil {
+		return nil, fmt.Errorf("%w: %v", errBlobVerifyKZGProof, err)
+	}
+
+	return common.Hex2Bytes(blobPrecompileReturnValue), nil
+}
+
+// kZGToVersionedHash implements kzg_to_versioned_hash from EIP-4844
+func kZGToVersionedHash(kzg kzg4844.Commitment) common.Hash {
+	h := sha256.Sum256(kzg[:])
+	h[0] = blobCommitmentVersionKZG
+
+	return h
 }

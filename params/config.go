@@ -749,7 +749,7 @@ func (c *ChainConfig) IsDarwin(now uint64) bool {
 	return isForkedTime(now, c.DarwinTime)
 }
 
-// IsMorph203 returns whether num is either equal to the Qianxuesen fork block or greater.
+// IsMorph203 returns whether num is either equal to the Morph203 fork block or greater.
 func (c *ChainConfig) IsMorph203(now uint64) bool {
 	return isForkedTime(now, c.Morph203Time)
 }

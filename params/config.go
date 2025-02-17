@@ -538,7 +538,7 @@ type ChainConfig struct {
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
 	DarwinTime          *uint64  `json:"darwinTime,omitempty"`          // Darwin switch time (nil = no fork, 0 = already on darwin)
-	QianxuesenTime      *uint64  `json:"qianxuesenTime,omitempty"`      // Qianxuesen switch time (nil = no fork, 0 = already on qianxuesen)
+	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -749,9 +749,9 @@ func (c *ChainConfig) IsDarwin(now uint64) bool {
 	return isForkedTime(now, c.DarwinTime)
 }
 
-// IsQianxuesen returns whether num is either equal to the Qianxuesen fork block or greater.
-func (c *ChainConfig) IsQianxuesen(now uint64) bool {
-	return isForkedTime(now, c.QianxuesenTime)
+// IsMorph203 returns whether num is either equal to the Qianxuesen fork block or greater.
+func (c *ChainConfig) IsMorph203(now uint64) bool {
+	return isForkedTime(now, c.Morph203Time)
 }
 
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
@@ -966,7 +966,7 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsDarwin, IsQianxuesen            bool
+	IsBernoulli, IsCurie, IsDarwin, IsMorph203              bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -992,6 +992,6 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsBernoulli:      c.IsBernoulli(num),
 		IsCurie:          c.IsCurie(num),
 		IsDarwin:         c.IsDarwin(time),
-		IsQianxuesen:     c.IsQianxuesen(time),
+		IsMorph203:       c.IsMorph203(time),
 	}
 }

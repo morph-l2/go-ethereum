@@ -74,7 +74,7 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 	if cfg.JumpTable[STOP] == nil {
 		var jt JumpTable
 		switch {
-		case evm.chainRules.IsQianxuesen:
+		case evm.chainRules.IsMorph203:
 			jt = qianxuesenInstructionSet
 		case evm.chainRules.IsDarwin:
 			jt = darwinInstructionSet

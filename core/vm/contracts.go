@@ -193,7 +193,7 @@ func init() {
 // ActivePrecompiles returns the precompiles enabled with the current configuration.
 func ActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
-	case rules.IsQianxuesen:
+	case rules.IsMorph203:
 		return PrecompiledAddressesQianxuesen
 	case rules.IsBernoulli:
 		return PrecompiledAddressesBernoulli

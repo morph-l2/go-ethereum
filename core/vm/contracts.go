@@ -127,9 +127,9 @@ var PrecompiledContractsBernoulli = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{9}): &blake2FDisabled{},
 }
 
-// PrecompiledContractsQianxuesen contains the default set of pre-compiled Ethereum
-// contracts used in the Qainxuesen release.
-var PrecompiledContractsQianxuesen = map[common.Address]PrecompiledContract{
+// PrecompiledContractsMorph203 contains the default set of pre-compiled Ethereum
+// contracts used in the Morph203 release.
+var PrecompiledContractsMorph203 = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{0x1}): &ecrecover{},
 	common.BytesToAddress([]byte{0x2}): &sha256hash{},
 	common.BytesToAddress([]byte{0x3}): &ripemd160hash{},
@@ -157,7 +157,7 @@ var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
 }
 
 var (
-	PrecompiledAddressesQianxuesen []common.Address
+	PrecompiledAddressesMorph203   []common.Address
 	PrecompiledAddressesBernoulli  []common.Address
 	PrecompiledAddressesArchimedes []common.Address
 	PrecompiledAddressesBerlin     []common.Address
@@ -185,8 +185,8 @@ func init() {
 	for k := range PrecompiledContractsBernoulli {
 		PrecompiledAddressesBernoulli = append(PrecompiledAddressesBernoulli, k)
 	}
-	for k := range PrecompiledContractsQianxuesen {
-		PrecompiledAddressesQianxuesen = append(PrecompiledAddressesQianxuesen, k)
+	for k := range PrecompiledContractsMorph203 {
+		PrecompiledAddressesMorph203 = append(PrecompiledAddressesMorph203, k)
 	}
 }
 
@@ -194,7 +194,7 @@ func init() {
 func ActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
 	case rules.IsMorph203:
-		return PrecompiledAddressesQianxuesen
+		return PrecompiledAddressesMorph203
 	case rules.IsBernoulli:
 		return PrecompiledAddressesBernoulli
 	case rules.IsArchimedes:

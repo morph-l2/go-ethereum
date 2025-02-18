@@ -60,26 +60,10 @@ var (
 	londonInstructionSet           = newLondonInstructionSet()
 	shanghaiInstructionSet         = newShanghaiInstructionSet()
 	curieInstructionSet            = newCurieInstructionSet()
-	darwinInstructionSet           = newDarwinInstructionSet()
-	morph203InstructionSet         = newMorph203InstructionSet()
 )
 
 // JumpTable contains the EVM opcodes supported at a given fork.
 type JumpTable [256]*operation
-
-// newMorph203InstructionSet returns the frontier, homestead, byzantium,
-// contantinople, istanbul, petersburg, berlin, london, shanghai, curie, darwin and morph203 instructions.
-func newMorph203InstructionSet() JumpTable {
-	instructionSet := newDarwinInstructionSet()
-	return instructionSet
-}
-
-// newDarwinInstructionSet returns the frontier, homestead, byzantium,
-// contantinople, istanbul, petersburg, berlin, london, shanghai, curie, and darwin instructions.
-func newDarwinInstructionSet() JumpTable {
-	instructionSet := newCurieInstructionSet()
-	return instructionSet
-}
 
 // newCurieInstructionSet returns the frontier, homestead, byzantium,
 // contantinople, istanbul, petersburg, berlin, london, shanghai, and curie instructions.

@@ -281,7 +281,6 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(6330180),
-		DarwinTime:              nil,
 		Morph203Time:            nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
@@ -312,7 +311,6 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              nil,
 		Morph203Time:            nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
@@ -349,7 +347,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -385,7 +383,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
@@ -416,7 +414,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -448,7 +446,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -539,7 +537,6 @@ type ChainConfig struct {
 	ShanghaiBlock       *big.Int `json:"shanghaiBlock,omitempty"`       // Shanghai switch block (nil = no fork, 0 = already on shanghai)
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
-	DarwinTime          *uint64  `json:"darwinTime,omitempty"`          // Darwin switch time (nil = no fork, 0 = already on darwin)
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
@@ -633,7 +630,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Darwin: %v, Morph203: %v, Engine: %v, Morph config: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -653,7 +650,6 @@ func (c *ChainConfig) String() string {
 		c.ShanghaiBlock,
 		c.BernoulliBlock,
 		c.CurieBlock,
-		c.DarwinTime,
 		c.Morph203Time,
 		engine,
 		c.Morph,
@@ -747,11 +743,6 @@ func (c *ChainConfig) IsCurie(num *big.Int) bool {
 	return isForked(c.CurieBlock, num)
 }
 
-// IsDarwin returns whether num is either equal to the Darwin fork block or greater.
-func (c *ChainConfig) IsDarwin(now uint64) bool {
-	return isForkedTime(now, c.DarwinTime)
-}
-
 // IsMorph203 returns whether num is either equal to the Morph203 fork block or greater.
 func (c *ChainConfig) IsMorph203(now uint64) bool {
 	return isForkedTime(now, c.Morph203Time)
@@ -811,7 +802,6 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "shanghaiBlock", block: c.ShanghaiBlock, optional: true},
 		{name: "bernoulliBlock", block: c.BernoulliBlock, optional: true},
 		{name: "curieBlock", block: c.CurieBlock, optional: true},
-		{name: "darwinTime", timestamp: c.DarwinTime, optional: true},
 		{name: "morph203Time", timestamp: c.Morph203Time, optional: true},
 	} {
 		if lastFork.name != "" {
@@ -988,7 +978,7 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsDarwin, IsMorph203              bool
+	IsBernoulli, IsCurie, IsMorph203                        bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1013,7 +1003,6 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsShanghai:       c.IsShanghai(num),
 		IsBernoulli:      c.IsBernoulli(num),
 		IsCurie:          c.IsCurie(num),
-		IsDarwin:         c.IsDarwin(time),
 		IsMorph203:       c.IsMorph203(time),
 	}
 }

@@ -1,4 +1,5 @@
 // Copyright 2014 The go-ethereum Authors
+// Copyright 2014 The go-ethereum Authors
 // This file is part of the go-ethereum library.
 //
 // The go-ethereum library is free software: you can redistribute it and/or modify
@@ -74,10 +75,6 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 	if cfg.JumpTable[STOP] == nil {
 		var jt JumpTable
 		switch {
-		case evm.chainRules.IsMorph203:
-			jt = morph203InstructionSet
-		case evm.chainRules.IsDarwin:
-			jt = darwinInstructionSet
 		case evm.chainRules.IsCurie:
 			jt = curieInstructionSet
 		case evm.chainRules.IsShanghai:

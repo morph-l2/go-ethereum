@@ -168,7 +168,8 @@ func (miner *Miner) prepareWork(genParams *generateParams) (*environment, error)
 		timestamp = parent.Time() + 1
 	}
 	var coinBase common.Address
-	if genParams.coinbase != (common.Address{}) {
+	if miner.chainConfig.IsMorph204(timestamp) && // only when Morph204 is activated can we set the coinbase
+		genParams.coinbase != (common.Address{}) {
 		coinBase = genParams.coinbase
 	}
 	header, err := miner.makeHeader(parent, timestamp, coinBase)

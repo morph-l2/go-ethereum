@@ -24,6 +24,7 @@ import (
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/txpool"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/ethdb"
 )
@@ -178,7 +179,7 @@ func (req *BloomRequest) StoreResult(db ethdb.Database) {
 
 // TxStatus describes the status of a transaction
 type TxStatus struct {
-	Status core.TxStatus
+	Status txpool.TxStatus
 	Lookup *rawdb.LegacyTxLookupEntry `rlp:"nil"`
 	Error  string
 }

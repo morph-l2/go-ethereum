@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/consensus/l2"
+	"github.com/morph-l2/go-ethereum/core/txpool/legacypool"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/consensus"
@@ -84,7 +85,7 @@ var Defaults = Config{
 	SnapshotCache:           102,
 	FilterLogCacheSize:      32,
 	Miner:                   miner.DefaultConfig,
-	TxPool:                  core.DefaultTxPoolConfig,
+	TxPool:                  legacypool.DefaultConfig,
 	RPCGasCap:               50000000,
 	RPCEVMTimeout:           5 * time.Second,
 	GPO:                     FullNodeGPO,
@@ -176,7 +177,7 @@ type Config struct {
 	Ethash ethash.Config
 
 	// Transaction pool options
-	TxPool core.TxPoolConfig
+	TxPool legacypool.Config
 
 	// Gas Price Oracle options
 	GPO gasprice.Config

@@ -264,5 +264,5 @@ func sendTransfer(config params.ChainConfig, ethService *eth.Ethereum) error {
 		return err
 	}
 	testNonce++
-	return ethService.TxPool().AddLocal(tx)
+	return ethService.TxPool().Add([]*types.Transaction{tx}, true, false)[0]
 }

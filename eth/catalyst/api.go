@@ -303,7 +303,7 @@ func (api *consensusAPI) NewBlock(params executableData) (*NewBlockResponse, err
 // Used in tests to add a the list of transactions from a block to the tx pool.
 func (api *consensusAPI) addBlockTxs(block *types.Block) error {
 	for _, tx := range block.Transactions() {
-		api.eth.TxPool().AddLocal(tx)
+		api.eth.TxPool().Add([]*types.Transaction{tx}, true, false)
 	}
 	return nil
 }

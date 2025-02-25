@@ -31,6 +31,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/txpool"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/ethdb"
@@ -299,7 +300,7 @@ func testGetTxStatusFromUnindexedPeers(t *testing.T, protocol int) {
 			if testHash == (common.Hash{}) {
 				testHash = tx.Hash()
 				testStatus = light.TxStatus{
-					Status: core.TxStatusIncluded,
+					Status: txpool.TxStatusIncluded,
 					Lookup: &rawdb.LegacyTxLookupEntry{
 						BlockHash:  block.Hash(),
 						BlockIndex: block.NumberU64(),
@@ -332,7 +333,7 @@ func testGetTxStatusFromUnindexedPeers(t *testing.T, protocol int) {
 			if txLookup != txIndexUnlimited && (txLookup == txIndexDisabled || number < min) {
 				continue // Filter out unindexed transactions
 			}
-			stats[i].Status = core.TxStatusIncluded
+			stats[i].Status = txpool.TxStatusIncluded
 			stats[i].Lookup = &rawdb.LegacyTxLookupEntry{
 				BlockHash:  blockHashes[hash],
 				BlockIndex: number,

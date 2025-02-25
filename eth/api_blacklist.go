@@ -5,14 +5,14 @@ import (
 	"errors"
 
 	"github.com/morph-l2/go-ethereum/common"
-	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/txpool"
 )
 
 var ErrBlacklistDisabled = errors.New("blacklist is not enabled")
 
 // BlacklistAPI provides private RPC methods to manange blacklist
 type BlacklistAPI struct {
-	blacklist *core.TxBlacklist
+	blacklist *txpool.Blacklist
 }
 
 func NewBlocklistAPI(eth *Ethereum) *BlacklistAPI {

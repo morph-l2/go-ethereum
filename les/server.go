@@ -23,6 +23,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common/mclock"
 	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/txpool"
 	"github.com/morph-l2/go-ethereum/eth/ethconfig"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/les/flowcontrol"
@@ -50,7 +51,7 @@ type ethBackend interface {
 	BloomIndexer() *core.ChainIndexer
 	ChainDb() ethdb.Database
 	Synced() bool
-	TxPool() *core.TxPool
+	TxPool() *txpool.TxPool
 }
 
 type LesServer struct {

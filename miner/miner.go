@@ -14,6 +14,7 @@ import (
 	"github.com/morph-l2/go-ethereum/consensus"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/txpool"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/log"
@@ -23,7 +24,7 @@ import (
 // Backend wraps all methods required for mining.
 type Backend interface {
 	BlockChain() *core.BlockChain
-	TxPool() *core.TxPool
+	TxPool() *txpool.TxPool
 	ChainDb() ethdb.Database
 	SetSynced()
 }
@@ -53,7 +54,7 @@ type Miner struct {
 	chainConfig *params.ChainConfig
 	engine      consensus.Engine
 	chainDB     ethdb.Database
-	txpool      *core.TxPool
+	txpool      *txpool.TxPool
 	chain       *core.BlockChain
 	pending     *pending
 	pendingMu   sync.Mutex // Lock protects the pending block

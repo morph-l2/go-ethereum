@@ -204,7 +204,7 @@ type LegacyPool struct {
 	config      Config
 	chainconfig *params.ChainConfig
 	chain       BlockChain
-	gasPrice    *big.Int
+	gasPrice    atomic.Pointer[big.Int]
 	txMaxSize   int
 	txFeed      event.Feed
 	scope       event.SubscriptionScope
@@ -276,7 +276,6 @@ func New(config Config, chainconfig *params.ChainConfig, chain BlockChain) *Lega
 		reorgDoneCh:     make(chan chan struct{}),
 		reorgShutdownCh: make(chan struct{}),
 		initDoneCh:      make(chan struct{}),
-		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -308,7 +307,7 @@ func (pool *LegacyPool) Filter(tx *types.Transaction) bool {
 // goroutines will be spun up and the pool deemed operational afterwards.
 func (pool *LegacyPool) Init(gasPrice *big.Int, head *types.Header) error {
 	// Set the basic pool parameters
-	pool.gasPrice = gasPrice
+	pool.gasPrice.Store(gasPrice)
 	pool.reset(nil, head)
 
 	// Start the reorg loop early so it can handle requests generated during journal loading.
@@ -442,7 +441,7 @@ func (pool *LegacyPool) GasPrice() *big.Int {
 	pool.mu.RLock()
 	defer pool.mu.RUnlock()
 
-	return new(big.Int).Set(pool.gasPrice)
+	return new(big.Int).Set(pool.gasPrice.Load())
 }
 
 // SetGasPrice updates the minimum price required by the transaction pool for a
@@ -451,8 +450,9 @@ func (pool *LegacyPool) SetGasPrice(price *big.Int) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	old := pool.gasPrice
-	pool.gasPrice = price
+	old := pool.gasPrice.Load()
+	pool.gasPrice.Store(new(big.Int).Set(price))
+
 	// if the min miner fee increased, remove transactions below the new threshold
 	if price.Cmp(old) > 0 {
 		// pool.priced is sorted by GasFeeCap, so we have to iterate through pool.all instead
@@ -654,7 +654,7 @@ func (pool *LegacyPool) validateTx(tx *types.Transaction, local bool) error {
 		return txpool.ErrTxNotAllowed
 	}
 	// Drop non-local transactions under our own minimal accepted gas price or tip.
-	if !local && tx.GasFeeCapIntCmp(pool.gasPrice) < 0 {
+	if !local && tx.GasFeeCapIntCmp(pool.gasPrice.Load()) < 0 {
 		return txpool.ErrUnderpriced
 	}
 	// Ensure the transaction adheres to nonce ordering

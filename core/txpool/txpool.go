@@ -45,12 +45,6 @@ type BlockChain interface {
 
 	// SubscribeChainHeadEvent subscribes to new blocks being added to the chain.
 	SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription
-
-	// CurrentBlock() *types.Block
-	// GetBlock(hash common.Hash, number uint64) *types.Block
-	// StateAt(root common.Hash) (*state.StateDB, error)
-
-	// SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription
 }
 
 // TxPool is an aggregator for various transaction specific pools, collectively

@@ -716,6 +716,10 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 		invalidTxMeter.Mark(1)
 		return false, err
 	}
+
+	// already validated by this point
+	from, _ := types.Sender(pool.signer, tx)
+
 	// If the transaction pool is full, discard underpriced transactions
 	if uint64(pool.all.Slots()+numSlots(tx)) > pool.config.GlobalSlots+pool.config.GlobalQueue {
 		// If the new transaction is underpriced, don't accept it
@@ -724,6 +728,7 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 			underpricedTxMeter.Mark(1)
 			return false, txpool.ErrUnderpriced
 		}
+
 		// We're about to replace a transaction. The reorg does a more thorough
 		// analysis of what to remove and how, but it runs async. We don't want to
 		// do too many replacements between reorg-runs, so we cap the number of
@@ -744,17 +749,37 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 			overflowedTxMeter.Mark(1)
 			return false, ErrTxPoolOverflow
 		}
-		// Bump the counter of rejections-since-reorg
-		pool.changesSinceReorg += len(drop)
+
+		// If the new transaction is a future transaction it should never churn pending transactions
+		if !isLocal && pool.isGapped(from, tx) {
+			var replacesPending bool
+			for _, dropTx := range drop {
+				dropSender, _ := types.Sender(pool.signer, dropTx)
+				if list := pool.pending[dropSender]; list != nil && list.Overlaps(dropTx) {
+					replacesPending = true
+					break
+				}
+			}
+			// Add all transactions back to the priced queue
+			if replacesPending {
+				for _, dropTx := range drop {
+					pool.priced.Put(dropTx, false)
+				}
+				log.Trace("Discarding future transaction replacing pending tx", "hash", hash)
+				return false, txpool.ErrFutureReplacePending
+			}
+		}
+
 		// Kick out the underpriced remote transactions.
 		for _, tx := range drop {
 			log.Trace("Discarding freshly underpriced transaction", "hash", tx.Hash(), "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
 			underpricedTxMeter.Mark(1)
-			pool.removeTx(tx.Hash(), false)
+			dropped := pool.removeTx(tx.Hash(), false)
+			pool.changesSinceReorg += dropped
 		}
 	}
+
 	// Try to replace an existing transaction in the pending pool
-	from, _ := types.Sender(pool.signer, tx) // already validated
 	if list := pool.pending[from]; list != nil && list.Overlaps(tx) {
 		// Nonce already pending, check if required price bump is met
 		inserted, old := list.Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
@@ -796,6 +821,30 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 
 	log.Trace("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
 	return replaced, nil
+}
+
+// isGapped reports whether the given transaction is immediately executable.
+func (pool *LegacyPool) isGapped(from common.Address, tx *types.Transaction) bool {
+	// Short circuit if transaction falls within the scope of the pending list
+	// or matches the next pending nonce which can be promoted as an executable
+	// transaction afterwards. Note, the tx staleness is already checked in
+	// 'validateTx' function previously.
+	next := pool.pendingNonces.get(from)
+	if tx.Nonce() <= next {
+		return false
+	}
+	// The transaction has a nonce gap with pending list, it's only considered
+	// as executable if transactions in queue can fill up the nonce gap.
+	queue, ok := pool.queue[from]
+	if !ok {
+		return true
+	}
+	for nonce := next; nonce < tx.Nonce(); nonce++ {
+		if !queue.Overlaps(tx) {
+			return true // txs in queue can't fill up the nonce gap
+		}
+	}
+	return false
 }
 
 // enqueueTx inserts a new transaction into the non-executable transaction queue.
@@ -1051,11 +1100,12 @@ func (pool *LegacyPool) RemoveTx(hash common.Hash, outofbound bool) {
 
 // removeTx removes a single transaction from the queue, moving all subsequent
 // transactions back to the future queue.
-func (pool *LegacyPool) removeTx(hash common.Hash, outofbound bool) {
+// Returns the number of transactions removed from the pending queue.
+func (pool *LegacyPool) removeTx(hash common.Hash, outofbound bool) int {
 	// Fetch the transaction we wish to delete
 	tx := pool.all.Get(hash)
 	if tx == nil {
-		return
+		return 0
 	}
 	addr, _ := types.Sender(pool.signer, tx) // already validated during insertion
 
@@ -1083,7 +1133,7 @@ func (pool *LegacyPool) removeTx(hash common.Hash, outofbound bool) {
 			pool.pendingNonces.setIfLower(addr, tx.Nonce())
 			// Reduce the pending counter
 			pendingGauge.Dec(int64(1 + len(invalids)))
-			return
+			return 1 + len(invalids)
 		}
 	}
 	// Transaction is in the future queue
@@ -1097,6 +1147,7 @@ func (pool *LegacyPool) removeTx(hash common.Hash, outofbound bool) {
 			delete(pool.beats, addr)
 		}
 	}
+	return 0
 }
 
 // requestReset requests a pool reset to the new head block.

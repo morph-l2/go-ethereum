@@ -64,7 +64,7 @@ type executionResult struct {
 }
 
 func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*ExecutableL2Data, error) {
-	log.Info("Assembling block", "block number", params.Number)
+	log.Info("Assembling block", "block number", params.Number, "coinbase", params.Coinbase)
 	parent := api.eth.BlockChain().CurrentHeader()
 	expectedBlockNumber := parent.Number.Uint64() + 1
 	if params.Number != expectedBlockNumber {

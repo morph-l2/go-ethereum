@@ -37,7 +37,7 @@ func (t ZktrieProofTracer) Available() bool {
 
 // NewProofTracer is not in Db interface and used explictily for reading proof in storage trie (not updated by the dirty value)
 func (s *StateDB) NewProofTracer(trieS Trie) ZktrieProofTracer {
-	if s.IsZktrie() {
+	if s.IsZkTrie() {
 		zkTrie := trieS.(*zktrie.ZkTrie)
 		if zkTrie == nil {
 			panic("unexpected trie type for zktrie")
@@ -52,10 +52,19 @@ func (s *StateDB) GetStorageTrieForProof(addr common.Address) (Trie, error) {
 
 	// try the trie in stateObject first, else we would create one
 	stateObject := s.getStateObject(addr)
+
+	addrHash := crypto.Keccak256Hash(addr[:])
+	if s.IsPathZkTrie() {
+		k, err := zkt.ToSecureKey(addr.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("can't create storage trie on ToSecureKey %s: %v ", addr.Hex(), err)
+		}
+		addrHash = common.BigToHash(k)
+	}
+
 	if stateObject == nil {
 		// still return a empty trie
-		addrHash := crypto.Keccak256Hash(addr[:])
-		dummy_trie, _ := s.db.OpenStorageTrie(addrHash, common.Hash{})
+		dummy_trie, _ := s.db.OpenStorageTrie(addrHash, common.Hash{}, common.Hash{})
 		return dummy_trie, nil
 	}
 
@@ -63,7 +72,7 @@ func (s *StateDB) GetStorageTrieForProof(addr common.Address) (Trie, error) {
 	var err error
 	if trie == nil {
 		// use a new, temporary trie
-		trie, err = s.db.OpenStorageTrie(stateObject.addrHash, stateObject.data.Root)
+		trie, err = s.db.OpenStorageTrie(addrHash, stateObject.data.Root, s.originalRoot)
 		if err != nil {
 			return nil, fmt.Errorf("can't create storage trie on root %s: %v ", stateObject.data.Root, err)
 		}
@@ -78,7 +87,7 @@ func (s *StateDB) GetSecureTrieProof(trieProve TrieProve, key common.Hash) ([][]
 
 	var proof proofList
 	var err error
-	if s.IsZktrie() {
+	if s.IsZkTrie() {
 		key_s, _ := zkt.ToSecureKeyBytes(key.Bytes())
 		err = trieProve.Prove(key_s.Bytes(), 0, &proof)
 	} else {

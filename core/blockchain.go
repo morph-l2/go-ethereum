@@ -45,6 +45,8 @@ import (
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/trie"
+	"github.com/morph-l2/go-ethereum/triedb/hashdb"
+	"github.com/morph-l2/go-ethereum/triedb/pathdb"
 )
 
 var (
@@ -135,6 +137,10 @@ type CacheConfig struct {
 	Preimages           bool          // Whether to store preimage of trie key to the disk
 
 	SnapshotWait bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
+
+	PathSyncFlush   bool // Whether sync flush the trienodebuffer of pathdb to disk.
+	JournalFilePath string
+	StateScheme     string // Scheme used to store ethereum states and zktrit nodes on top
 }
 
 // defaultCacheConfig are the default caching values if none are specified by the
@@ -145,6 +151,33 @@ var defaultCacheConfig = &CacheConfig{
 	TrieTimeLimit:  5 * time.Minute,
 	SnapshotLimit:  256,
 	SnapshotWait:   true,
+}
+
+// triedbConfig derives the configures for trie database.
+func (c *CacheConfig) triedbConfig(zktrie bool) *trie.Config {
+	config := &trie.Config{
+		Cache:      c.TrieCleanLimit,
+		Journal:    c.TrieCleanJournal,
+		Preimages:  c.Preimages,
+		Zktrie:     zktrie,
+		PathZkTrie: zktrie && c.StateScheme == rawdb.PathScheme,
+	}
+	if config.PathZkTrie {
+		config.PathDB = &pathdb.Config{
+			SyncFlush:       c.PathSyncFlush,
+			CleanCacheSize:  c.TrieCleanLimit * 1024 * 1024,
+			DirtyCacheSize:  c.TrieCleanLimit * 1024 * 1024,
+			JournalFilePath: c.JournalFilePath,
+		}
+	} else {
+		if config.Zktrie {
+			config.HashDB = &hashdb.Config{
+				Cache:   c.TrieCleanLimit,
+				Journal: c.TrieCleanJournal,
+			}
+		}
+	}
+	return config
 }
 
 // BlockChain represents the canonical chain given a database with a genesis
@@ -240,16 +273,11 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	}
 
 	bc := &BlockChain{
-		chainConfig: chainConfig,
-		cacheConfig: cacheConfig,
-		db:          db,
-		triegc:      prque.New(nil),
-		stateCache: state.NewDatabaseWithConfig(db, &trie.Config{
-			Cache:     cacheConfig.TrieCleanLimit,
-			Journal:   cacheConfig.TrieCleanJournal,
-			Preimages: cacheConfig.Preimages,
-			Zktrie:    chainConfig.Morph.ZktrieEnabled(),
-		}),
+		chainConfig:    chainConfig,
+		cacheConfig:    cacheConfig,
+		db:             db,
+		triegc:         prque.New(nil),
+		stateCache:     state.NewDatabaseWithConfig(db, cacheConfig.triedbConfig(chainConfig.Morph.ZktrieEnabled())),
 		quit:           make(chan struct{}),
 		chainmu:        syncx.NewClosableMutex(),
 		shouldPreserve: shouldPreserve,
@@ -809,42 +837,49 @@ func (bc *BlockChain) Stop() {
 		}
 	}
 
-	// Ensure the state of a recent block is also stored to disk before exiting.
-	// We're writing three different states to catch different restart scenarios:
-	//  - HEAD:     So we don't need to reprocess any blocks in the general case
-	//  - HEAD-1:   So we don't do large reorgs if our HEAD becomes an uncle
-	//  - HEAD-127: So we have a hard limit on the number of blocks reexecuted
-	if !bc.cacheConfig.TrieDirtyDisabled {
-		triedb := bc.stateCache.TrieDB()
+	if bc.stateCache.TrieDB().Scheme() == rawdb.PathScheme {
+		// Ensure that the in-memory trie nodes are journaled to disk properly.
+		if err := bc.stateCache.TrieDB().Journal(bc.CurrentBlock().Root()); err != nil {
+			log.Info("Failed to journal in-memory trie nodes", "err", err)
+		}
+	} else {
+		// Ensure the state of a recent block is also stored to disk before exiting.
+		// We're writing three different states to catch different restart scenarios:
+		//  - HEAD:     So we don't need to reprocess any blocks in the general case
+		//  - HEAD-1:   So we don't do large reorgs if our HEAD becomes an uncle
+		//  - HEAD-127: So we have a hard limit on the number of blocks reexecuted
+		if !bc.cacheConfig.TrieDirtyDisabled {
+			triedb := bc.stateCache.TrieDB()
 
-		for _, offset := range []uint64{0, 1, TriesInMemory - 1} {
-			if number := bc.CurrentBlock().NumberU64(); number > offset {
-				recent := bc.GetBlockByNumber(number - offset)
+			for _, offset := range []uint64{0, 1, TriesInMemory - 1} {
+				if number := bc.CurrentBlock().NumberU64(); number > offset {
+					recent := bc.GetBlockByNumber(number - offset)
 
-				log.Info("Writing cached state to disk", "block", recent.Number(), "hash", recent.Hash(), "root", recent.Root())
-				if err := triedb.Commit(recent.Root(), true, nil); err != nil {
+					log.Info("Writing cached state to disk", "block", recent.Number(), "hash", recent.Hash(), "root", recent.Root())
+					if err := triedb.Commit(recent.Root(), true, nil); err != nil {
+						log.Error("Failed to commit recent state trie", "err", err)
+					}
+				}
+			}
+			if snapBase != (common.Hash{}) {
+				log.Info("Writing snapshot state to disk", "root", snapBase)
+				if err := triedb.Commit(snapBase, true, nil); err != nil {
 					log.Error("Failed to commit recent state trie", "err", err)
 				}
 			}
-		}
-		if snapBase != (common.Hash{}) {
-			log.Info("Writing snapshot state to disk", "root", snapBase)
-			if err := triedb.Commit(snapBase, true, nil); err != nil {
-				log.Error("Failed to commit recent state trie", "err", err)
+			for !bc.triegc.Empty() {
+				triedb.Dereference(bc.triegc.PopItem().(common.Hash))
+			}
+			if size, _ := triedb.Size(); size != 0 {
+				log.Error("Dangling trie nodes after full cleanup")
 			}
 		}
-		for !bc.triegc.Empty() {
-			triedb.Dereference(bc.triegc.PopItem().(common.Hash))
+		// Ensure all live cached entries be saved into disk, so that we can skip
+		// cache warmup when node restarts.
+		if bc.cacheConfig.TrieCleanJournal != "" {
+			triedb := bc.stateCache.TrieDB()
+			triedb.SaveCache(bc.cacheConfig.TrieCleanJournal)
 		}
-		if size, _ := triedb.Size(); size != 0 {
-			log.Error("Dangling trie nodes after full cleanup")
-		}
-	}
-	// Ensure all live cached entries be saved into disk, so that we can skip
-	// cache warmup when node restarts.
-	if bc.cacheConfig.TrieCleanJournal != "" {
-		triedb := bc.stateCache.TrieDB()
-		triedb.SaveCache(bc.cacheConfig.TrieCleanJournal)
 	}
 	log.Info("Blockchain stopped")
 }

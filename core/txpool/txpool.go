@@ -388,3 +388,46 @@ func (p *TxPool) RemoveTx(hash common.Hash, outofbound bool) {
 		}
 	}
 }
+
+// AddBundle enqueues a bundle into the pool if it is valid.
+func (p *TxPool) AddBundle(bundle *types.Bundle, originBundle *types.SendBundleArgs) error {
+	// Try to find a sub pool that accepts the bundle
+	for _, subpool := range p.subpools {
+		if bundleSubpool, ok := subpool.(BundleSubpool); ok {
+			if bundleSubpool.FilterBundle(bundle) {
+				return bundleSubpool.AddBundle(bundle, originBundle)
+			}
+		}
+	}
+	return errors.New("no subpool accepts the bundle")
+}
+
+// PruneBundle removes a bundle from the pool.
+func (p *TxPool) PruneBundle(hash common.Hash) {
+	for _, subpool := range p.subpools {
+		if bundleSubpool, ok := subpool.(BundleSubpool); ok {
+			bundleSubpool.PruneBundle(hash)
+			return // Only one subpool can have the bundle
+		}
+	}
+}
+
+// PendingBundles retrieves all currently processable bundles.
+func (p *TxPool) PendingBundles(blockNumber uint64, blockTimestamp uint64) []*types.Bundle {
+	for _, subpool := range p.subpools {
+		if bundleSubpool, ok := subpool.(BundleSubpool); ok {
+			return bundleSubpool.PendingBundles(blockNumber, blockTimestamp)
+		}
+	}
+	return nil
+}
+
+// AllBundles returns all the bundles currently in the pool
+func (p *TxPool) AllBundles() []*types.Bundle {
+	for _, subpool := range p.subpools {
+		if bundleSubpool, ok := subpool.(BundleSubpool); ok {
+			return bundleSubpool.AllBundles()
+		}
+	}
+	return nil
+}

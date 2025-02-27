@@ -112,6 +112,12 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 		},
 	},
 	{
+		Name: "TRANSACTION POOL (BUNDLE)",
+		Flags: []cli.Flag{
+			utils.BundlePoolGlobalSlotsFlag,
+		},
+	},
+	{
 		Name: "PERFORMANCE TUNING",
 		Flags: []cli.Flag{
 			utils.CacheFlag,
@@ -190,6 +196,14 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.MinerEtherbaseFlag,
 			utils.MinerExtraDataFlag,
 			utils.MinerMaxAccountsNumFlag,
+		},
+	},
+	{
+		Name: "MEV",
+		Flags: []cli.Flag{
+			utils.MevEnabledFlag,
+			utils.MevBundleReceiverUrlFlag,
+			utils.MevBundleGasPriceFloorFlag,
 		},
 	},
 	{

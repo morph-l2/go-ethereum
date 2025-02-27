@@ -3,6 +3,7 @@ package miner
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,12 +16,16 @@ import (
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
+
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 var (
 	errBlockInterruptedByNewHead  = errors.New("new head arrived while building block")
 	errBlockInterruptedByRecommit = errors.New("recommit interrupt while building block")
 	errBlockInterruptedByTimeout  = errors.New("timeout while building block")
+
+	errFillBundleInterrupted = errors.New("fill bundle interrupted")
 
 	// Metrics for the skipped txs
 	l1TxGasLimitExceededCounter = metrics.NewRegisteredCounter("miner/skipped_txs/l1/gas_limit_exceeded", nil)
@@ -49,6 +54,8 @@ type environment struct {
 
 	nextL1MsgIndex uint64 // next L1 queue index to be processed
 	isSimulate     bool
+
+	UnRevertible mapset.Set[common.Hash]
 }
 
 const (
@@ -56,6 +63,7 @@ const (
 	commitInterruptNewHead
 	commitInterruptResubmit
 	commitInterruptTimeout
+	commitInterruptBundleCommit
 )
 
 type getWorkResp struct {
@@ -103,6 +111,35 @@ func (miner *Miner) generateWorkLoop() {
 	}
 }
 
+// copy creates a deep copy of environment.
+func (env *environment) copy() *environment {
+	cpy := &environment{
+		signer:   env.signer,
+		state:    env.state.Copy(),
+		tcount:   env.tcount,
+		header:   types.CopyHeader(env.header),
+		receipts: copyReceipts(env.receipts),
+	}
+	if env.gasPool != nil {
+		gasPool := *env.gasPool
+		cpy.gasPool = &gasPool
+	}
+	cpy.txs = make([]*types.Transaction, len(env.txs))
+	copy(cpy.txs, env.txs)
+
+	return cpy
+}
+
+// copyReceipts makes a deep copy of the given receipts.
+func copyReceipts(receipts []*types.Receipt) []*types.Receipt {
+	result := make([]*types.Receipt, len(receipts))
+	for i, l := range receipts {
+		cpy := *l
+		result[i] = &cpy
+	}
+	return result
+}
+
 // generateWork generates a sealing block based on the given parameters.
 // TODO the produced state data by the transactions will be commit to database, whether the block is confirmed or not.
 // TODO this issue will persist until the current zktrie based database optimizes its strategy.
@@ -132,9 +169,28 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	fillTxErr := miner.fillTransactions(work, genParams.transactions, interrupt)
-	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
-		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
+	if miner.config.Mev.MevEnabled {
+		newWork := work.copy()
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := miner.fillTransactions(work, genParams.transactions, interrupt)
+			if err != nil && errors.Is(err, errBlockInterruptedByTimeout) {
+				log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
+			}
+		}()
+		err := miner.fillTransactionsAndBundles(work, genParams.transactions, interrupt)
+		wg.Wait()
+		if errors.Is(err, errFillBundleInterrupted) {
+			log.Warn("fill bundles is interrupted, discard", "err", err)
+			work = newWork
+		}
+	} else {
+		fillTxErr := miner.fillTransactions(work, genParams.transactions, interrupt)
+		if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
+			log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
+		}
 	}
 
 	block, finalizeErr := miner.engine.FinalizeAndAssemble(miner.chain, work.header, work.state, work.txs, nil, work.receipts)
@@ -236,6 +292,28 @@ func (miner *Miner) makeEnv(parent *types.Block, header *types.Header) (*environ
 	env.blockSize = 0
 	env.l1TxCount = 0
 	return env, nil
+}
+
+func (miner *Miner) commitBundleTransaction(env *environment, tx *types.Transaction, coinbase common.Address, unRevertible bool) ([]*types.Log, error) {
+	if tx.Type() == types.BlobTxType {
+		panic("blob tx is not supported in commitBundleTransaction")
+	}
+	var (
+		err     error
+		receipt *types.Receipt
+	)
+	common.WithTimer(l2CommitTxApplyTimer, func() {
+		receipt, err = core.ApplyTransaction(miner.chainConfig, miner.chain, &coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *miner.chain.GetVMConfig())
+	})
+	if err != nil {
+		return nil, err
+	}
+	if receipt.Status == types.ReceiptStatusFailed && unRevertible {
+		return nil, errors.New("no revertible transaction failed")
+	}
+	env.txs = append(env.txs, tx)
+	env.receipts = append(env.receipts, receipt)
+	return receipt.Logs, nil
 }
 
 func (miner *Miner) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) error {

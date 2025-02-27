@@ -337,3 +337,15 @@ func (b *LesApiBackend) StateAtTransaction(ctx context.Context, block *types.Blo
 func (b *LesApiBackend) StateAt(root common.Hash) (*state.StateDB, error) {
 	return nil, fmt.Errorf("StateAt is not supported in LES protocol")
 }
+
+func (b *LesApiBackend) SendBundle(ctx context.Context, bundle *types.Bundle, originBundle *types.SendBundleArgs) error {
+	panic("implement me")
+}
+
+func (b *LesApiBackend) SimulateGaslessBundle(bundle *types.Bundle) (*types.SimulateGaslessBundleResp, error) {
+	panic("implement me")
+}
+
+func (b *LesApiBackend) BundlePrice() *big.Int {
+	panic("implement me")
+}

@@ -97,6 +97,11 @@ type Backend interface {
 	SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription
 	BloomStatus() (uint64, uint64)
 	ServiceFilter(ctx context.Context, session *bloombits.MatcherSession)
+
+	// Bundle API
+	SimulateGaslessBundle(bundle *types.Bundle) (*types.SimulateGaslessBundleResp, error)
+	SendBundle(ctx context.Context, bundle *types.Bundle, originBundle *types.SendBundleArgs) error
+	BundlePrice() *big.Int
 }
 
 func GetAPIs(apiBackend Backend) []rpc.API {
@@ -140,6 +145,11 @@ func GetAPIs(apiBackend Backend) []rpc.API {
 			Namespace: "personal",
 			Version:   "1.0",
 			Service:   NewPrivateAccountAPI(apiBackend, nonceLock),
+			Public:    false,
+		}, {
+			Namespace: "eth",
+			Version:   "1.0",
+			Service:   NewPrivateTxBundleAPI(apiBackend),
 			Public:    false,
 		},
 	}

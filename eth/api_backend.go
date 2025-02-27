@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"sort"
 	"time"
 
 	"github.com/morph-l2/go-ethereum"
@@ -36,6 +37,7 @@ import (
 	"github.com/morph-l2/go-ethereum/eth/gasprice"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
+	"github.com/morph-l2/go-ethereum/miner"
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
@@ -339,6 +341,10 @@ func (b *EthAPIBackend) CurrentHeader() *types.Header {
 	return b.eth.blockchain.CurrentHeader()
 }
 
+func (b *EthAPIBackend) Miner() *miner.Miner {
+	return b.eth.Miner()
+}
+
 func (b *EthAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive, preferDisk bool) (*state.StateDB, error) {
 	return b.eth.stateAtBlock(ctx, block, reexec, base, checkLive, preferDisk)
 }
@@ -349,4 +355,33 @@ func (b *EthAPIBackend) StateAtTransaction(ctx context.Context, block *types.Blo
 
 func (b *EthAPIBackend) StateAt(root common.Hash) (*state.StateDB, error) {
 	return b.eth.BlockChain().StateAt(root)
+}
+
+func (b *EthAPIBackend) SendBundle(ctx context.Context, bundle *types.Bundle, originBundle *types.SendBundleArgs) error {
+	return b.eth.txPool.AddBundle(bundle, originBundle)
+}
+
+func (b *EthAPIBackend) SimulateGaslessBundle(bundle *types.Bundle) (*types.SimulateGaslessBundleResp, error) {
+	return b.Miner().SimulateGaslessBundle(bundle)
+}
+
+func (b *EthAPIBackend) BundlePrice() *big.Int {
+	bundles := b.eth.txPool.AllBundles()
+	gasFloor := big.NewInt(b.eth.config.Miner.Mev.MevBundleGasPriceFloor)
+
+	if len(bundles) == 0 {
+		return gasFloor
+	}
+
+	sort.SliceStable(bundles, func(i, j int) bool {
+		return bundles[j].Price.Cmp(bundles[i].Price) < 0
+	})
+
+	idx := len(bundles) / 2
+
+	if bundles[idx] == nil || bundles[idx].Price.Cmp(gasFloor) < 0 {
+		return gasFloor
+	}
+
+	return bundles[idx].Price
 }

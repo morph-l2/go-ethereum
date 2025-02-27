@@ -538,6 +538,7 @@ type ChainConfig struct {
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
+	Morph205Time        *uint64  `json:"morph205Time,omitempty"`        // Morph205Time switch time (nil = no fork, 0 = already on morph205)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -746,6 +747,11 @@ func (c *ChainConfig) IsCurie(num *big.Int) bool {
 // IsMorph203 returns whether num is either equal to the Morph203 fork block or greater.
 func (c *ChainConfig) IsMorph203(now uint64) bool {
 	return isForkedTime(now, c.Morph203Time)
+}
+
+// IsMorph205 returns whether num is either equal to the Morph203 fork block or greater.
+func (c *ChainConfig) IsMorph205(now uint64) bool {
+	return isForkedTime(now, c.Morph205Time)
 }
 
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.

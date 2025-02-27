@@ -444,6 +444,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	fee := new(big.Int).Add(st.l1DataFee, l2Fee)
 	st.state.AddBalance(st.evm.FeeRecipient(), fee)
 
+	// gas fee
+	//@TODO gasless fee change
+
 	return &ExecutionResult{
 		L1DataFee:  st.l1DataFee,
 		UsedGas:    st.gasUsed(),

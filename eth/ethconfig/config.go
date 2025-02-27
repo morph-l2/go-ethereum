@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/consensus/l2"
+	"github.com/morph-l2/go-ethereum/core/txpool/bundlepool"
 	"github.com/morph-l2/go-ethereum/core/txpool/legacypool"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -177,7 +178,8 @@ type Config struct {
 	Ethash ethash.Config
 
 	// Transaction pool options
-	TxPool legacypool.Config
+	TxPool     legacypool.Config
+	BundlePool bundlepool.Config
 
 	// Gas Price Oracle options
 	GPO gasprice.Config

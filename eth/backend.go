@@ -35,6 +35,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state/pruner"
 	"github.com/morph-l2/go-ethereum/core/txpool"
+	"github.com/morph-l2/go-ethereum/core/txpool/bundlepool"
 	"github.com/morph-l2/go-ethereum/core/txpool/legacypool"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
@@ -212,7 +213,15 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 
 	legacyPool := legacypool.New(config.TxPool, chainConfig, eth.blockchain)
-	eth.txPool, err = txpool.New(new(big.Int).SetUint64(config.TxPool.PriceLimit), eth.blockchain, []txpool.SubPool{legacyPool})
+	txPools := []txpool.SubPool{legacyPool}
+
+	bundlePool := &bundlepool.BundlePool{}
+	if config.Miner.Mev.MevEnabled {
+		bundlePool = bundlepool.New(config.BundlePool, config.Miner.Mev, eth.blockchain)
+		txPools = append(txPools, bundlePool)
+	}
+
+	eth.txPool, err = txpool.New(new(big.Int).SetUint64(config.TxPool.PriceLimit), eth.blockchain, txPools)
 	if err != nil {
 		return nil, err
 	}
@@ -249,6 +258,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 
 	eth.miner = miner.New(eth, config.Miner, eth.engine)
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
+	if config.Miner.Mev.MevEnabled {
+		bundlePool.SetBundleSimulator(eth.miner)
+	}
 
 	// new batch handler
 	eth.batchHandler = batch.NewBatchHandler(chainDb, eth.blockchain)

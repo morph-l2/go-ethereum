@@ -21,6 +21,20 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 )
 
+var defaultCoinBaseAddress = common.HexToAddress("0x4200000000000000000000000000000000000011")
+
+type MevConfig struct {
+	MevEnabled             bool     // Whether to enable Mev or not
+	MevReceivers           []string // The list of Mev bundle receivers
+	MevBundleGasPriceFloor int64    // The minimal bundle gas Price
+}
+
+var DefaultMevConfig = MevConfig{
+	MevEnabled:             false,
+	MevReceivers:           nil,
+	MevBundleGasPriceFloor: 1,
+}
+
 // Backend wraps all methods required for mining.
 type Backend interface {
 	BlockChain() *core.BlockChain
@@ -37,14 +51,18 @@ type Config struct {
 	GasCeil             uint64         // Target gas ceiling for mined blocks.
 	GasPrice            *big.Int       // Minimum gas price for mining a transaction
 
-	NewBlockTimeout time.Duration // The maximum time allowance for creating a new block
-	MaxAccountsNum  int           // Maximum number of accounts that miner will fetch the pending transactions of when building a new block
+	NewBlockTimeout   time.Duration // The maximum time allowance for creating a new block
+	MaxAccountsNum    int           // Maximum number of accounts that miner will fetch the pending transactions of when building a new block
+	Mev               MevConfig     // Mev configuration
+	NewPayloadTimeout time.Duration // The maximum time allowance for creating a new payload
 }
 
 // DefaultConfig contains default settings for miner.
 var DefaultConfig = Config{
-	GasCeil:  30_000_000,
-	GasPrice: big.NewInt(params.GWei / 1000),
+	GasCeil:           30_000_000,
+	GasPrice:          big.NewInt(params.GWei / 1000),
+	Mev:               DefaultMevConfig,
+	NewPayloadTimeout: 2 * time.Second,
 }
 
 // Miner creates blocks and searches for proof-of-work values.
@@ -69,6 +87,16 @@ type Miner struct {
 	getWorkCh chan *getWorkReq
 	exitCh    chan struct{}
 	wg        sync.WaitGroup
+
+	// newpayloadTimeout is the maximum timeout allowance for creating payload.
+	// The default value is 2 seconds but node operator can set it to arbitrary
+	// large value. A large timeout allowance may cause Geth to fail creating
+	// a non-empty payload within the specified time and eventually miss the slot
+	// in case there are some computation expensive transactions in txpool.
+	newpayloadTimeout time.Duration
+
+	// MEV
+	bundleCache *BundleCache
 }
 
 func New(eth Backend, config Config, engine consensus.Engine) *Miner {
@@ -101,6 +129,17 @@ func New(eth Backend, config Config, engine consensus.Engine) *Miner {
 		log.Warn("Sanitizing miner account fetch limit", "provided", miner.config.MaxAccountsNum, "updated", math.MaxInt)
 		miner.config.MaxAccountsNum = math.MaxInt
 	}
+
+	// Sanitize the timeout config for creating payload.
+	newpayloadTimeout := miner.config.NewPayloadTimeout
+	if newpayloadTimeout == 0 {
+		log.Warn("Sanitizing new payload timeout to default", "provided", newpayloadTimeout, "updated", DefaultConfig.NewPayloadTimeout)
+		newpayloadTimeout = DefaultConfig.NewPayloadTimeout
+	}
+	if newpayloadTimeout < time.Millisecond*100 {
+		log.Warn("Low payload timeout may cause high amount of non-full blocks", "provided", newpayloadTimeout, "default", DefaultConfig.NewPayloadTimeout)
+	}
+	miner.newpayloadTimeout = newpayloadTimeout
 
 	miner.wg.Add(1)
 	go miner.generateWorkLoop()
@@ -205,4 +244,48 @@ func (miner *Miner) getPending() *NewBlockResult {
 	}
 	miner.pending.update(header.Hash(), ret)
 	return ret
+}
+
+func (miner *Miner) SimulateBundle(bundle *types.Bundle) (*big.Int, error) {
+	env, err := miner.prepareSimulationEnv()
+	if err != nil {
+		return nil, err
+	}
+
+	s, err := miner.simulateBundles(env, []*types.Bundle{bundle})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(s) == 0 {
+		return nil, errors.New("no valid sim result")
+	}
+
+	return s[0].BundleGasPrice, nil
+}
+
+func (miner *Miner) SimulateGaslessBundle(bundle *types.Bundle) (*types.SimulateGaslessBundleResp, error) {
+	env, err := miner.prepareSimulationEnv()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := miner.simulateGaslessBundle(env, bundle)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func (miner *Miner) prepareSimulationEnv() (*environment, error) {
+	header := miner.chain.CurrentHeader()
+
+	params := &generateParams{
+		timestamp:  uint64(time.Now().Unix()),
+		parentHash: header.Hash(),
+		coinbase:   miner.config.PendingFeeRecipient,
+	}
+
+	return miner.prepareWork(params)
 }

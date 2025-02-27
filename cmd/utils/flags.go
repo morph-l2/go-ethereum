@@ -47,6 +47,7 @@ import (
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/txpool/bundlepool"
 	"github.com/morph-l2/go-ethereum/core/txpool/legacypool"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
@@ -407,6 +408,14 @@ var (
 		Usage: "Maximum amount of time non-executable transaction are queued",
 		Value: ethconfig.Defaults.TxPool.Lifetime,
 	}
+
+	// bundle pool settings
+	BundlePoolGlobalSlotsFlag = &cli.Uint64Flag{
+		Name:  "bundlepool.globalslots",
+		Usage: "Maximum number of executable bundle slots for all accounts",
+		Value: ethconfig.Defaults.BundlePool.GlobalSlots,
+	}
+
 	// Performance tuning settings
 	CacheFlag = cli.IntFlag{
 		Name:  "cache",
@@ -498,6 +507,23 @@ var (
 		Usage: "Maximum number of accounts that miner will fetch the pending transactions of when building a new block",
 		Value: math.MaxInt,
 	}
+
+	MevEnabledFlag = &cli.BoolFlag{
+		Name:  "mev.enable",
+		Usage: "Enable mev",
+	}
+
+	MevBundleReceiverUrlFlag = &cli.StringFlag{
+		Name:  "mev.bundle.receiver.url",
+		Usage: "Url of bundle receiver endpoint to use. Multiple urls are supported, separated by commas",
+	}
+
+	MevBundleGasPriceFloorFlag = &cli.Int64Flag{
+		Name:  "mev.bundle.gasprice.floor",
+		Usage: "Minimum bundle gas price for mev",
+		Value: ethconfig.Defaults.Miner.Mev.MevBundleGasPriceFloor,
+	}
+
 	// Account settings
 	UnlockedAccountFlag = cli.StringFlag{
 		Name:  "unlock",
@@ -1486,6 +1512,12 @@ func setEthash(ctx *cli.Context, cfg *ethconfig.Config) {
 	}
 }
 
+func setBundlePool(ctx *cli.Context, cfg *bundlepool.Config) {
+	if ctx.IsSet(BundlePoolGlobalSlotsFlag.Name) {
+		cfg.GlobalSlots = ctx.Uint64(BundlePoolGlobalSlotsFlag.Name)
+	}
+}
+
 func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.Bool(MiningEnabledFlag.Name) {
 		log.Warn("The flag --mine is deprecated and will be removed")
@@ -1507,6 +1539,16 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	}
 	if ctx.IsSet(MinerNewBlockTimeout.Name) {
 		cfg.NewBlockTimeout = ctx.Duration(MinerNewBlockTimeout.Name)
+	}
+	if ctx.IsSet(MevEnabledFlag.Name) {
+		cfg.Mev.MevEnabled = ctx.Bool(MevEnabledFlag.Name)
+	}
+	if ctx.IsSet(MevBundleReceiverUrlFlag.Name) {
+		url := ctx.String(MevBundleReceiverUrlFlag.Name)
+		cfg.Mev.MevReceivers = strings.Split(url, ",")
+	}
+	if ctx.IsSet(MevBundleGasPriceFloorFlag.Name) {
+		cfg.Mev.MevBundleGasPriceFloor = ctx.Int64(MevBundleGasPriceFloorFlag.Name)
 	}
 }
 
@@ -1602,6 +1644,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	setEtherbase(ctx, ks, cfg)
 	setGPO(ctx, &cfg.GPO, ctx.GlobalString(SyncModeFlag.Name) == "light")
 	setTxPool(ctx, &cfg.TxPool)
+	setBundlePool(ctx, &cfg.BundlePool)
 	setEthash(ctx, cfg)
 	setMiner(ctx, &cfg.Miner)
 	setWhitelist(ctx, cfg)

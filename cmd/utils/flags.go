@@ -75,6 +75,7 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rollup/tracing"
 	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 func init() {
@@ -850,6 +851,16 @@ var (
 	MaxBlockRangeFlag = cli.Int64Flag{
 		Name:  "rpc.getlogs.maxrange",
 		Usage: "Limit max fetched block range for `eth_getLogs` method",
+	}
+
+	StateSchemeFlag = &cli.StringFlag{
+		Name:  "state.scheme",
+		Usage: "Scheme to use for storing zktrie state ('hash' or 'path')",
+	}
+
+	PathDBSyncFlag = cli.BoolFlag{
+		Name:  "pathdb.sync",
+		Usage: "Sync flush nodes cache to disk in path schema",
 	}
 )
 
@@ -1718,6 +1729,19 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.EthDiscoveryURLs = SplitAndTrim(urls)
 		}
 	}
+	if ctx.GlobalIsSet(PathDBSyncFlag.Name) {
+		cfg.PathSyncFlush = true
+	}
+
+	scheme, err := ParseCLIAndConfigStateScheme(ctx.String(StateSchemeFlag.Name), cfg.StateScheme)
+	if err != nil {
+		Fatalf("%v", err)
+	}
+	cfg.StateScheme = scheme
+	if cfg.StateScheme == rawdb.PathScheme {
+		trie.GenesisStateInPathZkTrie = true
+	}
+
 	// Override any default configs for hard coded networks.
 	switch {
 	case ctx.GlobalBool(MainnetFlag.Name):
@@ -1765,6 +1789,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		// disable prefetch
 		log.Info("Prefetch disabled")
 		cfg.NoPrefetch = true
+
+		// cheked for path zktrie
+		if cfg.StateScheme == rawdb.PathScheme && !cfg.Genesis.Config.Morph.ZktrieEnabled() {
+			log.Crit("Must cooperate with zktrie enable to use --state.scheme=path")
+		}
 	case ctx.GlobalBool(MorphHoleskyFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2810
@@ -1780,6 +1809,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		// disable prefetch
 		log.Info("Prefetch disabled")
 		cfg.NoPrefetch = true
+
+		// cheked for path zktrie
+		if cfg.StateScheme == rawdb.PathScheme && !cfg.Genesis.Config.Morph.ZktrieEnabled() {
+			log.Crit("Must cooperate with zktrie enable to use --state.scheme=path")
+		}
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -2146,4 +2180,23 @@ func MigrateFlags(action func(ctx *cli.Context) error) func(*cli.Context) error 
 		}
 		return action(ctx)
 	}
+}
+
+// ParseCLIAndConfigStateScheme parses state scheme in CLI and config.
+func ParseCLIAndConfigStateScheme(cliScheme, cfgScheme string) (string, error) {
+	if cliScheme == "" {
+		if cfgScheme != "" {
+			log.Info("Use config state scheme", "config", cfgScheme)
+		}
+		return cfgScheme, nil
+	}
+
+	if !rawdb.ValidateStateScheme(cliScheme) {
+		return "", fmt.Errorf("invalid state scheme in CLI: %s", cliScheme)
+	}
+	if cfgScheme == "" || cliScheme == cfgScheme {
+		log.Info("Use CLI state scheme", "CLI", cliScheme)
+		return cliScheme, nil
+	}
+	return "", fmt.Errorf("incompatible state scheme, CLI: %s, config: %s", cliScheme, cfgScheme)
 }

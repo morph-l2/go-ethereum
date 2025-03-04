@@ -1121,7 +1121,7 @@ func (db *Database) GetFrom(root, key []byte) ([]byte, error) {
 			return n, nil
 		}
 
-		return nil, errors.New("reader is nil")
+		return nil, errors.New("state is not available")
 	}
 	return nil, nil
 }

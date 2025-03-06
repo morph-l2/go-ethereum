@@ -21,8 +21,6 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 )
 
-var defaultCoinBaseAddress = common.HexToAddress("0x4200000000000000000000000000000000000011")
-
 type MevConfig struct {
 	MevEnabled             bool     // Whether to enable Mev or not
 	MevReceivers           []string // The list of Mev bundle receivers
@@ -62,7 +60,7 @@ var DefaultConfig = Config{
 	GasCeil:           30_000_000,
 	GasPrice:          big.NewInt(params.GWei / 1000),
 	Mev:               DefaultMevConfig,
-	NewPayloadTimeout: 2 * time.Second,
+	NewPayloadTimeout: 1 * time.Second,
 }
 
 // Miner creates blocks and searches for proof-of-work values.

@@ -15,6 +15,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/fees"
 )
 
 var (
@@ -34,7 +35,6 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 	}
 
 	bundles := miner.txpool.PendingBundles(env.header.Number.Uint64(), env.header.Time)
-
 	// if no bundles, not necessary to fill transactions
 	if len(bundles) == 0 {
 		log.Warn("no bundles in bundle pool")
@@ -53,66 +53,14 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 	}
 	log.Info("fill bundles", "bundles_count", len(bundles))
 
+	// fill mempool's transactions
 	start := time.Now()
-	// fill l1 transactions
-	defer func(env *environment) {
-		if env.header != nil {
-			env.header.NextL1MsgIndex = env.nextL1MsgIndex
-		}
-	}(env)
-
-	if len(l1Transactions) > 0 {
-		l1Txs := make(map[common.Address]types.Transactions)
-		for _, tx := range l1Transactions {
-			sender, _ := types.Sender(env.signer, tx)
-			senderTxs, ok := l1Txs[sender]
-			if ok {
-				senderTxs = append(senderTxs, tx)
-				l1Txs[sender] = senderTxs
-			} else {
-				l1Txs[sender] = types.Transactions{tx}
-			}
-		}
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
-		err = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Giving up involving L2 transactions if it is simulation for L1Messages
-	if env.isSimulate {
+	err = miner.fillTransactions(env, l1Transactions, interrupt)
+	if err != nil {
 		return err
 	}
-
-	// Split the pending transactions into locals and remotes
-	// Fill the block with all available pending transactions.
-	pending := miner.txpool.PendingWithMax(miner.config.GasPrice, env.header.BaseFee, miner.config.MaxAccountsNum)
-	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-	for _, account := range miner.txpool.Locals() {
-		if txs := remoteTxs[account]; len(txs) > 0 {
-			delete(remoteTxs, account)
-			localTxs[account] = txs
-		}
-	}
-
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		err = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
-		if err != nil {
-			return err
-		}
-	}
-	if len(remoteTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		err = miner.commitTransactions(env, txs, env.header.Coinbase, nil) // always return false
-
-		if err != nil {
-			return err
-		}
-	}
-
 	log.Debug("commitTxpoolTxsTimer", "duration", common.PrettyDuration(time.Since(start)), "hash", env.header.Hash())
+
 	log.Info("fill bundles and transactions done", "total_txs_count", len(env.txs))
 	return nil
 }
@@ -126,7 +74,6 @@ func (miner *Miner) commitBundles(
 	if env.gasPool == nil {
 		env.gasPool = new(core.GasPool).AddGas(gasLimit.Gas())
 	}
-	var coalescedLogs []*types.Log
 
 	for _, tx := range txs {
 		if interrupt != nil {
@@ -154,7 +101,7 @@ func (miner *Miner) commitBundles(
 		// Start executing the transaction
 		env.state.SetTxContext(tx.Hash(), env.tcount)
 
-		logs, err := miner.commitBundleTransaction(env, tx, env.header.Coinbase, env.UnRevertible.Contains(tx.Hash()))
+		_, err := miner.commitBundleTransaction(env, tx, env.header.Coinbase, env.UnRevertible.Contains(tx.Hash()))
 		switch err {
 		case core.ErrGasLimitReached:
 			// Pop the current out-of-gas transaction without shifting in the next from the account
@@ -173,7 +120,6 @@ func (miner *Miner) commitBundles(
 
 		case nil:
 			// Everything ok, collect the logs and shift in the next transaction from the same account
-			coalescedLogs = append(coalescedLogs, logs...)
 			env.tcount++
 			continue
 
@@ -185,21 +131,6 @@ func (miner *Miner) commitBundles(
 		}
 	}
 
-	// if !miner.isRunning() && len(coalescedLogs) > 0 {
-	// 	// We don't push the pendingLogsEvent while we are mining. The reason is that
-	// 	// when we are mining, the worker will regenerate a mining block every second.
-	// 	// In order to avoid pushing the repeated pendingLog, we disable the pending log pushing.
-
-	// 	// make a copy, the state caches the logs and these logs get "upgraded" from pending to mined
-	// 	// logs by filling in the block hash when the block was mined by the local miner. This can
-	// 	// cause a race condition if a log was "upgraded" before the PendingLogsEvent is processed.
-	// 	cpy := make([]*types.Log, len(coalescedLogs))
-	// 	for i, l := range coalescedLogs {
-	// 		cpy[i] = new(types.Log)
-	// 		*cpy[i] = *l
-	// 	}
-	// 	w.pendingLogsFeed.Send(cpy)
-	// }
 	return nil
 }
 
@@ -363,6 +294,8 @@ func (miner *Miner) simulateBundle(
 		tempGasUsed   uint64
 		bundleGasUsed uint64
 		bundleGasFees = new(big.Int)
+		// l1DataFees is the total l1DataFee of all zero tip txs in the bundle
+		l1DataFees = new(big.Int)
 	)
 
 	for i, tx := range bundle.Txs {
@@ -408,11 +341,25 @@ func (miner *Miner) simulateBundle(
 			}
 			txGasFees := new(big.Int).Mul(txGasUsed, effectiveTip)
 			bundleGasFees.Add(bundleGasFees, txGasFees)
+
+			// if the tx is not from txpool, we need to calculate l1DataFee
+			if effectiveTip.Cmp(big.NewInt(0)) == 0 {
+				l1DataFee, err := fees.CalculateL1DataFee(tx, state, miner.chainConfig, env.header.Number)
+				if err != nil {
+					return nil, err
+				}
+				l1DataFees.Add(l1DataFees, l1DataFee)
+			}
 		}
 	}
 	// if all txs in the bundle are from txpool, we accept the bundle without checking gas price
 	bundleGasPrice := big.NewInt(0)
 	if bundleGasUsed != 0 {
+		if l1DataFees.Cmp(bundleGasFees) > 0 {
+			return nil, errors.New("l1DataFees should not be greater than bundleGasFees")
+		}
+
+		bundleGasFees.Sub(bundleGasFees, l1DataFees)
 		bundleGasPrice = new(big.Int).Div(bundleGasFees, new(big.Int).SetUint64(bundleGasUsed))
 	}
 

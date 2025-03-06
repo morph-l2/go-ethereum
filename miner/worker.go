@@ -114,11 +114,14 @@ func (miner *Miner) generateWorkLoop() {
 // copy creates a deep copy of environment.
 func (env *environment) copy() *environment {
 	cpy := &environment{
-		signer:   env.signer,
-		state:    env.state.Copy(),
-		tcount:   env.tcount,
-		header:   types.CopyHeader(env.header),
-		receipts: copyReceipts(env.receipts),
+		signer:         env.signer,
+		state:          env.state.Copy(),
+		tcount:         env.tcount,
+		header:         types.CopyHeader(env.header),
+		receipts:       copyReceipts(env.receipts),
+		l1TxCount:      env.l1TxCount,
+		nextL1MsgIndex: env.nextL1MsgIndex,
+		isSimulate:     env.isSimulate,
 	}
 	if env.gasPool != nil {
 		gasPool := *env.gasPool
@@ -169,6 +172,10 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
+	timer := time.AfterFunc(miner.newpayloadTimeout, func() {
+		atomic.StoreInt32(interrupt, commitInterruptTimeout)
+	})
+
 	if miner.config.Mev.MevEnabled {
 		newWork := work.copy()
 		var wg sync.WaitGroup
@@ -181,13 +188,18 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 			}
 		}()
 		err := miner.fillTransactionsAndBundles(work, genParams.transactions, interrupt)
+
 		wg.Wait()
+		timer.Stop() // don't need timeout interruption any more
+
 		if errors.Is(err, errFillBundleInterrupted) {
 			log.Warn("fill bundles is interrupted, discard", "err", err)
 			work = newWork
 		}
 	} else {
 		fillTxErr := miner.fillTransactions(work, genParams.transactions, interrupt)
+		timer.Stop() // don't need timeout interruption any more
+
 		if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 			log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
 		}
@@ -536,14 +548,6 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 	}
 
 	return err
-}
-
-func withTimer(timer metrics.Timer, f func()) {
-	if metrics.Enabled {
-		timer.Time(f)
-	} else {
-		f()
-	}
 }
 
 // signalToErr converts the interruption signal to a concrete error type for return.

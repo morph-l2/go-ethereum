@@ -92,6 +92,14 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	blockContext := NewEVMBlockContext(header, p.bc, p.config, nil)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 	processorBlockTransactionGauge.Update(int64(block.Transactions().Len()))
+	parentHeader := p.bc.GetHeaderByHash(block.ParentHash())
+	if parentHeader == nil {
+		// TODO
+	}
+	err := p.engine.StartHook(p.bc, header, parentHeader, statedb)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
 		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number), header.BaseFee)
@@ -108,7 +116,6 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	finalizeBlockStartTime := time.Now()
-	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 	finalizeBlockTimer.Update(time.Since(finalizeBlockStartTime))
 
 	return receipts, allLogs, *usedGas, nil

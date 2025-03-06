@@ -81,6 +81,10 @@ type Engine interface {
 	// rules of a particular engine. The changes are executed inline.
 	Prepare(chain ChainHeaderReader, header *types.Header) error
 
+	// StartHook calling before start apply transactions of block
+	//StartHook(chain consensus.ChainHeaderReader, header *types.Header, preHeader *types.Header, state *state.StateDB) error
+	StartHook(chain ChainHeaderReader, header, parentHeader *types.Header, state *state.StateDB) error
+
 	// Finalize runs any post-transaction state modifications (e.g. block rewards)
 	// but does not assemble the block.
 	//

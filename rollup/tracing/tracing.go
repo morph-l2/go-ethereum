@@ -272,6 +272,247 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 	return env.fillBlockTrace(block)
 }
 
+func (env *TraceEnv) getSystemResult(state *state.StateDB, block *types.Block) error {
+	//tx := block.Transactions()[index]
+	//msg, _ := tx.AsMessage(env.signer, block.BaseFee())
+	//from, _ := types.Sender(env.signer, tx)
+	//to := tx.To()
+
+	txctx := &Context{
+		BlockHash: block.TxHash(),
+		//TxIndex:   index,
+		//TxHash:    tx.Hash(),
+	}
+
+	sender := &types.AccountWrapper{
+		Address:          from,
+		Nonce:            state.GetNonce(from),
+		Balance:          (*hexutil.Big)(state.GetBalance(from)),
+		KeccakCodeHash:   state.GetKeccakCodeHash(from),
+		PoseidonCodeHash: state.GetPoseidonCodeHash(from),
+		CodeSize:         state.GetCodeSize(from),
+	}
+	var receiver *types.AccountWrapper
+	if to != nil {
+		receiver = &types.AccountWrapper{
+			Address:          *to,
+			Nonce:            state.GetNonce(*to),
+			Balance:          (*hexutil.Big)(state.GetBalance(*to)),
+			KeccakCodeHash:   state.GetKeccakCodeHash(*to),
+			PoseidonCodeHash: state.GetPoseidonCodeHash(*to),
+			CodeSize:         state.GetCodeSize(*to),
+		}
+	}
+
+	txContext := core.NewEVMTxContext(msg)
+	tracerContext := tracers.Context{
+		BlockHash: block.Hash(),
+		//TxIndex:   index,
+		//TxHash:    tx.Hash(),
+	}
+	callTracer, err := tracers.New("callTracer", &tracerContext, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create callTracer: %w", err)
+	}
+
+	applyMessageStart := time.Now()
+	structLogger := vm.NewStructLogger(env.logConfig)
+	tracer := NewMuxTracer(structLogger, callTracer)
+	// Run the transaction with tracing enabled.
+	vmenv := vm.NewEVM(env.blockCtx, txContext, state, env.chainConfig, vm.Config{Debug: true, Tracer: tracer, NoBaseFee: true})
+
+	// Call Prepare to clear out the statedb access list
+	state.SetTxContext(txctx.TxHash, txctx.TxIndex)
+
+	// Computes the new state by applying the given message.
+	//l1DataFee, err := fees.CalculateL1DataFee(tx, state, env.chainConfig, block.Number())
+	//if err != nil {
+	//	return err
+	//}
+	//result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), l1DataFee)
+	if err != nil {
+		getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
+		return err
+	}
+	getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
+
+	// If the result contains a revert reason, return it.
+	returnVal := result.Return()
+	if len(result.Revert()) > 0 {
+		returnVal = result.Revert()
+	}
+
+	createdAcc := structLogger.CreatedAccount()
+	var after []*types.AccountWrapper
+	if to == nil {
+		if createdAcc == nil {
+			return errors.New("unexpected tx: address for created contract unavailable")
+		}
+		to = &createdAcc.Address
+	}
+	// collect affected account after tx being applied
+	for _, acc := range []common.Address{from, *to, env.coinbase} {
+		after = append(after, &types.AccountWrapper{
+			Address:          acc,
+			Nonce:            state.GetNonce(acc),
+			Balance:          (*hexutil.Big)(state.GetBalance(acc)),
+			KeccakCodeHash:   state.GetKeccakCodeHash(acc),
+			PoseidonCodeHash: state.GetPoseidonCodeHash(acc),
+			CodeSize:         state.GetCodeSize(acc),
+		})
+	}
+
+	//txStorageTrace := &types.StorageTrace{
+	//	Proofs:        make(map[string][]hexutil.Bytes),
+	//	StorageProofs: make(map[string]map[string][]hexutil.Bytes),
+	//}
+	//// still we have no state root for per tx, only set the head and tail
+	//if index == 0 {
+	//	txStorageTrace.RootBefore = state.GetRootHash()
+	//}
+	//if index == len(block.Transactions())-1 {
+	//	txStorageTrace.RootAfter = block.Root()
+	//}
+
+	// merge bytecodes
+	env.cMu.Lock()
+	for codeHash, codeInfo := range structLogger.TracedBytecodes() {
+		if codeHash != (common.Hash{}) {
+			env.Codes[codeHash] = codeInfo
+		}
+	}
+	env.cMu.Unlock()
+
+	// merge required proof data
+	proofAccounts := structLogger.UpdatedAccounts()
+	proofAccounts[vmenv.FeeRecipient()] = struct{}{}
+	// add from/to address if it does not exist
+	if _, ok := proofAccounts[from]; !ok {
+		proofAccounts[from] = struct{}{}
+	}
+	if _, ok := proofAccounts[*to]; !ok {
+		proofAccounts[*to] = struct{}{}
+	}
+	for addr := range proofAccounts {
+		addrStr := addr.String()
+
+		env.pMu.Lock()
+		checkedProof, existed := env.Proofs[addrStr]
+		if existed {
+			txStorageTrace.Proofs[addrStr] = checkedProof
+		}
+		env.pMu.Unlock()
+		if existed {
+			continue
+		}
+		proof, err := state.GetProof(addr)
+		if err != nil {
+			log.Error("Proof not available", "address", addrStr, "error", err)
+			// but we still mark the proofs map with nil array
+		}
+		wrappedProof := types.WrapProof(proof)
+		env.pMu.Lock()
+		env.Proofs[addrStr] = wrappedProof
+		txStorageTrace.Proofs[addrStr] = wrappedProof
+		env.pMu.Unlock()
+	}
+
+	zkTrieBuildStart := time.Now()
+	proofStorages := structLogger.UpdatedStorages()
+	for addr, keys := range proofStorages {
+		if _, existed := txStorageTrace.StorageProofs[addr.String()]; !existed {
+			txStorageTrace.StorageProofs[addr.String()] = make(map[string][]hexutil.Bytes)
+		}
+
+		env.sMu.Lock()
+		trie, err := state.GetStorageTrieForProof(addr)
+		if err != nil {
+			// but we still continue to next address
+			log.Error("Storage trie not available", "error", err, "address", addr)
+			env.sMu.Unlock()
+			continue
+		}
+		zktrieTracer := state.NewProofTracer(trie)
+		env.sMu.Unlock()
+
+		for key := range keys {
+			addrStr := addr.String()
+			keyStr := key.String()
+			value := state.GetState(addr, key)
+			isDelete := bytes.Equal(value.Bytes(), common.Hash{}.Bytes())
+
+			txm := txStorageTrace.StorageProofs[addrStr]
+			env.sMu.Lock()
+			m, existed := env.StorageProofs[addrStr]
+			if !existed {
+				m = make(map[string][]hexutil.Bytes)
+				env.StorageProofs[addrStr] = m
+			}
+			if zktrieTracer.Available() && !env.ZkTrieTracer[addrStr].Available() {
+				env.ZkTrieTracer[addrStr] = state.NewProofTracer(trie)
+			}
+
+			if proof, existed := m[keyStr]; existed {
+				txm[keyStr] = proof
+				// still need to touch tracer for deletion
+				if isDelete && zktrieTracer.Available() {
+					env.ZkTrieTracer[addrStr].MarkDeletion(key)
+				}
+				env.sMu.Unlock()
+				continue
+			}
+			env.sMu.Unlock()
+
+			var proof [][]byte
+			var err error
+			if zktrieTracer.Available() {
+				proof, err = state.GetSecureTrieProof(zktrieTracer, key)
+			} else {
+				proof, err = state.GetSecureTrieProof(trie, key)
+			}
+			if err != nil {
+				log.Error("Storage proof not available", "error", err, "address", addrStr, "key", keyStr)
+				// but we still mark the proofs map with nil array
+			}
+			wrappedProof := types.WrapProof(proof)
+			env.sMu.Lock()
+			txm[keyStr] = wrappedProof
+			m[keyStr] = wrappedProof
+			if zktrieTracer.Available() {
+				if isDelete {
+					zktrieTracer.MarkDeletion(key)
+				}
+				env.ZkTrieTracer[addrStr].Merge(zktrieTracer)
+			}
+			env.sMu.Unlock()
+		}
+	}
+	getTxResultZkTrieBuildTimer.UpdateSince(zkTrieBuildStart)
+
+	tracerResultTimer := time.Now()
+	callTrace, err := callTracer.GetResult()
+	if err != nil {
+		return fmt.Errorf("failed to get callTracer result: %w", err)
+	}
+	getTxResultTracerResultTimer.UpdateSince(tracerResultTimer)
+
+	env.ExecutionResults[index] = &types.ExecutionResult{
+		From:           sender,
+		To:             receiver,
+		AccountCreated: createdAcc,
+		AccountsAfter:  after,
+		L1DataFee:      (*hexutil.Big)(result.L1DataFee),
+		Gas:            result.UsedGas,
+		Failed:         result.Failed(),
+		ReturnValue:    fmt.Sprintf("%x", returnVal),
+		StructLogs:     vm.FormatLogs(structLogger.StructLogs()),
+		CallTrace:      callTrace,
+	}
+	env.TxStorageTraces[index] = txStorageTrace
+
+	return nil
+}
+
 func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.Block) error {
 	tx := block.Transactions()[index]
 	msg, _ := tx.AsMessage(env.signer, block.BaseFee())

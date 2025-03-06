@@ -8,9 +8,13 @@ import (
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/consensus"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
+	"github.com/morph-l2/go-ethereum/contracts/l2staking"
+	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/rcfg"
 	"github.com/morph-l2/go-ethereum/rpc"
 	"github.com/morph-l2/go-ethereum/trie"
 )
@@ -31,6 +35,26 @@ var (
 	errInvalidTimestamp = errors.New("invalid timestamp")
 	errInvalidCoinbase  = errors.New("invalid coinbase")
 )
+
+// chain context
+type chainContext struct {
+	Chain  consensus.ChainHeaderReader
+	engine consensus.Engine
+}
+
+func (c chainContext) Engine() consensus.Engine {
+	return c.engine
+}
+
+func (c chainContext) GetHeader(hash common.Hash, number uint64) *types.Header {
+	return c.Chain.GetHeader(hash, number)
+}
+
+func (c chainContext) Config() *params.ChainConfig {
+	return c.Chain.Config()
+}
+
+var _ = consensus.Engine(&Consensus{})
 
 type Consensus struct {
 	ethone consensus.Engine // Original consensus engine used in eth1, e.g. ethash or clique
@@ -194,6 +218,25 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 	return nil
 }
 
+// StartHook implements calling before start apply transactions of block
+func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header, preHeader *types.Header, state *state.StateDB) error {
+	cx := chainContext{Chain: chain, engine: l2.ethone}
+	blockContext := core.NewEVMBlockContext(header, cx, l2.config, nil)
+	// TODO tracer
+	evm := vm.NewEVM(blockContext, vm.TxContext{}, state, l2.config, vm.Config{Tracer: nil})
+	stakingAbi, err := l2staking.L2StakingMetaData.GetAbi()
+	if err != nil {
+		return err
+	}
+	data, err := stakingAbi.Pack("recordBlocks", preHeader.Coinbase)
+	if err != nil {
+		return err
+	}
+	systemAddress := vm.AccountRef(rcfg.SystemAddress)
+	_, _, err = evm.Call(systemAddress, rcfg.L2StakingAddress, data, 210000, common.Big0)
+	return err
+}
+
 // Finalize implements consensus.Engine, setting the final state on the header
 func (l2 *Consensus) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 	// The block reward is no longer handled here. It's done by the
@@ -243,3 +286,11 @@ func (l2 *Consensus) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 func (l2 *Consensus) Close() error {
 	return l2.ethone.Close()
 }
+
+//type XX struct {
+//	consensus.ChainHeaderReader
+//}
+//
+//func (l2 *Consensus) Engine() consensus.Engine {
+//	return l2.ethone
+//}

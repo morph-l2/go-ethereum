@@ -457,7 +457,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// to the sequencer.
 	l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
 	fee := new(big.Int).Add(st.l1DataFee, l2Fee)
-	if rules.IsMorph205 && effectiveTip.Cmp(big.NewInt(0)) == 0 {
+	if rules.IsMorph205 && effectiveTip.Cmp(big.NewInt(0)) == 0 && st.gasPrice.Cmp(big.NewInt(0)) == 0 {
 		fee = l2Fee
 	}
 	st.state.AddBalance(st.evm.FeeRecipient(), fee)

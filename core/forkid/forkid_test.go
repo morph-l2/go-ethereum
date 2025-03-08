@@ -268,7 +268,7 @@ func TestTimeBasedForkInGenesis(t *testing.T) {
 		// Block based tests
 		//------------------
 
-		// Local is mainnet Gray Glacier, remote announces the same. No future fork is announced.
+		// Local is mainnet, remote announces the same. No future fork is announced.
 		{&legacyConfig, 0, 0, ID{Hash: checksumToBytes(0xb0709522), Next: 0}, nil},
 
 		{&legacyConfig, 0, morph203Time + 1, ID{Hash: checksumToBytes(0xb0709522), Next: morph203Time}, ErrLocalIncompatibleOrStale},

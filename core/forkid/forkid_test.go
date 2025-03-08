@@ -255,7 +255,7 @@ func TestTimeBasedForkInGenesis(t *testing.T) {
 
 	morphMainnetConfig := *params.MorphMainnetChainConfig
 	morph203Time := uint64(1741579200)
-	morphMainnetConfig.Morph203Time = params.NewUint64(morph203Time) // 2025-09-09 00:00:00 UTC
+	morphMainnetConfig.Morph203Time = params.NewUint64(morph203Time) // 2025-03-10 04:00:00 UTC
 
 	tests := []struct {
 		config *params.ChainConfig

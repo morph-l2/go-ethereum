@@ -49,7 +49,7 @@ var (
 // differentiate if a forkid.next field is a block number or a timestamp. Whilst
 // very hacky, something's needed to split the validation during the transition
 // period (block forks -> time forks).
-const timestampThreshold = 1438269973
+const timestampThreshold = 1729490400
 
 // Blockchain defines all necessary method to build a forkID.
 type Blockchain interface {

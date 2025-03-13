@@ -28,6 +28,7 @@ import (
 	"github.com/morph-l2/go-ethereum/crypto/blake2b"
 	"github.com/morph-l2/go-ethereum/crypto/bls12381"
 	"github.com/morph-l2/go-ethereum/crypto/bn256"
+	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/params"
 
 	//lint:ignore SA1019 Needed for precompile
@@ -191,6 +192,7 @@ func init() {
 func ActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
 	case rules.IsMorph203:
+		log.Info("[MORPH203]", "ActivePrecompiles", "IsMorph203")
 		return PrecompiledAddressesMorph203
 	case rules.IsBernoulli:
 		return PrecompiledAddressesBernoulli
@@ -458,6 +460,13 @@ func (c *bigModExp) Run(input []byte) ([]byte, error) {
 		expLen  = expLenBigInt.Uint64()
 		modLen  = modLenBigInt.Uint64()
 	)
+
+	if c.morph203 {
+		log.Info("[MORPH203]", "bigModExp", "IsMorph203")
+	} else {
+		log.Info("[MORPH203]", "bigModExp", "Is Not Morph203")
+	}
+
 	// Check that all inputs are `u256` (32 - bytes) or less, revert otherwise
 	if !c.morph203 {
 		var lenLimit = new(big.Int).SetInt64(32)
@@ -602,6 +611,13 @@ var (
 // runBn256Pairing implements the Bn256Pairing precompile, referenced by both
 // Byzantium and Istanbul operations.
 func runBn256Pairing(input []byte, morph203 bool) ([]byte, error) {
+
+	if morph203 {
+		log.Info("[MORPH203]", "runBn256Pairing", "IsMorph203")
+	} else {
+		log.Info("[MORPH203]", "runBn256Pairing", "Is Not Morph203")
+	}
+
 	// Allow at most 4 inputs
 	if !morph203 && len(input) > 4*192 {
 		return nil, errBadPairingInput

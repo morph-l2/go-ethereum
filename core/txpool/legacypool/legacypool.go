@@ -755,7 +755,7 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 			var replacesPending bool
 			for _, dropTx := range drop {
 				dropSender, _ := types.Sender(pool.signer, dropTx)
-				if list := pool.pending[dropSender]; list != nil && list.Overlaps(dropTx) {
+				if list := pool.pending[dropSender]; list != nil && list.Contains(dropTx.Nonce()) {
 					replacesPending = true
 					break
 				}
@@ -780,7 +780,7 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 	}
 
 	// Try to replace an existing transaction in the pending pool
-	if list := pool.pending[from]; list != nil && list.Overlaps(tx) {
+	if list := pool.pending[from]; list != nil && list.Contains(tx.Nonce()) {
 		// Nonce already pending, check if required price bump is met
 		inserted, old := list.Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
 		if !inserted {
@@ -840,7 +840,7 @@ func (pool *LegacyPool) isGapped(from common.Address, tx *types.Transaction) boo
 		return true
 	}
 	for nonce := next; nonce < tx.Nonce(); nonce++ {
-		if !queue.Overlaps(tx) {
+		if !queue.Contains(nonce) {
 			return true // txs in queue can't fill up the nonce gap
 		}
 	}

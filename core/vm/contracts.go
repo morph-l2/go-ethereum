@@ -192,10 +192,8 @@ func init() {
 func ActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
 	case rules.IsMorph203:
-		log.Info("[MORPH203]", "ActivePrecompiles", "IsMorph203")
 		return PrecompiledAddressesMorph203
 	case rules.IsBernoulli:
-		log.Info("[MORPH203]", "ActivePrecompiles", "IsBernoulli")
 		return PrecompiledAddressesBernoulli
 	case rules.IsArchimedes:
 		return PrecompiledAddressesArchimedes

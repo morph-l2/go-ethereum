@@ -747,11 +747,6 @@ func (c *ChainConfig) IsCurie(num *big.Int) bool {
 
 // IsMorph203 returns whether num is either equal to the Morph203 fork block or greater.
 func (c *ChainConfig) IsMorph203(now uint64) bool {
-	// if c.Morph203Time != nil {
-	// 	forked := isForkedTime(now, c.Morph203Time)
-	// 	log.Info("[MORPH203]", "isForkedTime", *c.Morph203Time, "now", now, "isForked", forked)
-	// }
-
 	return isForkedTime(now, c.Morph203Time)
 }
 

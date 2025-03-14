@@ -318,7 +318,7 @@ type backend interface {
 
 	// Commit writes all relevant trie nodes belonging to the specified state
 	// to disk. Report specifies whether logs will be displayed in info level.
-	CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool) error
+	CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool, flush bool, callback func()) error
 
 	// Commit write custom nodes belong genesis states, only onece
 	CommitGenesis(root common.Hash) error
@@ -761,7 +761,7 @@ func (db *Database) Commit(node common.Hash, report bool, callback func(common.H
 		if db.preimages != nil {
 			db.preimages.commit(true)
 		}
-		return zdb.CommitState(node, common.Hash{}, 0, report)
+		return zdb.CommitState(node, common.Hash{}, 0, report, false, nil)
 	}
 
 	// Create a database batch to flush persistent data out. It is important that
@@ -1009,12 +1009,12 @@ func (db *Database) Reader(blockRoot common.Hash) (Reader, error) {
 	return nil, errors.New("unknown backend")
 }
 
-func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool) error {
+func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool, flush bool, callback func()) error {
 	if db.backend != nil {
 		if db.preimages != nil {
 			db.preimages.commit(true)
 		}
-		return db.backend.CommitState(root, parentRoot, blockNumber, report)
+		return db.backend.CommitState(root, parentRoot, blockNumber, report, flush, callback)
 	}
 
 	return errors.New("not supported")

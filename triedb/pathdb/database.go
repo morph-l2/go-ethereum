@@ -209,7 +209,7 @@ func (db *Database) CommitGenesis(root common.Hash) error {
 // Commit traverses downwards the layer tree from a specified layer with the
 // provided state root and all the layers below are flattened downwards. It
 // can be used alone and mostly for test purposes.
-func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool) error {
+func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool, flush bool, callback func()) error {
 	// Hold the lock to prevent concurrent mutations.
 	db.lock.Lock()
 	defer db.lock.Unlock()
@@ -231,12 +231,21 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 	}
 	db.dirties = make(dbtypes.KvMap)
 
+	layers := maxDiffLayers
+	if flush {
+		layers = 0
+	}
+
 	// Keep 128 diff layers in the memory, persistent layer is 129th.
 	// - head layer is paired with HEAD state
 	// - head-1 layer is paired with HEAD-1 state
 	// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
 	// - head-128 layer(disk layer) is paired with HEAD-128 state
-	return db.tree.cap(root, maxDiffLayers)
+	err := db.tree.cap(root, layers)
+	if callback != nil {
+		callback()
+	}
+	return err
 }
 
 // Close closes the trie database and the held freezer.

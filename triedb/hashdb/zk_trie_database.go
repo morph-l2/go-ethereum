@@ -74,7 +74,7 @@ func (db *ZktrieDatabase) Size() (common.StorageSize, common.StorageSize, common
 	return 0, 0, db.dirtiesSize + metadataSize
 }
 
-func (db *ZktrieDatabase) CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool) error {
+func (db *ZktrieDatabase) CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool, flush bool, callback func()) error {
 	beforeDirtyCount, beforeDirtySize := len(db.dirties), db.dirtiesSize
 
 	start := time.Now()
@@ -100,7 +100,7 @@ func (db *ZktrieDatabase) CommitState(root common.Hash, parentRoot common.Hash, 
 }
 
 func (db *ZktrieDatabase) CommitGenesis(root common.Hash) error {
-	return db.CommitState(root, common.Hash{}, 0, true)
+	return db.CommitState(root, common.Hash{}, 0, true, false, nil)
 }
 
 func (db *ZktrieDatabase) commitAllDirties() error {

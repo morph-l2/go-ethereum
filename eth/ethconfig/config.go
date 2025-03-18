@@ -80,7 +80,7 @@ var Defaults = Config{
 	TrieCleanCacheJournal:   "triecache",
 	TrieCleanCacheRejournal: 60 * time.Minute,
 	TrieDirtyCache:          256,
-	TrieTimeout:             20 * time.Minute,
+	TrieTimeout:             1 * time.Minute,
 	SnapshotCache:           102,
 	FilterLogCacheSize:      32,
 	Miner:                   miner.DefaultConfig,

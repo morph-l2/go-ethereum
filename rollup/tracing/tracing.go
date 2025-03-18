@@ -180,8 +180,9 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error) {
 	// Execute all the transaction contained within the block concurrently
 	var (
+		txs   = block.Transactions()
 		pend  = new(sync.WaitGroup)
-		jobs  = make(chan *txTraceTask, len(block.Transactions()))
+		jobs  = make(chan *txTraceTask, len(txs))
 		errCh = make(chan error, 1)
 	)
 
@@ -191,8 +192,8 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 	}
 
 	threads := runtime.NumCPU()
-	if threads > len(block.Transactions()) {
-		threads = len(block.Transactions())
+	if threads > len(txs) {
+		threads = len(txs)
 	}
 	for th := 0; th < threads; th++ {
 		pend.Add(1)
@@ -211,7 +212,7 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 					}
 					log.Error(
 						"failed to trace tx",
-						"txHash", block.Transactions()[task.index].Hash().String(),
+						"txHash", txs[task.index].Hash().String(),
 						"blockHash", block.Hash().String(),
 						"blockNumber", block.NumberU64(),
 						"err", err,
@@ -224,7 +225,7 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 	// Feed the transactions into the tracers and return
 	var failed error
 	common.WithTimer(feedTxToTracerTimer, func() {
-		for i, tx := range block.Transactions() {
+		for i, tx := range txs {
 			// Send the trace task over for execution
 			jobs <- &txTraceTask{statedb: env.state.Copy(), index: i}
 
@@ -687,9 +688,10 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 
 	statedb := env.state
 
-	// Note: The Transactions field in BlockTrace needs to be set properly
-	// based on your actual BlockTrace definition.
-	// We're not setting it here due to type mismatch issues.
+	txs := make([]*types.TransactionData, block.Transactions().Len())
+	for i, tx := range block.Transactions() {
+		txs[i] = types.NewTransactionData(tx, block.NumberU64(), env.chainConfig)
+	}
 
 	intrinsicStorageProofs := map[common.Address][]common.Hash{
 		rcfg.L2MessageQueueAddress: {rcfg.WithdrawTrieRootSlot},
@@ -736,7 +738,6 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 		chainID = env.chainConfig.ChainID.Uint64()
 	}
 
-	// Create the BlockTrace
 	blockTrace := &types.BlockTrace{
 		ChainID: chainID,
 		Version: params.ArchiveVersion(params.CommitHash),
@@ -755,6 +756,7 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 		StartHookResult:   env.StartHookResult,
 		TxStorageTraces:   env.TxStorageTraces,
 		StartL1QueueIndex: env.StartL1QueueIndex,
+		Transactions:      txs,
 	}
 
 	// NOTE: The Transactions field is not set here due to type mismatch

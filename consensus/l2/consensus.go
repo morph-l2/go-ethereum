@@ -219,7 +219,7 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 }
 
 // StartHook implements calling before start apply transactions of block
-func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header, preHeader *types.Header, state *state.StateDB) error {
+func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header, parentHeader *types.Header, state *state.StateDB) error {
 	cx := chainContext{Chain: chain, engine: l2.ethone}
 	blockContext := core.NewEVMBlockContext(header, cx, l2.config, nil)
 	// TODO tracer
@@ -228,7 +228,7 @@ func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header, preHea
 	if err != nil {
 		return err
 	}
-	data, err := stakingAbi.Pack("recordBlocks", preHeader.Coinbase)
+	data, err := stakingAbi.Pack("recordBlocks", parentHeader.Coinbase)
 	if err != nil {
 		return err
 	}

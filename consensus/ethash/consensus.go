@@ -590,7 +590,7 @@ func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.H
 	return nil
 }
 
-func (ethash *Ethash) StartHook(chain consensus.ChainHeaderReader, header, parentHeader *types.Header, state *state.StateDB) error {
+func (ethash *Ethash) StartHook(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB) error {
 	return nil
 }
 

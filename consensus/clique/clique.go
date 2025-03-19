@@ -561,7 +561,7 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 	return nil
 }
 
-func (c *Clique) StartHook(chain consensus.ChainHeaderReader, header, parentHeader *types.Header, state *state.StateDB) error {
+func (c *Clique) StartHook(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB) error {
 	return nil
 }
 

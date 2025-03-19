@@ -9,6 +9,7 @@ import (
 	"github.com/morph-l2/go-ethereum/consensus"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/contracts/l2staking"
+	"github.com/morph-l2/go-ethereum/contracts/morphtoken"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -20,8 +21,9 @@ import (
 )
 
 var (
-	l2Difficulty = common.Big0          // The default block difficulty in the l2 consensus
-	l2Nonce      = types.EncodeNonce(0) // The default block nonce in the l2 consensus
+	l2Difficulty        = common.Big0          // The default block difficulty in the l2 consensus
+	l2Nonce             = types.EncodeNonce(0) // The default block nonce in the l2 consensus
+	rewardEpoch  uint64 = 86400
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -219,21 +221,35 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 }
 
 // StartHook implements calling before start apply transactions of block
-func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header, parentHeader *types.Header, state *state.StateDB) error {
+func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB) error {
+	rewardStarted := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot).Big()
+	if rewardStarted.Cmp(common.Big1) != 0 {
+		return nil
+	}
+	parentHeader := chain.GetHeaderByHash(header.ParentHash)
+	if parentHeader == nil {
+		return consensus.ErrUnknownAncestor
+	}
 	cx := chainContext{Chain: chain, engine: l2.ethone}
 	blockContext := core.NewEVMBlockContext(header, cx, l2.config, nil)
 	// TODO tracer
 	evm := vm.NewEVM(blockContext, vm.TxContext{}, state, l2.config, vm.Config{Tracer: nil})
-	stakingAbi, err := l2staking.L2StakingMetaData.GetAbi()
-	if err != nil {
-		return err
-	}
-	data, err := stakingAbi.Pack("recordBlocks", parentHeader.Coinbase)
+	stakingCallData, err := l2staking.PacketData(parentHeader.Coinbase)
 	if err != nil {
 		return err
 	}
 	systemAddress := vm.AccountRef(rcfg.SystemAddress)
-	_, _, err = evm.Call(systemAddress, rcfg.L2StakingAddress, data, 210000, common.Big0)
+	_, _, err = evm.Call(systemAddress, rcfg.L2StakingAddress, stakingCallData, 210000, common.Big0)
+	if err != nil {
+		return err
+	}
+	if (parentHeader.Time / rewardEpoch) != (header.Time / rewardEpoch) {
+		callData, err := morphtoken.PacketData()
+		if err != nil {
+			return err
+		}
+		_, _, err = evm.Call(systemAddress, rcfg.MorphTokenAddress, callData, 210000, common.Big0)
+	}
 	return err
 }
 

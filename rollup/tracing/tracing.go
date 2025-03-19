@@ -11,6 +11,8 @@ import (
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/contracts/l2staking"
+	"github.com/morph-l2/go-ethereum/contracts/morphtoken"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
@@ -53,7 +55,7 @@ func (tw *TracerWrapper) CreateTraceEnvAndGetBlockTrace(chainConfig *params.Chai
 		return nil, err
 	}
 
-	return traceEnv.GetBlockTrace(block)
+	return traceEnv.GetBlockTrace(block, parent)
 }
 
 type TraceEnv struct {
@@ -81,9 +83,6 @@ type TraceEnv struct {
 	ZkTrieTracer     map[string]state.ZktrieProofTracer
 	ExecutionResults []*types.ExecutionResult
 
-	// StartHookResult stores the execution result of the StartHook
-	StartHookResult *types.ExecutionResult
-
 	// StartL1QueueIndex is the next L1 message queue index that this block can process.
 	// Example: If the parent block included QueueIndex=9, then StartL1QueueIndex will
 	// be 10.
@@ -104,6 +103,8 @@ type txTraceTask struct {
 }
 
 func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *vm.LogConfig, blockCtx vm.BlockContext, startL1QueueIndex uint64, coinbase common.Address, statedb *state.StateDB, rootBefore common.Hash, block *types.Block, commitAfterApply bool) *TraceEnv {
+	txCount := block.Transactions().Len()
+
 	return &TraceEnv{
 		logConfig:        logConfig,
 		commitAfterApply: commitAfterApply,
@@ -120,9 +121,8 @@ func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *vm.LogConf
 		},
 		Codes:             make(map[common.Hash]vm.CodeInfo),
 		ZkTrieTracer:      make(map[string]state.ZktrieProofTracer),
-		ExecutionResults:  make([]*types.ExecutionResult, block.Transactions().Len()),
-		TxStorageTraces:   make([]*types.StorageTrace, block.Transactions().Len()),
-		StartHookResult:   nil, // Will be set by getSystemResult if needed
+		ExecutionResults:  make([]*types.ExecutionResult, txCount), // No extra slot needed, using the actual transaction count
+		TxStorageTraces:   make([]*types.StorageTrace, txCount),
 		StartL1QueueIndex: startL1QueueIndex,
 	}
 }
@@ -177,7 +177,7 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 	return env, nil
 }
 
-func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error) {
+func (env *TraceEnv) GetBlockTrace(block *types.Block, parent *types.Block) (*types.BlockTrace, error) {
 	// Execute all the transaction contained within the block concurrently
 	var (
 		txs   = block.Transactions()
@@ -187,7 +187,7 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 	)
 
 	// Execute StartHook before processing transactions
-	if err := env.getSystemResult(env.state.Copy(), block); err != nil {
+	if err := env.getSystemResult(env.state.Copy(), block, parent); err != nil {
 		return nil, fmt.Errorf("failed to execute StartHook: %w", err)
 	}
 
@@ -282,7 +282,7 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 	return env.fillBlockTrace(block)
 }
 
-func (env *TraceEnv) getSystemResult(state *state.StateDB, block *types.Block) error {
+func (env *TraceEnv) getSystemResult(state *state.StateDB, block *types.Block, parentBlock *types.Block) error {
 	// Create a context for system-level operations
 	txctx := &Context{
 		BlockHash: block.Hash(),
@@ -319,42 +319,51 @@ func (env *TraceEnv) getSystemResult(state *state.StateDB, block *types.Block) e
 	// Set transaction context
 	state.SetTxContext(txctx.TxHash, txctx.TxIndex)
 
-	// Execute StartHook logic here
-	// This is where we would execute any system-level operations that need to happen
-	// at the beginning of block processing, before any transactions are executed.
+	// Execute StartHook logic
+	// Check if reward is started
+	rewardStarted := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot).Big()
+	if rewardStarted.Cmp(common.Big1) == 0 {
+		// Prepare staking call data
+		stakingCallData, err := l2staking.PacketData(env.blockCtx.Coinbase)
+		if err != nil {
+			return fmt.Errorf("failed to pack staking call data: %w", err)
+		}
 
-	// For example, we might want to:
-	// 1. Update system contracts
-	// 2. Process L1 messages
-	// 3. Update protocol parameters
+		// Call the L2StakingAddress contract from systemAddress
+		systemAddress := vm.AccountRef(rcfg.SystemAddress)
+		_, _, err = evm.Call(systemAddress, rcfg.L2StakingAddress, stakingCallData, params.MaxGasLimit, common.Big0)
+		if err != nil {
+			return fmt.Errorf("StartHook L2Staking call failed: %w", err)
+		}
 
-	// Since the actual implementation depends on your specific requirements,
-	// this is just a placeholder. You should replace this with your actual StartHook logic.
+		// Check if block time crosses reward epoch boundary
+		// Using a constant for reward epoch (1 day in seconds)
+		const rewardEpoch uint64 = 86400
+		// If a reward epoch boundary is detected, call the MorphToken contract
+		if (parentBlock.Time() / rewardEpoch) != (block.Time() / rewardEpoch) {
+			log.Info("Calling MorphToken contract due to epoch boundary crossing")
 
-	// Example of how you might call a system contract:
-	// systemContractAddr := common.HexToAddress("0x1234...")
-	// input := common.Hex2Bytes("...")
-	// contract := vm.NewContract(vm.AccountRef(common.Address{}), vm.AccountRef(systemContractAddr), common.Big0, 10000000)
-	// contract.Input = input
-	// ret, _, err := evm.Call(vm.AccountRef(common.Address{}), systemContractAddr, input, 10000000, common.Big0)
-	// if err != nil {
-	//     return fmt.Errorf("StartHook system call failed: %w", err)
-	// }
+			callData, err := morphtoken.PacketData()
+			if err != nil {
+				return fmt.Errorf("failed to pack token call data: %w", err)
+			}
 
-	// Get call trace result
-	callTraceResult, err := callTracer.GetResult()
-	if err != nil {
+			// Call the MorphToken contract from systemAddress
+			_, _, err = evm.Call(systemAddress, rcfg.MorphTokenAddress, callData, params.MaxGasLimit, common.Big0)
+			if err != nil {
+				return fmt.Errorf("StartHook MorphToken call failed: %w", err)
+			}
+		}
+	}
+
+	// We can simply ignore the call trace result since we're not storing it anymore
+	// Just check for errors
+	if _, err := callTracer.GetResult(); err != nil {
 		return fmt.Errorf("failed to get callTracer result for StartHook: %w", err)
 	}
 
-	// Create a special ExecutionResult for the StartHook
-	env.StartHookResult = &types.ExecutionResult{
-		Gas:         0, // No gas used for system operations
-		Failed:      false,
-		ReturnValue: "",
-		StructLogs:  vm.FormatLogs(structLogger.StructLogs()),
-		CallTrace:   callTraceResult,
-	}
+	// We don't need to store the StartHook result in ExecutionResults anymore
+	// since we're collecting the state and storage proofs directly in StorageTrace
 
 	// Collect bytecodes
 	env.cMu.Lock()
@@ -663,6 +672,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	}
 	getTxResultTracerResultTimer.UpdateSince(tracerResultTimer)
 
+	// Store the result at the actual index (no +1 offset needed now)
 	env.ExecutionResults[index] = &types.ExecutionResult{
 		From:           sender,
 		To:             receiver,
@@ -753,7 +763,6 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 		Bytecodes:         make([]*types.BytecodeTrace, 0, len(env.Codes)),
 		StorageTrace:      env.StorageTrace,
 		ExecutionResults:  env.ExecutionResults,
-		StartHookResult:   env.StartHookResult,
 		TxStorageTraces:   env.TxStorageTraces,
 		StartL1QueueIndex: env.StartL1QueueIndex,
 		Transactions:      txs,

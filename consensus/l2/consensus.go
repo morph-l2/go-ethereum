@@ -249,8 +249,11 @@ func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.
 			return err
 		}
 		_, _, err = evm.Call(systemAddress, rcfg.MorphTokenAddress, callData, 210000, common.Big0)
+		if err != nil {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 // Finalize implements consensus.Engine, setting the final state on the header

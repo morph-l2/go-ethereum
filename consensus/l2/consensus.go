@@ -239,7 +239,7 @@ func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.
 		return err
 	}
 	systemAddress := vm.AccountRef(rcfg.SystemAddress)
-	_, _, err = evm.Call(systemAddress, rcfg.L2StakingAddress, stakingCallData, 210000, common.Big0)
+	_, _, err = evm.Call(systemAddress, rcfg.L2StakingAddress, stakingCallData, params.MaxGasLimit, common.Big0)
 	if err != nil {
 		return err
 	}
@@ -248,7 +248,7 @@ func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.
 		if err != nil {
 			return err
 		}
-		_, _, err = evm.Call(systemAddress, rcfg.MorphTokenAddress, callData, 210000, common.Big0)
+		_, _, err = evm.Call(systemAddress, rcfg.MorphTokenAddress, callData, params.MaxGasLimit, common.Big0)
 		if err != nil {
 			return err
 		}

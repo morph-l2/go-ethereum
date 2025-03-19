@@ -305,11 +305,3 @@ func (l2 *Consensus) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 func (l2 *Consensus) Close() error {
 	return l2.ethone.Close()
 }
-
-//type XX struct {
-//	consensus.ChainHeaderReader
-//}
-//
-//func (l2 *Consensus) Engine() consensus.Engine {
-//	return l2.ethone
-//}

@@ -112,6 +112,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	finalizeBlockStartTime := time.Now()
+	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 	finalizeBlockTimer.Update(time.Since(finalizeBlockStartTime))
 
 	return receipts, allLogs, *usedGas, nil

@@ -38,7 +38,7 @@ var (
 
 	// L2StakingAddress is the address of the l2 staking contract
 	L2StakingAddress  = common.HexToAddress("0x5300000000000000000000000000000000000015")
-	RewardStartedSlot = common.BigToHash(big.NewInt(6))
+	RewardStartedSlot = common.BigToHash(big.NewInt(4))
 
 	// SystemAddress is the address of the system
 	SystemAddress = common.HexToAddress("0x5300000000000000000000000000000000000021")

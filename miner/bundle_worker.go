@@ -423,8 +423,3 @@ func containsHash(arr []common.Hash, match common.Hash) bool {
 	}
 	return false
 }
-
-func prepareGasPool() *core.GasPool {
-	gasPool := new(core.GasPool).AddGas(params.BundleGasLimit)
-	return gasPool
-}

@@ -246,7 +246,7 @@ func (miner *Miner) getPending() *NewBlockResult {
 
 func (miner *Miner) SimulateBundle(bundle *types.Bundle) (*big.Int, error) {
 	env, err := miner.prepareSimulationEnv()
-	env.gasPool = prepareGasPoool()
+	env.gasPool = prepareGasPool()
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +265,7 @@ func (miner *Miner) SimulateBundle(bundle *types.Bundle) (*big.Int, error) {
 
 func (miner *Miner) SimulateGaslessBundle(bundle *types.Bundle) (*types.SimulateGaslessBundleResp, error) {
 	env, err := miner.prepareSimulationEnv()
-	env.gasPool = prepareGasPoool()
+	env.gasPool = prepareGasPool()
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +290,7 @@ func (miner *Miner) prepareSimulationEnv() (*environment, error) {
 	return miner.prepareWork(params)
 }
 
-func prepareGasPoool() *core.GasPool {
+func prepareGasPool() *core.GasPool {
 	gasPool := new(core.GasPool).AddGas(params.BundleGasLimit)
 	return gasPool
 }

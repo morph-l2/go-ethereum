@@ -246,6 +246,7 @@ func (miner *Miner) getPending() *NewBlockResult {
 
 func (miner *Miner) SimulateBundle(bundle *types.Bundle) (*big.Int, error) {
 	env, err := miner.prepareSimulationEnv()
+	env.gasPool = prepareGasPoool()
 	if err != nil {
 		return nil, err
 	}
@@ -264,6 +265,7 @@ func (miner *Miner) SimulateBundle(bundle *types.Bundle) (*big.Int, error) {
 
 func (miner *Miner) SimulateGaslessBundle(bundle *types.Bundle) (*types.SimulateGaslessBundleResp, error) {
 	env, err := miner.prepareSimulationEnv()
+	env.gasPool = prepareGasPoool()
 	if err != nil {
 		return nil, err
 	}
@@ -277,13 +279,18 @@ func (miner *Miner) SimulateGaslessBundle(bundle *types.Bundle) (*types.Simulate
 }
 
 func (miner *Miner) prepareSimulationEnv() (*environment, error) {
-	header := miner.chain.CurrentHeader()
+	parent := miner.chain.CurrentHeader()
 
 	params := &generateParams{
 		timestamp:  uint64(time.Now().Unix()),
-		parentHash: header.Hash(),
+		parentHash: parent.Hash(),
 		coinbase:   miner.config.PendingFeeRecipient,
 	}
 
 	return miner.prepareWork(params)
+}
+
+func prepareGasPoool() *core.GasPool {
+	gasPool := new(core.GasPool).AddGas(params.BundleGasLimit)
+	return gasPool
 }

@@ -70,9 +70,9 @@ func (miner *Miner) commitBundles(
 	txs types.Transactions,
 	interrupt *int32,
 ) error {
-	gasLimit := prepareGasPool()
+	gasLimit := env.header.GasLimit
 	if env.gasPool == nil {
-		env.gasPool = new(core.GasPool).AddGas(gasLimit.Gas())
+		env.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
 	for _, tx := range txs {

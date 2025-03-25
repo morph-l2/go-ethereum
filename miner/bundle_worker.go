@@ -33,7 +33,7 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 			return errFillBundleInterrupted
 		}
 	}
-
+	start := time.Now()
 	bundles := miner.txpool.PendingBundles(env.header.Number.Uint64(), env.header.Time)
 	// if no bundles, not necessary to fill transactions
 	if len(bundles) == 0 {
@@ -54,14 +54,12 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 	log.Info("fill bundles", "bundles_count", len(bundles))
 
 	// fill mempool's transactions
-	start := time.Now()
 	err = miner.fillTransactions(env, l1Transactions, interrupt)
 	if err != nil {
 		return err
 	}
-	log.Debug("commitTxpoolTxsTimer", "duration", common.PrettyDuration(time.Since(start)), "hash", env.header.Hash())
 
-	log.Info("fill bundles and transactions done", "total_txs_count", len(env.txs))
+	log.Info("fill bundles and transactions done", "total_txs_count", len(env.txs), "duration", common.PrettyDuration(time.Since(start)), "hash", env.header.Hash())
 	return nil
 }
 
@@ -301,7 +299,7 @@ func (miner *Miner) simulateBundle(
 	for i, tx := range bundle.Txs {
 		state.SetTxContext(tx.Hash(), i+currentTxCount)
 
-		receipt, err := core.ApplyTransaction(miner.chainConfig, miner.chain, &env.header.Coinbase, env.gasPool, env.state, env.header, tx, &tempGasUsed, *miner.chain.GetVMConfig())
+		receipt, err := core.ApplyTransaction(miner.chainConfig, miner.chain, &env.header.Coinbase, gasPool, state, env.header, tx, &tempGasUsed, *miner.chain.GetVMConfig())
 		if err != nil {
 			log.Warn("fail to simulate bundle", "hash", bundle.Hash().String(), "err", err)
 
@@ -330,17 +328,19 @@ func (miner *Miner) simulateBundle(
 		}
 		if !miner.txpool.Has(tx.Hash()) {
 			bundleGasUsed += receipt.GasUsed
-
+			effectiveTip := big.NewInt(0)
 			txGasUsed := new(big.Int).SetUint64(receipt.GasUsed)
-			effectiveTip, er := tx.EffectiveGasTip(env.header.BaseFee)
-			if er != nil {
-				return nil, er
+			if tx.GasPrice().Cmp(big.NewInt(0)) > 0 {
+				effectiveTip, er := tx.EffectiveGasTip(env.header.BaseFee)
+				if er != nil {
+					return nil, er
+				}
+				if env.header.BaseFee != nil {
+					effectiveTip.Add(effectiveTip, env.header.BaseFee)
+				}
+				txGasFees := new(big.Int).Mul(txGasUsed, effectiveTip)
+				bundleGasFees.Add(bundleGasFees, txGasFees)
 			}
-			if env.header.BaseFee != nil {
-				effectiveTip.Add(effectiveTip, env.header.BaseFee)
-			}
-			txGasFees := new(big.Int).Mul(txGasUsed, effectiveTip)
-			bundleGasFees.Add(bundleGasFees, txGasFees)
 
 			// if the tx is not from txpool, we need to calculate l1DataFee
 			if tx.GasPrice().Cmp(big.NewInt(0)) == 0 && effectiveTip.Cmp(big.NewInt(0)) == 0 {

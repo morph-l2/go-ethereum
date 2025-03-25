@@ -30,7 +30,7 @@ type MevConfig struct {
 var DefaultMevConfig = MevConfig{
 	MevEnabled:             false,
 	MevReceivers:           nil,
-	MevBundleGasPriceFloor: 1,
+	MevBundleGasPriceFloor: 1e9,
 }
 
 // Backend wraps all methods required for mining.

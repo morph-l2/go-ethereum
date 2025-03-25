@@ -73,6 +73,7 @@ func setDefaults(cfg *Config) {
 			BernoulliBlock:      new(big.Int),
 			CurieBlock:          new(big.Int),
 			Morph203Time:        new(uint64),
+			Morph205Time:        new(uint64),
 		}
 	}
 

@@ -254,14 +254,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
 
 	}
-
-	// tmp modify fork time
-	storedcfg.Morph203Time = params.NewUint64(1742871600)
-	storedcfg.Morph205Time = params.NewUint64(1742871600)
-	newcfg.Morph203Time = params.NewUint64(1742871600)
-	newcfg.Morph205Time = params.NewUint64(1742871600)
-	log.Info("[MORPH203]", "set morph203 time", "1742871600")
-
 	// Special case: don't change the existing config of a non-mainnet chain if no new
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)
 	// if we just continued here.

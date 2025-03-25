@@ -120,6 +120,7 @@ func New(eth Backend, config Config, engine consensus.Engine) *Miner {
 		newBlockTimeout: newBlockTimeout,
 		getWorkCh:       make(chan *getWorkReq),
 		exitCh:          make(chan struct{}),
+		bundleCache:     NewBundleCache(),
 	}
 
 	// Sanitize account fetch limit.

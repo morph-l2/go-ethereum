@@ -35,7 +35,8 @@ import (
 )
 
 var (
-	errPrecompileDisabled = errors.New("sha256, ripemd160, blake2f precompiles temporarily disabled")
+	errModexpUnsupportedInput = errors.New("modexp temporarily only accepts inputs of 32 bytes (256 bits) or less")
+	errPrecompileDisabled     = errors.New("sha256, ripemd160, blake2f precompiles temporarily disabled")
 )
 
 // PrecompiledContract is the basic interface for native Go contracts. The implementation
@@ -131,10 +132,10 @@ var PrecompiledContractsMorph203 = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{2}): &sha256hash{},
 	common.BytesToAddress([]byte{3}): &ripemd160hash{},
 	common.BytesToAddress([]byte{4}): &dataCopy{},
-	common.BytesToAddress([]byte{5}): &bigModExp{eip2565: true},
+	common.BytesToAddress([]byte{5}): &bigModExp{eip2565: true, morph203: true},
 	common.BytesToAddress([]byte{6}): &bn256AddIstanbul{},
 	common.BytesToAddress([]byte{7}): &bn256ScalarMulIstanbul{},
-	common.BytesToAddress([]byte{8}): &bn256PairingIstanbul{},
+	common.BytesToAddress([]byte{8}): &bn256PairingIstanbul{morph203: true},
 	common.BytesToAddress([]byte{9}): &blake2F{},
 }
 
@@ -324,7 +325,8 @@ func (c *dataCopy) Run(in []byte) ([]byte, error) {
 
 // bigModExp implements a native big integer exponential modular operation.
 type bigModExp struct {
-	eip2565 bool
+	eip2565  bool
+	morph203 bool
 }
 
 var (
@@ -456,6 +458,14 @@ func (c *bigModExp) Run(input []byte) ([]byte, error) {
 		expLen  = expLenBigInt.Uint64()
 		modLen  = modLenBigInt.Uint64()
 	)
+	// Check that all inputs are `u256` (32 - bytes) or less, revert otherwise
+	if !c.morph203 {
+		var lenLimit = new(big.Int).SetInt64(32)
+		if baseLenBigInt.Cmp(lenLimit) > 0 || expLenBigInt.Cmp(lenLimit) > 0 || modLenBigInt.Cmp(lenLimit) > 0 {
+			return nil, errModexpUnsupportedInput
+		}
+	}
+
 	if len(input) > 96 {
 		input = input[96:]
 	} else {
@@ -591,7 +601,12 @@ var (
 
 // runBn256Pairing implements the Bn256Pairing precompile, referenced by both
 // Byzantium and Istanbul operations.
-func runBn256Pairing(input []byte) ([]byte, error) {
+func runBn256Pairing(input []byte, morph203 bool) ([]byte, error) {
+	// Allow at most 4 inputs
+	if !morph203 && len(input) > 4*192 {
+		return nil, errBadPairingInput
+	}
+
 	// Handle some corner cases cheaply
 	if len(input)%192 > 0 {
 		return nil, errBadPairingInput
@@ -622,7 +637,7 @@ func runBn256Pairing(input []byte) ([]byte, error) {
 
 // bn256PairingIstanbul implements a pairing pre-compile for the bn256 curve
 // conforming to Istanbul consensus rules.
-type bn256PairingIstanbul struct{}
+type bn256PairingIstanbul struct{ morph203 bool }
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
 func (c *bn256PairingIstanbul) RequiredGas(input []byte) uint64 {
@@ -630,7 +645,7 @@ func (c *bn256PairingIstanbul) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bn256PairingIstanbul) Run(input []byte) ([]byte, error) {
-	return runBn256Pairing(input)
+	return runBn256Pairing(input, c.morph203)
 }
 
 // bn256PairingByzantium implements a pairing pre-compile for the bn256 curve
@@ -643,7 +658,7 @@ func (c *bn256PairingByzantium) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bn256PairingByzantium) Run(input []byte) ([]byte, error) {
-	return runBn256Pairing(input)
+	return runBn256Pairing(input, false)
 }
 
 type blake2F struct{}

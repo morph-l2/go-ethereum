@@ -39,8 +39,9 @@ type assembleBlockParamsMarshaling struct {
 //go:generate go run github.com/fjl/gencodec -type AssembleL2BlockParams -field-override assembleL2BlockParamsMarshaling -out gen_l2blockparams.go
 
 type AssembleL2BlockParams struct {
-	Number       uint64   `json:"number"        gencodec:"required"`
-	Transactions [][]byte `json:"transactions"`
+	Number       uint64         `json:"number"        gencodec:"required"`
+	Coinbase     common.Address `json:"coinbase"`
+	Transactions [][]byte       `json:"transactions"`
 }
 
 // JSON type overrides for assembleL2BlockParams.

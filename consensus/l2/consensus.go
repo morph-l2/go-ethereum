@@ -29,7 +29,6 @@ var (
 	errInvalidNonce     = errors.New("invalid nonce")
 	errInvalidUncleHash = errors.New("invalid uncle hash")
 	errInvalidTimestamp = errors.New("invalid timestamp")
-	errInvalidCoinbase  = errors.New("invalid coinbase")
 )
 
 type Consensus struct {
@@ -142,9 +141,6 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 		return errInvalidUncleHash
 	}
 
-	if l2.config.Morph.FeeVaultEnabled() && header.Coinbase != types.EmptyAddress {
-		return errInvalidCoinbase
-	}
 	// Verify the timestamp
 	if header.Time <= parent.Time {
 		return errInvalidTimestamp
@@ -187,10 +183,6 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 	header.Nonce = l2Nonce
 	header.UncleHash = types.EmptyUncleHash
 	header.Extra = []byte{} // disable extra field filling with bytes
-	// set coinbase to empty address, if feeVault is enabled
-	if l2.config.Morph.FeeVaultEnabled() {
-		header.Coinbase = types.EmptyAddress
-	}
 	return nil
 }
 

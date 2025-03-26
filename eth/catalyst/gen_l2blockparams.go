@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 )
 
@@ -15,10 +16,12 @@ var _ = (*assembleL2BlockParamsMarshaling)(nil)
 func (a AssembleL2BlockParams) MarshalJSON() ([]byte, error) {
 	type AssembleL2BlockParams struct {
 		Number       hexutil.Uint64  `json:"number"        gencodec:"required"`
+		Coinbase     common.Address  `json:"coinbase"`
 		Transactions []hexutil.Bytes `json:"transactions"`
 	}
 	var enc AssembleL2BlockParams
 	enc.Number = hexutil.Uint64(a.Number)
+	enc.Coinbase = a.Coinbase
 	if a.Transactions != nil {
 		enc.Transactions = make([]hexutil.Bytes, len(a.Transactions))
 		for k, v := range a.Transactions {
@@ -32,6 +35,7 @@ func (a AssembleL2BlockParams) MarshalJSON() ([]byte, error) {
 func (a *AssembleL2BlockParams) UnmarshalJSON(input []byte) error {
 	type AssembleL2BlockParams struct {
 		Number       *hexutil.Uint64 `json:"number"        gencodec:"required"`
+		Coinbase     *common.Address `json:"coinbase"`
 		Transactions []hexutil.Bytes `json:"transactions"`
 	}
 	var dec AssembleL2BlockParams
@@ -42,6 +46,9 @@ func (a *AssembleL2BlockParams) UnmarshalJSON(input []byte) error {
 		return errors.New("missing required field 'number' for AssembleL2BlockParams")
 	}
 	a.Number = uint64(*dec.Number)
+	if dec.Coinbase != nil {
+		a.Coinbase = *dec.Coinbase
+	}
 	if dec.Transactions != nil {
 		a.Transactions = make([][]byte, len(dec.Transactions))
 		for k, v := range dec.Transactions {

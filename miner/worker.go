@@ -120,6 +120,7 @@ func (env *environment) copy() *environment {
 		header:         types.CopyHeader(env.header),
 		receipts:       copyReceipts(env.receipts),
 		l1TxCount:      env.l1TxCount,
+		blockSize:      env.blockSize,
 		nextL1MsgIndex: env.nextL1MsgIndex,
 		isSimulate:     env.isSimulate,
 	}

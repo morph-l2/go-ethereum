@@ -161,9 +161,9 @@ func (p *TxPool) loop(head *types.Header, chain BlockChain) {
 
 // SetGasPrice updates the minimum gas tip required by the transaction pool for a
 // new transaction, and drops all transactions below this threshold.
-func (p *TxPool) SetGasPrice(tip *big.Int) {
+func (p *TxPool) SetGasPrice(gasPrice *big.Int) {
 	for _, subpool := range p.subpools {
-		subpool.SetGasPrice(tip)
+		subpool.SetGasPrice(gasPrice)
 	}
 }
 
@@ -185,10 +185,6 @@ func (p *TxPool) Get(hash common.Hash) *types.Transaction {
 			return tx
 		}
 	}
-	return nil
-}
-
-func (p *TxPool) AddRemotes(txs []*types.Transaction) []error {
 	return nil
 }
 

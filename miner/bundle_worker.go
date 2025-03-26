@@ -117,7 +117,7 @@ func (miner *Miner) commitBundles(
 			return signalToErr(commitInterruptBundleCommit)
 
 		case nil:
-			// Everything ok, collect the logs and shift in the next transaction from the same account
+			// Everything ok, commit the transaction and move to the next
 			env.tcount++
 			continue
 

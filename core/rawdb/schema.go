@@ -25,6 +25,7 @@ import (
 	leveldb "github.com/syndtr/goleveldb/leveldb/errors"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb/memorydb"
 	"github.com/morph-l2/go-ethereum/metrics"
 )
@@ -42,6 +43,9 @@ var (
 
 	// headFastBlockKey tracks the latest known incomplete block's hash during fast sync.
 	headFastBlockKey = []byte("LastFast")
+
+	// persistentStateIDKey tracks the id of latest stored state(for path-based only).
+	persistentStateIDKey = []byte("LastStateID")
 
 	// lastPivotKey tracks the last pivot block used by fast sync (to reenable on sethead).
 	lastPivotKey = []byte("LastPivot")
@@ -69,6 +73,9 @@ var (
 
 	// skeletonSyncStatusKey tracks the skeleton sync status across restarts.
 	skeletonSyncStatusKey = []byte("SkeletonSyncStatus")
+
+	// trieJournalKey tracks the in-memory trie node layers across restarts.
+	trieJournalKey = []byte("TrieJournal")
 
 	// txIndexTailKey tracks the oldest block whose transactions have been indexed.
 	txIndexTailKey = []byte("TransactionIndexTail")
@@ -122,6 +129,11 @@ var (
 	rollupBatchSignaturePrefix    = []byte("R-bs")
 	rollupBatchL1DataFeePrefix    = []byte("R-df")
 	rollupBatchHeadBatchHasFeeKey = []byte("R-hbf")
+
+	// Path-based storage scheme of merkle patricia trie.
+	TrieNodeAccountPrefix = []byte("A") // trieNodeAccountPrefix + hexPath -> trie node
+	TrieNodeStoragePrefix = []byte("O") // trieNodeStoragePrefix + accountHash + hexPath -> trie node
+	stateIDPrefix         = []byte("L") // stateIDPrefix + state root -> state id
 )
 
 const (
@@ -276,6 +288,10 @@ func isNotFoundErr(err error) bool {
 	return errors.Is(err, leveldb.ErrNotFound) || errors.Is(err, memorydb.ErrMemorydbNotFound)
 }
 
+func IsNotFoundErr(err error) bool {
+	return isNotFoundErr(err)
+}
+
 // SkippedTransactionKey = skippedTransactionPrefix + tx hash
 func SkippedTransactionKey(txHash common.Hash) []byte {
 	return append(skippedTransactionPrefix, txHash.Bytes()...)
@@ -309,4 +325,32 @@ func RollupBatchSignatureSignerKey(batchHash common.Hash, signer common.Address)
 // RollupBatchL1DataFeeKey = rollupBatchL1DataFeePrefix + batchIndex
 func RollupBatchL1DataFeeKey(batchIndex uint64) []byte {
 	return append(rollupBatchL1DataFeePrefix, encodeBigEndian(batchIndex)...)
+}
+
+// accountTrieNodeKey = trieNodeAccountPrefix + nodePath.
+func accountTrieNodeKey(path []byte) []byte {
+	return append(TrieNodeAccountPrefix, path...)
+}
+
+// storageTrieNodeKey = trieNodeStoragePrefix + Keccak256Hash(accountHash + nodePath).
+func storageTrieNodeKey(accountHash common.Hash, path []byte) []byte {
+	buf := make([]byte, len(TrieNodeStoragePrefix)+common.HashLength)
+	n := copy(buf, TrieNodeStoragePrefix)
+	h := crypto.Keccak256Hash(append(accountHash.Bytes(), path...)).Bytes()
+	copy(buf[n:], h)
+	return buf
+}
+
+// stateIDKey = stateIDPrefix + root (32 bytes)
+func stateIDKey(root common.Hash) []byte {
+	return append(stateIDPrefix, root.Bytes()...)
+}
+
+func CompactStorageTrieNodeKey(key []byte) []byte {
+	if key[0] == TrieNodeStoragePrefix[0] && len(key) > 33 {
+		h := crypto.Keccak256Hash(key[1:]).Bytes()
+		newKey := append(TrieNodeStoragePrefix, h...)
+		return newKey
+	}
+	return key
 }

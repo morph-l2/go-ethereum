@@ -223,6 +223,9 @@ func pruneZKState(ctx *cli.Context) error {
 	defer stack.Close()
 
 	chaindb := utils.MakeChainDatabase(ctx, stack, false)
+	if rawdb.ReadStateScheme(chaindb) != rawdb.HashScheme {
+		log.Crit("Offline pruning is not required for path scheme")
+	}
 	zkPruner, err := pruner.NewZKPruner(chaindb, ctx.GlobalUint64(utils.BloomFilterSizeFlag.Name), stack.ResolvePath(""), stack.ResolvePath(config.Eth.TrieCleanCacheJournal))
 	if err != nil {
 		return err

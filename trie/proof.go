@@ -110,6 +110,11 @@ func VerifyProof(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueReader)
 		return VerifyProofSMT(rootHash, key, proofDb)
 	}
 
+	// test the type of proof (for path trie or SMT)
+	if buf, _ := proofDb.Get(magicHashPathTrie); buf != nil {
+		return VerifyProofSMT2(rootHash, key, proofDb)
+	}
+
 	key = keybytesToHex(key)
 	wantHash := rootHash
 	for i := 0; ; i++ {

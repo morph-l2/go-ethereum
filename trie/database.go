@@ -526,6 +526,7 @@ func (db *Database) Reference(child common.Hash, parent common.Hash) {
 	if db.backend != nil {
 		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
 		if !ok {
+			log.Error("Databse not support reference")
 			return
 		}
 		zdb.Reference(child, parent)

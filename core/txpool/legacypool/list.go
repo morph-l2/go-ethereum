@@ -301,7 +301,7 @@ func (l *list) Contains(nonce uint64) bool {
 //
 // If the new transaction is accepted into the list, the lists' cost and gas
 // thresholds are also potentially updated.
-func (l *list) Add(tx *types.Transaction, state *state.StateDB, priceBump uint64, chainconfig *params.ChainConfig, blockNumber *big.Int) (bool, *types.Transaction) {
+func (l *list) Add(tx *types.Transaction, state *state.StateDB, priceBump uint64, chainconfig *params.ChainConfig, blockNumber *big.Int, timestamp uint64) (bool, *types.Transaction) {
 	// If there's an older better transaction, abort
 	old := l.txs.Get(tx.Nonce())
 	if old != nil {
@@ -329,7 +329,7 @@ func (l *list) Add(tx *types.Transaction, state *state.StateDB, priceBump uint64
 	l1DataFee := big.NewInt(0)
 	if state != nil && chainconfig != nil {
 		var err error
-		l1DataFee, err = fees.CalculateL1DataFee(tx, state, chainconfig, blockNumber)
+		l1DataFee, err = fees.CalculateL1DataFee(tx, state, chainconfig, blockNumber, timestamp)
 		if err != nil {
 			log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
 			return false, nil

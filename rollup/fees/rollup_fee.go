@@ -52,7 +52,7 @@ type gpoState struct {
 	blobScalar    *big.Int
 }
 
-func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.ChainConfig, signer types.Signer, state StateDB, blockNumber *big.Int) (*big.Int, error) {
+func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.ChainConfig, signer types.Signer, state StateDB, blockNumber *big.Int, time uint64) (*big.Int, error) {
 	if msg.IsL1MessageTx() {
 		return big.NewInt(0), nil
 	}
@@ -62,6 +62,12 @@ func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.C
 	tx, err := unsigned.WithSignature(signer, append(bytes.Repeat([]byte{0xff}, crypto.SignatureLength-1), 0x01))
 	if err != nil {
 		return nil, err
+	}
+
+	// if tx gas price is 0, we should not calkculate the L1 data fee
+	// this is the case for morph205
+	if config.IsMorph205(time) && tx.GasPrice() == big.NewInt(0) {
+		return big.NewInt(0), nil
 	}
 
 	raw, err := tx.MarshalBinary()
@@ -199,8 +205,14 @@ func mulAndScale(x *big.Int, y *big.Int, precision *big.Int) *big.Int {
 	return new(big.Int).Quo(z, precision)
 }
 
-func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.ChainConfig, blockNumber *big.Int) (*big.Int, error) {
+func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.ChainConfig, blockNumber *big.Int, time uint64) (*big.Int, error) {
 	if tx.IsL1MessageTx() {
+		return big.NewInt(0), nil
+	}
+
+	// if tx gas price is 0, we should not calkculate the L1 data fee
+	// this is the case for morph205
+	if config.IsMorph205(time) && tx.GasPrice() == big.NewInt(0) {
 		return big.NewInt(0), nil
 	}
 

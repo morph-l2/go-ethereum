@@ -216,11 +216,10 @@ type LegacyPool struct {
 	eip1559  bool // Fork indicator whether we are using EIP-1559 type transactions.
 	shanghai bool // Fork indicator whether we are in the Shanghai stage.
 
-	currentState    *state.StateDB // Current state in the blockchain head
-	currentHead     *big.Int       // Current blockchain head
-	currentHeadTime uint64         // Current blockchain head time
-	pendingNonces   *noncer        // Pending state tracking virtual nonces
-	currentMaxGas   uint64         // Current gas limit for transaction caps
+	currentState  *state.StateDB // Current state in the blockchain head
+	currentHead   *big.Int       // Current blockchain head
+	pendingNonces *noncer        // Pending state tracking virtual nonces
+	currentMaxGas uint64         // Current gas limit for transaction caps
 
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *journal    // Journal of local transaction to back up to disk
@@ -671,7 +670,7 @@ func (pool *LegacyPool) validateTx(tx *types.Transaction, local bool) error {
 	// 2. If FeeVault is enabled, perform an additional check for L1 data fees.
 	if pool.chainconfig.Morph.FeeVaultEnabled() {
 		// Get L1 data fee in current state
-		l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead, pool.currentHeadTime)
+		l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead)
 		if err != nil {
 			return fmt.Errorf("failed to calculate L1 data fee, err: %w", err)
 		}
@@ -783,7 +782,7 @@ func (pool *LegacyPool) add(tx *types.Transaction, local bool) (replaced bool, e
 	// Try to replace an existing transaction in the pending pool
 	if list := pool.pending[from]; list != nil && list.Contains(tx.Nonce()) {
 		// Nonce already pending, check if required price bump is met
-		inserted, old := list.Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead, pool.currentHeadTime)
+		inserted, old := list.Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
 		if !inserted {
 			pendingDiscardMeter.Mark(1)
 			return false, txpool.ErrReplaceUnderpriced
@@ -858,7 +857,7 @@ func (pool *LegacyPool) enqueueTx(hash common.Hash, tx *types.Transaction, local
 		pool.queue[from] = newList(false)
 	}
 
-	inserted, old := pool.queue[from].Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead, pool.currentHeadTime)
+	inserted, old := pool.queue[from].Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
 	if !inserted {
 		// An older transaction was better, discard this
 		queuedDiscardMeter.Mark(1)
@@ -912,7 +911,7 @@ func (pool *LegacyPool) promoteTx(addr common.Address, hash common.Hash, tx *typ
 	}
 	list := pool.pending[addr]
 
-	inserted, old := list.Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead, pool.currentHeadTime)
+	inserted, old := list.Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
 	if !inserted {
 		// An older transaction was better, discard this
 		pool.all.Remove(hash)
@@ -1425,7 +1424,6 @@ func (pool *LegacyPool) reset(oldHead, newHead *types.Header) {
 
 	// Update current head
 	pool.currentHead = next
-	pool.currentHeadTime = newHead.Time + 1
 }
 
 // promoteExecutables moves transactions that have become processable from the
@@ -1504,7 +1502,7 @@ func (pool *LegacyPool) executableTxFilter(costLimit *big.Int) func(tx *types.Tr
 
 		if pool.chainconfig.Morph.FeeVaultEnabled() {
 			// recheck L1 data fee, as the oracle price may have changed
-			l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead, pool.currentHeadTime)
+			l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead)
 			if err != nil {
 				log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
 				return false

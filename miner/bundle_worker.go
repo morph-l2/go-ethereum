@@ -344,7 +344,7 @@ func (miner *Miner) simulateBundle(
 
 			// if the tx is not from txpool, we need to calculate l1DataFee
 			if tx.GasPrice().Cmp(big.NewInt(0)) == 0 && effectiveTip.Cmp(big.NewInt(0)) == 0 {
-				l1DataFee, err := fees.CalculateL1DataFee(tx, state, miner.chainConfig, env.header.Number, env.header.Time)
+				l1DataFee, err := fees.CalculateL1DataFee(tx, state, miner.chainConfig, env.header.Number)
 				if err != nil {
 					return nil, err
 				}

@@ -146,7 +146,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 				//vmenv := core.NewEnv(statedb, config, bc, msg, header, vm.Config{})
 				gp := new(core.GasPool).AddGas(math.MaxUint64)
 				signer := types.MakeSigner(config, header.Number)
-				l1DataFee, _ := fees.EstimateL1DataFeeForMessage(msg, header.BaseFee, config, signer, statedb, header.Number, header.Time)
+				l1DataFee, _ := fees.EstimateL1DataFeeForMessage(msg, header.BaseFee, config, signer, statedb, header.Number)
 				result, _ := core.ApplyMessage(vmenv, msg, gp, l1DataFee)
 				res = append(res, result.Return()...)
 			}
@@ -160,7 +160,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 			vmenv := vm.NewEVM(context, txContext, state, config, vm.Config{NoBaseFee: true})
 			gp := new(core.GasPool).AddGas(math.MaxUint64)
 			signer := types.MakeSigner(config, header.Number)
-			l1DataFee, _ := fees.EstimateL1DataFeeForMessage(msg, header.BaseFee, config, signer, state, header.Number, header.Time)
+			l1DataFee, _ := fees.EstimateL1DataFeeForMessage(msg, header.BaseFee, config, signer, state, header.Number)
 			result, _ := core.ApplyMessage(vmenv, msg, gp, l1DataFee)
 			if state.Error() == nil {
 				res = append(res, result.Return()...)

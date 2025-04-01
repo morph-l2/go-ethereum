@@ -234,8 +234,15 @@ func (st *StateTransition) buyGas() error {
 		// should be fine to add st.l1DataFee even without `L1MessageTx` check, since L1MessageTx will come with 0 l1DataFee,
 		// but double check to make sure
 		if !st.msg.IsL1MessageTx() {
-			log.Debug("Adding L1DataFee", "l1DataFee", st.l1DataFee)
-			mgval = mgval.Add(mgval, st.l1DataFee)
+			if st.evm.ChainConfig().IsMorph205(st.evm.Context.Time.Uint64()) {
+				if st.gasPrice.Cmp(big.NewInt(0)) != 0 {
+					log.Debug("Adding L1DataFee", "l1DataFee", st.l1DataFee)
+					mgval = mgval.Add(mgval, st.l1DataFee)
+				}
+			} else {
+				log.Debug("Adding L1DataFee", "l1DataFee", st.l1DataFee)
+				mgval = mgval.Add(mgval, st.l1DataFee)
+			}
 		}
 	}
 
@@ -248,7 +255,13 @@ func (st *StateTransition) buyGas() error {
 			// should be fine to add st.l1DataFee even without `L1MessageTx` check, since L1MessageTx will come with 0 l1DataFee,
 			// but double check to make sure
 			if !st.msg.IsL1MessageTx() {
-				balanceCheck.Add(balanceCheck, st.l1DataFee)
+				if st.evm.ChainConfig().IsMorph205(st.evm.Context.Time.Uint64()) {
+					if st.gasFeeCap.Cmp(big.NewInt(0)) != 0 {
+						balanceCheck.Add(balanceCheck, st.l1DataFee)
+					}
+				} else {
+					balanceCheck.Add(balanceCheck, st.l1DataFee)
+				}
 			}
 		}
 	}
@@ -313,7 +326,7 @@ func (st *StateTransition) preCheck() error {
 			}
 			// This will panic if baseFee is nil, but basefee presence is verified
 			// as part of header validation.
-			if !(st.evm.ChainConfig().IsMorph205(st.evm.Context.Time.Uint64()) && st.gasFeeCap.Cmp(big.NewInt(0)) == 0) {
+			if !st.evm.ChainConfig().IsMorph205(st.evm.Context.Time.Uint64()) {
 				if st.evm.Context.BaseFee != nil && st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
 					return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 						st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
@@ -444,6 +457,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// to the sequencer.
 	l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
 	fee := new(big.Int).Add(st.l1DataFee, l2Fee)
+	if rules.IsMorph205 && effectiveTip.Cmp(big.NewInt(0)) == 0 && st.gasPrice.Cmp(big.NewInt(0)) == 0 {
+		fee = l2Fee
+	}
 	st.state.AddBalance(st.evm.FeeRecipient(), fee)
 
 	return &ExecutionResult{

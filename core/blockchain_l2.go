@@ -129,7 +129,7 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 			commitDone := func() {
 				if flush {
 					bc.gcproc = 0
-					log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", flushInterval, "gcproc", bc.gcproc)
+					log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", flushInterval)
 				}
 			}
 

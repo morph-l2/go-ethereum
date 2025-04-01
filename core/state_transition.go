@@ -326,7 +326,7 @@ func (st *StateTransition) preCheck() error {
 			}
 			// This will panic if baseFee is nil, but basefee presence is verified
 			// as part of header validation.
-			if !st.evm.ChainConfig().IsMorph205(st.evm.Context.Time.Uint64()) {
+			if !(st.evm.ChainConfig().IsMorph205(st.evm.Context.Time.Uint64()) && st.gasFeeCap.Cmp(big.NewInt(0)) == 0) {
 				if st.evm.Context.BaseFee != nil && st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
 					return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 						st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"reflect"
 	"runtime"
 	"sync"
@@ -33,6 +34,10 @@ import (
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/rlp"
+	"github.com/morph-l2/go-ethereum/triedb/hashdb"
+	"github.com/morph-l2/go-ethereum/triedb/pathdb"
+	zktrie "github.com/scroll-tech/zktrie/trie"
+	zkt "github.com/scroll-tech/zktrie/types"
 )
 
 var (
@@ -71,7 +76,8 @@ type Database struct {
 	diskdb ethdb.KeyValueStore // Persistent storage for matured trie nodes
 
 	// zktrie related stuff
-	Zktrie bool
+	Zktrie     bool
+	PathZkTrie bool
 	// TODO: It's a quick&dirty implementation. FIXME later.
 	rawDirties KvMap
 
@@ -93,6 +99,8 @@ type Database struct {
 	preimages    *preimageStore     // The store for caching preimages
 
 	lock sync.RWMutex
+
+	backend backend // The backend for managing trie nodes
 }
 
 // rawNode is a simple binary blob used to differentiate between collapsed trie
@@ -278,10 +286,48 @@ func expandNode(hash hashNode, n node) node {
 
 // Config defines all necessary options for database.
 type Config struct {
-	Cache     int    // Memory allowance (MB) to use for caching trie nodes in memory
-	Journal   string // Journal of clean cache to survive node restarts
-	Preimages bool   // Flag whether the preimage of trie key is recorded
-	Zktrie    bool   // use zktrie
+	Cache      int    // Memory allowance (MB) to use for caching trie nodes in memory
+	Journal    string // Journal of clean cache to survive node restarts
+	Preimages  bool   // Flag whether the preimage of trie key is recorded
+	Zktrie     bool   // use zktrie
+	PathZkTrie bool   // use path zktrie
+
+	HashDB *hashdb.Config // Configs for hash-based scheme
+	PathDB *pathdb.Config // Configs for experimental path-based scheme
+}
+
+var GenesisStateInPathZkTrie = false
+
+// Reader wraps the Node method of a backing trie reader.
+type Reader interface {
+	// Node retrieves the trie node blob with the provided trie identifier,
+	// node path and the corresponding node hash. No error will be returned
+	// if the node is not found.
+	Node(path []byte) ([]byte, error)
+}
+
+// backend defines the methods needed to access/update trie nodes in different
+// state scheme.
+type backend interface {
+	// Scheme returns the identifier of used storage scheme.
+	Scheme() string
+
+	// Size returns the current storage size of the memory cache in front of the
+	// persistent database layer.
+	Size() (common.StorageSize, common.StorageSize, common.StorageSize)
+
+	// Commit writes all relevant trie nodes belonging to the specified state
+	// to disk. Report specifies whether logs will be displayed in info level.
+	CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool, flush bool, callback func()) error
+
+	// Commit write custom nodes belong genesis states, only onece
+	CommitGenesis(root common.Hash) error
+
+	// Close closes the trie database backend and releases all held resources.
+	Close() error
+
+	// Put nodes to database
+	Put(k, v []byte) error
 }
 
 // NewDatabase creates a new trie database to store ephemeral trie content before
@@ -289,6 +335,10 @@ type Config struct {
 // data retrievals will hit the underlying disk database.
 func NewDatabase(diskdb ethdb.KeyValueStore) *Database {
 	return NewDatabaseWithConfig(diskdb, nil)
+}
+
+func NewZkDatabase(diskdb ethdb.KeyValueStore) *Database {
+	return NewDatabaseWithConfig(diskdb, &Config{Zktrie: true})
 }
 
 // NewDatabaseWithConfig creates a new trie database to store ephemeral trie content
@@ -315,6 +365,21 @@ func NewDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Database
 		}},
 		rawDirties: make(KvMap),
 		preimages:  preimage,
+		Zktrie:     config != nil && config.Zktrie,
+		PathZkTrie: config != nil && config.Zktrie && config.PathZkTrie,
+	}
+	if config.HashDB != nil && config.PathDB != nil {
+		log.Crit("Both 'hash' and 'path' mode are configured")
+	}
+
+	if db.PathZkTrie {
+		log.Info("Using pathdb for zktrie backend")
+		db.backend = pathdb.New(diskdb, config.PathDB)
+	} else {
+		if db.Zktrie {
+			log.Info("Using hashdb for zktrie backend")
+			db.backend = hashdb.NewZkDatabaseWithConfig(diskdb, config.HashDB)
+		}
 	}
 	return db
 }
@@ -437,6 +502,10 @@ func (db *Database) Node(hash common.Hash) ([]byte, error) {
 // This method is extremely expensive and should only be used to validate internal
 // states in test code.
 func (db *Database) Nodes() []common.Hash {
+	if db.backend != nil {
+		panic("Database not support Nodes()")
+	}
+
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
@@ -454,6 +523,16 @@ func (db *Database) Nodes() []common.Hash {
 // and external node(e.g. storage trie root), all internal trie nodes
 // are referenced together by database itself.
 func (db *Database) Reference(child common.Hash, parent common.Hash) {
+	if db.backend != nil {
+		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
+		if !ok {
+			log.Error("Databse not support reference")
+			return
+		}
+		zdb.Reference(child, parent)
+		return
+	}
+
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -483,6 +562,16 @@ func (db *Database) reference(child common.Hash, parent common.Hash) {
 
 // Dereference removes an existing reference from a root node.
 func (db *Database) Dereference(root common.Hash) {
+	if db.backend != nil {
+		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
+		if !ok {
+			log.Error("Databse not support dereference")
+			return
+		}
+		zdb.Dereference(root)
+		return
+	}
+
 	// Sanity check to ensure that the meta-root is not removed
 	if root == (common.Hash{}) {
 		log.Error("Attempted to dereference the trie cache meta root")
@@ -562,6 +651,17 @@ func (db *Database) dereference(child common.Hash, parent common.Hash) {
 // Note, this method is a non-synchronized mutator. It is unsafe to call this
 // concurrently with other mutators.
 func (db *Database) Cap(limit common.StorageSize) error {
+	if db.backend != nil {
+		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
+		if !ok {
+			return errors.New("not supported")
+		}
+		if db.preimages != nil {
+			db.preimages.commit(false)
+		}
+		return zdb.Cap(limit)
+	}
+
 	// Create a database batch to flush persistent data out. It is important that
 	// outside code doesn't see an inconsistent state (referenced data removed from
 	// memory cache during commit but not yet in persistent storage). This is ensured
@@ -640,6 +740,13 @@ func (db *Database) Cap(limit common.StorageSize) error {
 	return nil
 }
 
+func (db *Database) CommitGenesis(root common.Hash) error {
+	if db.backend != nil {
+		db.backend.CommitGenesis(root)
+	}
+	return db.Commit(root, true, nil)
+}
+
 // Commit iterates over all the children of a particular node, writes them out
 // to disk, forcefully tearing down all references in both directions. As a side
 // effect, all pre-images accumulated up to this point are also written.
@@ -647,6 +754,17 @@ func (db *Database) Cap(limit common.StorageSize) error {
 // Note, this method is a non-synchronized mutator. It is unsafe to call this
 // concurrently with other mutators.
 func (db *Database) Commit(node common.Hash, report bool, callback func(common.Hash)) error {
+	if db.backend != nil {
+		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
+		if !ok {
+			return errors.New("not supported")
+		}
+		if db.preimages != nil {
+			db.preimages.commit(true)
+		}
+		return zdb.CommitState(node, common.Hash{}, 0, report, false, nil)
+	}
+
 	// Create a database batch to flush persistent data out. It is important that
 	// outside code doesn't see an inconsistent state (referenced data removed from
 	// memory cache during commit but not yet in persistent storage). This is ensured
@@ -835,12 +953,29 @@ func (db *Database) saveCache(dir string, threads int) error {
 // SaveCache atomically saves fast cache data to the given dir using all
 // available CPU cores.
 func (db *Database) SaveCache(dir string) error {
+	if db.backend != nil {
+		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
+		if !ok {
+			return errors.New("not supported")
+		}
+		return zdb.SaveCache(dir)
+	}
+
 	return db.saveCache(dir, runtime.GOMAXPROCS(0))
 }
 
 // SaveCachePeriodically atomically saves fast cache data to the given dir with
 // the specified interval. All dump operation will only use a single CPU core.
 func (db *Database) SaveCachePeriodically(dir string, interval time.Duration, stopCh <-chan struct{}) {
+	if db.backend != nil {
+		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
+		if !ok {
+			return
+		}
+		zdb.SaveCachePeriodically(dir, interval, stopCh)
+		return
+	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -856,10 +991,138 @@ func (db *Database) SaveCachePeriodically(dir string, interval time.Duration, st
 
 // EmptyRoot indicate what root is for an empty trie, it depends on its underlying implement (zktrie or common trie)
 func (db *Database) EmptyRoot() common.Hash {
-
 	if db.Zktrie {
 		return common.Hash{}
 	} else {
 		return emptyRoot
 	}
+}
+
+// Reader returns a reader for accessing all trie nodes with provided state root.
+// An error will be returned if the requested state is not available.
+func (db *Database) Reader(blockRoot common.Hash) (Reader, error) {
+	switch b := db.backend.(type) {
+	case *hashdb.ZktrieDatabase:
+		return b.Reader(blockRoot)
+	case *pathdb.Database:
+		return b.Reader(blockRoot)
+	}
+	return nil, errors.New("unknown backend")
+}
+
+func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockNumber uint64, report bool, flush bool, callback func()) error {
+	if db.backend != nil {
+		if db.preimages != nil {
+			db.preimages.commit(true)
+		}
+		return db.backend.CommitState(root, parentRoot, blockNumber, report, flush, callback)
+	}
+
+	return errors.New("not supported")
+}
+
+// Scheme returns the node scheme used in the database.
+func (db *Database) Scheme() string {
+	if db.backend != nil {
+		return db.backend.Scheme()
+	}
+	return rawdb.HashScheme
+}
+
+// Close flushes the dangling preimages to disk and closes the trie database.
+// It is meant to be called when closing the blockchain object, so that all
+// resources held can be released correctly.
+func (db *Database) Close() error {
+	if db.preimages != nil {
+		db.preimages.commit(true)
+	}
+
+	if db.backend != nil {
+		return db.backend.Close()
+	}
+	return nil
+}
+
+// Preimage retrieves a cached trie node pre-image from memory. If it cannot be
+// found cached, the method queries the persistent database for the content.
+func (db *Database) Preimage(hash common.Hash) []byte {
+	if db.preimages == nil {
+		return nil
+	}
+	return db.preimages.preimage(hash)
+}
+
+// Journal commits an entire diff hierarchy to disk into a single journal entry.
+// This is meant to be used during shutdown to persist the snapshot without
+// flattening everything down (bad for reorgs). It's only supported by path-based
+// database and will return an error for others.
+func (db *Database) Journal(root common.Hash) error {
+	if db.backend != nil {
+		pdb, ok := db.backend.(*pathdb.Database)
+		if !ok {
+			return errors.New("backend [Journal] not supported")
+		}
+		return pdb.Journal(root)
+	}
+	return nil
+}
+
+func (db *Database) IsZkTrie() bool     { return db.Zktrie }
+func (db *Database) IsPathZkTrie() bool { return db.Zktrie && db.PathZkTrie }
+
+// ZkTrie database interface
+func (db *Database) UpdatePreimage(preimage []byte, hashField *big.Int) {
+	if db.backend != nil {
+		if db.preimages != nil {
+			// we must copy the input key
+			preimages := make(map[common.Hash][]byte)
+			preimages[common.BytesToHash(hashField.Bytes())] = common.CopyBytes(preimage)
+			db.preimages.insertPreimage(preimages)
+		}
+	}
+}
+
+func (db *Database) Put(k, v []byte) error {
+	if db.backend != nil {
+		return db.backend.Put(k, v)
+	}
+	return nil
+}
+
+func (db *Database) Get(key []byte) ([]byte, error) {
+	if db.backend != nil {
+		zdb, ok := db.backend.(*hashdb.ZktrieDatabase)
+		if !ok {
+			return nil, errors.New("backend [Get] not supported")
+		}
+		return zdb.Get(key)
+	}
+	return nil, nil
+}
+
+func (db *Database) GetFrom(root, key []byte) ([]byte, error) {
+	if db.backend != nil {
+		pdb, ok := db.backend.(*pathdb.Database)
+		if !ok {
+			return nil, errors.New("backend [GetFrom] not supported")
+		}
+
+		key := rawdb.CompactStorageTrieNodeKey(key[:])
+		r := common.BytesToHash(zkt.ReverseByteOrder(root[:]))
+		reader, _ := pdb.Reader(r)
+		if reader != nil {
+			n, err := reader.Node(key)
+			if err != nil {
+				return nil, err
+			}
+
+			if n == nil {
+				return nil, zktrie.ErrKeyNotFound
+			}
+			return n, nil
+		}
+
+		return nil, errors.New("state is not available")
+	}
+	return nil, nil
 }

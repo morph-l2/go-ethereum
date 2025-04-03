@@ -158,6 +158,11 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 	if ctx.GlobalIsSet(utils.OverrideArrowGlacierFlag.Name) {
 		cfg.Eth.OverrideArrowGlacier = new(big.Int).SetUint64(ctx.GlobalUint64(utils.OverrideArrowGlacierFlag.Name))
 	}
+	if ctx.GlobalIsSet(utils.OverrideMorph203TimeFlag.Name) {
+		v := ctx.Uint64(utils.OverrideMorph203TimeFlag.Name)
+		cfg.Eth.OverrideMorph203Time = &v
+	}
+
 	backend, _ := utils.RegisterEthService(stack, &cfg.Eth)
 
 	// Configure log filter RPC API.

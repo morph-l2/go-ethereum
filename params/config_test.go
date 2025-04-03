@@ -17,122 +17,141 @@
 package params
 
 import (
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestCheckCompatible(t *testing.T) {
 	type test struct {
-		stored, new *ChainConfig
-		head        uint64
-		wantErr     *ConfigCompatError
+		stored, new   *ChainConfig
+		headBlock     uint64
+		headTimestamp uint64
+		wantErr       *ConfigCompatError
 	}
 	tests := []test{
-		{stored: AllEthashProtocolChanges, new: AllEthashProtocolChanges, head: 0, wantErr: nil},
-		{stored: AllEthashProtocolChanges, new: AllEthashProtocolChanges, head: 100, wantErr: nil},
+		{stored: AllEthashProtocolChanges, new: AllEthashProtocolChanges, headBlock: 0, headTimestamp: 0, wantErr: nil},
+		{stored: AllEthashProtocolChanges, new: AllEthashProtocolChanges, headBlock: 0, headTimestamp: uint64(time.Now().Unix()), wantErr: nil},
+		{stored: AllEthashProtocolChanges, new: AllEthashProtocolChanges, headBlock: 100, wantErr: nil},
 		{
-			stored:  &ChainConfig{EIP150Block: big.NewInt(10)},
-			new:     &ChainConfig{EIP150Block: big.NewInt(20)},
-			head:    9,
-			wantErr: nil,
+			stored:    &ChainConfig{EIP150Block: big.NewInt(10)},
+			new:       &ChainConfig{EIP150Block: big.NewInt(20)},
+			headBlock: 9,
+			wantErr:   nil,
 		},
 		{
-			stored: AllEthashProtocolChanges,
-			new:    &ChainConfig{HomesteadBlock: nil},
-			head:   3,
+			stored:    AllEthashProtocolChanges,
+			new:       &ChainConfig{HomesteadBlock: nil},
+			headBlock: 3,
 			wantErr: &ConfigCompatError{
-				What:         "Homestead fork block",
-				StoredConfig: big.NewInt(0),
-				NewConfig:    nil,
-				RewindTo:     0,
+				What:          "Homestead fork block",
+				StoredBlock:   big.NewInt(0),
+				NewBlock:      nil,
+				RewindToBlock: 0,
 			},
 		},
 		{
-			stored: AllEthashProtocolChanges,
-			new:    &ChainConfig{HomesteadBlock: big.NewInt(1)},
-			head:   3,
+			stored:    AllEthashProtocolChanges,
+			new:       &ChainConfig{HomesteadBlock: big.NewInt(1)},
+			headBlock: 3,
 			wantErr: &ConfigCompatError{
-				What:         "Homestead fork block",
-				StoredConfig: big.NewInt(0),
-				NewConfig:    big.NewInt(1),
-				RewindTo:     0,
+				What:          "Homestead fork block",
+				StoredBlock:   big.NewInt(0),
+				NewBlock:      big.NewInt(1),
+				RewindToBlock: 0,
 			},
 		},
 		{
-			stored: &ChainConfig{HomesteadBlock: big.NewInt(30), EIP150Block: big.NewInt(10)},
-			new:    &ChainConfig{HomesteadBlock: big.NewInt(25), EIP150Block: big.NewInt(20)},
-			head:   25,
+			stored:    &ChainConfig{HomesteadBlock: big.NewInt(30), EIP150Block: big.NewInt(10)},
+			new:       &ChainConfig{HomesteadBlock: big.NewInt(25), EIP150Block: big.NewInt(20)},
+			headBlock: 25,
 			wantErr: &ConfigCompatError{
-				What:         "EIP150 fork block",
-				StoredConfig: big.NewInt(10),
-				NewConfig:    big.NewInt(20),
-				RewindTo:     9,
+				What:          "EIP150 fork block",
+				StoredBlock:   big.NewInt(10),
+				NewBlock:      big.NewInt(20),
+				RewindToBlock: 9,
 			},
 		},
 		{
-			stored:  &ChainConfig{ConstantinopleBlock: big.NewInt(30)},
-			new:     &ChainConfig{ConstantinopleBlock: big.NewInt(30), PetersburgBlock: big.NewInt(30)},
-			head:    40,
-			wantErr: nil,
+			stored:    &ChainConfig{ConstantinopleBlock: big.NewInt(30)},
+			new:       &ChainConfig{ConstantinopleBlock: big.NewInt(30), PetersburgBlock: big.NewInt(30)},
+			headBlock: 40,
+			wantErr:   nil,
 		},
 		{
-			stored: &ChainConfig{ConstantinopleBlock: big.NewInt(30)},
-			new:    &ChainConfig{ConstantinopleBlock: big.NewInt(30), PetersburgBlock: big.NewInt(31)},
-			head:   40,
+			stored:    &ChainConfig{ConstantinopleBlock: big.NewInt(30)},
+			new:       &ChainConfig{ConstantinopleBlock: big.NewInt(30), PetersburgBlock: big.NewInt(31)},
+			headBlock: 40,
 			wantErr: &ConfigCompatError{
-				What:         "Petersburg fork block",
-				StoredConfig: nil,
-				NewConfig:    big.NewInt(31),
-				RewindTo:     30,
+				What:          "Petersburg fork block",
+				StoredBlock:   nil,
+				NewBlock:      big.NewInt(31),
+				RewindToBlock: 30,
+			},
+		},
+		{
+			stored:        &ChainConfig{Morph203Time: NewUint64(10)},
+			new:           &ChainConfig{Morph203Time: NewUint64(20)},
+			headTimestamp: 9,
+			wantErr:       nil,
+		},
+		{
+			stored:        &ChainConfig{Morph203Time: NewUint64(10)},
+			new:           &ChainConfig{Morph203Time: NewUint64(20)},
+			headTimestamp: 25,
+			wantErr: &ConfigCompatError{
+				What:         "Morph203Time fork timestamp",
+				StoredTime:   NewUint64(10),
+				NewTime:      NewUint64(20),
+				RewindToTime: 9,
 			},
 		},
 	}
 
 	for _, test := range tests {
-		err := test.stored.CheckCompatible(test.new, test.head)
+		err := test.stored.CheckCompatible(test.new, test.headBlock, test.headTimestamp)
 		if !reflect.DeepEqual(err, test.wantErr) {
-			t.Errorf("error mismatch:\nstored: %v\nnew: %v\nhead: %v\nerr: %v\nwant: %v", test.stored, test.new, test.head, err, test.wantErr)
+			t.Errorf("error mismatch:\nstored: %v\nnew: %v\nheadBlock: %v\nheadTimestamp: %v\nerr: %v\nwant: %v", test.stored, test.new, test.headBlock, test.headTimestamp, err, test.wantErr)
 		}
 	}
 }
 
-func TestIsForkedTime(t *testing.T) {
-	timePtr := func(t uint64) *uint64 {
-		return &t
+func TestConfigRules(t *testing.T) {
+	c := &ChainConfig{
+		LondonBlock:  new(big.Int),
+		Morph203Time: NewUint64(500),
 	}
+	var stamp uint64
+	if r := c.Rules(big.NewInt(0), stamp); r.IsMorph203 {
+		t.Errorf("expected %v to not be morph203", stamp)
+	}
+	stamp = 500
+	if r := c.Rules(big.NewInt(0), stamp); !r.IsMorph203 {
+		t.Errorf("expected %v to be morph203", stamp)
+	}
+	stamp = math.MaxInt64
+	if r := c.Rules(big.NewInt(0), stamp); !r.IsMorph203 {
+		t.Errorf("expected %v to be morph203", stamp)
+	}
+}
 
-	tests := map[string]struct {
-		forkTime *uint64
-		now      uint64
-		isForked bool
-	}{
-		"not configured": {
-			forkTime: nil,
-			isForked: false,
-		},
-		"before fork time": {
-			forkTime: timePtr(10),
-			now:      3,
-			isForked: false,
-		},
-		"on fork time": {
-			forkTime: timePtr(10),
-			now:      10,
-			isForked: true,
-		},
-		"after fork time": {
-			forkTime: timePtr(10),
-			now:      11,
-			isForked: true,
-		},
-	}
+func TestTimestampCompatError(t *testing.T) {
+	require.Equal(t, new(ConfigCompatError).Error(), "")
 
-	for desc, test := range tests {
-		t.Run(desc, func(t *testing.T) {
-			require.Equal(t, test.isForked, isForkedTime(test.now, test.forkTime))
-		})
-	}
+	errWhat := "Morph203 fork timestamp"
+	require.Equal(t, newTimestampCompatError(errWhat, nil, NewUint64(1681338455)).Error(),
+		"mismatching Morph203 fork timestamp in database (have timestamp nil, want timestamp 1681338455, rewindto timestamp 1681338454)")
+
+	require.Equal(t, newTimestampCompatError(errWhat, NewUint64(1681338455), nil).Error(),
+		"mismatching Morph203 fork timestamp in database (have timestamp 1681338455, want timestamp nil, rewindto timestamp 1681338454)")
+
+	require.Equal(t, newTimestampCompatError(errWhat, NewUint64(1681338455), NewUint64(600624000)).Error(),
+		"mismatching Morph203 fork timestamp in database (have timestamp 1681338455, want timestamp 600624000, rewindto timestamp 600623999)")
+
+	require.Equal(t, newTimestampCompatError(errWhat, NewUint64(0), NewUint64(1681338455)).Error(),
+		"mismatching Morph203 fork timestamp in database (have timestamp 0, want timestamp 1681338455, rewindto timestamp 0)")
 }

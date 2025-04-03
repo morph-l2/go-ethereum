@@ -61,7 +61,9 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		Checkpoint              *params.TrustedCheckpoint      `toml:",omitempty"`
 		CheckpointOracle        *params.CheckpointOracleConfig `toml:",omitempty"`
 		OverrideArrowGlacier    *big.Int                       `toml:",omitempty"`
+		CheckCircuitCapacity    bool
 		MaxBlockRange           int64
+		OverrideMorph203Time    *uint64 `toml:",omitempty"`
 	}
 	var enc Config
 	enc.Genesis = c.Genesis
@@ -107,7 +109,9 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.Checkpoint = c.Checkpoint
 	enc.CheckpointOracle = c.CheckpointOracle
 	enc.OverrideArrowGlacier = c.OverrideArrowGlacier
+	enc.CheckCircuitCapacity = c.CheckCircuitCapacity
 	enc.MaxBlockRange = c.MaxBlockRange
+	enc.OverrideMorph203Time = c.OverrideMorph203Time
 	return &enc, nil
 }
 
@@ -157,7 +161,9 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		Checkpoint              *params.TrustedCheckpoint      `toml:",omitempty"`
 		CheckpointOracle        *params.CheckpointOracleConfig `toml:",omitempty"`
 		OverrideArrowGlacier    *big.Int                       `toml:",omitempty"`
+		CheckCircuitCapacity    *bool
 		MaxBlockRange           *int64
+		OverrideMorph203Time    *uint64 `toml:",omitempty"`
 	}
 	var dec Config
 	if err := unmarshal(&dec); err != nil {
@@ -292,8 +298,14 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	if dec.OverrideArrowGlacier != nil {
 		c.OverrideArrowGlacier = dec.OverrideArrowGlacier
 	}
+	if dec.CheckCircuitCapacity != nil {
+		c.CheckCircuitCapacity = *dec.CheckCircuitCapacity
+	}
 	if dec.MaxBlockRange != nil {
 		c.MaxBlockRange = *dec.MaxBlockRange
+	}
+	if dec.OverrideMorph203Time != nil {
+		c.OverrideMorph203Time = dec.OverrideMorph203Time
 	}
 	return nil
 }

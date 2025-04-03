@@ -14,12 +14,14 @@ type RollupBatch struct {
 	Hash                     common.Hash
 	Version                  uint
 	ParentBatchHeader        []byte
-	BlockContexts            []byte
-	SkippedL1MessageBitmap   []byte
-	CurrentSequencerSetBytes []byte
-	PrevStateRoot            common.Hash
-	PostStateRoot            common.Hash
-	WithdrawRoot             common.Hash
+	BlockContexts            []byte      `rlp:"optional"` // legacy field
+	SkippedL1MessageBitmap   []byte      `rlp:"optional"` // legacy field
+	CurrentSequencerSetBytes []byte      `rlp:"optional"`
+	PrevStateRoot            common.Hash `rlp:"optional"`
+	PostStateRoot            common.Hash `rlp:"optional"`
+	WithdrawRoot             common.Hash `rlp:"optional"`
+	LastBlockNumber          uint64      `rlp:"optional"`
+	NumL1Messages            uint16      `rlp:"optional"`
 
 	Sidecar *BlobTxSidecar `rlp:"-"`
 }
@@ -27,6 +29,8 @@ type RollupBatch struct {
 type rollupBatchMarshaling struct {
 	Version                  hexutil.Uint
 	Index                    hexutil.Uint64
+	LastBlockNumber          hexutil.Uint64
+	NumL1Messages            hexutil.Uint
 	ParentBatchHeader        hexutil.Bytes
 	BlockContexts            hexutil.Bytes
 	SkippedL1MessageBitmap   hexutil.Bytes

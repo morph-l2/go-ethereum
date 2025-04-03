@@ -108,6 +108,9 @@ type Header struct {
 	// ParentBeaconRoot was added by EIP-4788 and is ignored in legacy headers.
 	// Included for Ethereum compatibility in Morph SDK
 	ParentBeaconRoot *common.Hash `json:"parentBeaconBlockRoot" rlp:"optional"`
+
+	// RequestsHash was added by EIP-7685 and is ignored in legacy headers.
+	RequestsHash *common.Hash `json:"requestsHash" rlp:"optional"`
 }
 
 // field type overrides for gencodec
@@ -151,6 +154,7 @@ func (h *Header) Hash() common.Hash {
 		BlobGasUsed      *uint64      `rlp:"optional"`
 		ExcessBlobGas    *uint64      `rlp:"optional"`
 		ParentBeaconRoot *common.Hash ` rlp:"optional"`
+		RequestsHash     *common.Hash `rlp:"optional"`
 	}
 	h2 := &headerHashing{
 		ParentHash:       h.ParentHash,
@@ -173,6 +177,7 @@ func (h *Header) Hash() common.Hash {
 		BlobGasUsed:      h.BlobGasUsed,
 		ExcessBlobGas:    h.ExcessBlobGas,
 		ParentBeaconRoot: h.ParentBeaconRoot,
+		RequestsHash:     h.RequestsHash,
 	}
 	return rlpHash(h2)
 }

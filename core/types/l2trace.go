@@ -20,6 +20,7 @@ type BlockTrace struct {
 	Bytecodes              []*BytecodeTrace   `json:"codes"`
 	TxStorageTraces        []*StorageTrace    `json:"txStorageTraces,omitempty"`
 	ExecutionResults       []*ExecutionResult `json:"executionResults"`
+	StartHookResult        *ExecutionResult   `json:"startHookResult,omitempty"`
 	WithdrawTrieRoot       common.Hash        `json:"withdraw_trie_root,omitempty"`
 	SequencerSetVerifyHash common.Hash        `json:"sequencer_set_verify_hash,omitempty"`
 	StartL1QueueIndex      uint64             `json:"startL1QueueIndex"`

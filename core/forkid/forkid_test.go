@@ -136,7 +136,7 @@ func TestCreation(t *testing.T) {
 	}
 	for i, tt := range tests {
 		for j, ttt := range tt.cases {
-			if have := NewID(tt.config, tt.genesis, ttt.head); have != ttt.want {
+			if have := NewID(tt.config, tt.genesis, ttt.head, 0); have != ttt.want {
 				t.Errorf("test %d, case %d: fork ID mismatch: have %x, want %x", i, j, have, ttt.want)
 			}
 		}
@@ -218,7 +218,7 @@ func TestValidation(t *testing.T) {
 		{7279999, ID{Hash: checksumToBytes(0xa00bc324), Next: 7279999}, ErrLocalIncompatibleOrStale},
 	}
 	for i, tt := range tests {
-		filter := newFilter(params.MainnetChainConfig, params.MainnetGenesisHash, func() uint64 { return tt.head })
+		filter := newFilter(params.MainnetChainConfig, params.MainnetGenesisHash, func() (uint64, uint64) { return tt.head, 0 })
 		if err := filter(tt.id); err != tt.err {
 			t.Errorf("test %d: validation error mismatch: have %v, want %v", i, err, tt.err)
 		}
@@ -244,6 +244,62 @@ func TestEncoding(t *testing.T) {
 		}
 		if !bytes.Equal(have, tt.want) {
 			t.Errorf("test %d: RLP mismatch: have %x, want %x", i, have, tt.want)
+		}
+	}
+}
+
+func TestTimeBasedForkInGenesis(t *testing.T) {
+	// Config that has not timestamp enabled
+	legacyConfig := *params.MorphMainnetChainConfig
+	legacyConfig.Morph203Time = nil
+
+	morphMainnetConfig := *params.MorphMainnetChainConfig
+	morph203Time := uint64(1741579200)
+	morphMainnetConfig.Morph203Time = params.NewUint64(morph203Time) // 2025-03-10 04:00:00 UTC
+
+	tests := []struct {
+		config *params.ChainConfig
+		head   uint64
+		time   uint64
+		id     ID
+		err    error
+	}{
+		//------------------
+		// Block based tests
+		//------------------
+
+		// Local is mainnet, remote announces the same. No future fork is announced.
+		{&legacyConfig, 0, 0, ID{Hash: checksumToBytes(0xb0709522), Next: 0}, nil},
+
+		{&legacyConfig, 0, morph203Time + 1, ID{Hash: checksumToBytes(0xb0709522), Next: morph203Time}, ErrLocalIncompatibleOrStale},
+
+		//------------------
+		// Timestamp based tests
+		//------------------
+
+		// unpassed fork
+		{&morphMainnetConfig, 6656942, morph203Time - 1, ID{Hash: checksumToBytes(0xb0709522), Next: 0}, nil},
+
+		// passed fork
+		{&morphMainnetConfig, 6656942, morph203Time + 1, ID{Hash: checksumToBytes(0xb0709522), Next: 0}, ErrRemoteStale},
+
+		// unpassed fork
+		{&morphMainnetConfig, 6656942, morph203Time - 1, ID{Hash: checksumToBytes(0xb0709522), Next: morph203Time}, nil},
+
+		// passed fork
+		{&morphMainnetConfig, 6656942, morph203Time + 1, ID{Hash: checksumToBytes(0xb0709522), Next: morph203Time}, nil},
+
+		// subset fork
+		{&morphMainnetConfig, 6656942, morph203Time + 1, ID{Hash: checksumToBytes(0xb0709522), Next: morph203Time - 1}, ErrRemoteStale},
+
+		// superset fork, Local is mainnet before morph203, remote announces morph203. Local is out of sync, accept.
+		{&morphMainnetConfig, 6656942, morph203Time - 1, ID{Hash: checksumToBytes(0x90106828), Next: 0}, nil},
+	}
+
+	for i, tt := range tests {
+		filter := newFilter(tt.config, params.MorphMainnetGenesisHash, func() (uint64, uint64) { return tt.head, tt.time })
+		if err := filter(tt.id); err != tt.err {
+			t.Errorf("test %d: validation error mismatch: have %v, want %v", i, err, tt.err)
 		}
 	}
 }

@@ -18,12 +18,14 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 		Hash                     common.Hash
 		Version                  hexutil.Uint
 		ParentBatchHeader        hexutil.Bytes
-		BlockContexts            hexutil.Bytes
-		SkippedL1MessageBitmap   hexutil.Bytes
-		CurrentSequencerSetBytes hexutil.Bytes
-		PrevStateRoot            common.Hash
-		PostStateRoot            common.Hash
-		WithdrawRoot             common.Hash
+		BlockContexts            hexutil.Bytes  `rlp:"optional"`
+		SkippedL1MessageBitmap   hexutil.Bytes  `rlp:"optional"`
+		CurrentSequencerSetBytes hexutil.Bytes  `rlp:"optional"`
+		PrevStateRoot            common.Hash    `rlp:"optional"`
+		PostStateRoot            common.Hash    `rlp:"optional"`
+		WithdrawRoot             common.Hash    `rlp:"optional"`
+		LastBlockNumber          hexutil.Uint64 `rlp:"optional"`
+		NumL1Messages            hexutil.Uint   `rlp:"optional"`
 		Sidecar                  *BlobTxSidecar `rlp:"-"`
 	}
 	var enc RollupBatch
@@ -37,6 +39,8 @@ func (r RollupBatch) MarshalJSON() ([]byte, error) {
 	enc.PrevStateRoot = r.PrevStateRoot
 	enc.PostStateRoot = r.PostStateRoot
 	enc.WithdrawRoot = r.WithdrawRoot
+	enc.LastBlockNumber = hexutil.Uint64(r.LastBlockNumber)
+	enc.NumL1Messages = hexutil.Uint(r.NumL1Messages)
 	enc.Sidecar = r.Sidecar
 	return json.Marshal(&enc)
 }
@@ -48,13 +52,15 @@ func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 		Hash                     *common.Hash
 		Version                  *hexutil.Uint
 		ParentBatchHeader        *hexutil.Bytes
-		BlockContexts            *hexutil.Bytes
-		SkippedL1MessageBitmap   *hexutil.Bytes
-		CurrentSequencerSetBytes *hexutil.Bytes
-		PrevStateRoot            *common.Hash
-		PostStateRoot            *common.Hash
-		WithdrawRoot             *common.Hash
-		Sidecar                  *BlobTxSidecar `rlp:"-"`
+		BlockContexts            *hexutil.Bytes  `rlp:"optional"`
+		SkippedL1MessageBitmap   *hexutil.Bytes  `rlp:"optional"`
+		CurrentSequencerSetBytes *hexutil.Bytes  `rlp:"optional"`
+		PrevStateRoot            *common.Hash    `rlp:"optional"`
+		PostStateRoot            *common.Hash    `rlp:"optional"`
+		WithdrawRoot             *common.Hash    `rlp:"optional"`
+		LastBlockNumber          *hexutil.Uint64 `rlp:"optional"`
+		NumL1Messages            *hexutil.Uint   `rlp:"optional"`
+		Sidecar                  *BlobTxSidecar  `rlp:"-"`
 	}
 	var dec RollupBatch
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -89,6 +95,12 @@ func (r *RollupBatch) UnmarshalJSON(input []byte) error {
 	}
 	if dec.WithdrawRoot != nil {
 		r.WithdrawRoot = *dec.WithdrawRoot
+	}
+	if dec.LastBlockNumber != nil {
+		r.LastBlockNumber = uint64(*dec.LastBlockNumber)
+	}
+	if dec.NumL1Messages != nil {
+		r.NumL1Messages = uint16(*dec.NumL1Messages)
 	}
 	if dec.Sidecar != nil {
 		r.Sidecar = dec.Sidecar

@@ -583,11 +583,12 @@ type RPCRollupBatch struct {
 	Hash                     common.Hash   `json:"hash"`
 	ParentBatchHeader        hexutil.Bytes `json:"parentBatchHeader"`
 	BlockContexts            hexutil.Bytes `json:"blockContexts"`
-	SkippedL1MessageBitmap   hexutil.Bytes `json:"skippedL1MessageBitmap"`
 	CurrentSequencerSetBytes hexutil.Bytes `json:"currentSequencerSetBytes"`
 	PrevStateRoot            common.Hash   `json:"prevStateRoot"`
 	PostStateRoot            common.Hash   `json:"postStateRoot"`
 	WithdrawRoot             common.Hash   `json:"withdrawRoot"`
+	LastBlockNumber          uint64        `json:"lastBlockNumber"`
+	NumL1Messages            uint16        `json:"numL1Messages"`
 
 	Sidecar    types.BlobTxSidecar `json:"sidecar"`
 	Signatures []RPCBatchSignature `json:"signatures"`
@@ -640,10 +641,11 @@ func (api *MorphAPI) GetRollupBatchByIndex(ctx context.Context, index uint64) (*
 		ParentBatchHeader:        rollupBatch.ParentBatchHeader,
 		BlockContexts:            rollupBatch.BlockContexts,
 		CurrentSequencerSetBytes: rollupBatch.CurrentSequencerSetBytes,
-		SkippedL1MessageBitmap:   rollupBatch.SkippedL1MessageBitmap,
 		PrevStateRoot:            rollupBatch.PrevStateRoot,
 		PostStateRoot:            rollupBatch.PostStateRoot,
 		WithdrawRoot:             rollupBatch.WithdrawRoot,
+		LastBlockNumber:          rollupBatch.LastBlockNumber,
+		NumL1Messages:            rollupBatch.NumL1Messages,
 		Sidecar:                  sidecar,
 		Signatures:               rpcSignatures,
 		CollectedL1Fee:           collectedL1Fee,

@@ -3,13 +3,13 @@ package l2
 import (
 	"errors"
 	"fmt"
+	"github.com/morph-l2/go-ethereum/contracts/morphtoken"
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/consensus"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/contracts/l2staking"
-	"github.com/morph-l2/go-ethereum/contracts/morphtoken"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -226,6 +226,8 @@ func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.
 	if rewardStarted.Cmp(common.Big1) != 0 {
 		return nil
 	}
+	inflationMintedEpochs := state.GetState(rcfg.MorphTokenAddress, rcfg.InflationMintedEpochsSolt).Big().Uint64()
+	rewardStartTime := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartTimeSlot).Big().Uint64()
 	parentHeader := chain.GetHeaderByHash(header.ParentHash)
 	if parentHeader == nil {
 		return consensus.ErrUnknownAncestor
@@ -243,7 +245,7 @@ func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.
 	if err != nil {
 		return err
 	}
-	if (parentHeader.Time / rewardEpoch) != (header.Time / rewardEpoch) {
+	if header.Time > rewardStartTime && (header.Time-rewardStartTime)/rewardEpoch > inflationMintedEpochs {
 		callData, err := morphtoken.PacketData()
 		if err != nil {
 			return err

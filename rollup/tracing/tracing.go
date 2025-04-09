@@ -324,7 +324,7 @@ func (env *TraceEnv) getSystemResult(state *state.StateDB, block *types.Block, p
 	rewardStarted := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot).Big()
 	if rewardStarted.Cmp(common.Big1) == 0 {
 		// Prepare staking call data
-		stakingCallData, err := l2staking.PacketData(env.blockCtx.Coinbase)
+		stakingCallData, err := l2staking.PacketData(parentBlock.Coinbase())
 		if err != nil {
 			return fmt.Errorf("failed to pack staking call data: %w", err)
 		}
@@ -336,11 +336,14 @@ func (env *TraceEnv) getSystemResult(state *state.StateDB, block *types.Block, p
 			return fmt.Errorf("StartHook L2Staking call failed: %w", err)
 		}
 
+		inflationMintedEpochs := state.GetState(rcfg.MorphTokenAddress, rcfg.InflationMintedEpochsSolt).Big().Uint64()
+		rewardStartTime := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartTimeSlot).Big().Uint64()
+
 		// Check if block time crosses reward epoch boundary
 		// Using a constant for reward epoch (1 day in seconds)
 		const rewardEpoch uint64 = 86400
 		// If a reward epoch boundary is detected, call the MorphToken contract
-		if (parentBlock.Time() / rewardEpoch) != (block.Time() / rewardEpoch) {
+		if block.Time() > rewardStartTime && (block.Time()-rewardStartTime)/rewardEpoch > inflationMintedEpochs {
 			log.Info("Calling MorphToken contract due to epoch boundary crossing")
 
 			callData, err := morphtoken.PacketData()

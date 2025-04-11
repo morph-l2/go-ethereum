@@ -307,7 +307,7 @@ func (miner *Miner) makeEnv(parent *types.Block, header *types.Header) (*environ
 	return env, nil
 }
 
-func (miner *Miner) commitBundleTransaction(env *environment, tx *types.Transaction, coinbase common.Address, unRevertible bool) ([]*types.Log, error) {
+func (miner *Miner) commitBundleTransaction(env *environment, tx *types.Transaction, coinbase common.Address, unRevertible bool) ([]*types.Log, uint64, error) {
 	if tx.Type() == types.BlobTxType {
 		panic("blob tx is not supported in commitBundleTransaction")
 	}
@@ -319,14 +319,14 @@ func (miner *Miner) commitBundleTransaction(env *environment, tx *types.Transact
 		receipt, err = core.ApplyTransaction(miner.chainConfig, miner.chain, &coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed, *miner.chain.GetVMConfig())
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if receipt.Status == types.ReceiptStatusFailed && unRevertible {
-		return nil, errors.New("no revertible transaction failed")
+		return nil, 0, errors.New("no revertible transaction failed")
 	}
 	env.txs = append(env.txs, tx)
 	env.receipts = append(env.receipts, receipt)
-	return receipt.Logs, nil
+	return receipt.Logs, receipt.GasUsed, nil
 }
 
 func (miner *Miner) commitTransaction(env *environment, tx *types.Transaction, coinbase common.Address) error {

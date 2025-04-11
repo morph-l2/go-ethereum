@@ -64,6 +64,9 @@ type Transaction struct {
 	hash atomic.Pointer[common.Hash]
 	size atomic.Pointer[common.StorageSize]
 	from atomic.Pointer[sigCache]
+
+	// Bundle is the bundle this transaction belongs to.
+	bundle *Bundle
 }
 
 // NewTx creates a new transaction.
@@ -96,6 +99,14 @@ type TxData interface {
 
 	encode(*bytes.Buffer) error
 	decode([]byte) error
+}
+
+func (tx *Transaction) SetBundle(b *Bundle) {
+	tx.bundle = b
+}
+
+func (tx *Transaction) Bundle() *Bundle {
+	return tx.bundle
 }
 
 // EncodeRLP implements rlp.Encoder

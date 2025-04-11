@@ -46,11 +46,40 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 		log.Error("fail to generate ordered bundles", "err", err)
 		return errFillBundleInterrupted
 	}
-
-	if err = miner.commitBundles(env, txs, interrupt); err != nil {
+	txStatus := make([]*types.TransactionStatus, len(txs))
+	if err = miner.commitBundles(env, txs, interrupt, txStatus); err != nil {
 		log.Error("fail to commit bundles", "err", err)
 		return errFillBundleInterrupted
 	}
+	// If any transaction in the bundle is reverted, set the bundle status to Revert
+	// Otherwise, set the bundle status to OK
+	updateBundles := make(map[common.Hash]*types.BundleStatus)
+	for i, txStatus := range txStatus {
+		txn := txs[i]
+		if txn != nil {
+			bundle := txn.Bundle()
+			if bundle != nil {
+				if txStatus.Status == types.TransactionStatusRevert {
+					bundle.Status.Status = types.BundleStatusRevert
+					bundle.Status.Error = txStatus.Error
+				} else {
+					bundle.Status.Status = types.BundleStatusOK
+				}
+
+				for j, tx := range bundle.Txs {
+					if tx.Hash() == txn.Hash() {
+						bundle.Status.Txs[j].GasUsed = txStatus.GasUsed
+						bundle.Status.Txs[j].Status = txStatus.Status
+						bundle.Status.Txs[j].Error = txStatus.Error
+					}
+				}
+				updateBundles[bundle.Hash()] = bundle.Status
+			}
+		}
+	}
+	// updata txpool bundle status
+	miner.txpool.UpdateBundleStatus(updateBundles)
+
 	log.Info("fill bundles", "bundles_count", len(bundles))
 
 	// fill mempool's transactions
@@ -67,13 +96,14 @@ func (miner *Miner) commitBundles(
 	env *environment,
 	txs types.Transactions,
 	interrupt *int32,
+	status []*types.TransactionStatus,
 ) error {
 	gasLimit := env.header.GasLimit
 	if env.gasPool == nil {
 		env.gasPool = new(core.GasPool).AddGas(gasLimit)
 	}
 
-	for _, tx := range txs {
+	for i, tx := range txs {
 		if interrupt != nil {
 			if signal := atomic.LoadInt32(interrupt); signal != commitInterruptNone {
 				return errors.New("failed bundle commit due to payload timeout or resolve")
@@ -99,7 +129,15 @@ func (miner *Miner) commitBundles(
 		// Start executing the transaction
 		env.state.SetTxContext(tx.Hash(), env.tcount)
 
-		_, err := miner.commitBundleTransaction(env, tx, env.header.Coinbase, env.UnRevertible.Contains(tx.Hash()))
+		_, gasUsed, err := miner.commitBundleTransaction(env, tx, env.header.Coinbase, env.UnRevertible.Contains(tx.Hash()))
+		if err != nil {
+			status[i].Status = types.TransactionStatusRevert
+			status[i].Error = err
+		} else {
+			status[i].Status = types.TransactionStatusOk
+			status[i].GasUsed = gasUsed
+		}
+
 		switch err {
 		case core.ErrGasLimitReached:
 			// Pop the current out-of-gas transaction without shifting in the next from the account

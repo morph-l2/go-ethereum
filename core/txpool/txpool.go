@@ -421,6 +421,15 @@ func (p *TxPool) PendingBundles(blockNumber uint64, blockTimestamp uint64) []*ty
 	return nil
 }
 
+// PendingBundles retrieves all currently processable bundles.
+func (p *TxPool) UpdateBundleStatus(status map[common.Hash]*types.BundleStatus) {
+	for _, subpool := range p.subpools {
+		if bundleSubpool, ok := subpool.(BundleSubpool); ok {
+			bundleSubpool.UpdateBundleStatus(status)
+		}
+	}
+}
+
 // AllBundles returns all the bundles currently in the pool
 func (p *TxPool) AllBundles() []*types.Bundle {
 	for _, subpool := range p.subpools {

@@ -168,8 +168,23 @@ func (p *BundlePool) AddBundle(bundle *types.Bundle, originBundle *types.SendBun
 		return ErrBundleTimestampTooHigh
 	}
 
+	bundle.Status = &types.BundleStatus{
+		Status: types.BundleStatusNoRun,
+		Txs:    make([]*types.TransactionStatus, len(bundle.Txs)),
+	}
+
+	for i, tx := range bundle.Txs {
+		bundle.Status.Txs[i] = &types.TransactionStatus{
+			Hash:   tx.Hash(),
+			Status: types.TransactionStatusNoRun,
+		}
+		tx.SetBundle(bundle)
+	}
+
 	price, err := p.simulator.SimulateBundle(bundle)
 	if err != nil {
+		bundle.Status.Status = types.BundleStatusFailed
+		bundle.Status.Error = err
 		return err
 	}
 	bundle.Price = price
@@ -184,6 +199,8 @@ func (p *BundlePool) AddBundle(bundle *types.Bundle, originBundle *types.SendBun
 
 	if p.slots+numSlots(bundle) > p.config.GlobalSlots {
 		if !p.drop(bundle) {
+			bundle.Status.Status = types.BundleStatusFailed
+			bundle.Status.Error = ErrBundleGasPriceLow
 			return ErrBundleGasPriceLow
 		}
 	}
@@ -222,6 +239,17 @@ func (p *BundlePool) PruneBundle(hash common.Hash) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.deleteBundle(hash)
+}
+
+func (p *BundlePool) UpdateBundleStatus(status map[common.Hash]*types.BundleStatus) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for hash, status := range status {
+		if bundle, ok := p.bundles[hash]; ok {
+			bundle.Status = status
+		}
+	}
 }
 
 func (p *BundlePool) PendingBundles(blockNumber uint64, blockTimestamp uint64) []*types.Bundle {

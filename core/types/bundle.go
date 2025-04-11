@@ -37,6 +37,38 @@ type Bundle struct {
 	// caches
 	hash atomic.Value
 	size atomic.Value
+
+	Status *BundleStatus // New field to track the status of the bundle
+}
+
+type BundleStatusCode uint8
+
+const (
+	BundleStatusNoRun  BundleStatusCode = 0
+	BundleStatusOK     BundleStatusCode = 100
+	BundleStatusRevert BundleStatusCode = 101
+	BundleStatusFailed BundleStatusCode = 102
+)
+
+type BundleStatus struct {
+	Status BundleStatusCode
+	Error  error
+	Txs    []*TransactionStatus
+}
+
+type TransactionStatusCode uint8
+
+const (
+	TransactionStatusNoRun  TransactionStatusCode = 0
+	TransactionStatusOk     TransactionStatusCode = 100
+	TransactionStatusRevert TransactionStatusCode = 101
+)
+
+type TransactionStatus struct {
+	Hash    common.Hash
+	Status  TransactionStatusCode
+	GasUsed uint64
+	Error   error
 }
 
 type SimulatedBundle struct {
@@ -68,4 +100,9 @@ func (bundle *Bundle) Hash() common.Hash {
 	h := rlpHash(bundle)
 	bundle.hash.Store(h)
 	return h
+}
+
+// GetStatus retrieves the current status of the bundle.
+func (bundle *Bundle) GetStatus() *BundleStatus {
+	return bundle.Status
 }

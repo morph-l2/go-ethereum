@@ -138,6 +138,9 @@ type BundleSubpool interface {
 	// PendingBundles retrieves all currently processable bundles.
 	PendingBundles(blockNumber uint64, blockTimestamp uint64) []*types.Bundle
 
+	// UpdateBundleStatus updates the status of a bundle in the pool.
+	UpdateBundleStatus(map[common.Hash]*types.BundleStatus)
+
 	// AllBundles returns all the bundles currently in the pool.
 	AllBundles() []*types.Bundle
 

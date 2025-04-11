@@ -53,7 +53,7 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 	}
 	// If any transaction in the bundle is reverted, set the bundle status to Revert
 	// Otherwise, set the bundle status to OK
-	updateBundles := make(map[common.Hash]*types.BundleStatus)
+	bundleStatus := make(map[common.Hash]*types.BundleStatus)
 	for i, txStatus := range txStatus {
 		txn := txs[i]
 		if txn != nil {
@@ -73,14 +73,14 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 						bundle.Status.Txs[j].Error = txStatus.Error
 					}
 				}
-				updateBundles[bundle.Hash()] = bundle.Status
+				bundleStatus[bundle.Hash()] = bundle.Status
 			}
 		}
 	}
 	// updata txpool bundle status
-	miner.txpool.UpdateBundleStatus(updateBundles)
+	miner.txpool.UpdateBundleStatus(bundleStatus)
 
-	log.Info("fill bundles", "bundles_count", len(bundles))
+	log.Info("fill bundles", "bundles_count", len(bundles), "txs_count", len(txs))
 
 	// fill mempool's transactions
 	err = miner.fillTransactions(env, l1Transactions, interrupt)

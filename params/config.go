@@ -283,7 +283,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(6330180),
-		Morph203Time:            nil,
+		Morph203Time:            NewUint64(1745388000),
 		Morph205Time:            nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
@@ -314,7 +314,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		Morph203Time:            nil,
+		Morph203Time:            NewUint64(1747029600),
 		Morph205Time:            nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{

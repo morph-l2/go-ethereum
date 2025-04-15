@@ -221,6 +221,9 @@ type Config struct {
 	PathSyncFlush bool
 
 	StateScheme string `toml:",omitempty"` // State scheme used to store zktrie state nodes on top
+
+	// Morph203Time override
+	OverrideMorph203Time *uint64 `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

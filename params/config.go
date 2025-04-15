@@ -27,6 +27,8 @@ import (
 	"github.com/morph-l2/go-ethereum/rollup/rcfg"
 )
 
+func NewUint64(val uint64) *uint64 { return &val }
+
 // Genesis hashes to enforce below configs on.
 var (
 	MainnetGenesisHash      = common.HexToHash("0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
@@ -281,7 +283,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(6330180),
-		DarwinTime:              nil,
+		Morph203Time:            nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
@@ -311,7 +313,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              nil,
+		Morph203Time:            nil,
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
@@ -347,7 +349,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -383,7 +385,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
@@ -414,7 +416,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -446,7 +448,7 @@ var (
 		ShanghaiBlock:           big.NewInt(0),
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
-		DarwinTime:              new(uint64),
+		Morph203Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -537,7 +539,7 @@ type ChainConfig struct {
 	ShanghaiBlock       *big.Int `json:"shanghaiBlock,omitempty"`       // Shanghai switch block (nil = no fork, 0 = already on shanghai)
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
-	DarwinTime          *uint64  `json:"darwinTime,omitempty"`          // Darwin switch time (nil = no fork, 0 = already on darwin)
+	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -630,7 +632,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Darwin: %v, Engine: %v, Morph config: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -650,7 +652,7 @@ func (c *ChainConfig) String() string {
 		c.ShanghaiBlock,
 		c.BernoulliBlock,
 		c.CurieBlock,
-		c.DarwinTime,
+		c.Morph203Time,
 		engine,
 		c.Morph,
 	)
@@ -743,9 +745,9 @@ func (c *ChainConfig) IsCurie(num *big.Int) bool {
 	return isForked(c.CurieBlock, num)
 }
 
-// IsDarwin returns whether num is either equal to the Darwin fork block or greater.
-func (c *ChainConfig) IsDarwin(now uint64) bool {
-	return isForkedTime(now, c.DarwinTime)
+// IsMorph203 returns whether num is either equal to the Morph203 fork block or greater.
+func (c *ChainConfig) IsMorph203(now uint64) bool {
+	return isForkedTime(now, c.Morph203Time)
 }
 
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
@@ -758,18 +760,25 @@ func (c *ChainConfig) IsTerminalPoWBlock(parentTotalDiff *big.Int, totalDiff *bi
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
 // with a mismatching chain configuration.
-func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *ConfigCompatError {
-	bhead := new(big.Int).SetUint64(height)
-
+func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64, time uint64) *ConfigCompatError {
+	var (
+		bhead = new(big.Int).SetUint64(height)
+		btime = time
+	)
 	// Iterate checkCompatible to find the lowest conflict.
 	var lasterr *ConfigCompatError
 	for {
-		err := c.checkCompatible(newcfg, bhead)
-		if err == nil || (lasterr != nil && err.RewindTo == lasterr.RewindTo) {
+		err := c.checkCompatible(newcfg, bhead, btime)
+		if err == nil || (lasterr != nil && err.RewindToBlock == lasterr.RewindToBlock && err.RewindToTime == lasterr.RewindToTime) {
 			break
 		}
 		lasterr = err
-		bhead.SetUint64(err.RewindTo)
+
+		if err.RewindToTime > 0 {
+			btime = err.RewindToTime
+		} else {
+			bhead.SetUint64(err.RewindToBlock)
+		}
 	}
 	return lasterr
 }
@@ -778,9 +787,10 @@ func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *Confi
 // to guarantee that forks can be implemented in a different order than on official networks
 func (c *ChainConfig) CheckConfigForkOrder() error {
 	type fork struct {
-		name     string
-		block    *big.Int
-		optional bool // if true, the fork may be nil and next fork is still allowed
+		name      string
+		block     *big.Int
+		timestamp *uint64 // forks after the merge are scheduled using timestamps
+		optional  bool    // if true, the fork may be nil and next fork is still allowed
 	}
 	var lastFork fork
 	for _, cur := range []fork{
@@ -801,29 +811,46 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "shanghaiBlock", block: c.ShanghaiBlock, optional: true},
 		{name: "bernoulliBlock", block: c.BernoulliBlock, optional: true},
 		{name: "curieBlock", block: c.CurieBlock, optional: true},
+		{name: "morph203Time", timestamp: c.Morph203Time, optional: true},
 	} {
 		if lastFork.name != "" {
-			// Next one must be higher number
-			if lastFork.block == nil && cur.block != nil {
-				return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at %v",
-					lastFork.name, cur.name, cur.block)
-			}
-			if lastFork.block != nil && cur.block != nil {
-				if lastFork.block.Cmp(cur.block) > 0 {
-					return fmt.Errorf("unsupported fork ordering: %v enabled at %v, but %v enabled at %v",
+			switch {
+			// Non-optional forks must all be present in the chain config up to the last defined fork
+			case lastFork.block == nil && lastFork.timestamp == nil && (cur.block != nil || cur.timestamp != nil):
+				if cur.block != nil {
+					return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at block %v",
+						lastFork.name, cur.name, cur.block)
+				} else {
+					return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at timestamp %v",
+						lastFork.name, cur.name, *cur.timestamp)
+				}
+
+			// Fork (whether defined by block or timestamp) must follow the fork definition sequence
+			case (lastFork.block != nil && cur.block != nil) || (lastFork.timestamp != nil && cur.timestamp != nil):
+				if lastFork.block != nil && lastFork.block.Cmp(cur.block) > 0 {
+					return fmt.Errorf("unsupported fork ordering: %v enabled at block %v, but %v enabled at block %v",
 						lastFork.name, lastFork.block, cur.name, cur.block)
+				} else if lastFork.timestamp != nil && *lastFork.timestamp > *cur.timestamp {
+					return fmt.Errorf("unsupported fork ordering: %v enabled at timestamp %v, but %v enabled at timestamp %v",
+						lastFork.name, *lastFork.timestamp, cur.name, *cur.timestamp)
+				}
+
+				// Timestamp based forks can follow block based ones, but not the other way around
+				if lastFork.timestamp != nil && cur.block != nil {
+					return fmt.Errorf("unsupported fork ordering: %v used timestamp ordering, but %v reverted to block ordering",
+						lastFork.name, cur.name)
 				}
 			}
 		}
 		// If it was optional and not set, then ignore it
-		if !cur.optional || cur.block != nil {
+		if !cur.optional || (cur.block != nil || cur.timestamp != nil) {
 			lastFork = cur
 		}
 	}
 	return nil
 }
 
-func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *ConfigCompatError {
+func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTimestamp uint64) *ConfigCompatError {
 	if isForkIncompatible(c.HomesteadBlock, newcfg.HomesteadBlock, head) {
 		return newCompatError("Homestead fork block", c.HomesteadBlock, newcfg.HomesteadBlock)
 	}
@@ -885,6 +912,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.CurieBlock, newcfg.CurieBlock, head) {
 		return newCompatError("Curie fork block", c.CurieBlock, newcfg.CurieBlock)
 	}
+	if isForkTimestampIncompatible(c.Morph203Time, newcfg.Morph203Time, headTimestamp) {
+		return newTimestampCompatError("Morph203Time fork timestamp", c.Morph203Time, newcfg.Morph203Time)
+	}
 	return nil
 }
 
@@ -919,14 +949,47 @@ func configNumEqual(x, y *big.Int) bool {
 	return x.Cmp(y) == 0
 }
 
+// isForkTimestampIncompatible returns true if a fork scheduled at timestamp s1
+// cannot be rescheduled to timestamp s2 because head is already past the fork.
+func isForkTimestampIncompatible(s1, s2 *uint64, head uint64) bool {
+	return (isTimestampForked(s1, head) || isTimestampForked(s2, head)) && !configTimestampEqual(s1, s2)
+}
+
+// isTimestampForked returns whether a fork scheduled at timestamp s is active
+// at the given head timestamp. Whilst this method is the same as isBlockForked,
+// they are explicitly separate for clearer reading.
+func isTimestampForked(s *uint64, head uint64) bool {
+	if s == nil {
+		return false
+	}
+	return *s <= head
+}
+
+func configTimestampEqual(x, y *uint64) bool {
+	if x == nil {
+		return y == nil
+	}
+	if y == nil {
+		return x == nil
+	}
+	return *x == *y
+}
+
 // ConfigCompatError is raised if the locally-stored blockchain is initialised with a
 // ChainConfig that would alter the past.
 type ConfigCompatError struct {
 	What string
 	// block numbers of the stored and new configurations
-	StoredConfig, NewConfig *big.Int
+	StoredBlock, NewBlock *big.Int
+
+	// timestamps of the stored and new configurations if time based forking
+	StoredTime, NewTime *uint64
+
 	// the block number to which the local chain must be rewound to correct the error
-	RewindTo uint64
+	RewindToBlock uint64
+
+	// the timestamp to which the local chain must be rewound to correct the error
+	RewindToTime uint64
 }
 
 func newCompatError(what string, storedblock, newblock *big.Int) *ConfigCompatError {
@@ -939,15 +1002,53 @@ func newCompatError(what string, storedblock, newblock *big.Int) *ConfigCompatEr
 	default:
 		rew = newblock
 	}
-	err := &ConfigCompatError{what, storedblock, newblock, 0}
+	err := &ConfigCompatError{
+		What:          what,
+		StoredBlock:   storedblock,
+		NewBlock:      newblock,
+		RewindToBlock: 0,
+	}
 	if rew != nil && rew.Sign() > 0 {
-		err.RewindTo = rew.Uint64() - 1
+		err.RewindToBlock = rew.Uint64() - 1
+	}
+	return err
+}
+
+func newTimestampCompatError(what string, storedtime, newtime *uint64) *ConfigCompatError {
+	var rew *uint64
+	switch {
+	case storedtime == nil:
+		rew = newtime
+	case newtime == nil || *storedtime < *newtime:
+		rew = storedtime
+	default:
+		rew = newtime
+	}
+	err := &ConfigCompatError{
+		What:         what,
+		StoredTime:   storedtime,
+		NewTime:      newtime,
+		RewindToTime: 0,
+	}
+	if rew != nil && *rew != 0 {
+		err.RewindToTime = *rew - 1
 	}
 	return err
 }
 
 func (err *ConfigCompatError) Error() string {
-	return fmt.Sprintf("mismatching %s in database (have %d, want %d, rewindto %d)", err.What, err.StoredConfig, err.NewConfig, err.RewindTo)
+	if err.StoredBlock != nil {
+		return fmt.Sprintf("mismatching %s in database (have block %d, want block %d, rewindto block %d)", err.What, err.StoredBlock, err.NewBlock, err.RewindToBlock)
+	}
+
+	if err.StoredTime == nil && err.NewTime == nil {
+		return ""
+	} else if err.StoredTime == nil && err.NewTime != nil {
+		return fmt.Sprintf("mismatching %s in database (have timestamp nil, want timestamp %d, rewindto timestamp %d)", err.What, *err.NewTime, err.RewindToTime)
+	} else if err.StoredTime != nil && err.NewTime == nil {
+		return fmt.Sprintf("mismatching %s in database (have timestamp %d, want timestamp nil, rewindto timestamp %d)", err.What, *err.StoredTime, err.RewindToTime)
+	}
+	return fmt.Sprintf("mismatching %s in database (have timestamp %d, want timestamp %d, rewindto timestamp %d)", err.What, *err.StoredTime, *err.NewTime, err.RewindToTime)
 }
 
 // Rules wraps ChainConfig and is merely syntactic sugar or can be used for functions
@@ -960,7 +1061,7 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsDarwin                          bool
+	IsBernoulli, IsCurie, IsMorph203                        bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -985,6 +1086,6 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsShanghai:       c.IsShanghai(num),
 		IsBernoulli:      c.IsBernoulli(num),
 		IsCurie:          c.IsCurie(num),
-		IsDarwin:         c.IsDarwin(time),
+		IsMorph203:       c.IsMorph203(time),
 	}
 }

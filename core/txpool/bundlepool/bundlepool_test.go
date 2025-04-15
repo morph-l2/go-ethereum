@@ -25,8 +25,8 @@ func TestBundleHeap_PushPop(t *testing.T) {
 	bundle2 := createTestBundle(200)
 	bundle3 := createTestBundle(50)
 
-	heap.Push(&bundleHeap, bundle0)
 	heap.Push(&bundleHeap, bundle1)
+	heap.Push(&bundleHeap, bundle0)
 	heap.Push(&bundleHeap, bundle2)
 	heap.Push(&bundleHeap, bundle3)
 

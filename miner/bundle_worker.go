@@ -46,7 +46,14 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 		log.Error("fail to generate ordered bundles", "err", err)
 		return errFillBundleInterrupted
 	}
+
+	// Initialize the transaction status slice
 	txStatus := make([]*types.TransactionStatus, len(txs))
+	for i, tx := range txs {
+		txStatus[i] = &types.TransactionStatus{Hash: tx.Hash(), Status: types.TransactionStatusNoRun}
+	}
+
+	// Commit the bundles and update the transaction status
 	if err = miner.commitBundles(env, txs, interrupt, txStatus); err != nil {
 		log.Error("fail to commit bundles", "err", err)
 		return errFillBundleInterrupted

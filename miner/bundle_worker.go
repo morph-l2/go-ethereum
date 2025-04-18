@@ -49,8 +49,10 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 
 	// Initialize the transaction status slice
 	txStatus := make([]*types.TransactionStatus, len(txs))
-	for i, tx := range txs {
-		txStatus[i] = &types.TransactionStatus{Hash: tx.Hash(), Status: types.TransactionStatusNoRun}
+	if miner.txpool.IsEnableSaveBundleStatus() {
+		for i, tx := range txs {
+			txStatus[i] = &types.TransactionStatus{Hash: tx.Hash(), Status: types.TransactionStatusNoRun}
+		}
 	}
 
 	// Commit the bundles and update the transaction status
@@ -58,34 +60,38 @@ func (miner *Miner) fillTransactionsAndBundles(env *environment, l1Transactions 
 		log.Error("fail to commit bundles", "err", err)
 		return errFillBundleInterrupted
 	}
-	// If any transaction in the bundle is reverted, set the bundle status to Revert
-	// Otherwise, set the bundle status to OK
-	bundleStatus := make(map[common.Hash]*types.BundleStatus)
-	for i, txStatus := range txStatus {
-		txn := txs[i]
-		if txn != nil {
-			bundle := txn.Bundle()
-			if bundle != nil {
-				if txStatus.Status == types.TransactionStatusRevert {
-					bundle.Status.Status = types.BundleStatusRevert
-					bundle.Status.Error = txStatus.Error
-				} else {
-					bundle.Status.Status = types.BundleStatusOK
-				}
 
-				for j, tx := range bundle.Txs {
-					if tx.Hash() == txn.Hash() {
-						bundle.Status.Txs[j].GasUsed = txStatus.GasUsed
-						bundle.Status.Txs[j].Status = txStatus.Status
-						bundle.Status.Txs[j].Error = txStatus.Error
+	// If enabled, update the bundle status in the txpool
+	if miner.txpool.IsEnableSaveBundleStatus() {
+		// If any transaction in the bundle is reverted, set the bundle status to Revert
+		// Otherwise, set the bundle status to OK
+		bundleStatus := make(map[common.Hash]*types.BundleStatus)
+		for i, txStatus := range txStatus {
+			txn := txs[i]
+			if txn != nil {
+				bundle := txn.Bundle()
+				if bundle != nil {
+					if txStatus.Status == types.TransactionStatusRevert {
+						bundle.Status.Status = types.BundleStatusRevert
+						bundle.Status.Error = txStatus.Error
+					} else {
+						bundle.Status.Status = types.BundleStatusOK
 					}
+
+					for j, tx := range bundle.Txs {
+						if tx.Hash() == txn.Hash() {
+							bundle.Status.Txs[j].GasUsed = txStatus.GasUsed
+							bundle.Status.Txs[j].Status = txStatus.Status
+							bundle.Status.Txs[j].Error = txStatus.Error
+						}
+					}
+					bundleStatus[bundle.Hash()] = bundle.Status
 				}
-				bundleStatus[bundle.Hash()] = bundle.Status
 			}
 		}
+		// updata txpool bundle status
+		miner.txpool.UpdateBundleStatus(bundleStatus)
 	}
-	// updata txpool bundle status
-	miner.txpool.UpdateBundleStatus(bundleStatus)
 
 	log.Info("fill bundles", "bundles_count", len(bundles), "txs_count", len(txs))
 
@@ -137,12 +143,14 @@ func (miner *Miner) commitBundles(
 		env.state.SetTxContext(tx.Hash(), env.tcount)
 
 		_, gasUsed, err := miner.commitBundleTransaction(env, tx, env.header.Coinbase, env.UnRevertible.Contains(tx.Hash()))
-		if err != nil {
-			status[i].Status = types.TransactionStatusRevert
-			status[i].Error = err
-		} else {
-			status[i].Status = types.TransactionStatusOk
-			status[i].GasUsed = gasUsed
+		if status[i] != nil {
+			if err != nil {
+				status[i].Status = types.TransactionStatusRevert
+				status[i].Error = err
+			} else {
+				status[i].Status = types.TransactionStatusOk
+				status[i].GasUsed = gasUsed
+			}
 		}
 
 		switch err {

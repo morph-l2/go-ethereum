@@ -9,6 +9,7 @@ import (
 	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/miner"
 	"github.com/morph-l2/go-ethereum/rpc"
 
@@ -93,6 +94,8 @@ type BundlePool struct {
 	simulator BundleSimulator
 
 	bundleReceiverClients map[string]*rpc.Client
+
+	poolBundleStatus *BundleStatus
 }
 
 func New(config Config, mevConfig miner.MevConfig, chain BlockChain) *BundlePool {
@@ -242,13 +245,8 @@ func (p *BundlePool) PruneBundle(hash common.Hash) {
 }
 
 func (p *BundlePool) UpdateBundleStatus(status map[common.Hash]*types.BundleStatus) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for hash, status := range status {
-		if bundle, ok := p.bundles[hash]; ok {
-			bundle.Status = status
-		}
+	if p.poolBundleStatus != nil {
+		p.poolBundleStatus.UpdateBundleStatus(status)
 	}
 }
 
@@ -369,6 +367,24 @@ func (p *BundlePool) Locals() []common.Address {
 // identified by their hashes.
 func (p *BundlePool) Status(hash common.Hash) txpool.TxStatus {
 	return txpool.TxStatusUnknown
+}
+
+// Save the status of a bundle to the database.
+func (p *BundlePool) EnableSaveBundleStatus(database ethdb.Database) {
+	p.poolBundleStatus = NewBundleStatus(database)
+}
+
+// GetBundleStatus returns the status of a bundle in the pool.
+func (p *BundlePool) GetBundleStatus(hash common.Hash) *types.BundleStatusCode {
+	if p.poolBundleStatus != nil {
+		return p.poolBundleStatus.GetBundleStatus(hash)
+	}
+	return nil
+}
+
+// IsBundleStatusInDB returns true if the bundle status is in the database.
+func (p *BundlePool) IsEnableSaveBundleStatus() bool {
+	return p.poolBundleStatus != nil
 }
 
 func (p *BundlePool) filter(tx *types.Transaction) bool {

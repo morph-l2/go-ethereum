@@ -101,6 +101,7 @@ type Backend interface {
 	// Bundle API
 	SimulateGaslessBundle(bundle *types.Bundle) (*types.SimulateGaslessBundleResp, error)
 	SendBundle(ctx context.Context, bundle *types.Bundle, originBundle *types.SendBundleArgs) error
+	GetBundleStatus(ctx context.Context, bundleHash common.Hash) *types.BundleStatusCode
 	BundlePrice() *big.Int
 }
 

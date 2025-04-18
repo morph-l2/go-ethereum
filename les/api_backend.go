@@ -349,3 +349,7 @@ func (b *LesApiBackend) SimulateGaslessBundle(bundle *types.Bundle) (*types.Simu
 func (b *LesApiBackend) BundlePrice() *big.Int {
 	panic("implement me")
 }
+
+func (b *LesApiBackend) GetBundleStatus(ctx context.Context, bundleHash common.Hash) *types.BundleStatusCode {
+	panic("implement me")
+}

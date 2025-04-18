@@ -146,4 +146,13 @@ type BundleSubpool interface {
 
 	// PruneBundle removes a bundle from the pool.
 	PruneBundle(hash common.Hash)
+
+	// Save the status of a bundle to the database.
+	EnableSaveBundleStatus(database ethdb.Database)
+
+	// GetBundleStatus returns the status of a bundle in the pool.
+	GetBundleStatus(hash common.Hash) *types.BundleStatusCode
+
+	// IsBundleStatusInDB returns true if the bundle status is in the database.
+	IsEnableSaveBundleStatus() bool
 }

@@ -132,6 +132,11 @@ func (s *PrivateTxBundleAPI) SendBundle(ctx context.Context, args types.SendBund
 	return bundle.Hash(), nil
 }
 
+// GetBundleStatus retrieves the status of a bundle by its hash.
+func (s *PrivateTxBundleAPI) GetBundleStatus(ctx context.Context, bundleHash common.Hash) *types.BundleStatusCode {
+	return s.b.GetBundleStatus(ctx, bundleHash)
+}
+
 func newBundleError(err error) *bundleError {
 	return &bundleError{
 		error: err,

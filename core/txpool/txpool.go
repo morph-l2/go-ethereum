@@ -439,3 +439,33 @@ func (p *TxPool) AllBundles() []*types.Bundle {
 	}
 	return nil
 }
+
+// Save the status of a bundle to the database.
+func (p *TxPool) EnableSaveBundleStatus(database ethdb.Database) {
+	for _, subpool := range p.subpools {
+		if sp, ok := subpool.(BundleSubpool); ok {
+			sp.EnableSaveBundleStatus(database)
+			break
+		}
+	}
+}
+
+// GetBundleStatus returns the status of a bundle in the pool.
+func (p *TxPool) GetBundleStatus(hash common.Hash) *types.BundleStatusCode {
+	for _, subpool := range p.subpools {
+		if bundleSubpool, ok := subpool.(BundleSubpool); ok {
+			return bundleSubpool.GetBundleStatus(hash)
+		}
+	}
+	return nil
+}
+
+// IsBundleStatusInDB returns true if the bundle status is in the database.
+func (p *TxPool) IsEnableSaveBundleStatus() bool {
+	for _, subpool := range p.subpools {
+		if bundleSubpool, ok := subpool.(BundleSubpool); ok {
+			return bundleSubpool.IsEnableSaveBundleStatus()
+		}
+	}
+	return false
+}

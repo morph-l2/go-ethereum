@@ -419,6 +419,10 @@ var (
 		Usage: "Maximum number of executable bundle slots for all accounts",
 		Value: ethconfig.Defaults.BundlePool.GlobalSlots,
 	}
+	BundlePoolStatusFlag = cli.BoolFlag{
+		Name:  "bundlepool.status",
+		Usage: "Enable status API for bundle pool",
+	}
 
 	// Performance tuning settings
 	CacheFlag = cli.IntFlag{
@@ -1519,6 +1523,9 @@ func setEthash(ctx *cli.Context, cfg *ethconfig.Config) {
 func setBundlePool(ctx *cli.Context, cfg *bundlepool.Config) {
 	if ctx.IsSet(BundlePoolGlobalSlotsFlag.Name) {
 		cfg.GlobalSlots = ctx.Uint64(BundlePoolGlobalSlotsFlag.Name)
+	}
+	if ctx.IsSet(BundlePoolStatusFlag.Name) {
+		cfg.EnableStatus = ctx.Bool(BundlePoolStatusFlag.Name)
 	}
 }
 

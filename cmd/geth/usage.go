@@ -115,6 +115,7 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 		Name: "TRANSACTION POOL (BUNDLE)",
 		Flags: []cli.Flag{
 			utils.BundlePoolGlobalSlotsFlag,
+			utils.BundlePoolStatusFlag,
 		},
 	},
 	{

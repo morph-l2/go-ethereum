@@ -804,3 +804,13 @@ func (ec *Client) BundlePrice(ctx context.Context) (*big.Int, error) {
 	}
 	return price, nil
 }
+
+// GetBundleStatus retrieves the status of a bundle by its hash.
+func (ec *Client) GetBundleStatus(ctx context.Context, bundleHash common.Hash) (*types.BundleStatusCode, error) {
+	var status types.BundleStatusCode
+	err := ec.c.CallContext(ctx, &status, "eth_getBundleStatus", bundleHash)
+	if err != nil {
+		return nil, err
+	}
+	return &status, nil
+}

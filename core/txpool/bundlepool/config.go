@@ -5,12 +5,14 @@ import (
 )
 
 type Config struct {
-	GlobalSlots uint64 // Maximum number of bundle slots for all accounts
+	GlobalSlots  uint64 // Maximum number of bundle slots for all accounts
+	EnableStatus bool   // Enable status API
 }
 
 // DefaultConfig contains the default configurations for the bundle pool.
 var DefaultConfig = Config{
-	GlobalSlots: 4096,
+	GlobalSlots:  4096,
+	EnableStatus: false,
 }
 
 // sanitize checks the provided user configurations and changes anything that's

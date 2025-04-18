@@ -241,6 +241,15 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		log.Info("Blacklist is enabled")
 	}
 
+	if config.BundlePool.EnableStatus {
+		bundleStatusDb, err := stack.OpenDatabase("bundlestatus", config.DatabaseCache, config.DatabaseHandles, "eth/db/bundlestatus/", false)
+		if err != nil {
+			return nil, err
+		}
+		eth.txPool.EnableSaveBundleStatus(bundleStatusDb)
+		log.Info("Bundle pool status is enabled")
+	}
+
 	// Permit the downloader to use the trie cache allowance during fast sync
 	cacheLimit := cacheConfig.TrieCleanLimit + cacheConfig.TrieDirtyLimit + cacheConfig.SnapshotLimit
 	checkpoint := config.Checkpoint

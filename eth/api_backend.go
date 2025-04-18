@@ -365,6 +365,11 @@ func (b *EthAPIBackend) SimulateGaslessBundle(bundle *types.Bundle) (*types.Simu
 	return b.Miner().SimulateGaslessBundle(bundle)
 }
 
+func (b *EthAPIBackend) GetBundleStatus(ctx context.Context, bundleHash common.Hash) *types.BundleStatusCode {
+	status := b.eth.txPool.GetBundleStatus(bundleHash)
+	return status
+}
+
 func (b *EthAPIBackend) BundlePrice() *big.Int {
 	bundles := b.eth.txPool.AllBundles()
 	gasFloor := big.NewInt(b.eth.config.Miner.Mev.MevBundleGasPriceFloor)

@@ -203,6 +203,7 @@ type BlockChain struct {
 	triegc        *prque.Prque   // Priority queue mapping block numbers to tries to gc
 	gcproc        time.Duration  // Accumulates canonical block processing for trie dumping
 	flushInterval atomic.Int64   // Time interval (processing time) after which to flush a state
+	lastFlushTime atomic.Int64   // Time of the last trie flush
 
 	// txLookupLimit is the maximum number of blocks from head whose tx indices
 	// are reserved:
@@ -295,6 +296,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	bc.prefetcher = newStatePrefetcher(chainConfig, bc, engine)
 	bc.processor = NewStateProcessor(chainConfig, bc, engine)
 	bc.flushInterval.Store(int64(cacheConfig.TrieTimeLimit))
+	bc.lastFlushTime.Store(0)
 
 	var err error
 	bc.hc, err = NewHeaderChain(db, chainConfig, engine, bc.insertStopped)

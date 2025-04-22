@@ -123,19 +123,30 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.TrieDirtyDisabled {
 		if triedb.Scheme() == rawdb.PathScheme {
-			// If we exceeded time allowance, flush an entire trie to disk
-			flush := bc.gcproc > flushInterval
+			flush := false
+			if bc.lastFlushTime.Load() == 0 {
+				bc.lastFlushTime.Store(int64(block.Time()))
+			} else {
+				// Blocktime distance is not a good indicator of the time
+				// elapsed since the last commit, so we need to check
+				// the block time to see if we need to flush.
+				if int64(block.Time()) > bc.lastFlushTime.Load() {
+					distance := time.Duration(int64(block.Time())-bc.lastFlushTime.Load()) * time.Second
 
-			commitDone := func() {
-				if flush {
-					log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", flushInterval)
-					bc.gcproc = 0
+					// If the distance is greater than the flush interval, we need to flush
+					if distance > flushInterval {
+						flush = true
+						log.Info("State in memory for too long, committing", "distance", distance, "allowance", flushInterval, "last flush time", bc.lastFlushTime.Load(), "blocktime", block.Time())
+
+						// Reset the last flush time
+						bc.lastFlushTime.Store(0)
+					}
 				}
 			}
 
 			// If node is running in path mode, skip explicit gc operation
 			// which is unnecessary in this mode.
-			return triedb.CommitState(root, origin, current, false, flush, commitDone)
+			return triedb.CommitState(root, origin, current, false, flush, nil)
 		}
 		return triedb.Commit(root, false, nil)
 	}

@@ -193,6 +193,10 @@ func (db *Database) Reader(root common.Hash) (layer, error) {
 
 func (db *Database) CommitGenesis(root common.Hash) error {
 	log.Info("pathdb write genesis state to disk", "root", root.Hex())
+
+	db.lock.Lock()
+	defer db.lock.Unlock()
+
 	batch := db.diskdb.NewBatch()
 	for _, v := range db.dirties {
 		batch.Put(v.K, v.V)

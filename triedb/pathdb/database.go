@@ -229,6 +229,9 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 		if flush {
 			db.timeFlush.Store(flush)
 		}
+		if callback != nil {
+			callback()
+		}
 		return nil
 	}
 

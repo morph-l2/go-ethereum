@@ -91,7 +91,6 @@ var Defaults = Config{
 	RPCTxFeeCap:             1,  // 1 ether
 	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
 	JournalFileName:         "trie.journal",
-	PathSyncFlush:           true,
 }
 
 func init() {

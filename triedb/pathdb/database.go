@@ -218,6 +218,12 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
+	defer func() {
+		if callback != nil {
+			callback()
+		}
+	}()
+
 	// Short circuit if the mutation is not allowed.
 	if err := db.modifyAllowed(); err != nil {
 		return err
@@ -228,9 +234,6 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 	if root == parentRoot && len(db.dirties) == 1 {
 		if flush {
 			db.timeFlush.Store(flush)
-		}
-		if callback != nil {
-			callback()
 		}
 		return nil
 	}
@@ -252,11 +255,7 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 	// - head-1 layer is paired with HEAD-1 state
 	// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
 	// - head-128 layer(disk layer) is paired with HEAD-128 state
-	err := db.tree.cap(root, maxDiffLayers, flush)
-	if callback != nil {
-		callback()
-	}
-	return err
+	return db.tree.cap(root, maxDiffLayers, flush)
 }
 
 // Close closes the trie database and the held freezer.

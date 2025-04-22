@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
@@ -44,7 +45,7 @@ const (
 	// Too large nodebuffer will cause the system to pause for a long
 	// time when write happens. Also, the largest batch that pebble can
 	// support is 4GB, node will panic if batch size exceeds this limit.
-	MaxDirtyBufferSize = 256 * 1024 * 1024
+	MaxDirtyBufferSize = 64 * 1024 * 1024
 
 	// DefaultDirtyBufferSize is the default memory allowance of node buffer
 	// that aggregates the writes from above until it's flushed into the
@@ -154,6 +155,7 @@ type Database struct {
 	tree       *layerTree          // The group for all known layers
 	lock       sync.RWMutex        // Lock to prevent mutations from happening at the same time
 	dirties    dbtypes.KvMap
+	timeFlush  atomic.Bool // Flag if the node buffer is flushed to disk
 }
 
 // New attempts to load an already existing layer from a persistent key-value
@@ -171,6 +173,8 @@ func New(diskdb ethdb.KeyValueStore, config *Config) *Database {
 		diskdb:     diskdb,
 		dirties:    make(dbtypes.KvMap),
 	}
+	db.timeFlush.Store(false)
+
 	// Construct the layer tree by resolving the in-disk singleton state
 	// and in-memory layer journal.
 	db.tree = newLayerTree(db.loadLayers())
@@ -222,6 +226,9 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 	// only 1 entity, state have no changes
 	// some block maybe has no txns, so state do not change
 	if root == parentRoot && len(db.dirties) == 1 {
+		if flush {
+			db.timeFlush.Store(flush)
+		}
 		return nil
 	}
 
@@ -231,17 +238,18 @@ func (db *Database) CommitState(root common.Hash, parentRoot common.Hash, blockN
 	}
 	db.dirties = make(dbtypes.KvMap)
 
-	layers := maxDiffLayers
-	if flush {
-		layers = 0
+	if db.timeFlush.Load() {
+		if !flush {
+			flush = true
+		}
+		db.timeFlush.Store(false)
 	}
-
 	// Keep 128 diff layers in the memory, persistent layer is 129th.
 	// - head layer is paired with HEAD state
 	// - head-1 layer is paired with HEAD-1 state
 	// - head-127 layer(bottom-most diff layer) is paired with HEAD-127 state
 	// - head-128 layer(disk layer) is paired with HEAD-128 state
-	err := db.tree.cap(root, layers)
+	err := db.tree.cap(root, maxDiffLayers, flush)
 	if callback != nil {
 		callback()
 	}

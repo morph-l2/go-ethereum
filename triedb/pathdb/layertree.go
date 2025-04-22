@@ -113,7 +113,7 @@ func (tree *layerTree) add(root common.Hash, parentRoot common.Hash, block uint6
 
 // cap traverses downwards the diff tree until the number of allowed diff layers
 // are crossed. All diffs beyond the permitted number are flattened downwards.
-func (tree *layerTree) cap(root common.Hash, layers int) error {
+func (tree *layerTree) cap(root common.Hash, layers int, timeFlush bool) error {
 	// Retrieve the head layer to cap from
 	l := tree.get(root)
 	if l == nil {
@@ -128,7 +128,7 @@ func (tree *layerTree) cap(root common.Hash, layers int) error {
 
 	// If full commit was requested, flatten the diffs and merge onto disk
 	if layers == 0 {
-		base, err := diff.persist(true)
+		base, err := diff.persist(true, false)
 		if err != nil {
 			return err
 		}
@@ -165,7 +165,7 @@ func (tree *layerTree) cap(root common.Hash, layers int) error {
 		// parent is linked correctly.
 		diff.lock.Lock()
 
-		base, err := parent.persist(false)
+		base, err := parent.persist(false, timeFlush)
 		if err != nil {
 			diff.lock.Unlock()
 			return err

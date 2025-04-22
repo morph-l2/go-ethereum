@@ -42,7 +42,7 @@ type trienodebuffer interface {
 
 	// flush persists the in-memory dirty trie node into the disk if the configured
 	// memory threshold is reached. Note, all data must be written atomically.
-	flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force bool) error
+	flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force, timeFlush bool) error
 
 	// setSize sets the buffer size to the provided number, and invokes a flush
 	// operation if the current memory usage exceeds the new limit.
@@ -193,7 +193,7 @@ func (dl *diskLayer) update(root common.Hash, id uint64, block uint64, nodes dbt
 // commit merges the given bottom-most diff layer into the node buffer
 // and returns a newly constructed disk layer. Note the current disk
 // layer must be tagged as stale first to prevent re-access.
-func (dl *diskLayer) commit(bottom *diffLayer, force bool) (*diskLayer, error) {
+func (dl *diskLayer) commit(bottom *diffLayer, force, timeFlush bool) (*diskLayer, error) {
 	dl.lock.Lock()
 	defer dl.lock.Unlock()
 
@@ -218,7 +218,7 @@ func (dl *diskLayer) commit(bottom *diffLayer, force bool) (*diskLayer, error) {
 
 	ndl := newDiskLayer(bottom.root, bottom.stateID(), dl.db, dl.cleans, dl.buffer.commit(bottom.nodes))
 
-	if err := ndl.buffer.flush(ndl.db.diskdb, ndl.cleans, ndl.id, force); err != nil {
+	if err := ndl.buffer.flush(ndl.db.diskdb, ndl.cleans, ndl.id, force, timeFlush); err != nil {
 		return nil, err
 	}
 

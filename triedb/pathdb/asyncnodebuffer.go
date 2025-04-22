@@ -95,7 +95,7 @@ func (a *asyncnodebuffer) empty() bool {
 
 // flush persists the in-memory dirty trie node into the disk if the configured
 // memory threshold is reached. Note, all data must be written atomically.
-func (a *asyncnodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force bool) error {
+func (a *asyncnodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force, timeFlush bool) error {
 	a.mux.Lock()
 	defer a.mux.Unlock()
 
@@ -115,7 +115,7 @@ func (a *asyncnodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, 
 		}
 	}
 
-	if a.current.size < a.current.limit {
+	if a.current.size < a.current.limit && !timeFlush {
 		return nil
 	}
 

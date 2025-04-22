@@ -132,13 +132,13 @@ func (b *nodebuffer) empty() bool {
 // operation if the current memory usage exceeds the new limit.
 func (b *nodebuffer) setSize(size int, db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64) error {
 	b.limit = uint64(size)
-	return b.flush(db, clean, id, false)
+	return b.flush(db, clean, id, false, false)
 }
 
 // flush persists the in-memory dirty trie node into the disk if the configured
 // memory threshold is reached. Note, all data must be written atomically.
-func (b *nodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force bool) error {
-	if b.size <= b.limit && !force {
+func (b *nodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force, timeFlush bool) error {
+	if b.size <= b.limit && !force && !timeFlush {
 		return nil
 	}
 	// Ensure the target state id is aligned with the internal counter.

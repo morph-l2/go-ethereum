@@ -215,8 +215,8 @@ type Config struct {
 	// Max block range for eth_getLogs api method
 	MaxBlockRange int64
 
-	// Morph203Time override
-	OverrideMorph203Time *uint64 `toml:",omitempty"`
+	// Morph205Time override
+	OverrideMorph205Time *uint64 `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

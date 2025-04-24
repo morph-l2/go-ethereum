@@ -71,7 +71,7 @@ var (
 		utils.USBFlag,
 		utils.SmartCardDaemonPathFlag,
 		utils.OverrideArrowGlacierFlag,
-		utils.OverrideMorph203TimeFlag,
+		utils.OverrideMorph205TimeFlag,
 		utils.EthashCacheDirFlag,
 		utils.EthashCachesInMemoryFlag,
 		utils.EthashCachesOnDiskFlag,

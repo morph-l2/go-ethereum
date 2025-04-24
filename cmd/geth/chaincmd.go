@@ -40,6 +40,7 @@ import (
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/node"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 var (
@@ -50,7 +51,7 @@ var (
 		ArgsUsage: "<genesisPath>",
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
-			utils.OverrideMorph203TimeFlag,
+			utils.OverrideMorph205TimeFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `
@@ -210,9 +211,10 @@ func initGenesis(ctx *cli.Context) error {
 	defer stack.Close()
 
 	var overrides core.ChainOverrides
-	if ctx.IsSet(utils.OverrideMorph203TimeFlag.Name) {
-		v := ctx.Uint64(utils.OverrideMorph203TimeFlag.Name)
-		overrides.Morph203Time = &v
+	if ctx.IsSet(utils.OverrideMorph205TimeFlag.Name) {
+		v := ctx.Uint64(utils.OverrideMorph205TimeFlag.Name)
+		overrides.Morph205Time = &v
+		overrides.Morph203Time = params.NewUint64(0)
 	}
 
 	for _, name := range []string{"chaindata", "lightchaindata"} {

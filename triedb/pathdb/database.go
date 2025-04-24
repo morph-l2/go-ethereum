@@ -184,6 +184,9 @@ func New(diskdb ethdb.KeyValueStore, config *Config) *Database {
 
 // Reader retrieves a layer belonging to the given state root.
 func (db *Database) Reader(root common.Hash) (layer, error) {
+	db.lock.Lock()
+	defer db.lock.Unlock()
+
 	l := db.tree.get(root)
 	if l == nil {
 		return nil, fmt.Errorf("state %#x is not available", root)

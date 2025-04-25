@@ -33,6 +33,18 @@ var (
 	OverheadSlot            = common.BigToHash(big.NewInt(2))
 	ScalarSlot              = common.BigToHash(big.NewInt(3))
 
+	// MorphTokenAddress is the address of the morph token contract
+	MorphTokenAddress         = common.HexToAddress("0x5300000000000000000000000000000000000013")
+	InflationMintedEpochsSolt = common.BigToHash(big.NewInt(8))
+
+	// L2StakingAddress is the address of the l2 staking contract
+	L2StakingAddress    = common.HexToAddress("0x5300000000000000000000000000000000000015")
+	RewardStartedSlot   = common.BigToHash(big.NewInt(1))
+	RewardStartTimeSlot = common.BigToHash(big.NewInt(2))
+
+	// SystemAddress is the address of the system
+	SystemAddress = common.HexToAddress("0x5300000000000000000000000000000000000021")
+
 	// New fields added in the Curie hard fork
 	L1BlobBaseFeeSlot = common.BigToHash(big.NewInt(6))
 	CommitScalarSlot  = common.BigToHash(big.NewInt(7))

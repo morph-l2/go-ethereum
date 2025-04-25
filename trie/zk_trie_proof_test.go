@@ -63,7 +63,7 @@ func verifyValue(proveVal []byte, vPreimage []byte) bool {
 }
 
 func TestSMTOneElementProof(t *testing.T) {
-	tr, _ := NewZkTrie(common.Hash{}, NewZktrieDatabase((memorydb.New())))
+	tr, _ := NewZkTrie(common.Hash{}, NewZkDatabase((memorydb.New())))
 	mt := &zkTrieImplTestWrapper{tr.Tree()}
 	err := mt.UpdateWord(
 		zkt.NewByte32FromBytesPaddingZero(bytes.Repeat([]byte("k"), 32)),
@@ -148,7 +148,7 @@ func TestSMTBadProof(t *testing.T) {
 // Tests that missing keys can also be proven. The test explicitly uses a single
 // entry trie and checks for missing keys both before and after the single entry.
 func TestSMTMissingKeyProof(t *testing.T) {
-	tr, _ := NewZkTrie(common.Hash{}, NewZktrieDatabase((memorydb.New())))
+	tr, _ := NewZkTrie(common.Hash{}, NewZkDatabase((memorydb.New())))
 	mt := &zkTrieImplTestWrapper{tr.Tree()}
 	err := mt.UpdateWord(
 		zkt.NewByte32FromBytesPaddingZero(bytes.Repeat([]byte("k"), 32)),
@@ -180,7 +180,7 @@ func TestSMTMissingKeyProof(t *testing.T) {
 }
 
 func randomZktrie(t *testing.T, n int) (*ZkTrie, map[string]*kv) {
-	tr, err := NewZkTrie(common.Hash{}, NewZktrieDatabase((memorydb.New())))
+	tr, err := NewZkTrie(common.Hash{}, NewZkDatabase((memorydb.New())))
 	if err != nil {
 		panic(err)
 	}
@@ -210,7 +210,7 @@ func randomZktrie(t *testing.T, n int) (*ZkTrie, map[string]*kv) {
 
 // Tests that new "proof trace" feature
 func TestProofWithDeletion(t *testing.T) {
-	tr, _ := NewZkTrie(common.Hash{}, NewZktrieDatabase((memorydb.New())))
+	tr, _ := NewZkTrie(common.Hash{}, NewZkDatabase((memorydb.New())))
 	mt := &zkTrieImplTestWrapper{tr.Tree()}
 	key1 := bytes.Repeat([]byte("l"), 32)
 	key2 := bytes.Repeat([]byte("m"), 32)

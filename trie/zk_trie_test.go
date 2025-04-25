@@ -30,6 +30,7 @@ import (
 	zkt "github.com/scroll-tech/zktrie/types"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/ethdb/leveldb"
 	"github.com/morph-l2/go-ethereum/ethdb/memorydb"
 )
@@ -37,19 +38,16 @@ import (
 func newEmptyZkTrie() *ZkTrie {
 	trie, _ := NewZkTrie(
 		common.Hash{},
-		&ZktrieDatabase{
-			db: NewDatabaseWithConfig(memorydb.New(),
-				&Config{Preimages: true}),
-			prefix: []byte{},
-		},
+		NewDatabaseWithConfig(memorydb.New(),
+			&Config{Preimages: true, Zktrie: true}),
 	)
 	return trie
 }
 
 // makeTestSecureTrie creates a large enough secure trie for testing.
-func makeTestZkTrie() (*ZktrieDatabase, *ZkTrie, map[string][]byte) {
+func makeTestZkTrie() (*Database, *ZkTrie, map[string][]byte) {
 	// Create an empty trie
-	triedb := NewZktrieDatabase(memorydb.New())
+	triedb := NewZkDatabase(memorydb.New())
 	trie, _ := NewZkTrie(common.Hash{}, triedb)
 
 	// Fill it with some arbitrary data
@@ -173,9 +171,9 @@ const benchElemCountZk = 10000
 
 func BenchmarkZkTrieGet(b *testing.B) {
 	_, tmpdb := tempDBZK(b)
-	zkTrie, _ := NewZkTrie(common.Hash{}, NewZktrieDatabaseFromTriedb(tmpdb))
+	zkTrie, _ := NewZkTrie(common.Hash{}, tmpdb)
 	defer func() {
-		ldb := zkTrie.db.db.diskdb.(*leveldb.Database)
+		ldb := zkTrie.db.diskdb.(*leveldb.Database)
 		ldb.Close()
 		os.RemoveAll(ldb.Path())
 	}()
@@ -188,7 +186,7 @@ func BenchmarkZkTrieGet(b *testing.B) {
 		assert.NoError(b, err)
 	}
 
-	zkTrie.db.db.Commit(common.Hash{}, true, nil)
+	zkTrie.db.Commit(common.Hash{}, true, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(k, uint64(i))
@@ -200,9 +198,9 @@ func BenchmarkZkTrieGet(b *testing.B) {
 
 func BenchmarkZkTrieUpdate(b *testing.B) {
 	_, tmpdb := tempDBZK(b)
-	zkTrie, _ := NewZkTrie(common.Hash{}, NewZktrieDatabaseFromTriedb(tmpdb))
+	zkTrie, _ := NewZkTrie(common.Hash{}, tmpdb)
 	defer func() {
-		ldb := zkTrie.db.db.diskdb.(*leveldb.Database)
+		ldb := zkTrie.db.diskdb.(*leveldb.Database)
 		ldb.Close()
 		os.RemoveAll(ldb.Path())
 	}()
@@ -219,7 +217,7 @@ func BenchmarkZkTrieUpdate(b *testing.B) {
 	binary.LittleEndian.PutUint64(k, benchElemCountZk/2)
 
 	//zkTrie.Commit(nil)
-	zkTrie.db.db.Commit(common.Hash{}, true, nil)
+	zkTrie.db.Commit(common.Hash{}, true, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(k, uint64(i))
@@ -263,4 +261,77 @@ func TestZkTrieDelete(t *testing.T) {
 		hash := trie1.Hash()
 		assert.Equal(t, hashes[i].Hex(), hash.Hex())
 	}
+}
+
+func TestMorphAccountTrie(t *testing.T) {
+	// dir := "/data/morph/ethereum/geth/chaindata"
+	dir := ""
+	if len(dir) == 0 {
+		return
+	}
+
+	db, err := rawdb.NewLevelDBDatabase(dir, 128, 1024, "", false)
+	if err != nil {
+		t.Fatalf("error opening database at %v: %v", dir, err)
+	}
+
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	header := rawdb.ReadHeader(db, stored, 0)
+
+	println("stored:", stored.Hex())
+	println("header:", header.Root.Hex())
+
+	headBlock := rawdb.ReadHeadBlock(db)
+	println("headBlock:", headBlock.NumberU64())
+	root := headBlock.Root()
+	println("head state root:", root.Hex())
+
+	_, diskroot := rawdb.ReadAccountTrieNode(db, zkt.TrieRootPathKey[:])
+	// diskroot = types.TrieRootHash(diskroot)
+	println("test state root:", diskroot.Hex())
+
+	// trieDb := NewDatabaseWithConfig(db, &Config{Zktrie: true, MorphZkTrie: true, PathDB: pathdb.Defaults})
+	// varientTrie, _ := varienttrie.NewZkTrieWithPrefix(*zkt.NewByte32FromBytes(root.Bytes()), trieDb, rawdb.TrieNodeAccountPrefix)
+
+	// calroot, _ := varientTrie.Tree().Root()
+	// println("recalculate state root:", calroot.Hex())
+
+	// var buffer bytes.Buffer
+	// err = varientTrie.Tree().GraphViz(&buffer, nil)
+	// assert.NoError(t, err)
+}
+
+func TestZkSecureKey(t *testing.T) {
+	addr1 := common.HexToAddress("0x5300000000000000000000000000000000000004").Bytes()
+	addr2 := common.HexToAddress("0xc0D3c0D3c0D3c0d3c0d3C0d3C0d3c0D3C0D30004").Bytes()
+	addr3 := common.HexToAddress("0x523bff68043C818e9b449dd3Bee8ecCfa85D7E50").Bytes()
+	addr4 := common.HexToAddress("0x803DcE4D3f4Ae2e17AF6C51343040dEe320C149D").Bytes()
+	addr5 := common.HexToAddress("0x530000000000000000000000000000000000000D").Bytes()
+	addr6 := common.HexToAddress("0x530000000000000000000000000000000000000b").Bytes()
+
+	k, _ := zkt.ToSecureKey(addr1)
+	hk := zkt.NewHashFromBigInt(k)
+	ck := common.BigToHash(k)
+	assert.Equal(t, hk.Hex(), "20e9fb498ff9c35246d527da24aa1710d2cc9b055ecf9a95a8a2a11d3d836cdf")
+	assert.Equal(t, ck.Hex(), "0x20e9fb498ff9c35246d527da24aa1710d2cc9b055ecf9a95a8a2a11d3d836cdf")
+
+	k, _ = zkt.ToSecureKey(addr2)
+	hk = zkt.NewHashFromBigInt(k)
+	assert.Equal(t, hk.Hex(), "22e3957366ea5ad008a980d4bd48e10b72472a7838a7187d04b926fe80fd9c06")
+
+	k, _ = zkt.ToSecureKey(addr3)
+	hk = zkt.NewHashFromBigInt(k)
+	assert.Equal(t, hk.Hex(), "0accc4c88536715cc403dbec52286fc5a0ee01e7e0f7257a2aa84f57b706b0e0")
+
+	k, _ = zkt.ToSecureKey(addr4)
+	hk = zkt.NewHashFromBigInt(k)
+	assert.Equal(t, hk.Hex(), "1616e66d32ff1b5ad90c5e7db84045202dc719261bf13b0bb543873dcc135cc6")
+
+	k, _ = zkt.ToSecureKey(addr5)
+	hk = zkt.NewHashFromBigInt(k)
+	assert.Equal(t, hk.Hex(), "19fd1d3fef5e6662c505f44512137d7f0fd6d5637856b4abd05a6438e2f07a7f")
+
+	k, _ = zkt.ToSecureKey(addr6)
+	hk = zkt.NewHashFromBigInt(k)
+	assert.Equal(t, hk.Hex(), "0c3730cadca93736aec00976a03becc8b73c60233161bc87e213e5fdf3fe4c85")
 }

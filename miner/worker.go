@@ -173,17 +173,13 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
-	timer := time.AfterFunc(miner.newpayloadTimeout, func() {
-		atomic.StoreInt32(interrupt, commitInterruptTimeout)
-	})
-
 	if miner.config.Mev.MevEnabled {
 		newWork := work.copy()
 		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := miner.fillTransactions(work, genParams.transactions, interrupt)
+			err := miner.fillTransactions(newWork, genParams.transactions, interrupt)
 			if err != nil && errors.Is(err, errBlockInterruptedByTimeout) {
 				log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
 			}
@@ -191,7 +187,6 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		err := miner.fillTransactionsAndBundles(work, genParams.transactions, interrupt)
 
 		wg.Wait()
-		timer.Stop() // don't need timeout interruption any more
 
 		if errors.Is(err, errFillBundleInterrupted) {
 			log.Warn("fill bundles is interrupted, discard", "err", err)
@@ -199,7 +194,6 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		}
 	} else {
 		fillTxErr := miner.fillTransactions(work, genParams.transactions, interrupt)
-		timer.Stop() // don't need timeout interruption any more
 
 		if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 			log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))

@@ -269,8 +269,8 @@ var (
 		Name:  "override.arrowglacier",
 		Usage: "Manually specify Arrow Glacier fork-block, overriding the bundled setting",
 	}
-	OverrideMorph203TimeFlag = &cli.Uint64Flag{
-		Name:  "override.morph203time",
+	OverrideMorph205TimeFlag = &cli.Uint64Flag{
+		Name:  "override.morph205time",
 		Usage: "Manually specify the Morph203 fork timestamp, overriding the bundled setting",
 	}
 	// Light server and client settings

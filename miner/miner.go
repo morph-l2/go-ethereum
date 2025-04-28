@@ -49,18 +49,16 @@ type Config struct {
 	GasCeil             uint64         // Target gas ceiling for mined blocks.
 	GasPrice            *big.Int       // Minimum gas price for mining a transaction
 
-	NewBlockTimeout   time.Duration // The maximum time allowance for creating a new block
-	MaxAccountsNum    int           // Maximum number of accounts that miner will fetch the pending transactions of when building a new block
-	Mev               MevConfig     // Mev configuration
-	NewPayloadTimeout time.Duration // The maximum time allowance for creating a new payload
+	NewBlockTimeout time.Duration // The maximum time allowance for creating a new block
+	MaxAccountsNum  int           // Maximum number of accounts that miner will fetch the pending transactions of when building a new block
+	Mev             MevConfig     // Mev configuration
 }
 
 // DefaultConfig contains default settings for miner.
 var DefaultConfig = Config{
-	GasCeil:           30_000_000,
-	GasPrice:          big.NewInt(params.GWei / 1000),
-	Mev:               DefaultMevConfig,
-	NewPayloadTimeout: 1 * time.Second,
+	GasCeil:  30_000_000,
+	GasPrice: big.NewInt(params.GWei / 1000),
+	Mev:      DefaultMevConfig,
 }
 
 // Miner creates blocks and searches for proof-of-work values.
@@ -85,13 +83,6 @@ type Miner struct {
 	getWorkCh chan *getWorkReq
 	exitCh    chan struct{}
 	wg        sync.WaitGroup
-
-	// newpayloadTimeout is the maximum timeout allowance for creating payload.
-	// The default value is 2 seconds but node operator can set it to arbitrary
-	// large value. A large timeout allowance may cause Geth to fail creating
-	// a non-empty payload within the specified time and eventually miss the slot
-	// in case there are some computation expensive transactions in txpool.
-	newpayloadTimeout time.Duration
 
 	// MEV
 	bundleCache *BundleCache
@@ -128,17 +119,6 @@ func New(eth Backend, config Config, engine consensus.Engine) *Miner {
 		log.Warn("Sanitizing miner account fetch limit", "provided", miner.config.MaxAccountsNum, "updated", math.MaxInt)
 		miner.config.MaxAccountsNum = math.MaxInt
 	}
-
-	// Sanitize the timeout config for creating payload.
-	newpayloadTimeout := miner.config.NewPayloadTimeout
-	if newpayloadTimeout == 0 {
-		log.Warn("Sanitizing new payload timeout to default", "provided", newpayloadTimeout, "updated", DefaultConfig.NewPayloadTimeout)
-		newpayloadTimeout = DefaultConfig.NewPayloadTimeout
-	}
-	if newpayloadTimeout < time.Millisecond*100 {
-		log.Warn("Low payload timeout may cause high amount of non-full blocks", "provided", newpayloadTimeout, "default", DefaultConfig.NewPayloadTimeout)
-	}
-	miner.newpayloadTimeout = newpayloadTimeout
 
 	miner.wg.Add(1)
 	go miner.generateWorkLoop()

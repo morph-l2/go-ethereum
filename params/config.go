@@ -929,6 +929,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTi
 	if isForkTimestampIncompatible(c.Morph203Time, newcfg.Morph203Time, headTimestamp) {
 		return newTimestampCompatError("Morph203Time fork timestamp", c.Morph203Time, newcfg.Morph203Time)
 	}
+	if isForkTimestampIncompatible(c.Morph205Time, newcfg.Morph205Time, headTimestamp) {
+		return newTimestampCompatError("Morph205Time fork timestamp", c.Morph205Time, newcfg.Morph205Time)
+	}
 	return nil
 }
 

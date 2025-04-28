@@ -183,7 +183,7 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := miner.fillTransactions(work, genParams.transactions, interrupt)
+			err := miner.fillTransactions(newWork, genParams.transactions, interrupt)
 			if err != nil && errors.Is(err, errBlockInterruptedByTimeout) {
 				log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
 			}

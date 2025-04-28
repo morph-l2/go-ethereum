@@ -272,6 +272,7 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, err
 	}
 	header := &types.Header{
 		Number:    big.NewInt(int64(params.Number)),
+		Coinbase:  params.Miner,
 		GasLimit:  params.GasLimit,
 		Time:      params.Timestamp,
 		BaseFee:   params.BaseFee,

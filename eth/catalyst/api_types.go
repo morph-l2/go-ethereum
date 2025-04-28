@@ -126,12 +126,13 @@ type executableL2DataMarshaling struct {
 
 // SafeL2Data is the block data which is approved in L1 and considered to be safe
 type SafeL2Data struct {
-	Number       uint64       `json:"number"         gencodec:"required"`
-	GasLimit     uint64       `json:"gasLimit"       gencodec:"required"`
-	BaseFee      *big.Int     `json:"baseFeePerGas"`
-	Timestamp    uint64       `json:"timestamp"      gencodec:"required"`
-	Transactions [][]byte     `json:"transactions"   gencodec:"required"`
-	BatchHash    *common.Hash `json:"batchHash"`
+	Miner        common.Address `json:"miner"          gencodec:"required"`
+	Number       uint64         `json:"number"         gencodec:"required"`
+	GasLimit     uint64         `json:"gasLimit"       gencodec:"required"`
+	BaseFee      *big.Int       `json:"baseFeePerGas"`
+	Timestamp    uint64         `json:"timestamp"      gencodec:"required"`
+	Transactions [][]byte       `json:"transactions"   gencodec:"required"`
+	BatchHash    *common.Hash   `json:"batchHash"`
 }
 
 // JSON type overrides for SafeL2Data.

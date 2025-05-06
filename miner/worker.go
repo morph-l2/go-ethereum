@@ -132,6 +132,9 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
+	if err := miner.engine.StartHook(miner.chain, work.header, work.state); err != nil {
+		return nil, err
+	}
 	fillTxErr := miner.fillTransactions(work, genParams.transactions, interrupt)
 	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))

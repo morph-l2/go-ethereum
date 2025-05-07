@@ -132,6 +132,9 @@ func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
 	}
 
+	if err := miner.engine.StartHook(miner.chain, work.header, work.state); err != nil {
+		return nil, err
+	}
 	fillTxErr := miner.fillTransactions(work, genParams.transactions, interrupt)
 	if fillTxErr != nil && errors.Is(fillTxErr, errBlockInterruptedByTimeout) {
 		log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(miner.newBlockTimeout))
@@ -168,7 +171,8 @@ func (miner *Miner) prepareWork(genParams *generateParams) (*environment, error)
 		timestamp = parent.Time() + 1
 	}
 	var coinBase common.Address
-	if genParams.coinbase != (common.Address{}) {
+	if miner.chainConfig.IsMorph204(timestamp) && // only when Morph204 is activated can we set the coinbase
+		genParams.coinbase != (common.Address{}) {
 		coinBase = genParams.coinbase
 	}
 	header, err := miner.makeHeader(parent, timestamp, coinBase)

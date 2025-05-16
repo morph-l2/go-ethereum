@@ -35,12 +35,12 @@ var (
 
 	// MorphTokenAddress is the address of the morph token contract
 	MorphTokenAddress         = common.HexToAddress("0x5300000000000000000000000000000000000013")
-	InflationMintedEpochsSolt = common.BigToHash(big.NewInt(8))
+	InflationMintedEpochsSolt = common.BigToHash(big.NewInt(10))
 
 	// L2StakingAddress is the address of the l2 staking contract
 	L2StakingAddress    = common.HexToAddress("0x5300000000000000000000000000000000000015")
-	RewardStartedSlot   = common.BigToHash(big.NewInt(1))
-	RewardStartTimeSlot = common.BigToHash(big.NewInt(2))
+	RewardStartedSlot   = common.BigToHash(big.NewInt(3))
+	RewardStartTimeSlot = common.BigToHash(big.NewInt(4))
 
 	// SystemAddress is the address of the system
 	SystemAddress = common.HexToAddress("0x5300000000000000000000000000000000000021")

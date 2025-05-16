@@ -220,6 +220,14 @@ func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.
 	fmt.Println("=============rewardStarted1=========", rewardStarted1)
 	fmt.Println("=============inflationMintedEpochs1=========", inflationMintedEpochs1)
 	fmt.Println("=============rewardStartTime1=========", rewardStartTime1)
+
+	rewardStarted0 := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot0).Big()
+	inflationMintedEpochs0 := state.GetState(rcfg.MorphTokenAddress, rcfg.InflationMintedEpochsSolt0).Big().Uint64()
+	rewardStartTime0 := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartTimeSlot0).Big().Uint64()
+	fmt.Println("=============rewardStarted1=========", rewardStarted0)
+	fmt.Println("=============inflationMintedEpochs1=========", inflationMintedEpochs0)
+	fmt.Println("=============rewardStartTime1=========", rewardStartTime0)
+
 	rewardStarted := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot).Big()
 	if rewardStarted.Cmp(common.Big1) != 0 {
 		return nil

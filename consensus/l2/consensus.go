@@ -215,9 +215,6 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 // StartHook implements calling before start apply transactions of block
 func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB) error {
 	rewardStarted1 := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot).Big()
-	if rewardStarted1.Cmp(common.Big1) != 0 {
-		return nil
-	}
 	inflationMintedEpochs1 := state.GetState(rcfg.MorphTokenAddress, rcfg.InflationMintedEpochsSolt).Big().Uint64()
 	rewardStartTime1 := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartTimeSlot).Big().Uint64()
 	fmt.Println("=============rewardStarted1=========", rewardStarted1)

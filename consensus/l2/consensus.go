@@ -23,7 +23,7 @@ import (
 var (
 	l2Difficulty        = common.Big0          // The default block difficulty in the l2 consensus
 	l2Nonce             = types.EncodeNonce(0) // The default block nonce in the l2 consensus
-	rewardEpoch  uint64 = 86400
+	rewardEpoch  uint64 = 3600
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -214,12 +214,22 @@ func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.He
 
 // StartHook implements calling before start apply transactions of block
 func (l2 *Consensus) StartHook(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB) error {
+	rewardStarted1 := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot).Big()
+	if rewardStarted1.Cmp(common.Big1) != 0 {
+		return nil
+	}
+	inflationMintedEpochs1 := state.GetState(rcfg.MorphTokenAddress, rcfg.InflationMintedEpochsSolt).Big().Uint64()
+	rewardStartTime1 := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartTimeSlot).Big().Uint64()
+	fmt.Println("=============rewardStarted1=========", rewardStarted1)
+	fmt.Println("=============inflationMintedEpochs1=========", inflationMintedEpochs1)
+	fmt.Println("=============rewardStartTime1=========", rewardStartTime1)
 	rewardStarted := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartedSlot).Big()
 	if rewardStarted.Cmp(common.Big1) != 0 {
 		return nil
 	}
 	inflationMintedEpochs := state.GetState(rcfg.MorphTokenAddress, rcfg.InflationMintedEpochsSolt).Big().Uint64()
 	rewardStartTime := state.GetState(rcfg.L2StakingAddress, rcfg.RewardStartTimeSlot).Big().Uint64()
+	fmt.Println("")
 	parentHeader := chain.GetHeaderByHash(header.ParentHash)
 	if parentHeader == nil {
 		return consensus.ErrUnknownAncestor

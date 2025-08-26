@@ -158,6 +158,74 @@ func (p *BundlePool) FilterBundle(bundle *types.Bundle) bool {
 	return true
 }
 
+// deliverBundleToReceivers sends the bundle to all configured receivers
+// Returns true if success condition is met based on config
+func (p *BundlePool) deliverBundleToReceivers(originBundle *types.SendBundleArgs) bool {
+	// No receivers means automatic success
+	if len(p.bundleReceiverClients) == 0 {
+		return true
+	}
+
+	// If success not required, fire and forget
+	if !p.config.RequireDeliverySuccess {
+		for url, cli := range p.bundleReceiverClients {
+			go p.sendBundleToReceiver(cli, url, *originBundle)
+		}
+		return true
+	}
+
+	// Success required, need to wait for at least one success
+	successCh := make(chan bool, 1)
+	pendingCh := make(chan struct{}, len(p.bundleReceiverClients))
+
+	// Launch all delivery requests
+	for url, cli := range p.bundleReceiverClients {
+		go func(cli *rpc.Client, url string) {
+			if p.sendBundleToReceiver(cli, url, *originBundle) {
+				// Signal success on first success
+				select {
+				case successCh <- true:
+				default:
+				}
+			}
+			pendingCh <- struct{}{}
+		}(cli, url)
+	}
+
+	// Wait for first success or all completions
+	receiverCount := len(p.bundleReceiverClients)
+	for i := 0; i < receiverCount; i++ {
+		select {
+		case success := <-successCh:
+			return success
+		case <-pendingCh:
+			// Continue waiting if more receivers pending
+			if i == receiverCount-1 {
+				// All receivers tried, none successful
+				return false
+			}
+		}
+	}
+
+	return false
+}
+
+// sendBundleToReceiver sends a bundle to a single receiver
+// Returns true if successful, false otherwise
+func (p *BundlePool) sendBundleToReceiver(cli *rpc.Client, url string, bundle types.SendBundleArgs) bool {
+	var hash common.Hash
+	err := cli.CallContext(context.Background(), &hash, "eth_sendBundle", bundle)
+
+	if err != nil {
+		bundleDeliverFailed.Inc(1)
+		log.Error("failed to deliver bundle to receiver", "url", url, "err", err)
+		return false
+	}
+
+	bundleDeliverAll.Inc(1)
+	return true
+}
+
 // AddBundle adds a mev bundle to the pool
 func (p *BundlePool) AddBundle(bundle *types.Bundle, originBundle *types.SendBundleArgs) error {
 	if p.simulator == nil {
@@ -188,19 +256,24 @@ func (p *BundlePool) AddBundle(bundle *types.Bundle, originBundle *types.SendBun
 		}
 	}
 
-	for url, cli := range p.bundleReceiverClients {
-		cli := cli
-		url := url
-		go func() {
-			var hash common.Hash
-			err := cli.CallContext(context.Background(), &hash, "eth_sendBundle", *originBundle)
-			if err != nil {
-				bundleDeliverFailed.Inc(1)
-				log.Error("failed to deliver bundle to receiver", "url", url, "err", err)
-			}
-		}()
-		bundleDeliverAll.Inc(1)
+	// Deliver bundle to receivers
+	if !p.deliverBundleToReceivers(originBundle) {
+		return errors.New("failed to deliver bundle to any receiver")
 	}
+
+	// for url, cli := range p.bundleReceiverClients {
+	// 	cli := cli
+	// 	url := url
+	// 	go func() {
+	// 		var hash common.Hash
+	// 		err := cli.CallContext(context.Background(), &hash, "eth_sendBundle", *originBundle)
+	// 		if err != nil {
+	// 			bundleDeliverFailed.Inc(1)
+	// 			log.Error("failed to deliver bundle to receiver", "url", url, "err", err)
+	// 		}
+	// 	}()
+	// 	bundleDeliverAll.Inc(1)
+	// }
 
 	p.bundles[hash] = bundle
 	heap.Push(&p.bundleHeap, bundle)

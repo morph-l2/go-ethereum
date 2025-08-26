@@ -93,6 +93,7 @@ var (
 		utils.TxPoolGlobalQueueFlag,
 		utils.TxPoolLifetimeFlag,
 		utils.BundlePoolGlobalSlotsFlag,
+		utils.BundlePoolRequireDeliverySuccessFlag,
 		utils.SyncModeFlag,
 		utils.ExitWhenSyncedFlag,
 		utils.GCModeFlag,

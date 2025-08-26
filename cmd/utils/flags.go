@@ -420,6 +420,11 @@ var (
 		Value: ethconfig.Defaults.BundlePool.GlobalSlots,
 	}
 
+	BundlePoolRequireDeliverySuccessFlag = &cli.BoolFlag{
+		Name:  "bundlepool.requiredelivery",
+		Usage: "Require at least one successful bundle delivery to a receiver",
+	}
+
 	// Performance tuning settings
 	CacheFlag = cli.IntFlag{
 		Name:  "cache",
@@ -1519,6 +1524,9 @@ func setEthash(ctx *cli.Context, cfg *ethconfig.Config) {
 func setBundlePool(ctx *cli.Context, cfg *bundlepool.Config) {
 	if ctx.IsSet(BundlePoolGlobalSlotsFlag.Name) {
 		cfg.GlobalSlots = ctx.Uint64(BundlePoolGlobalSlotsFlag.Name)
+	}
+	if ctx.IsSet(BundlePoolRequireDeliverySuccessFlag.Name) {
+		cfg.RequireDeliverySuccess = ctx.Bool(BundlePoolRequireDeliverySuccessFlag.Name)
 	}
 }
 

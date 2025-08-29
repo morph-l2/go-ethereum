@@ -225,7 +225,7 @@ func (miner *Miner) makeEnv(parent *types.Block, header *types.Header) (*environ
 	stateDB.StartPrefetcher("miner")
 
 	env := &environment{
-		signer:         types.MakeSigner(miner.chainConfig, header.Number),
+		signer:         types.MakeSigner(miner.chainConfig, header.Number, header.Time),
 		state:          stateDB,
 		header:         header,
 		nextL1MsgIndex: parent.Header().NextL1MsgIndex,

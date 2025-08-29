@@ -9,6 +9,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/eth/tracers"
@@ -83,6 +84,13 @@ func (t *prestateTracer) CaptureStart(env *vm.EVM, from common.Address, to commo
 	t.lookupAccount(from)
 	t.lookupAccount(to)
 	t.lookupAccount(env.Context.Coinbase)
+
+	if t.env.ChainConfig().IsMorph300(t.env.Context.BlockNumber, t.env.Context.Time.Uint64()) {
+		code := t.env.StateDB.GetCode(t.to)
+		if target, ok := types.ParseDelegation(code); ok {
+			t.lookupAccount(target)
+		}
+	}
 
 	// The recipient balance includes the value transferred.
 	toBal := new(big.Int).Sub(t.pre[to].Balance, value)

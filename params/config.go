@@ -540,6 +540,7 @@ type ChainConfig struct {
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
+	Morph300Time        *uint64  `json:"morph300Time,omitempty"`        // Morph303Time switch time (nil = no fork, 0 = already on morph303)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -748,6 +749,10 @@ func (c *ChainConfig) IsCurie(num *big.Int) bool {
 // IsMorph203 returns whether num is either equal to the Morph203 fork block or greater.
 func (c *ChainConfig) IsMorph203(now uint64) bool {
 	return isForkedTime(now, c.Morph203Time)
+}
+
+func (c *ChainConfig) IsMorph300(num *big.Int, time uint64) bool {
+	return c.IsCurie(num) && isTimestampForked(c.Morph300Time, time)
 }
 
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
@@ -1061,7 +1066,7 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsMorph203                        bool
+	IsBernoulli, IsCurie, IsMorph203, IsMorph300            bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1087,5 +1092,6 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsBernoulli:      c.IsBernoulli(num),
 		IsCurie:          c.IsCurie(num),
 		IsMorph203:       c.IsMorph203(time),
+		IsMorph300:       c.IsMorph300(num, time),
 	}
 }

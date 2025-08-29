@@ -505,10 +505,10 @@ func (s *stateObject) CodeSize() uint64 {
 }
 
 func (s *stateObject) SetCode(code []byte) {
-	prevcode := s.Code(s.db.db)
+	prevCode := s.Code(s.db.db)
 	s.db.journal.append(codeChange{
 		account:  &s.address,
-		prevcode: prevcode,
+		prevCode: prevCode,
 	})
 	s.setCode(code)
 }

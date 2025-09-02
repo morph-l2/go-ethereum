@@ -36,8 +36,10 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
 	"github.com/morph-l2/go-ethereum/log"
@@ -170,7 +172,7 @@ func (api *API) blockByNumberAndHash(ctx context.Context, number rpc.BlockNumber
 
 // TraceConfig holds extra parameters to trace functions.
 type TraceConfig struct {
-	*vm.LogConfig
+	*logger.Config
 	Tracer  *string
 	Timeout *string
 	Reexec  *uint64
@@ -188,7 +190,7 @@ type TraceCallConfig struct {
 
 // StdTraceConfig holds extra parameters to standard-json trace functions.
 type StdTraceConfig struct {
-	vm.LogConfig
+	logger.Config
 	Reexec *uint64
 	TxHash common.Hash
 }
@@ -715,14 +717,13 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 	}
 	// Retrieve the tracing configurations, or use default values
 	var (
-		logConfig vm.LogConfig
+		logConfig logger.Config
 		txHash    common.Hash
 	)
 	if config != nil {
-		logConfig = config.LogConfig
+		logConfig = config.Config
 		txHash = config.TxHash
 	}
-	logConfig.Debug = true
 
 	// Execute transaction, either tracing all or just the requested one
 	var (
@@ -744,7 +745,7 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 		chainConfigCopy := new(params.ChainConfig)
 		*chainConfigCopy = *chainConfig
 		chainConfig = chainConfigCopy
-		if berlin := config.LogConfig.Overrides.BerlinBlock; berlin != nil {
+		if berlin := config.Overrides.BerlinBlock; berlin != nil {
 			chainConfig.BerlinBlock = berlin
 			canon = false
 		}
@@ -774,9 +775,9 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 
 			// Swap out the noop logger to the standard tracer
 			writer = bufio.NewWriter(dump)
+			tracer := logger.NewJSONLogger(&logConfig, writer)
 			vmConf = vm.Config{
-				Debug:                   true,
-				Tracer:                  vm.NewJSONLogger(&logConfig, writer),
+				Tracer:                  tracer,
 				EnablePreimageRecording: true,
 			}
 		}
@@ -917,24 +918,32 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *big.Int) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
-		tracer    Tracer
-		err       error
-		timeout   = defaultTraceTimeout
-		txContext = core.NewEVMTxContext(message)
+		tracer       *Tracer
+		err          error
+		structLogger *logger.StructLogger
+		timeout      = defaultTraceTimeout
+		txContext    = core.NewEVMTxContext(message)
 	)
 	if config == nil {
 		config = &TraceConfig{}
 	}
 	// Default tracer is the struct logger
-	tracer = vm.NewStructLogger(config.LogConfig)
-	if config.Tracer != nil {
-		tracer, err = New(*config.Tracer, txctx, config.TracerConfig)
+	if config.Tracer == nil {
+		structLogger = logger.NewStructLogger(config.Config)
+		tracer = &Tracer{
+			Hooks:     structLogger.Hooks(),
+			GetResult: structLogger.GetResult,
+			Stop:      structLogger.Stop,
+		}
+	} else {
+		tracer, err = DefaultDirectory.New(*config.Tracer, txctx, config.TracerConfig, api.backend.ChainConfig())
 		if err != nil {
 			return nil, err
 		}
 	}
+	tracingStateDB := state.NewHookedState(statedb, tracer.Hooks)
 	// Run the transaction with tracing enabled.
-	vmenv := vm.NewEVM(vmctx, txContext, statedb, api.backend.ChainConfig(), vm.Config{Debug: true, Tracer: tracer, NoBaseFee: true})
+	vmenv := vm.NewEVM(vmctx, txContext, tracingStateDB, api.backend.ChainConfig(), vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
 
 	// Define a meaningful timeout of a single transaction trace
 	if config.Timeout != nil {
@@ -955,7 +964,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		statedb.AddBalance(message.From(), l1DataFee)
+		statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
 	}
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
@@ -964,11 +973,22 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}
 
-	l, ok := tracer.(*vm.StructLogger)
-	if ok {
-		l.ResultL1DataFee = result.L1DataFee
+	if structLogger != nil {
+		// If the result contains a revert reason, return it.
+		returnVal := fmt.Sprintf("%x", result.Return())
+		if len(result.Revert()) > 0 {
+			returnVal = fmt.Sprintf("%x", result.Revert())
+		}
+		return &types.ExecutionResult{
+			Gas:         result.UsedGas,
+			Failed:      result.Failed(),
+			ReturnValue: returnVal,
+			StructLogs:  logger.FormatLogs(structLogger.StructLogs()),
+			L1DataFee:   (*hexutil.Big)(result.L1DataFee),
+		}, nil
+	} else {
+		return tracer.GetResult()
 	}
-	return tracer.GetResult()
 }
 
 // APIs return the collection of RPC services the tracer package offers.

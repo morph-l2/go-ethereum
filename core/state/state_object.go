@@ -283,6 +283,9 @@ func (s *stateObject) SetState(db Database, key, value common.Hash) {
 		key:      key,
 		prevalue: prev,
 	})
+	if s.db.logger != nil && s.db.logger.OnStorageChange != nil {
+		s.db.logger.OnStorageChange(s.address, key, prev, value)
+	}
 	s.setState(key, value)
 }
 
@@ -424,33 +427,36 @@ func (s *stateObject) CommitTrie(db Database) (int, error) {
 
 // AddBalance adds amount to s's balance.
 // It is used to add funds to the destination account of a transfer.
-func (s *stateObject) AddBalance(amount *big.Int) {
+func (s *stateObject) AddBalance(amount *big.Int) *big.Int {
 	// EIP161: We must check emptiness for the objects such that the account
 	// clearing (0,0,0 objects) can take effect.
 	if amount.Sign() == 0 {
 		if s.empty() {
 			s.touch()
 		}
-		return
+		return new(big.Int).Set(s.Balance())
 	}
-	s.SetBalance(new(big.Int).Add(s.Balance(), amount))
+	return s.SetBalance(new(big.Int).Add(s.Balance(), amount))
 }
 
 // SubBalance removes amount from s's balance.
 // It is used to remove funds from the origin account of a transfer.
-func (s *stateObject) SubBalance(amount *big.Int) {
+func (s *stateObject) SubBalance(amount *big.Int) *big.Int {
 	if amount.Sign() == 0 {
-		return
+		return s.Balance()
 	}
-	s.SetBalance(new(big.Int).Sub(s.Balance(), amount))
+	return s.SetBalance(new(big.Int).Sub(s.Balance(), amount))
 }
 
-func (s *stateObject) SetBalance(amount *big.Int) {
+// SetBalance sets the balance for the object, and returns the previous balance.
+func (s *stateObject) SetBalance(amount *big.Int) *big.Int {
+	prev := s.data.Balance
 	s.db.journal.append(balanceChange{
 		account: &s.address,
 		prev:    new(big.Int).Set(s.data.Balance),
 	})
 	s.setBalance(amount)
+	return prev
 }
 
 func (s *stateObject) setBalance(amount *big.Int) {
@@ -504,18 +510,23 @@ func (s *stateObject) CodeSize() uint64 {
 	return s.data.CodeSize
 }
 
-func (s *stateObject) SetCode(code []byte) {
+func (s *stateObject) SetCode(code []byte) []byte {
 	prevCode := s.Code(s.db.db)
 	s.db.journal.append(codeChange{
 		account:  &s.address,
 		prevCode: prevCode,
 	})
 	s.setCode(code)
+	return prevCode
 }
 
 func (s *stateObject) setCode(code []byte) {
+	afterKeccakCodeHash := codehash.KeccakCodeHash(code)
+	if s.db.logger != nil && s.db.logger.OnCodeChange != nil {
+		s.db.logger.OnCodeChange(s.address, common.BytesToHash(s.KeccakCodeHash()), s.code, afterKeccakCodeHash, code)
+	}
 	s.code = code
-	s.data.KeccakCodeHash = codehash.KeccakCodeHash(code).Bytes()
+	s.data.KeccakCodeHash = afterKeccakCodeHash.Bytes()
 	s.data.PoseidonCodeHash = codehash.PoseidonCodeHash(code).Bytes()
 	s.data.CodeSize = uint64(len(code))
 	s.dirtyCode = true
@@ -526,6 +537,9 @@ func (s *stateObject) SetNonce(nonce uint64) {
 		account: &s.address,
 		prev:    s.data.Nonce,
 	})
+	if s.db.logger != nil && s.db.logger.OnNonceChange != nil {
+		s.db.logger.OnNonceChange(s.address, s.data.Nonce, nonce)
+	}
 	s.setNonce(nonce)
 }
 

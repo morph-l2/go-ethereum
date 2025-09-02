@@ -18,6 +18,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto/codehash"
 	"github.com/morph-l2/go-ethereum/eth/tracers"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	_ "github.com/morph-l2/go-ethereum/eth/tracers/native"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/log"
@@ -57,7 +58,8 @@ func (tw *TracerWrapper) CreateTraceEnvAndGetBlockTrace(chainConfig *params.Chai
 }
 
 type TraceEnv struct {
-	logConfig        *vm.LogConfig
+	//logConfig        *vm.LogConfig
+	logConfig        *logger.Config
 	commitAfterApply bool
 	chainConfig      *params.ChainConfig
 
@@ -75,7 +77,7 @@ type TraceEnv struct {
 
 	*types.StorageTrace
 
-	Codes           map[common.Hash]vm.CodeInfo
+	Codes           map[common.Hash]logger.CodeInfo
 	TxStorageTraces []*types.StorageTrace
 	// zktrie tracer is used for zktrie storage to build additional deletion proof
 	ZkTrieTracer     map[string]state.ZktrieProofTracer
@@ -100,7 +102,7 @@ type txTraceTask struct {
 	index   int
 }
 
-func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *vm.LogConfig, blockCtx vm.BlockContext, startL1QueueIndex uint64, coinbase common.Address, statedb *state.StateDB, rootBefore common.Hash, block *types.Block, commitAfterApply bool) *TraceEnv {
+func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Config, blockCtx vm.BlockContext, startL1QueueIndex uint64, coinbase common.Address, statedb *state.StateDB, rootBefore common.Hash, block *types.Block, commitAfterApply bool) *TraceEnv {
 	return &TraceEnv{
 		logConfig:        logConfig,
 		commitAfterApply: commitAfterApply,
@@ -115,7 +117,7 @@ func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *vm.LogConf
 			Proofs:        make(map[string][]hexutil.Bytes),
 			StorageProofs: make(map[string]map[string][]hexutil.Bytes),
 		},
-		Codes:             make(map[common.Hash]vm.CodeInfo),
+		Codes:             make(map[common.Hash]logger.CodeInfo),
 		ZkTrieTracer:      make(map[string]state.ZktrieProofTracer),
 		ExecutionResults:  make([]*types.ExecutionResult, block.Transactions().Len()),
 		TxStorageTraces:   make([]*types.StorageTrace, block.Transactions().Len()),
@@ -145,7 +147,7 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 	}
 	env := CreateTraceEnvHelper(
 		chainConfig,
-		&vm.LogConfig{
+		&logger.Config{
 			DisableStorage:   true,
 			DisableStack:     true,
 			EnableMemory:     false,
@@ -310,16 +312,16 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		TxIndex:   index,
 		TxHash:    tx.Hash(),
 	}
-	callTracer, err := tracers.New("callTracer", &tracerContext, nil)
+	callTracer, err := tracers.DefaultDirectory.New("callTracer", &tracerContext, nil, env.chainConfig) // warm up the tracer
 	if err != nil {
 		return fmt.Errorf("failed to create callTracer: %w", err)
 	}
 
 	applyMessageStart := time.Now()
-	structLogger := vm.NewStructLogger(env.logConfig)
-	tracer := NewMuxTracer(structLogger, callTracer)
+	structLogger := logger.NewStructLogger(env.logConfig)
+	tracer := NewMuxTracer(structLogger, *callTracer)
 	// Run the transaction with tracing enabled.
-	vmenv := vm.NewEVM(env.blockCtx, txContext, state, env.chainConfig, vm.Config{Debug: true, Tracer: tracer, NoBaseFee: true})
+	vmenv := vm.NewEVM(env.blockCtx, txContext, state, env.chainConfig, vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
 
 	// Call Prepare to clear out the statedb access list
 	state.SetTxContext(txctx.TxHash, txctx.TxIndex)
@@ -505,7 +507,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		Gas:            result.UsedGas,
 		Failed:         result.Failed(),
 		ReturnValue:    fmt.Sprintf("%x", returnVal),
-		StructLogs:     vm.FormatLogs(structLogger.StructLogs()),
+		StructLogs:     logger.FormatLogs(structLogger.StructLogs()),
 		CallTrace:      callTrace,
 	}
 	env.TxStorageTraces[index] = txStorageTrace

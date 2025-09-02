@@ -344,7 +344,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	// 	returnVal = result.Revert()
 	// }
 
-	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), state, block.Number(), block.Hash(), tx, nil, vmenv)
+	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), state, block.Number(), block.Hash(), tx, new(uint64), vmenv)
 	if err != nil {
 		getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
 		return err

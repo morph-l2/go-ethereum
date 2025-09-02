@@ -327,22 +327,29 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	state.SetTxContext(txctx.TxHash, txctx.TxIndex)
 
 	// Computes the new state by applying the given message.
-	l1DataFee, err := fees.CalculateL1DataFee(tx, state, env.chainConfig, block.Number())
-	if err != nil {
-		return err
-	}
-	result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), l1DataFee)
+	// l1DataFee, err := fees.CalculateL1DataFee(tx, state, env.chainConfig, block.Number())
+	// if err != nil {
+	// 	return err
+	// }
+	// result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), l1DataFee)
+	// if err != nil {
+	// 	getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
+	// 	return err
+	// }
+	// getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
+
+	// If the result contains a revert reason, return it.
+	// returnVal := receipt.ReturnValue
+	// if len(result.Revert()) > 0 {
+	// 	returnVal = result.Revert()
+	// }
+
+	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), state, block.Number(), block.Hash(), tx, nil, vmenv)
 	if err != nil {
 		getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
 		return err
 	}
 	getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
-
-	// If the result contains a revert reason, return it.
-	returnVal := result.Return()
-	if len(result.Revert()) > 0 {
-		returnVal = result.Revert()
-	}
 
 	createdAcc := structLogger.CreatedAccount()
 	var after []*types.AccountWrapper
@@ -503,10 +510,10 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		To:             receiver,
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
-		L1DataFee:      (*hexutil.Big)(result.L1DataFee),
-		Gas:            result.UsedGas,
-		Failed:         result.Failed(),
-		ReturnValue:    fmt.Sprintf("%x", returnVal),
+		L1DataFee:      (*hexutil.Big)(receipt.L1Fee),
+		Gas:            receipt.GasUsed,
+		Failed:         receipt.Status == types.ReceiptStatusFailed,
+		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),
 		StructLogs:     logger.FormatLogs(structLogger.StructLogs()),
 		CallTrace:      callTrace,
 	}

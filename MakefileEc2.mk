@@ -52,7 +52,7 @@ build-bk-prod-morph-prod-testnet-to-morph-nccc-geth-hoodi:
 	@echo "Done building."
 	cp build/bin/geth dist/
 	tar -czvf morph-nccc-geth.tar.gz dist
-	aws s3 cp morph-nccc-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/hoodi/holesky/morph-setup/morph-nccc-geth.tar.gz
+	aws s3 cp morph-nccc-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/testnet/hoodi/morph-setup/morph-nccc-geth.tar.gz
 
 # build for qanet
 build-bk-test-morph-test-qanet-to-morph-geth-qanet:

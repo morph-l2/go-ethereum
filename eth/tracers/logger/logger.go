@@ -229,6 +229,7 @@ type StructLogger struct {
 	output         []byte
 	err            error
 	usedGas        uint64
+	l1Fee          *big.Int
 
 	writer     io.Writer         // If set, the logger will stream instead of store logs
 	logs       []json.RawMessage // buffer of json-encoded logs
@@ -434,6 +435,7 @@ func (l *StructLogger) GetResult() (json.RawMessage, error) {
 		Failed:      failed,
 		ReturnValue: returnData,
 		StructLogs:  l.logs,
+		L1DataFee:   (*hexutil.Big)(l.l1Fee),
 	})
 }
 
@@ -487,6 +489,7 @@ func (l *StructLogger) OnTxEnd(receipt *types.Receipt, err error) {
 	}
 	if receipt != nil {
 		l.usedGas = receipt.GasUsed
+		l.l1Fee = receipt.L1Fee
 	}
 }
 
@@ -644,6 +647,7 @@ type ExecutionResult struct {
 	Failed      bool              `json:"failed"`
 	ReturnValue hexutil.Bytes     `json:"returnValue"`
 	StructLogs  []json.RawMessage `json:"structLogs"`
+	L1DataFee   *hexutil.Big      `json:"l1DataFee,omitempty"`
 }
 
 // FormatLogs formats EVM returned structured logs for json output

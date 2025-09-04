@@ -138,7 +138,7 @@ func ApplyTransactionWithEVM(msg Message, config *params.ChainConfig, gp *GasPoo
 
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
-	evm.Reset(txContext, statedb)
+	evm.TxContext = txContext
 
 	l1DataFee, err := fees.CalculateL1DataFee(tx, statedb, config, blockNumber)
 	if err != nil {

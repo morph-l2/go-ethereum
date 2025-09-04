@@ -350,6 +350,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		Morph300Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -386,6 +387,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		Morph300Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
@@ -417,6 +419,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		Morph300Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -449,6 +452,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		Morph300Time:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -633,7 +637,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Engine: %v, Morph config: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Morph300: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -654,6 +658,7 @@ func (c *ChainConfig) String() string {
 		c.BernoulliBlock,
 		c.CurieBlock,
 		c.Morph203Time,
+		c.Morph300Time,
 		engine,
 		c.Morph,
 	)
@@ -817,6 +822,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "bernoulliBlock", block: c.BernoulliBlock, optional: true},
 		{name: "curieBlock", block: c.CurieBlock, optional: true},
 		{name: "morph203Time", timestamp: c.Morph203Time, optional: true},
+		{name: "morph300Time", timestamp: c.Morph300Time, optional: true},
 	} {
 		if lastFork.name != "" {
 			switch {
@@ -919,6 +925,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTi
 	}
 	if isForkTimestampIncompatible(c.Morph203Time, newcfg.Morph203Time, headTimestamp) {
 		return newTimestampCompatError("Morph203Time fork timestamp", c.Morph203Time, newcfg.Morph203Time)
+	}
+	if isForkTimestampIncompatible(c.Morph300Time, newcfg.Morph300Time, headTimestamp) {
+		return newTimestampCompatError("Morph300Time fork timestamp", c.Morph300Time, newcfg.Morph300Time)
 	}
 	return nil
 }

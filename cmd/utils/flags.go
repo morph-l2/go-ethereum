@@ -271,6 +271,10 @@ var (
 		Name:  "override.morph203time",
 		Usage: "Manually specify the Morph203 fork timestamp, overriding the bundled setting",
 	}
+	OverrideMorph300TimeFlag = &cli.Uint64Flag{
+		Name:  "override.morph300time",
+		Usage: "Manually specify the Morph300 fork timestamp, overriding the bundled setting",
+	}
 	// Light server and client settings
 	LightServeFlag = cli.IntFlag{
 		Name:  "light.serve",

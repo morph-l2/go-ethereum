@@ -147,6 +147,7 @@ func (e *GenesisMismatchError) Error() string {
 // Typically, these modifications involve hardforks that are not enabled on the BSC mainnet, intended for testing purposes.
 type ChainOverrides struct {
 	Morph203Time *uint64
+	Morph300Time *uint64
 }
 
 // apply applies the chain overrides on the supplied chain config.
@@ -156,6 +157,9 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 	}
 	if o.Morph203Time != nil {
 		cfg.Morph203Time = o.Morph203Time
+	}
+	if o.Morph300Time != nil {
+		cfg.Morph300Time = o.Morph300Time
 	}
 	return cfg.CheckConfigForkOrder()
 }

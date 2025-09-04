@@ -64,6 +64,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		CheckCircuitCapacity    bool
 		MaxBlockRange           int64
 		OverrideMorph203Time    *uint64 `toml:",omitempty"`
+		OverrideMorph300Time    *uint64 `toml:",omitempty"`
 	}
 	var enc Config
 	enc.Genesis = c.Genesis
@@ -112,6 +113,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.CheckCircuitCapacity = c.CheckCircuitCapacity
 	enc.MaxBlockRange = c.MaxBlockRange
 	enc.OverrideMorph203Time = c.OverrideMorph203Time
+	enc.OverrideMorph300Time = c.OverrideMorph300Time
 	return &enc, nil
 }
 

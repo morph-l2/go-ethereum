@@ -218,6 +218,9 @@ type Config struct {
 
 	// Morph203Time override
 	OverrideMorph203Time *uint64 `toml:",omitempty"`
+
+	// Morph300Time override
+	OverrideMorph300Time *uint64 `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

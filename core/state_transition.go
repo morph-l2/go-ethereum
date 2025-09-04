@@ -24,6 +24,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	cmath "github.com/morph-l2/go-ethereum/common/math"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto/codehash"
@@ -262,10 +263,15 @@ func (st *StateTransition) buyGas() error {
 	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
 		return err
 	}
+
+	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil {
+		st.evm.Config.Tracer.OnGasChange(0, st.msg.Gas(), tracing.GasChangeTxInitialBalance)
+	}
+
 	st.gas += st.msg.Gas()
 
 	st.initialGas = st.msg.Gas()
-	st.state.SubBalance(st.msg.From(), mgval)
+	st.state.SubBalance(st.msg.From(), mgval, tracing.BalanceDecreaseGasBuy)
 	return nil
 }
 
@@ -369,13 +375,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		return nil, err
 	}
 
-	if st.evm.Config.Debug {
-		st.evm.Config.Tracer.CaptureTxStart(st.initialGas)
-		defer func() {
-			st.evm.Config.Tracer.CaptureTxEnd(st.gas)
-		}()
-	}
-
 	var (
 		msg              = st.msg
 		sender           = vm.AccountRef(msg.From())
@@ -396,6 +395,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		} else {
 			return nil, fmt.Errorf("%w: have %d, want %d", ErrIntrinsicGas, st.gas, gas)
 		}
+	}
+	if t := st.evm.Config.Tracer; t != nil && t.OnGasChange != nil {
+		t.OnGasChange(st.gas, st.gas-gas, tracing.GasChangeTxIntrinsicGas)
 	}
 	st.gas -= gas
 
@@ -421,7 +423,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret, _, st.gas, vmerr = st.evm.Create(sender, st.data, st.gas, st.value)
 	} else {
 		// Increment the nonce for the next transaction
-		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
+		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1, tracing.NonceChangeEoACall)
 
 		// Apply EIP-7702 authorizations.
 		if msg.SetCodeAuthorizations() != nil {
@@ -474,7 +476,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// to the sequencer.
 	l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
 	fee := new(big.Int).Add(st.l1DataFee, l2Fee)
-	st.state.AddBalance(st.evm.FeeRecipient(), fee)
+	st.state.AddBalance(st.evm.FeeRecipient(), fee, tracing.BalanceIncreaseRewardTransactionFee)
 
 	return &ExecutionResult{
 		L1DataFee:  st.l1DataFee,
@@ -529,7 +531,7 @@ func (st *StateTransition) applyAuthorization(auth *types.SetCodeAuthorization) 
 	}
 
 	// Update nonce and account code.
-	st.state.SetNonce(authority, auth.Nonce+1)
+	st.state.SetNonce(authority, auth.Nonce+1, tracing.NonceChangeAuthorization)
 	if auth.Address == (common.Address{}) {
 		// Delegation to zero address means clear.
 		st.state.SetCode(authority, nil)
@@ -548,11 +550,19 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	if refund > st.state.GetRefund() {
 		refund = st.state.GetRefund()
 	}
+
+	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && refund > 0 {
+		st.evm.Config.Tracer.OnGasChange(st.gas, st.gas+refund, tracing.GasChangeTxRefunds)
+	}
 	st.gas += refund
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-	st.state.AddBalance(st.msg.From(), remaining)
+	st.state.AddBalance(st.msg.From(), remaining, tracing.BalanceIncreaseGasReturn)
+
+	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gas > 0 {
+		st.evm.Config.Tracer.OnGasChange(st.gas, 0, tracing.GasChangeTxLeftOverReturned)
+	}
 
 	// Also return remaining gas to the block gas counter so it is
 	// available for the next transaction.

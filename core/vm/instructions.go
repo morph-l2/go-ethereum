@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/sha3"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/params"
 )
@@ -550,7 +551,7 @@ func opJump(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byt
 	if !scope.Contract.validJumpdest(&pos) {
 		return nil, ErrInvalidJump
 	}
-	*pc = pos.Uint64()
+	*pc = pos.Uint64() - 1 // pc will be increased by the interpreter loop
 	return nil, nil
 }
 
@@ -560,9 +561,7 @@ func opJumpi(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 		if !scope.Contract.validJumpdest(&pos) {
 			return nil, ErrInvalidJump
 		}
-		*pc = pos.Uint64()
-	} else {
-		*pc++
+		*pc = pos.Uint64() - 1 // pc will be increased by the interpreter loop
 	}
 	return nil, nil
 }
@@ -599,7 +598,7 @@ func opCreate(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	// reuse size int for stackvalue
 	stackvalue := size
 
-	scope.Contract.UseGas(gas)
+	scope.Contract.UseGas(gas, interpreter.evm.Config.Tracer, tracing.GasChangeCallContractCreation)
 	//TODO: use uint256.Int instead of converting with toBig()
 	var bigVal = big0
 	if !value.IsZero() {
@@ -619,11 +618,14 @@ func opCreate(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 		stackvalue.SetBytes(addr.Bytes())
 	}
 	scope.Stack.push(&stackvalue)
-	scope.Contract.Gas += returnGas
+
+	scope.Contract.RefundGas(returnGas, interpreter.evm.Config.Tracer, tracing.GasChangeCallLeftOverRefunded)
 
 	if suberr == ErrExecutionReverted {
+		interpreter.returnData = res // set REVERT data to return data buffer
 		return res, nil
 	}
+	interpreter.returnData = nil // clear dirty return data buffer
 	return nil, nil
 }
 
@@ -637,7 +639,7 @@ func opCreate2(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 	)
 	// Apply EIP150
 	gas -= gas / 64
-	scope.Contract.UseGas(gas)
+	scope.Contract.UseGas(gas, interpreter.evm.Config.Tracer, tracing.GasChangeCallContractCreation2)
 	// reuse size int for stackvalue
 	stackvalue := size
 	//TODO: use uint256.Int instead of converting with toBig()
@@ -654,11 +656,13 @@ func opCreate2(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 		stackvalue.SetBytes(addr.Bytes())
 	}
 	scope.Stack.push(&stackvalue)
-	scope.Contract.Gas += returnGas
+	scope.Contract.RefundGas(returnGas, interpreter.evm.Config.Tracer, tracing.GasChangeCallLeftOverRefunded)
 
 	if suberr == ErrExecutionReverted {
+		interpreter.returnData = res // set REVERT data to return data buffer
 		return res, nil
 	}
+	interpreter.returnData = nil // clear dirty return data buffer
 	return nil, nil
 }
 
@@ -695,8 +699,10 @@ func opCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byt
 		ret = common.CopyBytes(ret)
 		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 	}
-	scope.Contract.Gas += returnGas
 
+	scope.Contract.RefundGas(returnGas, interpreter.evm.Config.Tracer, tracing.GasChangeCallLeftOverRefunded)
+
+	interpreter.returnData = ret
 	return ret, nil
 }
 
@@ -730,8 +736,10 @@ func opCallCode(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([
 		ret = common.CopyBytes(ret)
 		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 	}
-	scope.Contract.Gas += returnGas
 
+	scope.Contract.RefundGas(returnGas, interpreter.evm.Config.Tracer, tracing.GasChangeCallLeftOverRefunded)
+
+	interpreter.returnData = ret
 	return ret, nil
 }
 
@@ -758,7 +766,10 @@ func opDelegateCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext
 		ret = common.CopyBytes(ret)
 		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 	}
-	scope.Contract.Gas += returnGas
+
+	scope.Contract.RefundGas(returnGas, interpreter.evm.Config.Tracer, tracing.GasChangeCallLeftOverRefunded)
+
+	interpreter.returnData = ret
 
 	return ret, nil
 }
@@ -786,7 +797,10 @@ func opStaticCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) 
 		ret = common.CopyBytes(ret)
 		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
 	}
-	scope.Contract.Gas += returnGas
+
+	scope.Contract.RefundGas(returnGas, interpreter.evm.Config.Tracer, tracing.GasChangeCallLeftOverRefunded)
+
+	interpreter.returnData = ret
 
 	return ret, nil
 }
@@ -795,18 +809,19 @@ func opReturn(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	offset, size := scope.Stack.pop(), scope.Stack.pop()
 	ret := scope.Memory.GetPtr(int64(offset.Uint64()), int64(size.Uint64()))
 
-	return ret, nil
+	return ret, errStopToken
 }
 
 func opRevert(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	offset, size := scope.Stack.pop(), scope.Stack.pop()
 	ret := scope.Memory.GetPtr(int64(offset.Uint64()), int64(size.Uint64()))
 
-	return ret, nil
+	interpreter.returnData = ret
+	return ret, ErrExecutionReverted
 }
 
 func opStop(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
-	return nil, nil
+	return nil, errStopToken
 }
 
 // following functions are used by the instruction jump  table

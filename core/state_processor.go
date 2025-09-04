@@ -89,8 +89,14 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	if p.config.CurieBlock != nil && p.config.CurieBlock.Cmp(block.Number()) == 0 {
 		misc.ApplyCurieHardFork(statedb)
 	}
+
+	// Apply pre-execution system calls.
+	var tracingStateDB = vm.StateDB(statedb)
+	if hooks := cfg.Tracer; hooks != nil {
+		tracingStateDB = state.NewHookedState(statedb, hooks)
+	}
 	blockContext := NewEVMBlockContext(header, p.bc, p.config, nil)
-	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
+	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, tracingStateDB, p.config, cfg)
 	processorBlockTransactionGauge.Update(int64(block.Transactions().Len()))
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
@@ -99,7 +105,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		statedb.SetTxContext(tx.Hash(), i)
-		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
+		receipt, err := ApplyTransactionWithEVM(msg, p.config, gp, statedb, blockNumber, blockHash, tx, usedGas, vmenv)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
@@ -114,14 +120,25 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	return receipts, allLogs, *usedGas, nil
 }
 
-func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
+// ApplyTransactionWithEVM attempts to apply a transaction to the given state database
+// and uses the input parameters for its environment similar to ApplyTransaction. However,
+// this method takes an already created EVM instance as input.
+func ApplyTransactionWithEVM(msg Message, config *params.ChainConfig, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (receipt *types.Receipt, err error) {
+	if hooks := evm.Config.Tracer; hooks != nil {
+		if hooks.OnTxStart != nil {
+			hooks.OnTxStart(evm.GetVMContext(), tx, msg.From())
+		}
+		if hooks.OnTxEnd != nil {
+			defer func() { hooks.OnTxEnd(receipt, err) }()
+		}
+	}
 	defer func(t0 time.Time) {
 		applyTransactionTimer.Update(time.Since(t0))
 	}(time.Now())
 
 	// Create a new context to be used in the EVM environment.
 	txContext := NewEVMTxContext(msg)
-	evm.Reset(txContext, statedb)
+	evm.TxContext = txContext
 
 	l1DataFee, err := fees.CalculateL1DataFee(tx, statedb, config, blockNumber)
 	if err != nil {
@@ -154,7 +171,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	}
 	// Create a new receipt for the transaction, storing the intermediate root and gas used
 	// by the tx.
-	receipt := &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: *usedGas, ReturnValue: returnVal}
+	receipt = &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: *usedGas, ReturnValue: returnVal}
 	if result.Failed() {
 		receipt.Status = types.ReceiptStatusFailed
 	} else {
@@ -190,5 +207,5 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	// Create a new context to be used in the EVM environment
 	blockContext := NewEVMBlockContext(header, bc, config, author)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, config, cfg)
-	return applyTransaction(msg, config, bc, author, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
+	return ApplyTransactionWithEVM(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
 }

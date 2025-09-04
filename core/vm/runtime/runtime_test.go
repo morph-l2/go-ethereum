@@ -22,7 +22,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/morph-l2/go-ethereum/accounts/abi"
 	"github.com/morph-l2/go-ethereum/common"
@@ -31,6 +30,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/asm"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/eth/tracers"
@@ -38,6 +38,7 @@ import (
 
 	// force-load js tracers to trigger registration
 	_ "github.com/morph-l2/go-ethereum/eth/tracers/js"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 )
 
 func TestDefaults(t *testing.T) {
@@ -349,25 +350,6 @@ func TestBlockhash(t *testing.T) {
 	}
 }
 
-type stepCounter struct {
-	inner *vm.JSONLogger
-	steps int
-}
-
-func (s *stepCounter) CaptureStart(env *vm.EVM, from common.Address, to common.Address, create bool, input []byte, gas uint64, value *big.Int) {
-}
-
-func (s *stepCounter) CaptureFault(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, depth int, err error) {
-}
-
-func (s *stepCounter) CaptureEnd(output []byte, gasUsed uint64, t time.Duration, err error) {}
-
-func (s *stepCounter) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
-	s.steps++
-	// Enable this for more output
-	//s.inner.CaptureState(env, pc, op, gas, cost, memory, stack, rStack, contract, depth, err)
-}
-
 // benchmarkNonModifyingCode benchmarks code, but if the code modifies the
 // state, this should not be used, since it does not reset the state between runs.
 func benchmarkNonModifyingCode(gas uint64, code []byte, name string, tracerCode string, b *testing.B) {
@@ -376,13 +358,12 @@ func benchmarkNonModifyingCode(gas uint64, code []byte, name string, tracerCode 
 	cfg.State, _ = state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	cfg.GasLimit = gas
 	if len(tracerCode) > 0 {
-		tracer, err := tracers.New(tracerCode, new(tracers.Context), nil)
+		tracer, err := tracers.DefaultDirectory.New(tracerCode, new(tracers.Context), nil, cfg.ChainConfig)
 		if err != nil {
 			b.Fatal(err)
 		}
 		cfg.EVMConfig = vm.Config{
-			Debug:  true,
-			Tracer: tracer,
+			Tracer: tracer.Hooks,
 		}
 	}
 	var (
@@ -394,7 +375,7 @@ func benchmarkNonModifyingCode(gas uint64, code []byte, name string, tracerCode 
 	eoa := common.HexToAddress("E0")
 	{
 		cfg.State.CreateAccount(eoa)
-		cfg.State.SetNonce(eoa, 100)
+		cfg.State.SetNonce(eoa, 100, tracing.NonceChangeUnspecified)
 	}
 	reverting := common.HexToAddress("EE")
 	{
@@ -559,8 +540,7 @@ func TestEip2929Cases(t *testing.T) {
 			code, ops)
 		Execute(code, nil, &Config{
 			EVMConfig: vm.Config{
-				Debug:     true,
-				Tracer:    vm.NewMarkdownLogger(nil, os.Stdout),
+				Tracer:    logger.NewMarkdownLogger(nil, os.Stdout).Hooks(),
 				ExtraEips: []int{2929},
 			},
 		})
@@ -710,18 +690,23 @@ func TestColdAccountAccessCost(t *testing.T) {
 			want: 7600,
 		},
 	} {
-		tracer := vm.NewStructLogger(nil)
+		var step = 0
+		var have = uint64(0)
 		Execute(tc.code, nil, &Config{
 			EVMConfig: vm.Config{
-				Debug:  true,
-				Tracer: tracer,
+				Tracer: &tracing.Hooks{
+					OnOpcode: func(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+						// Uncomment to investigate failures:
+						//t.Logf("%d: %v %d", step, vm.OpCode(op).String(), cost)
+						if step == tc.step {
+							have = cost
+						}
+						step++
+					},
+				},
 			},
 		})
-		have := tracer.StructLogs()[tc.step].GasCost
 		if want := tc.want; have != want {
-			for ii, op := range tracer.StructLogs() {
-				t.Logf("%d: %v %d", ii, op.OpName(), op.GasCost)
-			}
 			t.Fatalf("tescase %d, gas report wrong, step %d, have %d want %d", i, tc.step, have, want)
 		}
 	}
@@ -877,15 +862,15 @@ func TestRuntimeJSTracer(t *testing.T) {
 			statedb.SetCode(common.HexToAddress("0xee"), calleeCode)
 			statedb.SetCode(common.HexToAddress("0xff"), depressedCode)
 
-			tracer, err := tracers.New(jsTracer, new(tracers.Context), nil)
+			tracer, err := tracers.DefaultDirectory.New(jsTracer, new(tracers.Context), nil, params.TestChainConfig)
 			if err != nil {
 				t.Fatal(err)
 			}
 			_, _, err = Call(main, nil, &Config{
-				State: statedb,
+				GasLimit: 1000000,
+				State:    statedb,
 				EVMConfig: vm.Config{
-					Debug:  true,
-					Tracer: tracer,
+					Tracer: tracer.Hooks,
 				}})
 			if err != nil {
 				t.Fatal("didn't expect error", err)
@@ -912,15 +897,14 @@ func TestJSTracerCreateTx(t *testing.T) {
 	code := []byte{byte(vm.PUSH1), 0, byte(vm.PUSH1), 0, byte(vm.RETURN)}
 
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
-	tracer, err := tracers.New(jsTracer, new(tracers.Context), nil)
+	tracer, err := tracers.DefaultDirectory.New(jsTracer, new(tracers.Context), nil, params.TestChainConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, _, _, err = Create(code, &Config{
 		State: statedb,
 		EVMConfig: vm.Config{
-			Debug:  true,
-			Tracer: tracer,
+			Tracer: tracer.Hooks,
 		}})
 	if err != nil {
 		t.Fatal(err)

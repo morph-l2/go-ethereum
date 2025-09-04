@@ -31,6 +31,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/ethdb"
@@ -156,7 +157,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 		} else {
 			header := lc.GetHeaderByHash(bhash)
 			state := light.NewState(ctx, header, lc.Odr())
-			state.SetBalance(bankAddr, math.MaxBig256)
+			state.SetBalance(bankAddr, math.MaxBig256, tracing.BalanceChangeUnspecified)
 			msg := callmsg{types.NewMessage(bankAddr, &testContractAddr, 0, new(big.Int), 100000, big.NewInt(params.InitialBaseFee), big.NewInt(params.InitialBaseFee), new(big.Int), data, nil, nil, true)}
 			context := core.NewEVMBlockContext(header, lc, config, nil)
 			txContext := core.NewEVMTxContext(msg)

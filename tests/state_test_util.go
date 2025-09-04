@@ -33,6 +33,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/state/snapshot"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
@@ -185,7 +186,7 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	}
 	vmconfig.ExtraEips = eips
 	block := t.genesis(config).ToBlock(nil)
-	snaps, statedb := MakePreState(rawdb.NewMemoryDatabase(), t.json.Pre, snapshotter)
+	state := MakePreState(rawdb.NewMemoryDatabase(), t.json.Pre, snapshotter)
 
 	var baseFee *big.Int
 	if config.IsCurie(new(big.Int)) {
@@ -220,46 +221,52 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	context := core.NewEVMBlockContext(block.Header(), nil, config, &t.json.Env.Coinbase)
 	context.GetHash = vmTestBlockHash
 	context.BaseFee = baseFee
-	evm := vm.NewEVM(context, txContext, statedb, config, vmconfig)
+	evm := vm.NewEVM(context, txContext, state.StateDB, config, vmconfig)
 
 	// Execute the message.
-	snapshot := statedb.Snapshot()
+	snapshot := state.StateDB.Snapshot()
 	gaspool := new(core.GasPool)
 	gaspool.AddGas(block.GasLimit())
 
-	l1DataFee, err := fees.CalculateL1DataFee(&ttx, statedb, config, block.Number())
+	l1DataFee, err := fees.CalculateL1DataFee(&ttx, state.StateDB, config, block.Number())
 	if err != nil {
 		return nil, nil, common.Hash{}, err
 	}
 
 	if _, err = core.ApplyMessage(evm, msg, gaspool, l1DataFee); err != nil {
-		statedb.RevertToSnapshot(snapshot)
+		state.StateDB.RevertToSnapshot(snapshot)
 	}
 
 	// Commit block
-	statedb.Commit(config.IsEIP158(block.Number()))
+	state.StateDB.Commit(config.IsEIP158(block.Number()))
 	// Add 0-value mining reward. This only makes a difference in the cases
 	// where
 	// - the coinbase suicided, or
 	// - there are only 'bad' transactions, which aren't executed. In those cases,
 	//   the coinbase gets no txfee, so isn't created, and thus needs to be touched
-	statedb.AddBalance(block.Coinbase(), new(big.Int))
+	state.StateDB.AddBalance(block.Coinbase(), new(big.Int), tracing.BalanceIncreaseRewardMineBlock)
 	// And _now_ get the state root
-	root := statedb.IntermediateRoot(config.IsEIP158(block.Number()))
-	return snaps, statedb, root, nil
+	root := state.StateDB.IntermediateRoot(config.IsEIP158(block.Number()))
+	return state.Snapshots, state.StateDB, root, nil
 }
 
 func (t *StateTest) gasLimit(subtest StateSubtest) uint64 {
 	return t.json.Tx.GasLimit[t.json.Post[subtest.Fork][subtest.Index].Indexes.Gas]
 }
 
-func MakePreState(db ethdb.Database, accounts core.GenesisAlloc, snapshotter bool) (*snapshot.Tree, *state.StateDB) {
+// StateTestState groups all the state database objects together for use in tests.
+type StateTestState struct {
+	StateDB   *state.StateDB
+	Snapshots *snapshot.Tree
+}
+
+func MakePreState(db ethdb.Database, accounts core.GenesisAlloc, snapshotter bool) StateTestState {
 	sdb := state.NewDatabase(db)
 	statedb, _ := state.New(common.Hash{}, sdb, nil)
 	for addr, a := range accounts {
 		statedb.SetCode(addr, a.Code)
-		statedb.SetNonce(addr, a.Nonce)
-		statedb.SetBalance(addr, a.Balance)
+		statedb.SetNonce(addr, a.Nonce, tracing.NonceChangeUnspecified)
+		statedb.SetBalance(addr, a.Balance, tracing.BalanceChangeUnspecified)
 		for k, v := range a.Storage {
 			statedb.SetState(addr, k, v)
 		}
@@ -272,7 +279,16 @@ func MakePreState(db ethdb.Database, accounts core.GenesisAlloc, snapshotter boo
 		snaps, _ = snapshot.New(db, sdb.TrieDB(), 1, root, false, true, false)
 	}
 	statedb, _ = state.New(root, sdb, snaps)
-	return snaps, statedb
+	return StateTestState{statedb, snaps}
+}
+
+// Close should be called when the state is no longer needed, ie. after running the test.
+func (st *StateTestState) Close() {
+	if st.Snapshots != nil {
+		// Need to call Disable here to quit the snapshot generator goroutine.
+		st.Snapshots.Disable()
+		st.Snapshots = nil
+	}
 }
 
 func (t *StateTest) genesis(config *params.ChainConfig) *core.Genesis {

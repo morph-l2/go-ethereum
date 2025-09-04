@@ -206,6 +206,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig, 
 			}
 			receipt.TxHash = tx.Hash()
 			receipt.GasUsed = msgResult.UsedGas
+			receipt.L1Fee = msgResult.L1DataFee
 
 			// If the transaction created a contract, store the creation address in the receipt.
 			if msg.To() == nil {
@@ -220,6 +221,10 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig, 
 			//receipt.BlockNumber
 			receipt.TransactionIndex = uint(txIndex)
 			receipts = append(receipts, receipt)
+
+			if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxEnd != nil {
+				evm.Config.Tracer.OnTxEnd(receipt, nil)
+			}
 		}
 
 		txIndex++

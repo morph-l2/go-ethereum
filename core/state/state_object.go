@@ -283,9 +283,6 @@ func (s *stateObject) SetState(db Database, key, value common.Hash) {
 		key:      key,
 		prevalue: prev,
 	})
-	if s.db.logger != nil && s.db.logger.OnStorageChange != nil {
-		s.db.logger.OnStorageChange(s.address, key, prev, value)
-	}
 	s.setState(key, value)
 }
 
@@ -522,9 +519,6 @@ func (s *stateObject) SetCode(code []byte) []byte {
 
 func (s *stateObject) setCode(code []byte) {
 	afterKeccakCodeHash := codehash.KeccakCodeHash(code)
-	if s.db.logger != nil && s.db.logger.OnCodeChange != nil {
-		s.db.logger.OnCodeChange(s.address, common.BytesToHash(s.KeccakCodeHash()), s.code, afterKeccakCodeHash, code)
-	}
 	s.code = code
 	s.data.KeccakCodeHash = afterKeccakCodeHash.Bytes()
 	s.data.PoseidonCodeHash = codehash.PoseidonCodeHash(code).Bytes()
@@ -537,9 +531,6 @@ func (s *stateObject) SetNonce(nonce uint64) {
 		account: &s.address,
 		prev:    s.data.Nonce,
 	})
-	if s.db.logger != nil && s.db.logger.OnNonceChange != nil {
-		s.db.logger.OnNonceChange(s.address, s.data.Nonce, nonce)
-	}
 	s.setNonce(nonce)
 }
 

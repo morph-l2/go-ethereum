@@ -324,16 +324,22 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 	var data types.TxData
 	switch usedType {
 	case types.SetCodeTxType:
-		al := types.AccessList{}
+		var (
+			al = types.AccessList{}
+			to = common.Address{}
+		)
 		if args.AccessList != nil {
 			al = *args.AccessList
+		}
+		if args.To != nil {
+			to = *args.To
 		}
 		authList := []types.SetCodeAuthorization{}
 		if args.AuthorizationList != nil {
 			authList = args.AuthorizationList
 		}
 		data = &types.SetCodeTx{
-			To:         *args.To,
+			To:         to,
 			ChainID:    uint256.MustFromBig(args.ChainID.ToInt()),
 			Nonce:      uint64(*args.Nonce),
 			Gas:        uint64(*args.Gas),

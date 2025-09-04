@@ -1465,11 +1465,13 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 func NewRPCPendingTransaction(tx *types.Transaction, current *types.Header, config *params.ChainConfig, l1BaseFee *big.Int) *RPCTransaction {
 	var baseFee *big.Int
 	blockNumber := uint64(0)
+	blockTime := uint64(0)
 	if current != nil {
 		baseFee = misc.CalcBaseFee(config, current, l1BaseFee)
 		blockNumber = current.Number.Uint64()
+		blockTime = current.Time
 	}
-	return NewRPCTransaction(tx, common.Hash{}, blockNumber, current.Time, 0, baseFee, config)
+	return NewRPCTransaction(tx, common.Hash{}, blockNumber, blockTime, 0, baseFee, config)
 }
 
 // newRPCTransactionFromBlockIndex returns a transaction that will serialize to the RPC representation.
@@ -1779,7 +1781,12 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 
 	// Derive the sender.
 	bigblock := new(big.Int).SetUint64(blockNumber)
-	return marshalReceipt(ctx, s.b, receipt, bigblock, blockHash, blockNumber, s.signer, tx, int(index))
+	header, err := s.b.HeaderByHash(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, header.Time)
+	return marshalReceipt(ctx, s.b, receipt, bigblock, blockHash, blockNumber, signer, tx, int(index))
 }
 
 // marshalReceipt marshals a transaction receipt into a JSON object.

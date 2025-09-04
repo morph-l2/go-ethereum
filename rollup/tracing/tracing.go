@@ -274,7 +274,7 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 	return env.fillBlockTrace(block)
 }
 
-func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.Block) error {
+func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types.Block) error {
 	tx := block.Transactions()[index]
 	msg, _ := tx.AsMessage(env.signer, block.BaseFee())
 	from, _ := types.Sender(env.signer, tx)
@@ -288,21 +288,21 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 
 	sender := &types.AccountWrapper{
 		Address:          from,
-		Nonce:            state.GetNonce(from),
-		Balance:          (*hexutil.Big)(state.GetBalance(from)),
-		KeccakCodeHash:   state.GetKeccakCodeHash(from),
-		PoseidonCodeHash: state.GetPoseidonCodeHash(from),
-		CodeSize:         state.GetCodeSize(from),
+		Nonce:            statedb.GetNonce(from),
+		Balance:          (*hexutil.Big)(statedb.GetBalance(from)),
+		KeccakCodeHash:   statedb.GetKeccakCodeHash(from),
+		PoseidonCodeHash: statedb.GetPoseidonCodeHash(from),
+		CodeSize:         statedb.GetCodeSize(from),
 	}
 	var receiver *types.AccountWrapper
 	if to != nil {
 		receiver = &types.AccountWrapper{
 			Address:          *to,
-			Nonce:            state.GetNonce(*to),
-			Balance:          (*hexutil.Big)(state.GetBalance(*to)),
-			KeccakCodeHash:   state.GetKeccakCodeHash(*to),
-			PoseidonCodeHash: state.GetPoseidonCodeHash(*to),
-			CodeSize:         state.GetCodeSize(*to),
+			Nonce:            statedb.GetNonce(*to),
+			Balance:          (*hexutil.Big)(statedb.GetBalance(*to)),
+			KeccakCodeHash:   statedb.GetKeccakCodeHash(*to),
+			PoseidonCodeHash: statedb.GetPoseidonCodeHash(*to),
+			CodeSize:         statedb.GetCodeSize(*to),
 		}
 	}
 
@@ -320,31 +320,16 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	applyMessageStart := time.Now()
 	structLogger := logger.NewStructLogger(env.logConfig)
 	tracer := NewMuxTracer(structLogger, *callTracer)
+
+	tracingStateDB := state.NewHookedState(statedb, tracer.Hooks)
+
 	// Run the transaction with tracing enabled.
-	vmenv := vm.NewEVM(env.blockCtx, txContext, state, env.chainConfig, vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
+	vmenv := vm.NewEVM(env.blockCtx, txContext, tracingStateDB, env.chainConfig, vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
 
 	// Call Prepare to clear out the statedb access list
-	state.SetTxContext(txctx.TxHash, txctx.TxIndex)
+	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
 
-	// Computes the new state by applying the given message.
-	// l1DataFee, err := fees.CalculateL1DataFee(tx, state, env.chainConfig, block.Number())
-	// if err != nil {
-	// 	return err
-	// }
-	// result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), l1DataFee)
-	// if err != nil {
-	// 	getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
-	// 	return err
-	// }
-	// getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
-
-	// If the result contains a revert reason, return it.
-	// returnVal := receipt.ReturnValue
-	// if len(result.Revert()) > 0 {
-	// 	returnVal = result.Revert()
-	// }
-
-	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), state, block.Number(), block.Hash(), tx, new(uint64), vmenv)
+	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), statedb, block.Number(), block.Hash(), tx, new(uint64), vmenv)
 	if err != nil {
 		getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
 		return err
@@ -363,11 +348,11 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	for _, acc := range []common.Address{from, *to, env.coinbase} {
 		after = append(after, &types.AccountWrapper{
 			Address:          acc,
-			Nonce:            state.GetNonce(acc),
-			Balance:          (*hexutil.Big)(state.GetBalance(acc)),
-			KeccakCodeHash:   state.GetKeccakCodeHash(acc),
-			PoseidonCodeHash: state.GetPoseidonCodeHash(acc),
-			CodeSize:         state.GetCodeSize(acc),
+			Nonce:            statedb.GetNonce(acc),
+			Balance:          (*hexutil.Big)(statedb.GetBalance(acc)),
+			KeccakCodeHash:   statedb.GetKeccakCodeHash(acc),
+			PoseidonCodeHash: statedb.GetPoseidonCodeHash(acc),
+			CodeSize:         statedb.GetCodeSize(acc),
 		})
 	}
 
@@ -377,7 +362,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 	}
 	// still we have no state root for per tx, only set the head and tail
 	if index == 0 {
-		txStorageTrace.RootBefore = state.GetRootHash()
+		txStorageTrace.RootBefore = statedb.GetRootHash()
 	}
 	if index == len(block.Transactions())-1 {
 		txStorageTrace.RootAfter = block.Root()
@@ -414,7 +399,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		if existed {
 			continue
 		}
-		proof, err := state.GetProof(addr)
+		proof, err := statedb.GetProof(addr)
 		if err != nil {
 			log.Error("Proof not available", "address", addrStr, "error", err)
 			// but we still mark the proofs map with nil array
@@ -434,20 +419,20 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		}
 
 		env.sMu.Lock()
-		trie, err := state.GetStorageTrieForProof(addr)
+		trie, err := statedb.GetStorageTrieForProof(addr)
 		if err != nil {
 			// but we still continue to next address
 			log.Error("Storage trie not available", "error", err, "address", addr)
 			env.sMu.Unlock()
 			continue
 		}
-		zktrieTracer := state.NewProofTracer(trie)
+		zktrieTracer := statedb.NewProofTracer(trie)
 		env.sMu.Unlock()
 
 		for key := range keys {
 			addrStr := addr.String()
 			keyStr := key.String()
-			value := state.GetState(addr, key)
+			value := statedb.GetState(addr, key)
 			isDelete := bytes.Equal(value.Bytes(), common.Hash{}.Bytes())
 
 			txm := txStorageTrace.StorageProofs[addrStr]
@@ -458,7 +443,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 				env.StorageProofs[addrStr] = m
 			}
 			if zktrieTracer.Available() && !env.ZkTrieTracer[addrStr].Available() {
-				env.ZkTrieTracer[addrStr] = state.NewProofTracer(trie)
+				env.ZkTrieTracer[addrStr] = statedb.NewProofTracer(trie)
 			}
 
 			if proof, existed := m[keyStr]; existed {
@@ -475,9 +460,9 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 			var proof [][]byte
 			var err error
 			if zktrieTracer.Available() {
-				proof, err = state.GetSecureTrieProof(zktrieTracer, key)
+				proof, err = statedb.GetSecureTrieProof(zktrieTracer, key)
 			} else {
-				proof, err = state.GetSecureTrieProof(trie, key)
+				proof, err = statedb.GetSecureTrieProof(trie, key)
 			}
 			if err != nil {
 				log.Error("Storage proof not available", "error", err, "address", addrStr, "key", keyStr)

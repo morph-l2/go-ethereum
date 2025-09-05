@@ -31,6 +31,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 )
 
@@ -44,8 +45,8 @@ func TestUpdateLeaks(t *testing.T) {
 	// Update it with some accounts
 	for i := byte(0); i < 255; i++ {
 		addr := common.BytesToAddress([]byte{i})
-		state.AddBalance(addr, big.NewInt(int64(11*i)))
-		state.SetNonce(addr, uint64(42*i))
+		state.AddBalance(addr, big.NewInt(int64(11*i)), tracing.BalanceChangeUnspecified)
+		state.SetNonce(addr, uint64(42*i), tracing.NonceChangeUnspecified)
 		if i%2 == 0 {
 			state.SetState(addr, common.BytesToHash([]byte{i, i, i}), common.BytesToHash([]byte{i, i, i, i}))
 		}
@@ -77,8 +78,8 @@ func TestIntermediateLeaks(t *testing.T) {
 	finalState, _ := New(common.Hash{}, NewDatabase(finalDb), nil)
 
 	modify := func(state *StateDB, addr common.Address, i, tweak byte) {
-		state.SetBalance(addr, big.NewInt(int64(11*i)+int64(tweak)))
-		state.SetNonce(addr, uint64(42*i+tweak))
+		state.SetBalance(addr, big.NewInt(int64(11*i)+int64(tweak)), tracing.BalanceChangeUnspecified)
+		state.SetNonce(addr, uint64(42*i+tweak), tracing.NonceChangeUnspecified)
 		if i%2 == 0 {
 			state.SetState(addr, common.Hash{i, i, i, 0}, common.Hash{})
 			state.SetState(addr, common.Hash{i, i, i, tweak}, common.Hash{i, i, i, i, tweak})
@@ -252,21 +253,21 @@ func newTestAction(addr common.Address, r *rand.Rand) testAction {
 		{
 			name: "SetBalance",
 			fn: func(a testAction, s *StateDB) {
-				s.SetBalance(addr, big.NewInt(a.args[0]))
+				s.SetBalance(addr, big.NewInt(a.args[0]), tracing.BalanceChangeUnspecified)
 			},
 			args: make([]int64, 1),
 		},
 		{
 			name: "AddBalance",
 			fn: func(a testAction, s *StateDB) {
-				s.AddBalance(addr, big.NewInt(a.args[0]))
+				s.AddBalance(addr, big.NewInt(a.args[0]), tracing.BalanceChangeUnspecified)
 			},
 			args: make([]int64, 1),
 		},
 		{
 			name: "SetNonce",
 			fn: func(a testAction, s *StateDB) {
-				s.SetNonce(addr, uint64(a.args[0]))
+				s.SetNonce(addr, uint64(a.args[0]), tracing.NonceChangeUnspecified)
 			},
 			args: make([]int64, 1),
 		},
@@ -488,7 +489,7 @@ func TestTouchDelete(t *testing.T) {
 	s.state, _ = New(root, s.state.db, s.state.snaps)
 
 	snapshot := s.state.Snapshot()
-	s.state.AddBalance(common.Address{}, new(big.Int))
+	s.state.AddBalance(common.Address{}, new(big.Int), tracing.BalanceChangeUnspecified)
 
 	if len(s.state.journal.dirties) != 1 {
 		t.Fatal("expected one dirty state object")
@@ -504,7 +505,7 @@ func TestTouchDelete(t *testing.T) {
 func TestCopyOfCopy(t *testing.T) {
 	state, _ := New(common.Hash{}, NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	addr := common.HexToAddress("aaaa")
-	state.SetBalance(addr, big.NewInt(42))
+	state.SetBalance(addr, big.NewInt(42), tracing.BalanceChangeUnspecified)
 
 	if got := state.Copy().GetBalance(addr).Uint64(); got != 42 {
 		t.Fatalf("1st copy fail, expected 42, got %v", got)
@@ -526,9 +527,9 @@ func TestCopyCommitCopy(t *testing.T) {
 	skey := common.HexToHash("aaa")
 	sval := common.HexToHash("bbb")
 
-	state.SetBalance(addr, big.NewInt(42)) // Change the account trie
-	state.SetCode(addr, []byte("hello"))   // Change an external metadata
-	state.SetState(addr, skey, sval)       // Change the storage trie
+	state.SetBalance(addr, big.NewInt(42), tracing.BalanceChangeUnspecified) // Change the account trie
+	state.SetCode(addr, []byte("hello"))                                     // Change an external metadata
+	state.SetState(addr, skey, sval)                                         // Change the storage trie
 
 	if balance := state.GetBalance(addr); balance.Cmp(big.NewInt(42)) != 0 {
 		t.Fatalf("initial balance mismatch: have %v, want %v", balance, 42)
@@ -598,9 +599,9 @@ func TestCopyCopyCommitCopy(t *testing.T) {
 	skey := common.HexToHash("aaa")
 	sval := common.HexToHash("bbb")
 
-	state.SetBalance(addr, big.NewInt(42)) // Change the account trie
-	state.SetCode(addr, []byte("hello"))   // Change an external metadata
-	state.SetState(addr, skey, sval)       // Change the storage trie
+	state.SetBalance(addr, big.NewInt(42), tracing.BalanceChangeUnspecified) // Change the account trie
+	state.SetCode(addr, []byte("hello"))                                     // Change an external metadata
+	state.SetState(addr, skey, sval)                                         // Change the storage trie
 
 	if balance := state.GetBalance(addr); balance.Cmp(big.NewInt(42)) != 0 {
 		t.Fatalf("initial balance mismatch: have %v, want %v", balance, 42)
@@ -684,7 +685,7 @@ func TestDeleteCreateRevert(t *testing.T) {
 	state, _ := New(common.Hash{}, NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
 	addr := common.BytesToAddress([]byte("so"))
-	state.SetBalance(addr, big.NewInt(1))
+	state.SetBalance(addr, big.NewInt(1), tracing.BalanceChangeUnspecified)
 
 	root, _ := state.Commit(false)
 	state, _ = New(root, state.db, state.snaps)
@@ -694,7 +695,7 @@ func TestDeleteCreateRevert(t *testing.T) {
 	state.Finalise(true)
 
 	id := state.Snapshot()
-	state.SetBalance(addr, big.NewInt(2))
+	state.SetBalance(addr, big.NewInt(2), tracing.BalanceChangeUnspecified)
 	state.RevertToSnapshot(id)
 
 	// Commit the entire state and make sure we don't crash and have the correct state
@@ -718,10 +719,10 @@ func TestMissingTrieNodes(t *testing.T) {
 	state, _ := New(common.Hash{}, db, nil)
 	addr := common.BytesToAddress([]byte("so"))
 	{
-		state.SetBalance(addr, big.NewInt(1))
+		state.SetBalance(addr, big.NewInt(1), tracing.BalanceChangeUnspecified)
 		state.SetCode(addr, []byte{1, 2, 3})
 		a2 := common.BytesToAddress([]byte("another"))
-		state.SetBalance(a2, big.NewInt(100))
+		state.SetBalance(a2, big.NewInt(100), tracing.BalanceChangeUnspecified)
 		state.SetCode(a2, []byte{1, 2, 4})
 		root, _ = state.Commit(false)
 		t.Logf("root: %x", root)
@@ -746,7 +747,7 @@ func TestMissingTrieNodes(t *testing.T) {
 		t.Errorf("expected %d, got %d", exp, got)
 	}
 	// Modify the state
-	state.SetBalance(addr, big.NewInt(2))
+	state.SetBalance(addr, big.NewInt(2), tracing.BalanceChangeUnspecified)
 	root, err := state.Commit(false)
 	if err == nil {
 		t.Fatalf("expected error, got root :%x", root)

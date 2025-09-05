@@ -26,6 +26,8 @@ import (
 
 	"github.com/morph-l2/go-ethereum/cmd/evm/internal/t8ntool"
 	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/core/tracing"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	"github.com/morph-l2/go-ethereum/internal/flags"
 )
 
@@ -51,6 +53,33 @@ var (
 		Name:  "statdump",
 		Usage: "displays stack and heap memory information",
 	}
+	// Tracing flags.
+	TraceFlag = &cli.BoolFlag{
+		Name:  "trace",
+		Usage: "Enable tracing and output trace log.",
+	}
+	TraceFormatFlag = &cli.StringFlag{
+		Name:  "trace.format",
+		Usage: "Trace output format to use (json|struct|md)",
+		Value: "json",
+	}
+	TraceDisableMemoryFlag = &cli.BoolFlag{
+		Name:  "trace.nomemory",
+		Usage: "disable memory output",
+	}
+	TraceDisableStackFlag = &cli.BoolFlag{
+		Name:  "trace.nostack",
+		Usage: "disable stack output",
+	}
+	TraceDisableStorageFlag = &cli.BoolFlag{
+		Name:  "trace.nostorage",
+		Usage: "disable storage output",
+	}
+	TraceDisableReturnDataFlag = &cli.BoolFlag{
+		Name:  "trace.noreturndata",
+		Usage: "enable return data output",
+	}
+
 	CodeFlag = cli.StringFlag{
 		Name:  "code",
 		Usage: "EVM code",
@@ -114,22 +143,6 @@ var (
 		Name:  "receiver",
 		Usage: "The transaction receiver (execution context)",
 	}
-	DisableMemoryFlag = cli.BoolTFlag{
-		Name:  "nomemory",
-		Usage: "disable memory output",
-	}
-	DisableStackFlag = cli.BoolFlag{
-		Name:  "nostack",
-		Usage: "disable stack output",
-	}
-	DisableStorageFlag = cli.BoolFlag{
-		Name:  "nostorage",
-		Usage: "disable storage output",
-	}
-	DisableReturnDataFlag = cli.BoolTFlag{
-		Name:  "noreturndata",
-		Usage: "enable return data output",
-	}
 )
 
 var stateTransitionCommand = cli.Command{
@@ -139,11 +152,12 @@ var stateTransitionCommand = cli.Command{
 	Action:  t8ntool.Transition,
 	Flags: []cli.Flag{
 		t8ntool.TraceFlag,
-		t8ntool.TraceDisableMemoryFlag,
+		t8ntool.TraceTracerFlag,
+		t8ntool.TraceTracerConfigFlag,
 		t8ntool.TraceEnableMemoryFlag,
 		t8ntool.TraceDisableStackFlag,
-		t8ntool.TraceDisableReturnDataFlag,
 		t8ntool.TraceEnableReturnDataFlag,
+		t8ntool.TraceEnableCallFramesFlag,
 		t8ntool.OutputBasedir,
 		t8ntool.OutputAllocFlag,
 		t8ntool.OutputResultFlag,
@@ -189,6 +203,20 @@ var blockBuilderCommand = cli.Command{
 	},
 }
 
+// traceFlags contains flags that configure tracing output.
+var traceFlags = []cli.Flag{
+	TraceFlag,
+	TraceFormatFlag,
+	TraceDisableStackFlag,
+	TraceDisableMemoryFlag,
+	TraceDisableStorageFlag,
+	TraceDisableReturnDataFlag,
+
+	// deprecated
+	DebugFlag,
+	MachineFlag,
+}
+
 func init() {
 	app.Flags = []cli.Flag{
 		BenchFlag,
@@ -210,10 +238,12 @@ func init() {
 		MachineFlag,
 		SenderFlag,
 		ReceiverFlag,
-		DisableMemoryFlag,
-		DisableStackFlag,
-		DisableStorageFlag,
-		DisableReturnDataFlag,
+		TraceFlag,
+		TraceFormatFlag,
+		TraceDisableStackFlag,
+		TraceDisableMemoryFlag,
+		TraceDisableStorageFlag,
+		TraceDisableReturnDataFlag,
 	}
 	app.Commands = []cli.Command{
 		compileCommand,
@@ -235,5 +265,37 @@ func main() {
 		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(code)
+	}
+}
+
+// tracerFromFlags parses the cli flags and returns the specified tracer.
+func tracerFromFlags(ctx *cli.Context) *tracing.Hooks {
+	config := &logger.Config{
+		EnableMemory:     !ctx.Bool(TraceDisableMemoryFlag.Name),
+		DisableStack:     ctx.Bool(TraceDisableStackFlag.Name),
+		DisableStorage:   ctx.Bool(TraceDisableStorageFlag.Name),
+		EnableReturnData: !ctx.Bool(TraceDisableReturnDataFlag.Name),
+	}
+	switch {
+	case ctx.Bool(TraceFlag.Name):
+		switch format := ctx.String(TraceFormatFlag.Name); format {
+		case "struct":
+			return logger.NewStreamingStructLogger(config, os.Stderr).Hooks()
+		case "json":
+			return logger.NewJSONLogger(config, os.Stderr)
+		case "md", "markdown":
+			return logger.NewMarkdownLogger(config, os.Stderr).Hooks()
+		default:
+			fmt.Fprintf(os.Stderr, "unknown trace format: %q\n", format)
+			os.Exit(1)
+			return nil
+		}
+	// Deprecated ways of configuring tracing.
+	case ctx.Bool(MachineFlag.Name):
+		return logger.NewJSONLogger(config, os.Stderr)
+	case ctx.Bool(DebugFlag.Name):
+		return logger.NewStreamingStructLogger(config, os.Stderr).Hooks()
+	default:
+		return nil
 	}
 }

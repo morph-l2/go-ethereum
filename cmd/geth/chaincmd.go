@@ -51,6 +51,7 @@ var (
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
 			utils.OverrideMorph203TimeFlag,
+			utils.OverrideMorph300TimeFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `
@@ -213,6 +214,10 @@ func initGenesis(ctx *cli.Context) error {
 	if ctx.IsSet(utils.OverrideMorph203TimeFlag.Name) {
 		v := ctx.Uint64(utils.OverrideMorph203TimeFlag.Name)
 		overrides.Morph203Time = &v
+	}
+	if ctx.IsSet(utils.OverrideMorph300TimeFlag.Name) {
+		v := ctx.Uint64(utils.OverrideMorph300TimeFlag.Name)
+		overrides.Morph300Time = &v
 	}
 
 	for _, name := range []string{"chaindata", "lightchaindata"} {

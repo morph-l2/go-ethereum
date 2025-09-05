@@ -47,6 +47,10 @@ func (tx *L1MessageTx) value() *big.Int        { return tx.Value }
 func (tx *L1MessageTx) nonce() uint64          { return 0 }
 func (tx *L1MessageTx) to() *common.Address    { return tx.To }
 
+func (tx *L1MessageTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+	return new(big.Int)
+}
+
 func (tx *L1MessageTx) rawSignatureValues() (v, r, s *big.Int) {
 	return common.Big0, common.Big0, common.Big0
 }
@@ -61,4 +65,8 @@ func (tx *L1MessageTx) encode(b *bytes.Buffer) error {
 
 func (tx *L1MessageTx) decode(input []byte) error {
 	return rlp.DecodeBytes(input, tx)
+}
+
+func (tx *L1MessageTx) sigHash(chainID *big.Int) common.Hash {
+	panic("sigHash called on L1MessageTx")
 }

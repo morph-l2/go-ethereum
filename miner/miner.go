@@ -167,10 +167,11 @@ func (miner *Miner) getSealingBlockAndState(params *generateParams) (*NewBlockRe
 	}
 }
 
-func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, transactions types.Transactions) (*NewBlockResult, error) {
+func (miner *Miner) BuildBlock(parentHash common.Hash, timestamp time.Time, coinbase common.Address, transactions types.Transactions) (*NewBlockResult, error) {
 	return miner.getSealingBlockAndState(&generateParams{
 		timestamp:    uint64(timestamp.Unix()),
 		parentHash:   parentHash,
+		coinbase:     coinbase,
 		transactions: transactions,
 		timeout:      miner.newBlockTimeout,
 	})

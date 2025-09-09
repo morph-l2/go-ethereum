@@ -285,7 +285,7 @@ loop:
 			}
 		}
 		if env.gasPool.Gas() < params.TxGas {
-			log.Trace("Not enough gas for further transactions", "have", env.gasPool, "want", params.TxGas)
+			log.Error("Not enough gas for further transactions", "have", env.gasPool, "want", params.TxGas)
 			break
 		}
 		// Retrieve the next transaction and abort if all done
@@ -297,7 +297,7 @@ loop:
 		// If we have collected enough transactions then we're done
 		// Originally we only limit l2txs count, but now strictly limit total txs number.
 		if !miner.chainConfig.Morph.IsValidTxCount(env.tcount + 1) {
-			log.Trace("Transaction count limit reached", "have", env.tcount, "want", miner.chainConfig.Morph.MaxTxPerBlock)
+			log.Error("Transaction count limit reached", "have", env.tcount, "want", miner.chainConfig.Morph.MaxTxPerBlock)
 			break
 		}
 		if tx.IsL1MessageTx() && !env.isSimulate && tx.AsL1MessageTx().QueueIndex != env.nextL1MsgIndex {
@@ -309,7 +309,7 @@ loop:
 			break
 		}
 		if !tx.IsL1MessageTx() && !miner.chainConfig.Morph.IsValidBlockSize(env.blockSize+tx.Size()) {
-			log.Trace("Block size limit reached", "have", env.blockSize, "want", miner.chainConfig.Morph.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
+			log.Error("Block size limit reached", "have", env.blockSize, "want", miner.chainConfig.Morph.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
 			continue
 		}
@@ -321,7 +321,7 @@ loop:
 		// Check whether the tx is replay protected. If we're not in the EIP155 hf
 		// phase, start ignoring the sender until we do.
 		if tx.Protected() && !miner.chainConfig.IsEIP155(env.header.Number) {
-			log.Trace("Ignoring reply protected transaction", "hash", tx.Hash(), "eip155", miner.chainConfig.EIP155Block)
+			log.Error("Ignoring reply protected transaction", "hash", tx.Hash(), "eip155", miner.chainConfig.EIP155Block)
 
 			txs.Pop()
 			continue
@@ -330,6 +330,9 @@ loop:
 		env.state.SetTxContext(tx.Hash(), env.tcount)
 
 		err := miner.commitTransaction(env, tx, coinbase)
+		if err != nil {
+			log.Error("Transaction inclusion failed", "hash", tx.Hash(), "err", err)
+		}
 		switch {
 		case errors.Is(err, core.ErrGasLimitReached) && tx.IsL1MessageTx():
 			// If this block already contains some L1 messages,
@@ -342,17 +345,17 @@ loop:
 
 		case errors.Is(err, core.ErrGasLimitReached):
 			// Pop the current out-of-gas transaction without shifting in the next from the account
-			log.Trace("Gas limit exceeded for current block", "sender", from)
+			log.Error("Gas limit exceeded for current block", "sender", from)
 			txs.Pop()
 
 		case errors.Is(err, core.ErrNonceTooLow):
 			// New head notification data race between the transaction pool and miner, shift
-			log.Trace("Skipping transaction with low nonce", "sender", from, "nonce", tx.Nonce())
+			log.Error("Skipping transaction with low nonce", "sender", from, "nonce", tx.Nonce())
 			txs.Shift()
 
 		case errors.Is(err, core.ErrNonceTooHigh):
 			// Reorg notification data race between the transaction pool and miner, skip account =
-			log.Trace("Skipping account with hight nonce", "sender", from, "nonce", tx.Nonce())
+			log.Error("Skipping account with hight nonce", "sender", from, "nonce", tx.Nonce())
 			txs.Pop()
 
 		case errors.Is(err, nil):
@@ -362,7 +365,7 @@ loop:
 
 			if tx.IsL1MessageTx() {
 				queueIndex := tx.AsL1MessageTx().QueueIndex
-				log.Debug("Including L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String())
+				log.Error("Including L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String())
 				env.l1TxCount++
 				env.nextL1MsgIndex = queueIndex + 1
 			} else {
@@ -372,18 +375,18 @@ loop:
 
 		case errors.Is(err, core.ErrTxTypeNotSupported):
 			// Pop the unsupported transaction without shifting in the next from the account
-			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
+			log.Error("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
 			txs.Pop()
 
 		case errors.Is(err, core.ErrInsufficientFunds) || errors.Is(errors.Unwrap(err), core.ErrInsufficientFunds):
-			log.Trace("Skipping tx with insufficient funds", "sender", from, "tx", tx.Hash().String())
+			log.Error("Skipping tx with insufficient funds", "sender", from, "tx", tx.Hash().String())
 			txs.Pop()
 			miner.txpool.RemoveTx(tx.Hash(), true)
 
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the
 			// nonce-too-high clause will prevent us from executing in vain).
-			log.Debug("Transaction failed, account skipped", "hash", tx.Hash().String(), "err", err)
+			log.Error("Transaction failed, account skipped", "hash", tx.Hash().String(), "err", err)
 			if tx.IsL1MessageTx() {
 				log.Warn("L1 messages encounter strange error, stops filling following L1 messages")
 				l1TxStrangeErrCounter.Inc(1)
@@ -423,8 +426,10 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
+		log.Info("Committing L1 messages", "count", len(l1Transactions))
 		err = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil {
+			log.Error("Failed to commit L1 messages", "err", err)
 			return err
 		}
 	}

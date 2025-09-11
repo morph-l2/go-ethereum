@@ -47,7 +47,7 @@ func NewZKPruner(chaindb ethdb.Database, bloomSize uint64, datadir, trieCachePat
 	headBlock := rawdb.ReadHeadBlock(chaindb)
 	root := headBlock.Root()
 	log.Info("current head block", "block number", headBlock.NumberU64(), "root", root.Hex())
-	zkTrie, err := trie.NewZkTrie(root, trie.NewZktrieDatabaseFromTriedb(stateCache.TrieDB()))
+	zkTrie, err := trie.NewZkTrie(root, stateCache.TrieDB())
 	if err != nil {
 		return nil, err
 	}
@@ -249,9 +249,9 @@ func (p *ZKPruner) extractTrieNodes(root *common.Hash, accountTrie bool) {
 				}
 			}
 
-			p.stateBloom.Put(trie.BitReverse(nodeHash[:]), nil)
+			p.stateBloom.Put(common.BitReverse(nodeHash[:]), nil)
 		case zktrie.NodeTypeBranch_0, zktrie.NodeTypeBranch_1, zktrie.NodeTypeBranch_2, zktrie.NodeTypeBranch_3, zktrie.DBEntryTypeRoot:
-			p.stateBloom.Put(trie.BitReverse(nodeHash[:]), nil)
+			p.stateBloom.Put(common.BitReverse(nodeHash[:]), nil)
 		case zktrie.NodeTypeEmpty, zktrie.NodeTypeLeaf, zktrie.NodeTypeParent:
 			panic("encounter unsupported deprecated node type")
 		default:

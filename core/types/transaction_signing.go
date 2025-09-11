@@ -210,6 +210,7 @@ func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
 		s.legacy = FrontierSigner{}
 	}
 	s.txtypes[LegacyTxType] = struct{}{}
+	s.txtypes[L1MessageTxType] = struct{}{}
 	// configure tx types
 	if fork >= forks.Berlin {
 		s.txtypes[AccessListTxType] = struct{}{}
@@ -248,6 +249,9 @@ func (s *modernSigner) Sender(tx *Transaction) (common.Address, error) {
 	tt := tx.Type()
 	if !s.supportsType(tt) {
 		return common.Address{}, ErrTxTypeNotSupported
+	}
+	if tx.IsL1MessageTx() {
+		return tx.AsL1MessageTx().Sender, nil
 	}
 	if tt == LegacyTxType {
 		return s.legacy.Sender(tx)

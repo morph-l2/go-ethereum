@@ -495,6 +495,12 @@ func (l *StructLogger) OnTxEnd(receipt *types.Receipt, err error) {
 
 func (l *StructLogger) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
 	l.statesAffected[to] = struct{}{}
+	target, ok := types.ParseDelegation(l.env.StateDB.GetCode(to))
+	// if the target is a delegation, we need to trace the target
+	if ok {
+		l.statesAffected[target] = struct{}{}
+		traceCodeWithAddress(l, target)
+	}
 }
 
 // Error returns the VM error captured by the trace.

@@ -365,7 +365,7 @@ loop:
 
 			if tx.IsL1MessageTx() {
 				queueIndex := tx.AsL1MessageTx().QueueIndex
-				log.Trace("Including L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String())
+				log.Debug("Including L1 message", "queueIndex", queueIndex, "tx", tx.Hash().String())
 				env.l1TxCount++
 				env.nextL1MsgIndex = queueIndex + 1
 			} else {
@@ -386,7 +386,7 @@ loop:
 		default:
 			// Strange error, discard the transaction and get the next in line (note, the
 			// nonce-too-high clause will prevent us from executing in vain).
-			log.Trace("Transaction failed, account skipped", "hash", tx.Hash().String(), "err", err)
+			log.Debug("Transaction failed, account skipped", "hash", tx.Hash().String(), "err", err)
 			if tx.IsL1MessageTx() {
 				log.Warn("L1 messages encounter strange error, stops filling following L1 messages")
 				l1TxStrangeErrCounter.Inc(1)

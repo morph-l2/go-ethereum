@@ -94,27 +94,5 @@ func main() {
 	if err := json.NewDecoder(file).Decode(g); err != nil {
 		panic(err)
 	}
-	//fmt.Println("const allocData =", makealloc(g))
-	// 生成分配数据
-	allocData := makealloc(g)
-
-	// 创建输出文件
-	outputFile, err := os.Create("genesis_alloc_data.go")
-	if err != nil {
-		panic(err)
-	}
-	defer outputFile.Close()
-
-	// 写入文件内容
-	content := fmt.Sprintf(`package core
-
-// Auto-generated genesis allocation data
-const morphHoodiAllocData = %s
-`, allocData)
-
-	if _, err := outputFile.WriteString(content); err != nil {
-		panic(err)
-	}
-
-	fmt.Println("Genesis allocation data written to genesis_alloc_data.go")
+	fmt.Println("const allocData =", makealloc(g))
 }

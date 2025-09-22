@@ -93,6 +93,13 @@ var MorphHoleskyBootnodes = []string{
 	"enode://588b64f887745a2f53a92312926c9d5ae03c64412860889a9c605570d7b71522a0774d254311752ac2cd44c68c3282ea125874f66ef7e65548573420d6cd98e2@35.78.13.184:30303",
 }
 
+// MorphHoodiBootnodes are the enode URLs of the P2P bootstrap nodes running on the Morph Hoodi test network.
+var MorphHoodiBootnodes = []string{
+	"enode://8efa3da017d3eeb9db761e17c10121ee3ee6d258045ac4fba42549552376547f818a31e933b9dd904528aaadc9b6b457e9d1970e3cbbad42d7a0171686cbd994@13.159.40.158:30303",
+	"enode://884f27d218751e1f64eec36f7a5bad2bd03006d0a73b9557e36bb90847db5cb8cc2f86cb88121cecaf8599779ec088a9670fec8ee8611885591a97b52064f171@18.177.181.171:30303",
+	"enode://cc0a69714111d69bb6f664c06d4d8a560019259ba9828ffd5714d465bc334652354b1660b6c058c50821f790d2f76a005bf0a3c74b55cce44b7e10180130fac3@13.230.212.70:30303",
+}
+
 var V5Bootnodes = []string{
 	// Teku team's bootnode
 	"enr:-KG4QOtcP9X1FbIMOe17QNMKqDxCpm14jcX5tiOE4_TyMrFqbmhPZHK_ZPG2Gxb1GE2xdtodOfx9-cgvNtxnRyHEmC0ghGV0aDKQ9aX9QgAAAAD__________4JpZIJ2NIJpcIQDE8KdiXNlY3AyNTZrMaEDhpehBDbZjM_L9ek699Y7vhUJ-eAdMyQW_Fil522Y0fODdGNwgiMog3VkcIIjKA",

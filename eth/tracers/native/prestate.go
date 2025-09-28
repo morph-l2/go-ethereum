@@ -123,7 +123,7 @@ func (t *prestateTracer) OnOpcode(pc uint64, opcode byte, gas, cost uint64, scop
 		addr := common.Address(stackData[stackLen-2].Bytes20())
 		t.lookupAccount(addr)
 		// Lookup the delegation target
-		if t.chainConfig.IsMorph300(t.env.BlockNumber, t.env.Time) {
+		if t.chainConfig.IsViridian(t.env.BlockNumber, t.env.Time) {
 			code := t.env.StateDB.GetCode(addr)
 			if target, ok := types.ParseDelegation(code); ok {
 				t.lookupAccount(target)
@@ -158,7 +158,7 @@ func (t *prestateTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction
 	} else {
 		t.to = *tx.To()
 		// Lookup the delegation target
-		if t.chainConfig.IsMorph300(t.env.BlockNumber, t.env.Time) {
+		if t.chainConfig.IsViridian(t.env.BlockNumber, t.env.Time) {
 			code := t.env.StateDB.GetCode(t.to)
 			if target, ok := types.ParseDelegation(code); ok {
 				t.lookupAccount(target)

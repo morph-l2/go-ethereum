@@ -1451,7 +1451,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.eip2718 = pool.chainconfig.IsCurie(next)
 	pool.eip1559 = pool.chainconfig.IsCurie(next)
 	pool.shanghai = pool.chainconfig.IsShanghai(next)
-	pool.eip7702 = pool.chainconfig.IsMorph300(next, newHead.Time)
+	pool.eip7702 = pool.chainconfig.IsViridian(next, newHead.Time)
 
 	// Update current head
 	pool.currentHead = next

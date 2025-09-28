@@ -72,7 +72,7 @@ var (
 		utils.SmartCardDaemonPathFlag,
 		utils.OverrideArrowGlacierFlag,
 		utils.OverrideMorph203TimeFlag,
-		utils.OverrideMorph300TimeFlag,
+		utils.OverrideViridianTimeFlag,
 		utils.EthashCacheDirFlag,
 		utils.EthashCachesInMemoryFlag,
 		utils.EthashCachesOnDiskFlag,

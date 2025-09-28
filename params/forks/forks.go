@@ -39,7 +39,7 @@ const (
 	Bernoulli
 	Curie
 	Morph203
-	Morph300
+	Viridian
 )
 
 // String implements fmt.Stringer.

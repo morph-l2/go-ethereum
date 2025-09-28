@@ -42,8 +42,8 @@ type sigCache struct {
 func MakeSigner(config *params.ChainConfig, blockNumber *big.Int, blockTime uint64) Signer {
 	var signer Signer
 	switch {
-	case config.IsMorph300(blockNumber, blockTime):
-		signer = NewMorph300Signer(config.ChainID)
+	case config.IsViridian(blockNumber, blockTime):
+		signer = NewViridianSigner(config.ChainID)
 	case config.IsCurie(blockNumber):
 		signer = NewCurieSigner(config.ChainID)
 	case config.IsLondon(blockNumber):
@@ -71,8 +71,8 @@ func LatestSigner(config *params.ChainConfig) Signer {
 	var signer Signer
 	if config.ChainID != nil {
 		switch {
-		case config.Morph300Time != nil:
-			signer = NewMorph300Signer(config.ChainID)
+		case config.ViridianTime != nil:
+			signer = NewViridianSigner(config.ChainID)
 		case config.CurieBlock != nil:
 			signer = NewCurieSigner(config.ChainID)
 		case config.LondonBlock != nil:
@@ -98,7 +98,7 @@ func LatestSigner(config *params.ChainConfig) Signer {
 func LatestSignerForChainID(chainID *big.Int) Signer {
 	var signer Signer
 	if chainID != nil {
-		signer = NewMorph300Signer(chainID)
+		signer = NewViridianSigner(chainID)
 	} else {
 		signer = HomesteadSigner{}
 	}
@@ -221,7 +221,7 @@ func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
 	if fork >= forks.Curie {
 		s.txtypes[BlobTxType] = struct{}{}
 	}
-	if fork >= forks.Morph300 {
+	if fork >= forks.Viridian {
 		s.txtypes[SetCodeTxType] = struct{}{}
 	}
 	return s
@@ -284,15 +284,15 @@ func (s *modernSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *bi
 	return R, S, V, nil
 }
 
-// NewMorph300Signer returns a signer that accepts
+// NewViridianSigner returns a signer that accepts
 // - EIP-7702 setCode transactions
 // - EIP-4844 blob transactions
 // - EIP-1559 dynamic fee transactions
 // - EIP-2930 access list transactions,
 // - EIP-155 replay protected transactions, and
 // - legacy Homestead transactions.
-func NewMorph300Signer(chainId *big.Int) Signer {
-	return newModernSigner(chainId, forks.Morph300)
+func NewViridianSigner(chainId *big.Int) Signer {
+	return newModernSigner(chainId, forks.Viridian)
 }
 
 // NewCurieSigner returns a signer that accepts

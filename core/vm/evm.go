@@ -536,7 +536,7 @@ func (evm *EVM) Create2(caller ContractRef, code []byte, gas uint64, endowment *
 // Prague, it can also resolve code pointed to by a delegation designator.
 func (evm *EVM) resolveCode(addr common.Address) []byte {
 	code := evm.StateDB.GetCode(addr)
-	if !evm.chainRules.IsMorph300 {
+	if !evm.chainRules.IsViridian {
 		return code
 	}
 	if target, ok := types.ParseDelegation(code); ok {
@@ -551,7 +551,7 @@ func (evm *EVM) resolveCode(addr common.Address) []byte {
 // delegation designator. Although this is not accessible in the EVM it is used
 // internally to associate jumpdest analysis to code.
 func (evm *EVM) resolveCodeHash(addr common.Address) common.Hash {
-	if evm.chainRules.IsMorph300 {
+	if evm.chainRules.IsViridian {
 		code := evm.StateDB.GetCode(addr)
 		if target, ok := types.ParseDelegation(code); ok {
 			// Note we only follow one level of delegation.

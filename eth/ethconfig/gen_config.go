@@ -113,7 +113,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.CheckCircuitCapacity = c.CheckCircuitCapacity
 	enc.MaxBlockRange = c.MaxBlockRange
 	enc.OverrideMorph203Time = c.OverrideMorph203Time
-	enc.OverrideMorph300Time = c.OverrideMorph300Time
+	enc.OverrideMorph300Time = c.OverrideViridianTime
 	return &enc, nil
 }
 

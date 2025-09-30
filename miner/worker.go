@@ -225,7 +225,7 @@ func (miner *Miner) makeEnv(parent *types.Block, header *types.Header) (*environ
 	stateDB.StartPrefetcher("miner")
 
 	env := &environment{
-		signer:         types.MakeSigner(miner.chainConfig, header.Number),
+		signer:         types.MakeSigner(miner.chainConfig, header.Number, header.Time),
 		state:          stateDB,
 		header:         header,
 		nextL1MsgIndex: parent.Header().NextL1MsgIndex,
@@ -330,6 +330,9 @@ loop:
 		env.state.SetTxContext(tx.Hash(), env.tcount)
 
 		err := miner.commitTransaction(env, tx, coinbase)
+		if err != nil {
+			log.Error("Transaction inclusion failed", "hash", tx.Hash(), "err", err)
+		}
 		switch {
 		case errors.Is(err, core.ErrGasLimitReached) && tx.IsL1MessageTx():
 			// If this block already contains some L1 messages,
@@ -423,6 +426,7 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 			}
 		}
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
+		log.Info("Committing L1 messages", "count", len(l1Transactions))
 		err = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil {
 			return err

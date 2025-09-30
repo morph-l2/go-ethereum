@@ -31,6 +31,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/ethdb"
@@ -68,7 +69,11 @@ func odrGetReceipts(ctx context.Context, db ethdb.Database, config *params.Chain
 	var receipts types.Receipts
 	if bc != nil {
 		if number := rawdb.ReadHeaderNumber(db, bhash); number != nil {
-			receipts = rawdb.ReadReceipts(db, bhash, *number, config)
+			header := rawdb.ReadHeader(db, bhash, *number)
+			if header == nil {
+				return nil
+			}
+			receipts = rawdb.ReadReceipts(db, bhash, *number, header.Time, config)
 		}
 	} else {
 		if number := rawdb.ReadHeaderNumber(db, bhash); number != nil {
@@ -136,7 +141,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 				from := statedb.GetOrNewStateObject(bankAddr)
 				from.SetBalance(math.MaxBig256)
 
-				msg := callmsg{types.NewMessage(from.Address(), &testContractAddr, 0, new(big.Int), 100000, big.NewInt(params.InitialBaseFee), big.NewInt(params.InitialBaseFee), new(big.Int), data, nil, true)}
+				msg := callmsg{types.NewMessage(from.Address(), &testContractAddr, 0, new(big.Int), 100000, big.NewInt(params.InitialBaseFee), big.NewInt(params.InitialBaseFee), new(big.Int), data, nil, nil, true)}
 
 				context := core.NewEVMBlockContext(header, bc, config, nil)
 				txContext := core.NewEVMTxContext(msg)
@@ -144,7 +149,7 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 
 				//vmenv := core.NewEnv(statedb, config, bc, msg, header, vm.Config{})
 				gp := new(core.GasPool).AddGas(math.MaxUint64)
-				signer := types.MakeSigner(config, header.Number)
+				signer := types.MakeSigner(config, header.Number, header.Time)
 				l1DataFee, _ := fees.EstimateL1DataFeeForMessage(msg, header.BaseFee, config, signer, statedb, header.Number)
 				result, _ := core.ApplyMessage(vmenv, msg, gp, l1DataFee)
 				res = append(res, result.Return()...)
@@ -152,13 +157,13 @@ func odrContractCall(ctx context.Context, db ethdb.Database, config *params.Chai
 		} else {
 			header := lc.GetHeaderByHash(bhash)
 			state := light.NewState(ctx, header, lc.Odr())
-			state.SetBalance(bankAddr, math.MaxBig256)
-			msg := callmsg{types.NewMessage(bankAddr, &testContractAddr, 0, new(big.Int), 100000, big.NewInt(params.InitialBaseFee), big.NewInt(params.InitialBaseFee), new(big.Int), data, nil, true)}
+			state.SetBalance(bankAddr, math.MaxBig256, tracing.BalanceChangeUnspecified)
+			msg := callmsg{types.NewMessage(bankAddr, &testContractAddr, 0, new(big.Int), 100000, big.NewInt(params.InitialBaseFee), big.NewInt(params.InitialBaseFee), new(big.Int), data, nil, nil, true)}
 			context := core.NewEVMBlockContext(header, lc, config, nil)
 			txContext := core.NewEVMTxContext(msg)
 			vmenv := vm.NewEVM(context, txContext, state, config, vm.Config{NoBaseFee: true})
 			gp := new(core.GasPool).AddGas(math.MaxUint64)
-			signer := types.MakeSigner(config, header.Number)
+			signer := types.MakeSigner(config, header.Number, header.Time)
 			l1DataFee, _ := fees.EstimateL1DataFeeForMessage(msg, header.BaseFee, config, signer, state, header.Number)
 			result, _ := core.ApplyMessage(vmenv, msg, gp, l1DataFee)
 			if state.Error() == nil {

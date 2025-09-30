@@ -108,6 +108,10 @@ func (tx *AccessListTx) value() *big.Int        { return tx.Value }
 func (tx *AccessListTx) nonce() uint64          { return tx.Nonce }
 func (tx *AccessListTx) to() *common.Address    { return tx.To }
 
+func (tx *AccessListTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+	return dst.Set(tx.GasPrice)
+}
+
 func (tx *AccessListTx) rawSignatureValues() (v, r, s *big.Int) {
 	return tx.V, tx.R, tx.S
 }
@@ -122,4 +126,19 @@ func (tx *AccessListTx) encode(b *bytes.Buffer) error {
 
 func (tx *AccessListTx) decode(input []byte) error {
 	return rlp.DecodeBytes(input, tx)
+}
+
+func (tx *AccessListTx) sigHash(chainID *big.Int) common.Hash {
+	return prefixedRlpHash(
+		AccessListTxType,
+		[]any{
+			chainID,
+			tx.Nonce,
+			tx.GasPrice,
+			tx.Gas,
+			tx.To,
+			tx.Value,
+			tx.Data,
+			tx.AccessList,
+		})
 }

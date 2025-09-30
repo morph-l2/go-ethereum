@@ -319,7 +319,7 @@ var (
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
-			MaxTxPerBlock:             &MorphHoleskyMaxTxPerBlock,
+			MaxTxPerBlock:             &MorphMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphHoodiFeeVaultAddress,
 		},

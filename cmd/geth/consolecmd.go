@@ -141,6 +141,8 @@ func remoteConsole(ctx *cli.Context) error {
 				path = filepath.Join(path, "morph")
 			} else if ctx.GlobalBool(utils.MorphHoleskyFlag.Name) {
 				path = filepath.Join(path, "morph-holesky")
+			} else if ctx.GlobalBool(utils.MorphHoodiFlag.Name) {
+				path = filepath.Join(path, "morph-hoodi")
 			}
 		}
 		endpoint = fmt.Sprintf("%s/geth.ipc", path)

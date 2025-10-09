@@ -16,6 +16,7 @@ var _ = (*safeL2DataMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 	type SafeL2Data struct {
+		Miner        common.Address  `json:"miner"          gencodec:"required"`
 		Number       hexutil.Uint64  `json:"number"         gencodec:"required"`
 		GasLimit     hexutil.Uint64  `json:"gasLimit"       gencodec:"required"`
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
@@ -24,6 +25,7 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 		BatchHash    *common.Hash    `json:"batchHash"`
 	}
 	var enc SafeL2Data
+	enc.Miner = s.Miner
 	enc.Number = hexutil.Uint64(s.Number)
 	enc.GasLimit = hexutil.Uint64(s.GasLimit)
 	enc.BaseFee = (*hexutil.Big)(s.BaseFee)
@@ -41,6 +43,7 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 	type SafeL2Data struct {
+		Miner        *common.Address `json:"miner"          gencodec:"required"`
 		Number       *hexutil.Uint64 `json:"number"         gencodec:"required"`
 		GasLimit     *hexutil.Uint64 `json:"gasLimit"       gencodec:"required"`
 		BaseFee      *hexutil.Big    `json:"baseFeePerGas"`
@@ -52,6 +55,10 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 	if err := json.Unmarshal(input, &dec); err != nil {
 		return err
 	}
+	if dec.Miner == nil {
+		return errors.New("missing required field 'miner' for SafeL2Data")
+	}
+	s.Miner = *dec.Miner
 	if dec.Number == nil {
 		return errors.New("missing required field 'number' for SafeL2Data")
 	}

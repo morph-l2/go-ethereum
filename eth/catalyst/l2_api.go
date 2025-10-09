@@ -64,7 +64,7 @@ type executionResult struct {
 }
 
 func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*ExecutableL2Data, error) {
-	log.Info("Assembling block", "block number", params.Number)
+	log.Info("Assembling block", "block number", params.Number, "coinbase", params.Coinbase)
 	parent := api.eth.BlockChain().CurrentHeader()
 	expectedBlockNumber := parent.Number.Uint64() + 1
 	if params.Number != expectedBlockNumber {
@@ -81,7 +81,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
+	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), params.Coinbase, transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +272,7 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, err
 	}
 	header := &types.Header{
 		Number:    big.NewInt(int64(params.Number)),
+		Coinbase:  params.Miner,
 		GasLimit:  params.GasLimit,
 		Time:      params.Timestamp,
 		BaseFee:   params.BaseFee,

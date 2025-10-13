@@ -141,6 +141,9 @@ type CallMsg struct {
 	// For BlobTxType
 	BlobGasFeeCap *big.Int
 	BlobHashes    []common.Hash
+
+	// For ERC20FeeType
+	FeeTokenID *uint16
 }
 
 // A ContractCaller provides contract calls, essentially transactions that are executed by

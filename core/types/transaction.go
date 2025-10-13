@@ -208,6 +208,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(L1MessageTx)
 	case SetCodeTxType:
 		inner = new(SetCodeTx)
+	case ERC20FeeTxType:
+		inner = new(DynamicFeeTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -738,6 +740,7 @@ type Message struct {
 	accessList    AccessList
 	isFake        bool
 	isL1MessageTx bool
+	feeTokenID    *uint16
 }
 
 func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
@@ -793,6 +796,7 @@ func (m Message) Data() []byte           { return m.data }
 func (m Message) AccessList() AccessList { return m.accessList }
 func (m Message) IsFake() bool           { return m.isFake }
 func (m Message) IsL1MessageTx() bool    { return m.isL1MessageTx }
+func (m Message) FeeTokenID() *uint16    { return m.isL1MessageTx }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

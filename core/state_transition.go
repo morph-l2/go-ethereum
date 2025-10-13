@@ -71,7 +71,8 @@ type StateTransition struct {
 	state      vm.StateDB
 	evm        *vm.EVM
 
-	l1DataFee *big.Int
+	l1DataFee  *big.Int
+	feeTokenID *uint16
 }
 
 // Message represents a message sent to a contract.
@@ -90,6 +91,7 @@ type Message interface {
 	Data() []byte
 	AccessList() types.AccessList
 	IsL1MessageTx() bool
+	FeeTokenID() *uint16
 }
 
 // ExecutionResult includes all output after executing given evm
@@ -214,7 +216,11 @@ func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) (*E
 	defer func(t time.Time) {
 		stateTransitionApplyMessageTimer.Update(time.Since(t))
 	}(time.Now())
-
+	if msg.FeeTokenID() != nil {
+		// TODO
+		evm.Context.BaseFee = big.NewInt(0).Mul(evm.Context.BaseFee, big.NewInt(1))
+		l1DataFee = big.NewInt(0).Mul(l1DataFee, big.NewInt(1))
+	}
 	return NewStateTransition(evm, msg, gp, l1DataFee).TransitionDb()
 }
 

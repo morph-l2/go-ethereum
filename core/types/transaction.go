@@ -53,6 +53,7 @@ const (
 	BlobTxType       = 0x03
 	SetCodeTxType    = 0x04
 
+	ERC20FeeTxType  = 0x05
 	L1MessageTxType = 0x7E
 )
 

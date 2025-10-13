@@ -87,6 +87,7 @@ type SendTxArgs struct {
 	// For non-legacy transactions
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
+	FeeTokenID *uint16           `json:"feeTokenID,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -119,6 +120,20 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
+		}
+		if args.FeeTokenID != nil {
+			data = &types.ERC20FeeTx{
+				To:         to,
+				ChainID:    (*big.Int)(args.ChainID),
+				Nonce:      uint64(args.Nonce),
+				Gas:        uint64(args.Gas),
+				GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
+				GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+				FeeTokenID: *args.FeeTokenID,
+				Value:      (*big.Int)(&args.Value),
+				Data:       input,
+				AccessList: al,
+			}
 		}
 		data = &types.DynamicFeeTx{
 			To:         to,

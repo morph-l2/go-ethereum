@@ -209,7 +209,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	case SetCodeTxType:
 		inner = new(SetCodeTx)
 	case ERC20FeeTxType:
-		inner = new(DynamicFeeTx)
+		inner = new(ERC20FeeTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}

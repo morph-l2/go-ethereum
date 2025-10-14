@@ -94,7 +94,7 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 		return asUnsignedAccessListTx(msg, chainID)
 	}
 	if msg.FeeTokenID() != nil {
-		asUnsignedERC20FeeTx(msg, chainID)
+		return asUnsignedERC20FeeTx(msg, chainID)
 	}
 
 	return asUnsignedDynamicTx(msg, chainID)

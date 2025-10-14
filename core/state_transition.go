@@ -219,7 +219,6 @@ func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) (*E
 	if msg.FeeTokenID() != nil {
 		// TODO
 		evm.Context.BaseFee = big.NewInt(0).Mul(evm.Context.BaseFee, big.NewInt(1))
-		l1DataFee = big.NewInt(0).Mul(l1DataFee, big.NewInt(1))
 	}
 	return NewStateTransition(evm, msg, gp, l1DataFee).TransitionDb()
 }

@@ -255,7 +255,7 @@ func (s londonSigner) Sender(tx *Transaction) (common.Address, error) {
 	if tx.IsL1MessageTx() {
 		return tx.AsL1MessageTx().Sender, nil
 	}
-	if tx.Type() != DynamicFeeTxType {
+	if tx.Type() != DynamicFeeTxType && tx.Type() != ERC20FeeTxType {
 		return s.eip2930Signer.Sender(tx)
 	}
 	V, R, S := tx.RawSignatureValues()
@@ -297,7 +297,7 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 	if tx.IsL1MessageTx() {
 		panic("l1 message tx cannot be signed and do not have a signing hash")
 	}
-	if tx.Type() != DynamicFeeTxType {
+	if tx.Type() != DynamicFeeTxType && tx.Type() != ERC20FeeTxType {
 		return s.eip2930Signer.Hash(tx)
 	}
 	return prefixedRlpHash(

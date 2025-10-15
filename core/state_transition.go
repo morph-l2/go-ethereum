@@ -328,6 +328,10 @@ func (st *StateTransition) preCheck() error {
 			}
 		}
 	}
+
+	if st.msg.FeeTokenID() != nil {
+
+	}
 	return st.buyGas()
 }
 

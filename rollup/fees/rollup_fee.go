@@ -35,6 +35,7 @@ type Message interface {
 	Data() []byte
 	AccessList() types.AccessList
 	IsL1MessageTx() bool
+	FeeTokenID() *uint16
 }
 
 // StateDB represents the StateDB interface
@@ -77,6 +78,9 @@ func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.C
 	} else {
 		l1DataFee = calculateEncodedL1DataFeeCurie(raw, gpoState.l1BaseFee, gpoState.l1BlobBaseFee, gpoState.commitScalar, gpoState.blobScalar)
 	}
+	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
+		l1DataFee = ExchangeToERC20(state, tx.FeeTokenID(), l1DataFee)
+	}
 	return l1DataFee, nil
 }
 
@@ -88,6 +92,9 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 		}
 
 		return asUnsignedAccessListTx(msg, chainID)
+	}
+	if msg.FeeTokenID() != nil {
+		return asUnsignedERC20FeeTx(msg, chainID)
 	}
 
 	return asUnsignedDynamicTx(msg, chainID)
@@ -125,6 +132,21 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 		Gas:        msg.Gas(),
 		GasFeeCap:  msg.GasFeeCap(),
 		GasTipCap:  msg.GasTipCap(),
+		Data:       msg.Data(),
+		AccessList: msg.AccessList(),
+		ChainID:    chainID,
+	})
+}
+
+func asUnsignedERC20FeeTx(msg Message, chainID *big.Int) *types.Transaction {
+	return types.NewTx(&types.ERC20FeeTx{
+		Nonce:      msg.Nonce(),
+		To:         msg.To(),
+		Value:      msg.Value(),
+		Gas:        msg.Gas(),
+		GasFeeCap:  msg.GasFeeCap(),
+		GasTipCap:  msg.GasTipCap(),
+		FeeTokenID: *msg.FeeTokenID(),
 		Data:       msg.Data(),
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,
@@ -224,9 +246,22 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 	if !l1DataFee.IsUint64() {
 		l1DataFee.SetUint64(math.MaxUint64)
 	}
+	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
+		l1DataFee = ExchangeToERC20(state, tx.FeeTokenID(), l1DataFee)
+	}
 	return l1DataFee, nil
 }
 
 func GetL1BaseFee(state StateDB) *big.Int {
 	return state.GetState(rcfg.L1GasPriceOracleAddress, rcfg.L1BaseFeeSlot).Big()
+}
+
+func ExchangeToERC20(state StateDB, feeTokenID *uint16, feeByEth *big.Int) *big.Int {
+	// TODO
+	return big.NewInt(1)
+}
+
+func ExchangeToEth(state StateDB, feeTokenID *uint16, feeByERC20 *big.Int) *big.Int {
+	// TODO
+	return big.NewInt(1)
 }

@@ -209,7 +209,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	case SetCodeTxType:
 		inner = new(SetCodeTx)
 	case ERC20FeeTxType:
-		inner = new(DynamicFeeTx)
+		inner = new(ERC20FeeTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -319,6 +319,11 @@ func (tx *Transaction) IsL1MessageTx() bool {
 	return tx.Type() == L1MessageTxType
 }
 
+// IsERC20FeeTx returns true if the transaction is erc20 fee tx.
+func (tx *Transaction) IsERC20FeeTx() bool {
+	return tx.Type() == ERC20FeeTxType
+}
+
 // AsL1MessageTx casts the tx into an L1 cross-domain tx.
 func (tx *Transaction) AsL1MessageTx() *L1MessageTx {
 	if !tx.IsL1MessageTx() {
@@ -334,6 +339,21 @@ func (tx *Transaction) L1MessageQueueIndex() uint64 {
 		return 0
 	}
 	return tx.AsL1MessageTx().QueueIndex
+}
+
+// AsERC20FeeTx casts the tx into an erc20 fee tx.
+func (tx *Transaction) AsERC20FeeTx() *ERC20FeeTx {
+	if !tx.IsERC20FeeTx() {
+		return nil
+	}
+	return tx.inner.(*ERC20FeeTx)
+}
+
+func (tx *Transaction) FeeTokenID() *uint16 {
+	if !tx.IsERC20FeeTx() {
+		return nil
+	}
+	return &tx.AsERC20FeeTx().FeeTokenID
 }
 
 // Cost returns gas * gasPrice + value.
@@ -743,7 +763,7 @@ type Message struct {
 	feeTokenID    *uint16
 }
 
-func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
+func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, feeTokenID uint16, data []byte, accessList AccessList, isFake bool) Message {
 	return Message{
 		from:          from,
 		to:            to,
@@ -757,6 +777,7 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 		accessList:    accessList,
 		isFake:        isFake,
 		isL1MessageTx: false,
+		feeTokenID:    &feeTokenID,
 	}
 }
 
@@ -774,6 +795,7 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		accessList:    tx.AccessList(),
 		isFake:        false,
 		isL1MessageTx: tx.IsL1MessageTx(),
+		feeTokenID:    tx.FeeTokenID(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
@@ -796,7 +818,7 @@ func (m Message) Data() []byte           { return m.data }
 func (m Message) AccessList() AccessList { return m.accessList }
 func (m Message) IsFake() bool           { return m.isFake }
 func (m Message) IsL1MessageTx() bool    { return m.isL1MessageTx }
-func (m Message) FeeTokenID() *uint16    { return m.isL1MessageTx }
+func (m Message) FeeTokenID() *uint16    { return m.feeTokenID }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

@@ -702,7 +702,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		}
 		// Transactor should have enough funds to cover the costs
 		// cost == L1 data fee + V + GP * GL
-		if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
+		if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee.EthAmount())) < 0 {
 			return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
 		}
 	}
@@ -1475,7 +1475,7 @@ func (pool *TxPool) executableTxFilter(costLimit *big.Int) func(tx *types.Transa
 				log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
 				return false
 			}
-			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
+			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee.EthAmount())) < 0
 		}
 
 		return false

@@ -37,6 +37,7 @@ var (
 	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
 	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
+	ErrInvalidParamNumber   = errors.New("invalid number of parameters")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
 	errShortTypedTx         = errors.New("typed transaction too short")
@@ -357,7 +358,12 @@ func (tx *Transaction) FeeTokenID() *uint16 {
 }
 
 // Cost returns gas * gasPrice + value.
-func (tx *Transaction) Cost() *big.Int {
+func (tx *Transaction) Cost(tokenRate ...*big.Int) *big.Int {
+	if tx.IsERC20FeeTx() {
+		if len(tokenRate) != 1 {
+			panic(ErrInvalidParamNumber)
+		}
+	}
 	total := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
 	total.Add(total, tx.Value())
 	return total
@@ -370,22 +376,43 @@ func (tx *Transaction) RawSignatureValues() (v, r, s *big.Int) {
 }
 
 // GasFeeCapCmp compares the fee cap of two transactions.
-func (tx *Transaction) GasFeeCapCmp(other *Transaction) int {
+func (tx *Transaction) GasFeeCapCmp(other *Transaction, tokenRate ...*big.Int) int {
+	if tx.IsERC20FeeTx() {
+		if len(tokenRate) != 1 {
+			panic(ErrInvalidParamNumber)
+		}
+	}
 	return tx.inner.gasFeeCap().Cmp(other.inner.gasFeeCap())
 }
 
 // GasFeeCapIntCmp compares the fee cap of the transaction against the given fee cap.
-func (tx *Transaction) GasFeeCapIntCmp(other *big.Int) int {
+func (tx *Transaction) GasFeeCapIntCmp(other *big.Int, tokenRate ...*big.Int) int {
+	if tx.IsERC20FeeTx() {
+		if len(tokenRate) != 1 {
+			panic(ErrInvalidParamNumber)
+		}
+	}
 	return tx.inner.gasFeeCap().Cmp(other)
 }
 
 // GasTipCapCmp compares the gasTipCap of two transactions.
-func (tx *Transaction) GasTipCapCmp(other *Transaction) int {
+func (tx *Transaction) GasTipCapCmp(other *Transaction, tokenRate ...*big.Int) int {
+	if tx.IsERC20FeeTx() {
+		if len(tokenRate) != 1 {
+			panic(ErrInvalidParamNumber)
+		}
+	}
 	return tx.inner.gasTipCap().Cmp(other.inner.gasTipCap())
 }
 
 // GasTipCapIntCmp compares the gasTipCap of the transaction against the given gasTipCap.
-func (tx *Transaction) GasTipCapIntCmp(other *big.Int) int {
+func (tx *Transaction) GasTipCapIntCmp(other *big.Int, tokenRate ...*big.Int) int {
+	if tx.IsERC20FeeTx() {
+		if len(tokenRate) != 1 {
+			panic(ErrInvalidParamNumber)
+		}
+		return new(big.Int).Mul(tx.inner.gasTipCap(), tokenRate[0]).Cmp(new(big.Int).Mul(other, tokenRate[1]))
+	}
 	return tx.inner.gasTipCap().Cmp(other)
 }
 

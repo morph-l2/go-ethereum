@@ -326,7 +326,7 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		}
 	}
 	// Otherwise overwrite the old transaction with the current one
-	l1DataFee := big.NewInt(0)
+	l1DataFee := types.ZeroTokenFee
 	if state != nil && chainconfig != nil {
 		var err error
 		l1DataFee, err = fees.CalculateL1DataFee(tx, state, chainconfig, blockNumber)
@@ -336,7 +336,7 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		}
 	}
 	l.txs.Put(tx)
-	if cost := new(big.Int).Add(tx.Cost(), l1DataFee); l.costcap.Cmp(cost) < 0 {
+	if cost := new(big.Int).Add(tx.Cost(l1DataFee.Rate), l1DataFee.EthAmount()); l.costcap.Cmp(cost) < 0 {
 		l.costcap = cost
 	}
 	if gas := tx.Gas(); l.gascap < gas {

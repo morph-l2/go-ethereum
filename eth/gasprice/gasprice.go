@@ -274,6 +274,9 @@ func (oracle *Oracle) getBlockValues(ctx context.Context, signer types.Signer, b
 
 	var prices []*big.Int
 	for _, tx := range sorter.txs {
+		if tx.IsERC20FeeTx() { // TODO
+			continue
+		}
 		tip, _ := tx.EffectiveGasTip(block.BaseFee())
 		if ignoreUnder != nil && tip.Cmp(ignoreUnder) == -1 {
 			continue

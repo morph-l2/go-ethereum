@@ -69,8 +69,8 @@ const (
 	SHL    OpCode = 0x1b
 	SHR    OpCode = 0x1c
 	SAR    OpCode = 0x1d
-
-	SHA3 OpCode = 0x20
+	CLZ    OpCode = 0x1e
+	SHA3   OpCode = 0x20
 )
 
 // 0x30 range - closure state.
@@ -255,6 +255,7 @@ var opCodeToString = map[OpCode]string{
 	SHL:    "SHL",
 	SHR:    "SHR",
 	SAR:    "SAR",
+	CLZ:    "CLZ",
 	ADDMOD: "ADDMOD",
 	MULMOD: "MULMOD",
 
@@ -439,6 +440,7 @@ var stringToOp = map[string]OpCode{
 	"SHL":            SHL,
 	"SHR":            SHR,
 	"SAR":            SAR,
+	"CLZ":            CLZ,
 	"ADDMOD":         ADDMOD,
 	"MULMOD":         MULMOD,
 	"SHA3":           SHA3,

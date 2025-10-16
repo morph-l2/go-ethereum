@@ -77,7 +77,7 @@ type Receipt struct {
 	ReturnValue []byte `json:"returnValue,omitempty"`
 
 	// Morph rollup
-	L1Fee *big.Int `json:"l1Fee,omitempty"`
+	L1Fee *TokenFee `json:"l1Fee,omitempty"`
 }
 
 type receiptMarshaling struct {
@@ -107,7 +107,7 @@ type storedReceiptRLP struct {
 	PostStateOrStatus []byte
 	CumulativeGasUsed uint64
 	Logs              []*LogForStorage
-	L1Fee             *big.Int
+	L1Fee             *TokenFee
 }
 
 // v5StoredReceiptRLP is the storage encoding of a receipt used in database version 5.

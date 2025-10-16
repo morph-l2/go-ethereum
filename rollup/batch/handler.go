@@ -116,7 +116,7 @@ func (h *Handler) calculateL1FeeForBatch(index uint64, blockContextsBytes []byte
 		receipts := h.bc.GetReceiptsByHash(hash)
 		for _, receipt := range receipts {
 			if receipt.L1Fee != nil {
-				receivedL1Fee = new(big.Int).Add(receivedL1Fee, receipt.L1Fee)
+				receivedL1Fee = new(big.Int).Add(receivedL1Fee, receipt.L1Fee.EthAmount())
 			}
 		}
 	}

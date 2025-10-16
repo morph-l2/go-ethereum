@@ -71,7 +71,7 @@ type StateTransition struct {
 	state      vm.StateDB
 	evm        *vm.EVM
 
-	l1DataFee  *big.Int
+	l1DataFee  *types.TokenFee
 	feeTokenID *uint16
 }
 
@@ -97,7 +97,7 @@ type Message interface {
 // ExecutionResult includes all output after executing given evm
 // message no matter the execution itself is successful or not.
 type ExecutionResult struct {
-	L1DataFee  *big.Int
+	L1DataFee  *types.TokenFee
 	UsedGas    uint64 // Total used gas but include the refunded gas
 	Err        error  // Any error encountered during the execution(listed in core/vm/errors.go)
 	ReturnData []byte // Returned data from evm(function result or data supplied with revert opcode)
@@ -190,7 +190,7 @@ func toWordSize(size uint64) uint64 {
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) *StateTransition {
+func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *types.TokenFee) *StateTransition {
 	return &StateTransition{
 		gp:        gp,
 		evm:       evm,
@@ -212,7 +212,7 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.In
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) (*ExecutionResult, error) {
+func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *types.TokenFee) (*ExecutionResult, error) {
 	defer func(t time.Time) {
 		stateTransitionApplyMessageTimer.Update(time.Since(t))
 	}(time.Now())
@@ -240,7 +240,7 @@ func (st *StateTransition) buyGas() error {
 		// but double check to make sure
 		if !st.msg.IsL1MessageTx() {
 			log.Debug("Adding L1DataFee", "l1DataFee", st.l1DataFee)
-			mgval = mgval.Add(mgval, st.l1DataFee)
+			mgval = mgval.Add(mgval, st.l1DataFee.Fee)
 		}
 	}
 
@@ -253,7 +253,7 @@ func (st *StateTransition) buyGas() error {
 			// should be fine to add st.l1DataFee even without `L1MessageTx` check, since L1MessageTx will come with 0 l1DataFee,
 			// but double check to make sure
 			if !st.msg.IsL1MessageTx() {
-				balanceCheck.Add(balanceCheck, st.l1DataFee)
+				balanceCheck.Add(balanceCheck, st.l1DataFee.Fee)
 			}
 		}
 	}
@@ -421,7 +421,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// no refunds for l1 messages
 	if st.msg.IsL1MessageTx() {
 		return &ExecutionResult{
-			L1DataFee:  big.NewInt(0),
+			L1DataFee:  types.ZeroTokenFee,
 			UsedGas:    st.gasUsed(),
 			Err:        vmerr,
 			ReturnData: ret,
@@ -446,7 +446,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// codepath. Add the L1DataFee to the L2 fee for the total fee that is sent
 	// to the sequencer.
 	l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
-	fee := new(big.Int).Add(st.l1DataFee, l2Fee)
+	fee := new(big.Int).Add(st.l1DataFee.Fee, l2Fee)
 	st.state.AddBalance(st.evm.FeeRecipient(), fee)
 
 	return &ExecutionResult{

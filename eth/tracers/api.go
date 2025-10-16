@@ -914,7 +914,7 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *big.Int) (interface{}, error) {
+func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *types.TokenFee) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer    Tracer
@@ -955,7 +955,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		statedb.AddBalance(message.From(), l1DataFee)
+		statedb.AddBalance(message.From(), l1DataFee.EthAmount())
 	}
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)

@@ -984,9 +984,9 @@ func (diff *StateOverride) Apply(state *state.StateDB) error {
 	return nil
 }
 
-func EstimateL1MsgFee(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64, config *params.ChainConfig) (*big.Int, error) {
+func EstimateL1MsgFee(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64, config *params.ChainConfig) (*types.TokenFee, error) {
 	if !config.Morph.FeeVaultEnabled() {
-		return big.NewInt(0), nil
+		return types.ZeroTokenFee, nil
 	}
 
 	state, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
@@ -1069,7 +1069,7 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	// Execute the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
 
-	result, err := core.ApplyMessage(evm, msg, gp, common.Big0)
+	result, err := core.ApplyMessage(evm, msg, gp, types.ZeroTokenFee)
 	if err := vmError(); err != nil {
 		return nil, err
 	}
@@ -1190,10 +1190,11 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		if err != nil {
 			return 0, err
 		}
-		if l1DataFee.Cmp(available) >= 0 {
+		// TODO
+		if l1DataFee.EthAmount().Cmp(available) >= 0 {
 			return 0, errors.New("insufficient funds for l1 fee")
 		}
-		available.Sub(available, l1DataFee)
+		available.Sub(available, l1DataFee.EthAmount())
 
 		allowance := new(big.Int).Div(available, feeCap)
 
@@ -1776,7 +1777,8 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logs":              receipt.Logs,
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
-		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
+		"l1Fee":             (*hexutil.Big)(receipt.L1Fee.Fee),
+		"feeRate":           (*hexutil.Big)(receipt.L1Fee.Rate),
 	}
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {

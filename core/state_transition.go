@@ -475,7 +475,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// codepath. Add the L1DataFee to the L2 fee for the total fee that is sent
 	// to the sequencer.
 	l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
-	fee := new(big.Int).Add(st.l1DataFee, l2Fee)
+	fee := l2Fee
+	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
+		fee = new(big.Int).Add(st.l1DataFee, l2Fee)
+	}
 	st.state.AddBalance(st.evm.FeeRecipient(), fee, tracing.BalanceIncreaseRewardTransactionFee)
 
 	return &ExecutionResult{

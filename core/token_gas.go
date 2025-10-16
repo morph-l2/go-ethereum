@@ -13,7 +13,7 @@ import (
 // tokenAddress: The address of the ERC20 token contract
 // userAddress: The address of the user whose balance we want to check
 // Returns: *big.Int - The token balance, or nil if the call fails
-func (st *StateTransition) GetERC20Balance(tokenAddress common.Address, userAddress common.Address) (*big.Int, error) {
+func (st *StateTransition) GetERC20Balance(tokenAddress, userAddress common.Address) (*big.Int, error) {
 	// Define the ERC20 balanceOf method signature: balanceOf(address)
 	// Function signature: 0x70a08231
 	methodID := []byte{0x70, 0xa0, 0x82, 0x31}
@@ -28,13 +28,10 @@ func (st *StateTransition) GetERC20Balance(tokenAddress common.Address, userAddr
 	sender := vm.AccountRef(st.msg.From())
 
 	// Execute the call (using StaticCall since we're only reading state)
-	ret, remainingGas, err := st.evm.StaticCall(sender, tokenAddress, data, st.gas)
+	ret, _, err := st.evm.StaticCall(sender, tokenAddress, data, st.gas)
 	if err != nil {
 		return nil, err
 	}
-
-	// Restore gas to its previous value since we don't want this call to affect the actual transaction
-	st.gas = remainingGas
 
 	// If return data is too short, it's an error
 	if len(ret) < 32 {
@@ -53,7 +50,7 @@ func (st *StateTransition) GetERC20Balance(tokenAddress common.Address, userAddr
 // to: The address to transfer tokens to
 // amount: The amount of tokens to transfer
 // Returns: error - nil if the transfer was successful, error otherwise
-func (st *StateTransition) TransferERC20(tokenAddress common.Address, from common.Address, to common.Address, amount *big.Int) error {
+func (st *StateTransition) TransferERC20(tokenAddress, from, to common.Address, amount *big.Int) error {
 	if amount == nil || amount.Sign() <= 0 {
 		return fmt.Errorf("invalid transfer amount")
 	}
@@ -97,3 +94,5 @@ func (st *StateTransition) TransferERC20(tokenAddress common.Address, from commo
 
 	return nil
 }
+
+// TODO: Slot for balance check and +-

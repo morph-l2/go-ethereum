@@ -184,6 +184,10 @@ type Config struct {
 	// Enables tracking of SHA3 preimages in the VM
 	EnablePreimageRecording bool
 
+	// Enables VM tracing
+	VMTrace       string
+	VMTraceConfig string
+
 	// Miscellaneous options
 	DocRoot string `toml:"-"`
 
@@ -214,6 +218,9 @@ type Config struct {
 
 	// Morph203Time override
 	OverrideMorph203Time *uint64 `toml:",omitempty"`
+
+	// ViridianTime override
+	OverrideViridianTime *uint64 `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

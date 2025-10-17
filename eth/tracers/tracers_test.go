@@ -27,8 +27,8 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	"github.com/morph-l2/go-ethereum/params"
-	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"github.com/morph-l2/go-ethereum/tests"
 )
 
@@ -46,7 +46,7 @@ type callTrace struct {
 	Calls   []callTrace     `json:"calls,omitempty"`
 }
 
-func BenchmarkTransactionTrace(b *testing.B) {
+func BenchmarkTransactionTraceV2(b *testing.B) {
 	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	from := crypto.PubkeyToAddress(key.PublicKey)
 	gas := uint64(1000000) // 1M gas
@@ -62,16 +62,12 @@ func BenchmarkTransactionTrace(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	txContext := vm.TxContext{
-		Origin:   from,
-		GasPrice: tx.GasPrice(),
-	}
 	context := vm.BlockContext{
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
 		Coinbase:    common.Address{},
 		BlockNumber: new(big.Int).SetUint64(uint64(5)),
-		Time:        new(big.Int).SetUint64(uint64(5)),
+		Time:        big.NewInt(5),
 		Difficulty:  big.NewInt(0xffffffff),
 		GasLimit:    gas,
 		BaseFee:     big.NewInt(8),
@@ -94,16 +90,12 @@ func BenchmarkTransactionTrace(b *testing.B) {
 		Code:    []byte{},
 		Balance: big.NewInt(500000000000000),
 	}
-	_, statedb := tests.MakePreState(rawdb.NewMemoryDatabase(), alloc, false)
-	// Create the tracer, the EVM environment and run it
-	tracer := vm.NewStructLogger(&vm.LogConfig{
-		Debug: false,
-		//DisableStorage: true,
-		//EnableMemory: false,
-		//EnableReturnData: false,
-	})
-	evm := vm.NewEVM(context, txContext, statedb, params.AllEthashProtocolChanges, vm.Config{Debug: true, Tracer: tracer})
-	msg, err := tx.AsMessage(signer, nil)
+	state := tests.MakePreState(rawdb.NewMemoryDatabase(), alloc, false)
+	defer state.Close()
+
+	evm := vm.NewEVM(context, vm.TxContext{}, state.StateDB, params.AllEthashProtocolChanges, vm.Config{})
+
+	msg, err := tx.AsMessage(signer, context.BaseFee)
 	if err != nil {
 		b.Fatalf("failed to prepare transaction for tracing: %v", err)
 	}
@@ -111,20 +103,15 @@ func BenchmarkTransactionTrace(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		snap := statedb.Snapshot()
-		l1DataFee, err := fees.CalculateL1DataFee(tx, statedb, params.AllEthashProtocolChanges, context.BlockNumber)
+		tracer := logger.NewStructLogger(&logger.Config{}).Hooks()
+		tracer.OnTxStart(evm.GetVMContext(), tx, msg.From())
+		evm.Config.Tracer = tracer
+
+		snap := state.StateDB.Snapshot()
+		_, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(tx.Gas()), common.Big0)
 		if err != nil {
 			b.Fatal(err)
 		}
-		st := core.NewStateTransition(evm, msg, new(core.GasPool).AddGas(tx.Gas()), l1DataFee)
-		_, err = st.TransitionDb()
-		if err != nil {
-			b.Fatal(err)
-		}
-		statedb.RevertToSnapshot(snap)
-		if have, want := len(tracer.StructLogs()), 244752; have != want {
-			b.Fatalf("trace wrong, want %d steps, have %d", want, have)
-		}
-		tracer.Reset()
+		state.StateDB.RevertToSnapshot(snap)
 	}
 }

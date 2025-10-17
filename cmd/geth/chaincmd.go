@@ -50,6 +50,7 @@ var (
 		ArgsUsage: "<genesisPath>",
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
+			utils.StateSchemeFlag,
 			utils.OverrideMorph203TimeFlag,
 			utils.OverrideViridianTimeFlag,
 		},

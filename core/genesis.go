@@ -227,28 +227,38 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled()}
+			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled(), PathZkTrie: trie.GenesisStateInPathZkTrie}
 		}
 	} else {
-		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled()}
+		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.GenesisStateInPathZkTrie}
 	}
 
-	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
-		log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
-		if genesis == nil {
-			genesis = DefaultGenesisBlock()
-		}
-		// Ensure the stored genesis matches with the given one.
-		hash := genesis.ToBlock(nil).Hash()
-		if hash != stored {
-			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
-		}
-		block, err := genesis.Commit(db)
-		if err != nil {
-			return genesis.Config, hash, err
-		}
-		return genesis.Config, block.Hash(), nil
+	var inited bool = false
+	// new states already overide genesis states.
+	if trieCfg.PathZkTrie && rawdb.ExistsStateID(db, header.Root) {
+		inited = true
 	}
+
+	if !inited {
+		if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
+			log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
+			if genesis == nil {
+				genesis = DefaultGenesisBlock()
+			}
+			// Ensure the stored genesis matches with the given one.
+			hash := genesis.ToBlock(nil).Hash()
+			if hash != stored {
+				return genesis.Config, hash, &GenesisMismatchError{stored, hash}
+			}
+
+			block, err := genesis.Commit(db)
+			if err != nil {
+				return genesis.Config, hash, err
+			}
+			return genesis.Config, block.Hash(), nil
+		}
+	}
+
 	// Check whether the genesis block is already written.
 	if genesis != nil {
 		hash := genesis.ToBlock(nil).Hash()
@@ -283,7 +293,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
 		storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
 		storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
-
 	}
 	// Special case: don't change the existing config of a non-mainnet chain if no new
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)
@@ -333,12 +342,14 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 // ToBlock creates the genesis block and writes state of a genesis specification
 // to the given database (or discards it if nil).
 func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
+	toDiskDb := true
 	if db == nil {
+		toDiskDb = false
 		db = rawdb.NewMemoryDatabase()
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled()}
+		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled(), PathZkTrie: trie.GenesisStateInPathZkTrie}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)
 	if err != nil {
@@ -381,7 +392,11 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 		}
 	}
 	statedb.Commit(false)
-	statedb.Database().TrieDB().Commit(root, true, nil)
+	if toDiskDb {
+		statedb.Database().TrieDB().CommitGenesis(root)
+	} else {
+		statedb.Database().TrieDB().Commit(root, true, nil)
+	}
 
 	return types.NewBlock(head, nil, nil, nil, trie.NewStackTrie(nil))
 }

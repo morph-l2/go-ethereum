@@ -90,6 +90,7 @@ var Defaults = Config{
 	GPO:                     FullNodeGPO,
 	RPCTxFeeCap:             1,  // 1 ether
 	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
+	JournalFileName:         "trie.journal",
 }
 
 func init() {
@@ -215,6 +216,14 @@ type Config struct {
 
 	// Max block range for eth_getLogs api method
 	MaxBlockRange int64
+
+	// Path schema journal file name
+	JournalFileName string
+
+	// State scheme used to store ethereum state and merkle trie nodes on top
+	PathSyncFlush bool
+
+	StateScheme string `toml:",omitempty"` // State scheme used to store zktrie state nodes on top
 
 	// Morph203Time override
 	OverrideMorph203Time *uint64 `toml:",omitempty"`

@@ -107,6 +107,10 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
 	}
+
+	current := block.NumberU64()
+	origin := state.GetOriginRoot()
+
 	// Commit all cached state changes into underlying memory database.
 	root, err := state.Commit(bc.chainConfig.IsEIP158(block.Number()))
 	if err != nil {
@@ -114,15 +118,42 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	}
 
 	triedb := bc.stateCache.TrieDB()
+	flushInterval := time.Duration(bc.flushInterval.Load())
+
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.TrieDirtyDisabled {
+		if triedb.Scheme() == rawdb.PathScheme {
+			flush := false
+			if bc.lastFlushTime.Load() == 0 {
+				bc.lastFlushTime.Store(int64(block.Time()))
+			} else {
+				// Blocktime distance is not a good indicator of the time
+				// elapsed since the last commit, so we need to check
+				// the block time to see if we need to flush.
+				if int64(block.Time()) > bc.lastFlushTime.Load() {
+					distance := time.Duration(int64(block.Time())-bc.lastFlushTime.Load()) * time.Second
+
+					// If the distance is greater than the flush interval, we need to flush
+					if distance > flushInterval {
+						flush = true
+						log.Info("State in memory for too long, committing", "distance", distance, "allowance", flushInterval, "last flush time", bc.lastFlushTime.Load(), "blocktime", block.Time())
+
+						// Reset the last flush time
+						bc.lastFlushTime.Store(0)
+					}
+				}
+			}
+
+			// If node is running in path mode, skip explicit gc operation
+			// which is unnecessary in this mode.
+			return triedb.CommitState(root, origin, current, false, flush, nil)
+		}
 		return triedb.Commit(root, false, nil)
 	}
 	// Full but not archive node, do proper garbage collection
 	triedb.Reference(root, common.Hash{}) // metadata reference to keep trie alive
 	bc.triegc.Push(root, -int64(block.NumberU64()))
 
-	current := block.NumberU64()
 	// Flush limits are not considered for the first TriesInMemory blocks.
 	if current <= TriesInMemory {
 		return nil
@@ -137,9 +168,8 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	}
 	// Find the next state trie we need to commit
 	chosen := current - TriesInMemory
-	//flushInterval := time.Duration(atomic.LoadInt64(&bc.flushInterval))
 	// If we exceeded time allowance, flush an entire trie to disk
-	if bc.gcproc > bc.cacheConfig.TrieTimeLimit {
+	if bc.gcproc > flushInterval {
 		// If the header is missing (canonical chain behind), we're reorging a low
 		// diff sidechain. Suspend committing until this operation is completed.
 		header := bc.GetHeaderByNumber(chosen)
@@ -148,8 +178,8 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 		} else {
 			// If we're exceeding limits but haven't reached a large enough memory gap,
 			// warn the user that the system is becoming unstable.
-			if chosen < lastWrite+TriesInMemory && bc.gcproc >= 2*bc.cacheConfig.TrieTimeLimit {
-				log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", bc.cacheConfig.TrieTimeLimit, "optimum", float64(chosen-lastWrite)/TriesInMemory)
+			if chosen < lastWrite+TriesInMemory && bc.gcproc >= 2*flushInterval {
+				log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", flushInterval, "optimum", float64(chosen-lastWrite)/TriesInMemory)
 			}
 			// Flush an entire trie and restart the counters
 			triedb.Commit(header.Root, true, nil)

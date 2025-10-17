@@ -70,6 +70,7 @@ Remove blockchain and state databases`,
 			dbDumpFreezerIndex,
 			dbImportCmd,
 			dbExportCmd,
+			dbHbss2PbssCmd,
 		},
 	}
 	dbInspectCmd = cli.Command{
@@ -263,6 +264,18 @@ WARNING: This is a low-level operation which may cause database corruption!`,
 			utils.MorphHoodiFlag,
 		},
 		Description: "Exports the specified chain data to an RLP encoded stream, optionally gzip-compressed.",
+	}
+	dbHbss2PbssCmd = cli.Command{
+		Action:    hbss2pbss,
+		Name:      "hbss-to-pbss",
+		ArgsUsage: "<jobnum (optional)>",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.SyncModeFlag,
+			utils.AncientFlag,
+		},
+		Usage:       "Convert Hash-Base to Path-Base trie node.",
+		Description: `This command iterates the entire trie node database and convert the hash-base node to path-base node.`,
 	}
 )
 
@@ -715,4 +728,39 @@ func exportChaindata(ctx *cli.Context) error {
 	}()
 	db := utils.MakeChainDatabase(ctx, stack, true)
 	return utils.ExportChaindata(ctx.Args().Get(1), kind, exporter(db), stop)
+}
+
+func hbss2pbss(ctx *cli.Context) error {
+	stack, config := makeConfigNode(ctx)
+	defer stack.Close()
+
+	chaindb := utils.MakeChainDatabase(ctx, stack, false)
+	h2p, err := trie.NewHbss2Pbss(chaindb, stack.ResolvePath(""), stack.ResolvePath(config.Eth.TrieCleanCacheJournal))
+	if err != nil {
+		return err
+	}
+
+	if ctx.NArg() > 0 {
+		log.Error("Too many arguments given")
+		return errors.New("too many arguments")
+	}
+
+	lastStateID := rawdb.ReadPersistentStateID(chaindb)
+	if lastStateID == 0 {
+		h2p.Run()
+	}
+
+	// prune hbss trie node
+	err = rawdb.PruneHashTrieNodeInDataBase(chaindb)
+	if err != nil {
+		log.Error("Prune Hash trie node in database failed", "error", err)
+		return err
+	}
+	err = h2p.Compact()
+	if err != nil {
+		log.Error("Compact trie node failed", "error", err)
+		return err
+	}
+
+	return nil
 }

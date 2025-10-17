@@ -157,6 +157,10 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 	return sdb, nil
 }
 
+func (s *StateDB) GetOriginRoot() common.Hash {
+	return s.originalRoot
+}
+
 // StartPrefetcher initializes a new trie prefetcher to pull in nodes from the
 // state trie concurrently while the state is mutated so that when we reach the
 // commit phase, most of the needed data is already hot.
@@ -190,8 +194,12 @@ func (s *StateDB) Error() error {
 	return s.dbErr
 }
 
-func (s *StateDB) IsZktrie() bool {
-	return s.db.TrieDB().Zktrie
+func (s *StateDB) IsZkTrie() bool {
+	return s.db.TrieDB().IsZkTrie()
+}
+
+func (s *StateDB) IsPathZkTrie() bool {
+	return s.db.TrieDB().IsPathZkTrie()
 }
 
 func (s *StateDB) AddLog(log *types.Log) {
@@ -330,9 +338,9 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 
 // GetProof returns the Merkle proof for a given account.
 func (s *StateDB) GetProof(addr common.Address) ([][]byte, error) {
-	if s.IsZktrie() {
-		addr_s, _ := zkt.ToSecureKeyBytes(addr.Bytes())
-		return s.GetProofByHash(common.BytesToHash(addr_s.Bytes()))
+	if s.IsZkTrie() {
+		addressKey, _ := zkt.ToSecureKeyBytes(addr.Bytes())
+		return s.GetProofByHash(common.BytesToHash(addressKey.Bytes()))
 	}
 	return s.GetProofByHash(crypto.Keccak256Hash(addr.Bytes()))
 }
@@ -616,7 +624,7 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 		if len(enc) == 0 {
 			return nil
 		}
-		if s.IsZktrie() {
+		if s.IsZkTrie() {
 			data, err = types.UnmarshalStateAccount(enc)
 		} else {
 			data = new(types.StateAccount)
@@ -733,6 +741,7 @@ func (s *StateDB) Copy() *StateDB {
 		preimages:           make(map[common.Hash][]byte, len(s.preimages)),
 		journal:             newJournal(),
 		hasher:              crypto.NewKeccakState(),
+		originalRoot:        s.originalRoot,
 	}
 	// Copy the dirty states, logs, and preimages
 	for addr := range s.journal.dirties {

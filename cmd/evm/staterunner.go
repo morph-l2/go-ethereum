@@ -57,29 +57,6 @@ func stateTestCmd(ctx *cli.Context) error {
 	glogger.Verbosity(log.Lvl(ctx.GlobalInt(VerbosityFlag.Name)))
 	log.Root().SetHandler(glogger)
 
-	// Configure the EVM logger
-	config := &vm.LogConfig{
-		EnableMemory:     !ctx.GlobalBool(DisableMemoryFlag.Name),
-		DisableStack:     ctx.GlobalBool(DisableStackFlag.Name),
-		DisableStorage:   ctx.GlobalBool(DisableStorageFlag.Name),
-		EnableReturnData: !ctx.GlobalBool(DisableReturnDataFlag.Name),
-	}
-	var (
-		tracer   vm.EVMLogger
-		debugger *vm.StructLogger
-	)
-	switch {
-	case ctx.GlobalBool(MachineFlag.Name):
-		tracer = vm.NewJSONLogger(config, os.Stderr)
-
-	case ctx.GlobalBool(DebugFlag.Name):
-		debugger = vm.NewStructLogger(config)
-		tracer = debugger
-
-	default:
-		debugger = vm.NewStructLogger(config)
-	}
-	// Load the test content from the input file
 	src, err := ioutil.ReadFile(ctx.Args().First())
 	if err != nil {
 		return err
@@ -90,8 +67,7 @@ func stateTestCmd(ctx *cli.Context) error {
 	}
 	// Iterate over all the tests, run them and aggregate the results
 	cfg := vm.Config{
-		Tracer: tracer,
-		Debug:  ctx.GlobalBool(DebugFlag.Name) || ctx.GlobalBool(MachineFlag.Name),
+		Tracer: tracerFromFlags(ctx),
 	}
 	results := make([]StatetestResult, 0, len(tests))
 	for key, test := range tests {
@@ -113,14 +89,6 @@ func stateTestCmd(ctx *cli.Context) error {
 			}
 
 			results = append(results, *result)
-
-			// Print any structured logs collected
-			if ctx.GlobalBool(DebugFlag.Name) {
-				if debugger != nil {
-					fmt.Fprintln(os.Stderr, "#### TRACE ####")
-					vm.WriteTrace(os.Stderr, debugger.StructLogs())
-				}
-			}
 		}
 	}
 	out, _ := json.MarshalIndent(results, "", "  ")

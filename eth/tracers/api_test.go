@@ -39,6 +39,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
 	"github.com/morph-l2/go-ethereum/params"
@@ -164,7 +165,7 @@ func (b *testBackend) StateAtTransaction(ctx context.Context, block *types.Block
 		return nil, vm.BlockContext{}, statedb, nil
 	}
 	// Recompute transactions up to the target index.
-	signer := types.MakeSigner(b.chainConfig, block.Number())
+	signer := types.MakeSigner(b.chainConfig, block.Number(), block.Time())
 	for idx, tx := range block.Transactions() {
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
 		txContext := core.NewEVMTxContext(msg)
@@ -197,20 +198,49 @@ func TestTraceCall(t *testing.T) {
 	}}
 	genBlocks := 10
 	signer := types.HomesteadSigner{}
+	nonce := uint64(0)
 	api := NewAPI(newTestBackend(t, genBlocks, genesis, func(i int, b *core.BlockGen) {
 		// Transfer from account[0] to account[1]
 		//    value: 1000 wei
 		//    fee:   0 wei
-		tx, _ := types.SignTx(types.NewTransaction(uint64(i), accounts[1].addr, big.NewInt(1000), params.TxGas, b.BaseFee(), nil), signer, accounts[0].key)
+		tx, _ := types.SignTx(types.NewTransaction(nonce, accounts[1].addr, big.NewInt(1000), params.TxGas, b.BaseFee(), nil), signer, accounts[0].key)
 		b.AddTx(tx)
+		nonce++
+
+		if i == genBlocks-2 {
+			// Transfer from account[0] to account[2]
+			tx, _ = types.SignTx(types.NewTx(&types.LegacyTx{
+				Nonce:    nonce,
+				To:       &accounts[2].addr,
+				Value:    big.NewInt(1000),
+				Gas:      params.TxGas,
+				GasPrice: b.BaseFee(),
+				Data:     nil}),
+				signer, accounts[0].key)
+			b.AddTx(tx)
+			nonce++
+
+			// Transfer from account[0] to account[1] again
+			tx, _ = types.SignTx(types.NewTx(&types.LegacyTx{
+				Nonce:    nonce,
+				To:       &accounts[1].addr,
+				Value:    big.NewInt(1000),
+				Gas:      params.TxGas,
+				GasPrice: b.BaseFee(),
+				Data:     nil}),
+				signer, accounts[0].key)
+			b.AddTx(tx)
+			nonce++
+		}
 	}), nil)
 
+	uintPtr := func(i int) *hexutil.Uint { x := hexutil.Uint(i); return &x }
 	var testSuite = []struct {
 		blockNumber rpc.BlockNumber
 		call        ethapi.TransactionArgs
 		config      *TraceCallConfig
 		expectErr   error
-		expect      interface{}
+		expect      string
 	}{
 		// Standard JSON trace upon the genesis, plain transfer.
 		{
@@ -222,13 +252,7 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect: &types.ExecutionResult{
-				L1DataFee:   (*hexutil.Big)(big.NewInt(0)),
-				Gas:         params.TxGas,
-				Failed:      false,
-				ReturnValue: "",
-				StructLogs:  []*types.StructLogRes{},
-			},
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
 		},
 		// Standard JSON trace upon the head, plain transfer.
 		{
@@ -240,13 +264,29 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect: &types.ExecutionResult{
-				L1DataFee:   (*hexutil.Big)(big.NewInt(0)),
-				Gas:         params.TxGas,
-				Failed:      false,
-				ReturnValue: "",
-				StructLogs:  []*types.StructLogRes{},
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
+		},
+		// Upon the last state, default to the post block's state
+		{
+			blockNumber: rpc.BlockNumber(genBlocks - 1),
+			call: ethapi.TransactionArgs{
+				From:  &accounts[2].addr,
+				To:    &accounts[0].addr,
+				Value: (*hexutil.Big)(new(big.Int).Add(big.NewInt(params.Ether), big.NewInt(100))),
 			},
+			config: nil,
+			expect: `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
+		},
+		// Before the first transaction, should be failed
+		{
+			blockNumber: rpc.BlockNumber(genBlocks - 1),
+			call: ethapi.TransactionArgs{
+				From:  &accounts[2].addr,
+				To:    &accounts[0].addr,
+				Value: (*hexutil.Big)(new(big.Int).Add(big.NewInt(params.Ether), big.NewInt(100))),
+			},
+			config:    &TraceCallConfig{TxIndex: uintPtr(0)},
+			expectErr: fmt.Errorf("tracing failed: insufficient funds for gas * price + value: address %s have 1000000000000000000 want 1000000000000000100", accounts[2].addr),
 		},
 		// Standard JSON trace upon the non-existent block, error expects
 		{
@@ -258,7 +298,7 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: fmt.Errorf("block #%d not found", genBlocks+1),
-			expect:    nil,
+			expect:    "",
 		},
 		// Standard JSON trace upon the latest block
 		{
@@ -270,13 +310,7 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect: &types.ExecutionResult{
-				L1DataFee:   (*hexutil.Big)(big.NewInt(0)),
-				Gas:         params.TxGas,
-				Failed:      false,
-				ReturnValue: "",
-				StructLogs:  []*types.StructLogRes{},
-			},
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
 		},
 		// Standard JSON trace upon the pending block
 		{
@@ -288,23 +322,17 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect: &types.ExecutionResult{
-				L1DataFee:   (*hexutil.Big)(big.NewInt(0)),
-				Gas:         params.TxGas,
-				Failed:      false,
-				ReturnValue: "",
-				StructLogs:  []*types.StructLogRes{},
-			},
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
 		},
 	}
-	for _, testspec := range testSuite {
+	for i, testspec := range testSuite {
 		result, err := api.TraceCall(context.Background(), testspec.call, rpc.BlockNumberOrHash{BlockNumber: &testspec.blockNumber}, testspec.config)
 		if testspec.expectErr != nil {
 			if err == nil {
 				t.Errorf("Expect error %v, get nothing", testspec.expectErr)
 				continue
 			}
-			if !reflect.DeepEqual(err, testspec.expectErr) {
+			if !reflect.DeepEqual(err.Error(), testspec.expectErr.Error()) {
 				t.Errorf("Error mismatch, want %v, get %v", testspec.expectErr, err)
 			}
 		} else {
@@ -312,8 +340,16 @@ func TestTraceCall(t *testing.T) {
 				t.Errorf("Expect no error, get %v", err)
 				continue
 			}
-			if !reflect.DeepEqual(result, testspec.expect) {
-				t.Errorf("Result mismatch, want %v, get %v", testspec.expect, result)
+			var have *logger.ExecutionResult
+			if err := json.Unmarshal(result.(json.RawMessage), &have); err != nil {
+				t.Errorf("test %d: failed to unmarshal result %v", i, err)
+			}
+			var want *logger.ExecutionResult
+			if err := json.Unmarshal([]byte(testspec.expect), &want); err != nil {
+				t.Errorf("test %d: failed to unmarshal result %v", i, err)
+			}
+			if !reflect.DeepEqual(have, want) {
+				t.Errorf("Result mismatch, want %v, get %v", testspec.expect, string(result.(json.RawMessage)))
 			}
 		}
 	}
@@ -342,13 +378,18 @@ func TestTraceTransaction(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to trace transaction %v", err)
 	}
-	if !reflect.DeepEqual(result, &types.ExecutionResult{
-		L1DataFee:   (*hexutil.Big)(big.NewInt(0)),
-		Gas:         params.TxGas,
-		Failed:      false,
-		ReturnValue: "",
-		StructLogs:  []*types.StructLogRes{},
-	}) {
+	var have *logger.ExecutionResult
+	if err := json.Unmarshal(result.(json.RawMessage), &have); err != nil {
+		t.Errorf("failed to unmarshal result %v", err)
+	}
+
+	wantRaw := []byte(`{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}`)
+	var want *logger.ExecutionResult
+	if err := json.Unmarshal(wantRaw, &want); err != nil {
+		t.Errorf("failed to unmarshal result %v", err)
+	}
+
+	if !reflect.DeepEqual(have, want) {
 		t.Error("Transaction tracing result is different")
 	}
 }
@@ -387,7 +428,7 @@ func TestTraceBlock(t *testing.T) {
 		// Trace head block
 		{
 			blockNumber: rpc.BlockNumber(genBlocks),
-			want:        `[{"result":{"gas":21000,"failed":false,"returnValue":"","structLogs":[]}}]`,
+			want:        `[{"result":{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}}]`,
 		},
 		// Trace non-existent block
 		{
@@ -397,12 +438,12 @@ func TestTraceBlock(t *testing.T) {
 		// Trace latest block
 		{
 			blockNumber: rpc.LatestBlockNumber,
-			want:        `[{"result":{"gas":21000,"failed":false,"returnValue":"","structLogs":[]}}]`,
+			want:        `[{"result":{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}}]`,
 		},
 		// Trace pending block
 		{
 			blockNumber: rpc.PendingBlockNumber,
-			want:        `[{"result":{"gas":21000,"failed":false,"returnValue":"","structLogs":[]}}]`,
+			want:        `[{"result":{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}}]`,
 		},
 	}
 	for i, tc := range testSuite {

@@ -20,6 +20,7 @@ import (
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/params"
 )
@@ -28,16 +29,16 @@ import (
 type StateDB interface {
 	CreateAccount(common.Address)
 
-	SubBalance(common.Address, *big.Int)
-	AddBalance(common.Address, *big.Int)
+	SubBalance(common.Address, *big.Int, tracing.BalanceChangeReason) *big.Int
+	AddBalance(common.Address, *big.Int, tracing.BalanceChangeReason) *big.Int
 	GetBalance(common.Address) *big.Int
 
 	GetNonce(common.Address) uint64
-	SetNonce(common.Address, uint64)
+	SetNonce(common.Address, uint64, tracing.NonceChangeReason)
 
 	GetKeccakCodeHash(common.Address) common.Hash
 	GetCode(common.Address) []byte
-	SetCode(common.Address, []byte)
+	SetCode(common.Address, []byte) []byte
 	GetPoseidonCodeHash(common.Address) common.Hash
 	GetCodeSize(common.Address) uint64
 
@@ -47,7 +48,7 @@ type StateDB interface {
 
 	GetCommittedState(common.Address, common.Hash) common.Hash
 	GetState(common.Address, common.Hash) common.Hash
-	SetState(common.Address, common.Hash, common.Hash)
+	SetState(common.Address, common.Hash, common.Hash) common.Hash
 
 	GetRootHash() common.Hash
 	GetLiveStateAccount(addr common.Address) *types.StateAccount

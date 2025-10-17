@@ -906,7 +906,7 @@ func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHas
 	if block == nil || err != nil {
 		// When the block doesn't exist, the RPC method should return JSON null
 		// as per specification.
-		return nil, nil
+		return nil, err
 	}
 	receipts, err := s.b.GetReceipts(ctx, block.Hash())
 	if err != nil {

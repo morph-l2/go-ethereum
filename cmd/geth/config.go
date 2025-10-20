@@ -162,6 +162,10 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 		v := ctx.Uint64(utils.OverrideMorph203TimeFlag.Name)
 		cfg.Eth.OverrideMorph203Time = &v
 	}
+	if ctx.GlobalIsSet(utils.OverrideViridianTimeFlag.Name) {
+		v := ctx.Uint64(utils.OverrideViridianTimeFlag.Name)
+		cfg.Eth.OverrideViridianTime = &v
+	}
 
 	backend, _ := utils.RegisterEthService(stack, &cfg.Eth)
 

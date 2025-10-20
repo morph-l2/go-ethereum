@@ -347,7 +347,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            NewUint64(1747029600),
-		ViridianTime:            NewUint64(1762149600), // 2025-10-20 04:00:00 UTC
+		ViridianTime:            NewUint64(1762149600),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,

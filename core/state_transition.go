@@ -280,6 +280,7 @@ func (st *StateTransition) buyERC20Gas() error {
 	if err != nil {
 		return fmt.Errorf("failed to get token address for token ID %d: %v", *st.msg.FeeTokenID(), err)
 	}
+	balanceSlot := fees.GetTokenBalanceSlotByIDWithState(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID(), fees.TokenAddressMappingSlot)
 
 	// Calculate the total ETH fee needed
 	mgval := new(big.Int).SetUint64(st.msg.Gas())
@@ -298,15 +299,19 @@ func (st *StateTransition) buyERC20Gas() error {
 		"fee", mgval,
 	)
 
+	// Check value
+	if have, want := st.state.GetBalance(st.msg.From()), st.value; have.Cmp(want) < 0 {
+		return fmt.Errorf("%w: address %v value %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have.String(), want.String())
+	}
 	// Check ERC20 token balance
-	balance, err := st.GetERC20Balance(tokenAddress, st.msg.From())
+	ERC20balance, err := st.GetERC20BalanceHybrid(tokenAddress, st.msg.From(), balanceSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get ERC20 balance: %v", err)
 	}
 
-	if balance.Cmp(mgval) < 0 {
+	if ERC20balance.Cmp(mgval) < 0 {
 		return fmt.Errorf("%w: address %v has insufficient ERC20 balance, have %v need %v (token %s)",
-			ErrInsufficientFunds, st.msg.From().Hex(), balance, mgval, tokenAddress.Hex())
+			ErrInsufficientFunds, st.msg.From().Hex(), ERC20balance, mgval, tokenAddress.Hex())
 	}
 
 	// Check gas pool
@@ -321,7 +326,7 @@ func (st *StateTransition) buyERC20Gas() error {
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err := st.TransferERC20(tokenAddress, st.msg.From(), *feeVaultAddress, mgval); err != nil {
+	if err := st.TransferERC20Hybrid(tokenAddress, st.msg.From(), *feeVaultAddress, mgval, balanceSlot); err != nil {
 		return fmt.Errorf("failed to transfer ERC20 tokens for gas payment: %v", err)
 	}
 
@@ -537,8 +542,8 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
 	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
-		tokenAddress, _ := fees.GetTokenAddressByIDWithState(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID(), fees.TokenAddressMappingSlot)
-		st.TransferERC20(tokenAddress, *st.evm.ChainConfig().Morph.FeeVaultAddress, st.msg.From(), remaining)
+		tokenAddress, _, balanceSlot, _ := fees.GetTokenInfoFromStorage(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
+		_ = st.TransferERC20Hybrid(tokenAddress, *st.evm.ChainConfig().Morph.FeeVaultAddress, st.msg.From(), remaining, balanceSlot)
 	} else {
 		st.state.AddBalance(st.msg.From(), remaining)
 	}

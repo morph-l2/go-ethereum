@@ -6,13 +6,11 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/log"
 )
 
 // GetERC20Balance returns the balance of an ERC20 token for a specific address.
-// tokenAddress: The address of the ERC20 token contract
-// userAddress: The address of the user whose balance we want to check
-// Returns: *big.Int - The token balance, or nil if the call fails
 func (st *StateTransition) GetERC20Balance(tokenAddress, userAddress common.Address) (*big.Int, error) {
 	// Define the ERC20 balanceOf method signature: balanceOf(address)
 	// Function signature: 0x70a08231
@@ -45,11 +43,6 @@ func (st *StateTransition) GetERC20Balance(tokenAddress, userAddress common.Addr
 }
 
 // TransferERC20 transfers ERC20 tokens from one address to another.
-// tokenAddress: The address of the ERC20 token contract
-// from: The address to transfer tokens from
-// to: The address to transfer tokens to
-// amount: The amount of tokens to transfer
-// Returns: error - nil if the transfer was successful, error otherwise
 func (st *StateTransition) TransferERC20(tokenAddress, from, to common.Address, amount *big.Int) error {
 	if amount == nil || amount.Sign() <= 0 {
 		return fmt.Errorf("invalid transfer amount")
@@ -95,4 +88,165 @@ func (st *StateTransition) TransferERC20(tokenAddress, from, to common.Address, 
 	return nil
 }
 
-// TODO: Slot for balance check and +-
+// ERC20BalanceSlot is the storage slot for the balanceOf mapping in ERC20 contracts
+// For mapping(address => uint256) public balanceOf, the slot is 0
+var ERC20BalanceSlot = common.BigToHash(big.NewInt(0))
+
+// CalculateERC20BalanceSlot calculates the storage slot for an ERC20 balance
+// For mapping(address => uint256) balanceOf, the slot is: keccak256(abi.encode(address, 0))
+func CalculateERC20BalanceSlot(userAddress common.Address, balanceSlot common.Hash) common.Hash {
+	// Convert address to 32 bytes (left-padded)
+	addressBytes := common.LeftPadBytes(userAddress.Bytes(), 32)
+
+	// Convert slot 0 to 32 bytes (left-padded)
+	slotBytes := balanceSlot.Bytes()
+
+	// Concatenate address and slot
+	data := append(addressBytes, slotBytes...)
+
+	// Calculate keccak256 hash
+	hash := crypto.Keccak256(data)
+
+	return common.BytesToHash(hash)
+}
+
+// GetERC20BalanceFromSlot returns the balance of an ERC20 token for a specific address using storage slot
+func (st *StateTransition) GetERC20BalanceFromSlot(tokenAddress, userAddress common.Address, balanceSlot common.Hash) (*big.Int, error) {
+	// Calculate the storage slot for the user's balance
+	storageSlot := CalculateERC20BalanceSlot(userAddress, balanceSlot)
+
+	// Get the value from storage
+	value := st.state.GetState(tokenAddress, storageSlot)
+
+	// Convert hash to big.Int
+	balance := new(big.Int).SetBytes(value[:])
+
+	return balance, nil
+}
+
+// SetERC20BalanceFromSlot sets the balance of an ERC20 token for a specific address using storage slot
+func (st *StateTransition) SetERC20BalanceFromSlot(tokenAddress, userAddress common.Address, amount *big.Int, balanceSlot common.Hash) error {
+	if amount == nil || amount.Sign() < 0 {
+		return fmt.Errorf("invalid balance amount")
+	}
+
+	// Calculate the storage slot for the user's balance
+	storageSlot := CalculateERC20BalanceSlot(userAddress, balanceSlot)
+
+	// Convert amount to 32 bytes (left-padded)
+	amountBytes := common.LeftPadBytes(amount.Bytes(), 32)
+	amountHash := common.BytesToHash(amountBytes)
+
+	// Set the value in storage
+	st.state.SetState(tokenAddress, storageSlot, amountHash)
+
+	// Log the balance change
+	log.Debug("ERC20 balance set via storage slot",
+		"token", tokenAddress.Hex(),
+		"user", userAddress.Hex(),
+		"amount", amount)
+
+	return nil
+}
+
+// AddERC20BalanceFromSlot adds tokens to an ERC20 balance for a specific address using storage slot
+func (st *StateTransition) AddERC20BalanceFromSlot(tokenAddress, userAddress common.Address, amount *big.Int, balanceSlot common.Hash) error {
+	if amount == nil || amount.Sign() <= 0 {
+		return fmt.Errorf("invalid amount to add")
+	}
+
+	// Get current balance
+	currentBalance, err := st.GetERC20BalanceFromSlot(tokenAddress, userAddress, balanceSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get current balance: %v", err)
+	}
+
+	// Calculate new balance
+	newBalance := new(big.Int).Add(currentBalance, amount)
+
+	// Set new balance
+	return st.SetERC20BalanceFromSlot(tokenAddress, userAddress, newBalance, balanceSlot)
+}
+
+// SubERC20BalanceFromSlot subtracts tokens from an ERC20 balance for a specific address using storage slot
+func (st *StateTransition) SubERC20BalanceFromSlot(tokenAddress, userAddress common.Address, amount *big.Int, balanceSlot common.Hash) error {
+	if amount == nil || amount.Sign() <= 0 {
+		return fmt.Errorf("invalid amount to subtract")
+	}
+
+	// Get current balance
+	currentBalance, err := st.GetERC20BalanceFromSlot(tokenAddress, userAddress, balanceSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get current balance: %v", err)
+	}
+
+	// Check if balance is sufficient
+	if currentBalance.Cmp(amount) < 0 {
+		return fmt.Errorf("insufficient ERC20 balance: have %v, need %v", currentBalance, amount)
+	}
+
+	// Calculate new balance
+	newBalance := new(big.Int).Sub(currentBalance, amount)
+
+	// Set new balance
+	return st.SetERC20BalanceFromSlot(tokenAddress, userAddress, newBalance, balanceSlot)
+}
+
+// TransferERC20FromSlot transfers ERC20 tokens from one address to another using storage slots
+func (st *StateTransition) TransferERC20FromSlot(tokenAddress, from, to common.Address, amount *big.Int, balanceSlot common.Hash) error {
+	if amount == nil || amount.Sign() <= 0 {
+		return fmt.Errorf("invalid transfer amount")
+	}
+
+	// Subtract from sender
+	if err := st.SubERC20BalanceFromSlot(tokenAddress, from, amount, balanceSlot); err != nil {
+		return fmt.Errorf("failed to subtract ERC20 balance from sender: %v", err)
+	}
+
+	// Add to recipient
+	if err := st.AddERC20BalanceFromSlot(tokenAddress, to, amount, balanceSlot); err != nil {
+		// If adding to recipient fails, we need to restore the sender's balance
+		// This is a critical error that should not happen in normal circumstances
+		restoreErr := st.AddERC20BalanceFromSlot(tokenAddress, from, amount, balanceSlot)
+		if restoreErr != nil {
+			log.Error("Critical error: failed to restore sender balance after transfer failure",
+				"token", tokenAddress.Hex(),
+				"sender", from.Hex(),
+				"recipient", to.Hex(),
+				"amount", amount,
+				"restoreError", restoreErr)
+		}
+		return fmt.Errorf("failed to add ERC20 balance to recipient: %v", err)
+	}
+
+	// Log the transfer
+	log.Debug("ERC20 transfer executed via storage slots",
+		"token", tokenAddress.Hex(),
+		"from", from.Hex(),
+		"to", to.Hex(),
+		"amount", amount)
+
+	return nil
+}
+
+// GetERC20BalanceHybrid returns the balance of an ERC20 token using either storage slot or call method
+// If balanceSlot is zero hash, uses call method; otherwise uses storage slot method
+func (st *StateTransition) GetERC20BalanceHybrid(tokenAddress, userAddress common.Address, balanceSlot common.Hash) (*big.Int, error) {
+	if balanceSlot == (common.Hash{}) {
+		// Use call method
+		return st.GetERC20Balance(tokenAddress, userAddress)
+	}
+	// Use storage slot method
+	return st.GetERC20BalanceFromSlot(tokenAddress, userAddress, balanceSlot)
+}
+
+// TransferERC20Hybrid transfers ERC20 tokens using either storage slot or call method
+// If balanceSlot is zero hash, uses call method; otherwise uses storage slot method
+func (st *StateTransition) TransferERC20Hybrid(tokenAddress, from, to common.Address, amount *big.Int, balanceSlot common.Hash) error {
+	if balanceSlot == (common.Hash{}) {
+		// Use call method
+		return st.TransferERC20(tokenAddress, from, to, amount)
+	}
+	// Use storage slot method
+	return st.TransferERC20FromSlot(tokenAddress, from, to, amount, balanceSlot)
+}

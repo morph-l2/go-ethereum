@@ -21,6 +21,8 @@ var (
 	TokenAddressMappingSlot = common.BigToHash(big.NewInt(0))
 	// TokenPriceMappingSlot is the storage slot for mapping(uint16 => uint256)
 	TokenPriceMappingSlot = common.BigToHash(big.NewInt(1))
+	// TokenBalanceSlotMappingSlot is the storage slot for mapping(uint16 => bytes32)
+	TokenBalanceSlotMappingSlot = common.BigToHash(big.NewInt(2))
 )
 
 func ExchangeToERC20() *big.Int {
@@ -53,8 +55,8 @@ func CalculateMappingSlot(key uint16, mappingSlot common.Hash) common.Hash {
 	return common.BytesToHash(hash)
 }
 
-// GetMappingValue retrieves a value from a mapping storage slot
-func GetMappingValue(state StateDB, contractAddr common.Address, key uint16, mappingSlot common.Hash) (*big.Int, error) {
+// GetUint256MappingValue retrieves a value from a mapping storage slot
+func GetUint256MappingValue(state StateDB, contractAddr common.Address, key uint16, mappingSlot common.Hash) (*big.Int, error) {
 	// Calculate the storage slot
 	storageKey := CalculateMappingSlot(key, mappingSlot)
 
@@ -69,7 +71,7 @@ func GetMappingValue(state StateDB, contractAddr common.Address, key uint16, map
 
 // GetTokenPriceByIDWithState retrieves token price from storage slot using mapping(uint16 => uint256)
 func GetTokenPriceByIDWithState(state StateDB, contractAddr common.Address, tokenID uint16, mappingSlot common.Hash) (*big.Int, error) {
-	return GetMappingValue(state, contractAddr, tokenID, mappingSlot)
+	return GetUint256MappingValue(state, contractAddr, tokenID, mappingSlot)
 }
 
 // GetTokenAddressByIDWithState retrieves token address from storage slot using mapping(uint16 => address)
@@ -86,43 +88,32 @@ func GetTokenAddressByIDWithState(state StateDB, contractAddr common.Address, to
 	return address, nil
 }
 
+// GetTokenBalanceSlotByIDWithState retrieves token balance slot from storage slot using mapping(uint16 => bytes32)
+func GetTokenBalanceSlotByIDWithState(state StateDB, contractAddr common.Address, tokenID uint16, mappingSlot common.Hash) common.Hash {
+	// Calculate the storage slot
+	storageKey := CalculateMappingSlot(tokenID, mappingSlot)
+
+	// Get the value from storage
+	value := state.GetState(contractAddr, storageKey)
+
+	return value
+}
+
 // GetTokenInfoFromStorage retrieves both token address and price from storage
-func GetTokenInfoFromStorage(state StateDB, contractAddr common.Address, tokenID uint16) (common.Address, *big.Int, error) {
+func GetTokenInfoFromStorage(state StateDB, contractAddr common.Address, tokenID uint16) (common.Address, *big.Int, common.Hash, error) {
 	// Get token address from mapping slot 0
 	address, err := GetTokenAddressByIDWithState(state, contractAddr, tokenID, TokenAddressMappingSlot)
 	if err != nil {
-		return common.Address{}, nil, fmt.Errorf("failed to get token address: %v", err)
+		return common.Address{}, nil, common.Hash{}, fmt.Errorf("failed to get token address: %v", err)
 	}
 
 	// Get token price from mapping slot 1
 	price, err := GetTokenPriceByIDWithState(state, contractAddr, tokenID, TokenPriceMappingSlot)
 	if err != nil {
-		return common.Address{}, nil, fmt.Errorf("failed to get token price: %v", err)
+		return common.Address{}, nil, common.Hash{}, fmt.Errorf("failed to get token price: %v", err)
 	}
 
-	return address, price, nil
-}
+	balanceSlot := GetTokenBalanceSlotByIDWithState(state, contractAddr, tokenID, TokenBalanceSlotMappingSlot)
 
-// ExampleBuyERC20Gas demonstrates how to use the ERC20 gas payment system
-func ExampleBuyERC20Gas() {
-	// This is a conceptual example showing how the ERC20 gas payment works:
-	//
-	// 1. User creates a transaction with FeeTokenID set to a valid token ID (e.g., 1)
-	// 2. The StateTransition.buyERC20Gas() method is called instead of buyGas()
-	// 3. The method:
-	//    - Gets the token address from the token registry using the token ID
-	//    - Gets the token price in ETH from the price oracle
-	//    - Calculates the required ERC20 token amount based on the ETH gas fee
-	//    - Checks the user's ERC20 token balance
-	//    - Transfers the required ERC20 tokens from user to fee vault
-	//
-	// Example transaction flow:
-	// - User has 1000 USDC tokens (token ID 1)
-	// - USDC price is 2000 USDC per ETH (with 18 decimals)
-	// - Gas fee is 0.01 ETH
-	// - Required USDC amount = (0.01 ETH * 10^18) / (2000 * 10^18) = 0.005 USDC
-	// - User pays 0.005 USDC to the fee vault
-	//
-	// This allows users to pay gas fees using any supported ERC20 token
-	// instead of requiring ETH balance.
+	return address, price, balanceSlot, nil
 }

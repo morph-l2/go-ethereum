@@ -263,13 +263,3 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 func GetL1BaseFee(state StateDB) *big.Int {
 	return state.GetState(rcfg.L1GasPriceOracleAddress, rcfg.L1BaseFeeSlot).Big()
 }
-
-func ExchangeToERC20(state StateDB, feeTokenID *uint16, feeByEth *big.Int) *big.Int {
-	// TODO
-	return big.NewInt(1)
-}
-
-func ExchangeToEth(state StateDB, feeTokenID *uint16, feeByERC20 *big.Int) *big.Int {
-	// TODO
-	return big.NewInt(1)
-}

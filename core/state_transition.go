@@ -17,6 +17,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"math/big"
@@ -30,6 +31,7 @@ import (
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/fees"
 )
 
 var emptyKeccakCodeHash = codehash.EmptyKeccakCodeHash
@@ -218,6 +220,7 @@ func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) (*E
 	}(time.Now())
 	if msg.FeeTokenID() != nil {
 		// TODO
+		fees.GetTokenAddressByID(evm, msg.From(), msg.FeeTokenID())
 		evm.Context.BaseFee = big.NewInt(0).Mul(evm.Context.BaseFee, big.NewInt(1))
 	}
 	return NewStateTransition(evm, msg, gp, l1DataFee).TransitionDb()
@@ -267,6 +270,73 @@ func (st *StateTransition) buyGas() error {
 
 	st.initialGas = st.msg.Gas()
 	st.state.SubBalance(st.msg.From(), mgval)
+	return nil
+}
+
+// buyERC20Gas handles gas payment using ERC20 tokens
+func (st *StateTransition) buyERC20Gas() error {
+	// Get the token address from the token registry
+	tokenAddress, err := fees.GetTokenAddressByIDWithState(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID(), fees.TokenAddressMappingSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get token address for token ID %d: %v", *st.msg.FeeTokenID(), err)
+	}
+	balanceSlot := fees.GetTokenBalanceSlotByIDWithState(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID(), fees.TokenAddressMappingSlot)
+
+	// Calculate the total ETH fee needed
+	mgval := new(big.Int).SetUint64(st.msg.Gas())
+	mgval = mgval.Mul(mgval, st.gasPrice)
+
+	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
+		if !st.msg.IsL1MessageTx() {
+			log.Debug("Adding L1DataFee for ERC20 gas payment", "l1DataFee", st.l1DataFee)
+			mgval = mgval.Add(mgval, st.l1DataFee)
+		}
+	}
+
+	log.Debug("ERC20 gas payment calculation",
+		"tokenID", *st.msg.FeeTokenID(),
+		"tokenAddress", tokenAddress.Hex(),
+		"fee", mgval,
+	)
+
+	// Check value
+	if have, want := st.state.GetBalance(st.msg.From()), st.value; have.Cmp(want) < 0 {
+		return fmt.Errorf("%w: address %v value %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have.String(), want.String())
+	}
+	// Check ERC20 token balance
+	ERC20balance, err := st.GetERC20BalanceHybrid(tokenAddress, st.msg.From(), balanceSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get ERC20 balance: %v", err)
+	}
+
+	if ERC20balance.Cmp(mgval) < 0 {
+		return fmt.Errorf("%w: address %v has insufficient ERC20 balance, have %v need %v (token %s)",
+			ErrInsufficientFunds, st.msg.From().Hex(), ERC20balance, mgval, tokenAddress.Hex())
+	}
+
+	// Check gas pool
+	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
+		return err
+	}
+	st.gas += st.msg.Gas()
+	st.initialGas = st.msg.Gas()
+
+	// Transfer ERC20 tokens from user to fee vault
+	feeVaultAddress := st.evm.ChainConfig().Morph.FeeVaultAddress
+	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
+		return fmt.Errorf("fee vault address is not configured")
+	}
+	if err := st.TransferERC20Hybrid(tokenAddress, st.msg.From(), *feeVaultAddress, mgval, balanceSlot); err != nil {
+		return fmt.Errorf("failed to transfer ERC20 tokens for gas payment: %v", err)
+	}
+
+	log.Debug("ERC20 gas payment successful",
+		"tokenID", *st.msg.FeeTokenID(),
+		"tokenAddress", tokenAddress.String(),
+		"from", st.msg.From().String(),
+		"amount", mgval,
+		"feeVault", feeVaultAddress.String())
+
 	return nil
 }
 
@@ -327,6 +397,10 @@ func (st *StateTransition) preCheck() error {
 					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
 			}
 		}
+	}
+
+	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
+		return st.buyERC20Gas()
 	}
 	return st.buyGas()
 }
@@ -467,7 +541,12 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-	st.state.AddBalance(st.msg.From(), remaining)
+	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
+		tokenAddress, _, balanceSlot, _ := fees.GetTokenInfoFromStorage(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
+		_ = st.TransferERC20Hybrid(tokenAddress, *st.evm.ChainConfig().Morph.FeeVaultAddress, st.msg.From(), remaining, balanceSlot)
+	} else {
+		st.state.AddBalance(st.msg.From(), remaining)
+	}
 
 	// Also return remaining gas to the block gas counter so it is
 	// available for the next transaction.

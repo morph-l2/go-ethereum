@@ -1439,7 +1439,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 	}
 
 	// Start a parallel signature recovery (signer will fluke on fork transition, minimal perf loss)
-	senderCacher.recoverFromBlocks(types.MakeSigner(bc.chainConfig, chain[0].Number()), chain)
+	senderCacher.recoverFromBlocks(types.MakeSigner(bc.chainConfig, chain[0].Number(), chain[0].Time()), chain)
 
 	var (
 		stats     = insertStats{startTime: mclock.Now()}
@@ -1880,11 +1880,11 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 		// the processing of the block that corresponds with the given hash.
 		// These logs are later announced as deleted or reborn
 		collectLogs = func(hash common.Hash, removed bool) {
-			number := bc.hc.GetBlockNumber(hash)
-			if number == nil {
+			header := bc.hc.GetHeaderByHash(hash)
+			if header == nil {
 				return
 			}
-			receipts := rawdb.ReadReceipts(bc.db, hash, *number, bc.chainConfig)
+			receipts := rawdb.ReadReceipts(bc.db, hash, header.Number.Uint64(), header.Time, bc.chainConfig)
 
 			var logs []*types.Log
 			for _, receipt := range receipts {

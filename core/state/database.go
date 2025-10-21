@@ -28,6 +28,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/trie"
+	zkt "github.com/scroll-tech/zktrie/types"
 )
 
 const (
@@ -44,7 +45,7 @@ type Database interface {
 	OpenTrie(root common.Hash) (Trie, error)
 
 	// OpenStorageTrie opens the storage trie of an account.
-	OpenStorageTrie(addrHash, root common.Hash) (Trie, error)
+	OpenStorageTrie(addrHash, root, origin common.Hash) (Trie, error)
 
 	// CopyTrie returns an independent copy of the given trie.
 	CopyTrie(Trie) Trie
@@ -121,6 +122,7 @@ func NewDatabaseWithConfig(db ethdb.Database, config *trie.Config) Database {
 	csc, _ := lru.New(codeSizeCacheSize)
 	return &cachingDB{
 		zktrie:        config != nil && config.Zktrie,
+		pathZkTrie:    config != nil && config.Zktrie && config.PathZkTrie,
 		db:            trie.NewDatabaseWithConfig(db, config),
 		codeSizeCache: csc,
 		codeCache:     lru2.NewSizeConstrainedLRU(codeCacheSize),
@@ -132,12 +134,21 @@ type cachingDB struct {
 	codeSizeCache *lru.Cache
 	codeCache     *lru2.SizeConstrainedLRU
 	zktrie        bool
+	pathZkTrie    bool
 }
 
 // OpenTrie opens the main account trie at a specific root hash.
 func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
+	if db.pathZkTrie {
+		tr, err := trie.NewPathZkTrie(root, root, db.db, rawdb.TrieNodeAccountPrefix)
+		if err != nil {
+			return nil, err
+		}
+		return tr, nil
+	}
+
 	if db.zktrie {
-		tr, err := trie.NewZkTrie(root, trie.NewZktrieDatabaseFromTriedb(db.db))
+		tr, err := trie.NewZkTrie(root, db.db)
 		if err != nil {
 			return nil, err
 		}
@@ -151,9 +162,18 @@ func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
 }
 
 // OpenStorageTrie opens the storage trie of an account.
-func (db *cachingDB) OpenStorageTrie(addrHash, root common.Hash) (Trie, error) {
+func (db *cachingDB) OpenStorageTrie(addrHash, root, origin common.Hash) (Trie, error) {
+	if db.pathZkTrie {
+		prefix := append(rawdb.TrieNodeStoragePrefix, zkt.ReverseByteOrder(addrHash.Bytes())...)
+		tr, err := trie.NewPathZkTrie(root, origin, db.db, prefix)
+		if err != nil {
+			return nil, err
+		}
+		return tr, nil
+	}
+
 	if db.zktrie {
-		tr, err := trie.NewZkTrie(root, trie.NewZktrieDatabaseFromTriedb(db.db))
+		tr, err := trie.NewZkTrie(root, db.db)
 		if err != nil {
 			return nil, err
 		}
@@ -172,6 +192,8 @@ func (db *cachingDB) CopyTrie(t Trie) Trie {
 	case *trie.SecureTrie:
 		return t.Copy()
 	case *trie.ZkTrie:
+		return t.Copy()
+	case *trie.PathZkTrie:
 		return t.Copy()
 	default:
 		panic(fmt.Errorf("unknown trie type %T", t))

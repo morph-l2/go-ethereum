@@ -29,6 +29,8 @@ import (
 	"github.com/morph-l2/go-ethereum/crypto/codehash"
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/rlp"
+
+	zkt "github.com/scroll-tech/zktrie/types"
 )
 
 var emptyPoseidonCodeHash = codehash.EmptyPoseidonCodeHash.Bytes()
@@ -66,10 +68,11 @@ func (s Storage) Copy() Storage {
 // Account values can be accessed and modified through the object.
 // Finally, call CommitTrie to write the modified storage trie into a database.
 type stateObject struct {
-	address  common.Address
-	addrHash common.Hash // hash of ethereum address of the account
-	data     types.StateAccount
-	db       *StateDB
+	address          common.Address
+	addrHash         common.Hash // hash of ethereum address of the account
+	addrPoseidonHash common.Hash // hash of ethereum address of the account
+	data             types.StateAccount
+	db               *StateDB
 
 	// DB error.
 	// State objects are used by the consensus core and VM which are
@@ -114,14 +117,20 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *st
 	if data.Root == (common.Hash{}) {
 		data.Root = db.db.TrieDB().EmptyRoot()
 	}
+	var addrPoseidonHash common.Hash
+	if db.db.TrieDB().IsPathZkTrie() {
+		addressKey, _ := zkt.ToSecureKey(address.Bytes())
+		addrPoseidonHash = common.BigToHash(addressKey)
+	}
 	return &stateObject{
-		db:             db,
-		address:        address,
-		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           data,
-		originStorage:  make(Storage),
-		pendingStorage: make(Storage),
-		dirtyStorage:   make(Storage),
+		db:               db,
+		address:          address,
+		addrHash:         crypto.Keccak256Hash(address[:]),
+		addrPoseidonHash: addrPoseidonHash,
+		data:             data,
+		originStorage:    make(Storage),
+		pendingStorage:   make(Storage),
+		dirtyStorage:     make(Storage),
 	}
 }
 
@@ -163,9 +172,13 @@ func (s *stateObject) getTrie(db Database) Trie {
 		}
 		if s.trie == nil {
 			var err error
-			s.trie, err = db.OpenStorageTrie(s.addrHash, s.data.Root)
+			addrHash := s.addrHash
+			if db.TrieDB().IsPathZkTrie() {
+				addrHash = s.addrPoseidonHash
+			}
+			s.trie, err = db.OpenStorageTrie(addrHash, s.data.Root, s.db.originalRoot)
 			if err != nil {
-				s.trie, _ = db.OpenStorageTrie(s.addrHash, common.Hash{})
+				s.trie, _ = db.OpenStorageTrie(addrHash, common.Hash{}, s.db.originalRoot)
 				s.setError(fmt.Errorf("can't create storage trie: %v", err))
 			}
 		}

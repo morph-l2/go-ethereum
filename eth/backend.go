@@ -54,6 +54,7 @@ import (
 	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/rollup/batch"
 	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 // Config contains the configuration options of the ETH protocol.
@@ -121,12 +122,27 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		}
 		config.TrieDirtyCache = 0
 	}
+
+	if config.JournalFileName == "" {
+		config.JournalFileName = ethconfig.Defaults.JournalFileName
+	}
+
 	log.Info("Allocated trie memory caches", "clean", common.StorageSize(config.TrieCleanCache)*1024*1024, "dirty", common.StorageSize(config.TrieDirtyCache)*1024*1024)
 
 	// Assemble the Ethereum object
 	chainDb, err := stack.OpenDatabaseWithFreezer("chaindata", config.DatabaseCache, config.DatabaseHandles, config.DatabaseFreezer, "eth/db/chaindata/", false)
 	if err != nil {
 		return nil, err
+	}
+
+	config.StateScheme, err = rawdb.ParseStateScheme(config.StateScheme, chainDb)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set path trie tag before using trie db
+	if config.StateScheme == rawdb.PathScheme {
+		trie.GenesisStateInPathZkTrie = true
 	}
 
 	// Override the chain config with provided settings.
@@ -141,6 +157,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if _, ok := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !ok {
 		return nil, genesisErr
 	}
+
 	log.Info("Initialised chain configuration", "config", chainConfig)
 
 	if err := pruner.RecoverPruning(stack.ResolvePath(""), chainDb, stack.ResolvePath(config.TrieCleanCacheJournal)); err != nil {
@@ -195,6 +212,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			TrieTimeLimit:       config.TrieTimeout,
 			SnapshotLimit:       config.SnapshotCache,
 			Preimages:           config.Preimages,
+			PathSyncFlush:       config.PathSyncFlush,
+			StateScheme:         config.StateScheme,
+			JournalFilePath:     stack.ResolvePath(config.JournalFileName),
 		}
 	)
 	// TODO (MariusVanDerWijden) get rid of shouldPreserve in a follow-up PR

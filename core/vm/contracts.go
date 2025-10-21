@@ -29,6 +29,7 @@ import (
 	"github.com/morph-l2/go-ethereum/crypto/blake2b"
 	"github.com/morph-l2/go-ethereum/crypto/bls12381"
 	"github.com/morph-l2/go-ethereum/crypto/bn256"
+	"github.com/morph-l2/go-ethereum/crypto/secp256r1"
 	"github.com/morph-l2/go-ethereum/params"
 
 	//lint:ignore SA1019 Needed for precompile
@@ -154,7 +155,14 @@ var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{18}): &bls12381MapG2{},
 }
 
+// PrecompiledContractsMorph204 contains the default set of pre-compiled Ethereum
+// contracts used in the Morph204 release.
+var PrecompiledContractsMorph204 = map[common.Address]PrecompiledContract{
+	common.BytesToAddress([]byte{0x1, 0x00}): &p256Verify{},
+}
+
 var (
+	PrecompiledAddressesMorph204   []common.Address
 	PrecompiledAddressesMorph203   []common.Address
 	PrecompiledAddressesBernoulli  []common.Address
 	PrecompiledAddressesArchimedes []common.Address
@@ -185,6 +193,9 @@ func init() {
 	}
 	for k := range PrecompiledContractsMorph203 {
 		PrecompiledAddressesMorph203 = append(PrecompiledAddressesMorph203, k)
+	}
+	for k := range PrecompiledContractsMorph204 {
+		PrecompiledAddressesMorph204 = append(PrecompiledAddressesMorph204, k)
 	}
 }
 
@@ -1158,4 +1169,32 @@ func (c *bls12381MapG2) Run(input []byte) ([]byte, error) {
 
 	// Encode the G2 point to 256 bytes
 	return g.EncodePoint(r), nil
+}
+
+// P256VERIFY (secp256r1 signature verification)
+// implemented as a native contract
+type p256Verify struct{}
+
+// RequiredGas returns the gas required to execute the precompiled contract
+func (c *p256Verify) RequiredGas(input []byte) uint64 {
+	return params.P256VerifyGas
+}
+
+// Run executes the precompiled contract with given 160 bytes of param, returning the output and the used gas
+func (c *p256Verify) Run(input []byte) ([]byte, error) {
+	const p256VerifyInputLength = 160
+	if len(input) != p256VerifyInputLength {
+		return nil, nil
+	}
+
+	// Extract hash, r, s, x, y from the input.
+	hash := input[0:32]
+	r, s := new(big.Int).SetBytes(input[32:64]), new(big.Int).SetBytes(input[64:96])
+	x, y := new(big.Int).SetBytes(input[96:128]), new(big.Int).SetBytes(input[128:160])
+
+	// Verify the signature.
+	if secp256r1.Verify(hash, r, s, x, y) {
+		return true32Byte, nil
+	}
+	return nil, nil
 }

@@ -790,6 +790,12 @@ func (c *ChainConfig) IsMorph203(now uint64) bool {
 	return isForkedTime(now, c.Morph203Time)
 }
 
+// IsMorph203 returns whether num is either equal to the Morph204 fork block or greater.
+func (c *ChainConfig) IsMorph204(now uint64) bool {
+	// TODO
+	return false
+}
+
 func (c *ChainConfig) IsViridian(num *big.Int, time uint64) bool {
 	return c.IsCurie(num) && isTimestampForked(c.ViridianTime, time)
 }
@@ -1105,11 +1111,11 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                 *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
-	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsMorph203, IsViridian            bool
+	ChainID                                                  *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul  bool
+	IsBerlin, IsLondon, IsArchimedes, IsShanghai             bool
+	IsBernoulli, IsCurie, IsMorph203, IsViridian, IsMorph204 bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1135,6 +1141,7 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsBernoulli:      c.IsBernoulli(num),
 		IsCurie:          c.IsCurie(num),
 		IsMorph203:       c.IsMorph203(time),
+		IsMorph204:       c.IsMorph204(time),
 		IsViridian:       c.IsViridian(num, time),
 	}
 }

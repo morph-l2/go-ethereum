@@ -78,10 +78,11 @@ func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.C
 	} else {
 		l1DataFee = calculateEncodedL1DataFeeCurie(raw, gpoState.l1BaseFee, gpoState.l1BlobBaseFee, gpoState.commitScalar, gpoState.blobScalar)
 	}
+	rate := big.NewInt(1)
 	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
-		l1DataFee = ExchangeToERC20(state, tx.FeeTokenID(), l1DataFee)
+		rate = EthRate(*tx.FeeTokenID(), state)
+		l1DataFee = new(big.Int).Mul(l1DataFee, rate)
 	}
-	var rate *big.Int // TODO
 	return &types.TokenFee{
 		Fee:  l1DataFee,
 		Rate: rate,
@@ -250,10 +251,11 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 	if !l1DataFee.IsUint64() {
 		l1DataFee.SetUint64(math.MaxUint64)
 	}
+	rate := big.NewInt(1)
 	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
-		l1DataFee = ExchangeToERC20(state, tx.FeeTokenID(), l1DataFee)
+		rate = EthRate(*tx.FeeTokenID(), state)
+		l1DataFee = new(big.Int).Mul(l1DataFee, rate)
 	}
-	var rate *big.Int // TODO
 	return &types.TokenFee{
 		Fee:  l1DataFee,
 		Rate: rate,

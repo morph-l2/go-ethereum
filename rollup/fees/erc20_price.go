@@ -25,12 +25,13 @@ var (
 	TokenBalanceSlotMappingSlot = common.BigToHash(big.NewInt(2))
 )
 
-func ExchangeToERC20() *big.Int {
-	return new(big.Int)
-}
+func EthRate(tokenID uint16, db StateDB) *big.Int {
+	addr, price, _, err := GetTokenInfoFromStorage(db, TokenRegistryAddress, tokenID)
+	if err != nil {
 
-func ExchangeToEth() *big.Int {
-	return new(big.Int)
+	}
+	// TODO erc20Price ethPrice
+	return price
 }
 
 // CalculateMappingSlot calculates the storage slot for a mapping key

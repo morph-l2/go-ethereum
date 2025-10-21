@@ -1191,10 +1191,10 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			return 0, err
 		}
 		// TODO
-		if l1DataFee.EthAmount().Cmp(available) >= 0 {
+		if l1DataFee.Eth().Cmp(available) >= 0 {
 			return 0, errors.New("insufficient funds for l1 fee")
 		}
-		available.Sub(available, l1DataFee.EthAmount())
+		available.Sub(available, l1DataFee.Eth())
 
 		allowance := new(big.Int).Div(available, feeCap)
 

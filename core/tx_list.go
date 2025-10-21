@@ -18,6 +18,7 @@ package core
 
 import (
 	"container/heap"
+	"github.com/morph-l2/go-ethereum/accounts"
 	"math"
 	"math/big"
 	"slices"
@@ -276,8 +277,8 @@ type txList struct {
 	strict bool         // Whether nonces are strictly continuous or not
 	txs    *txSortedMap // Heap indexed sorted hash map of the transactions
 
-	costcap *big.Int // Price of the highest costing transaction (reset only if exceeds balance)
-	gascap  uint64   // Gas limit of the highest spending transaction (reset only if exceeds block limit)
+	costcap *types.SuperAccount // Price of the highest costing transaction (reset only if exceeds balance)
+	gascap  uint64              // Gas limit of the highest spending transaction (reset only if exceeds block limit)
 }
 
 // newTxList create a new transaction list for maintaining nonce-indexable fast,
@@ -286,7 +287,8 @@ func newTxList(strict bool) *txList {
 	return &txList{
 		strict:  strict,
 		txs:     newTxSortedMap(),
-		costcap: new(big.Int),
+		costcap: new(types.SuperAccount),
+		accounts.Account{},
 	}
 }
 
@@ -336,8 +338,18 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		}
 	}
 	l.txs.Put(tx)
-	if cost := new(big.Int).Add(tx.Cost(l1DataFee.Rate), l1DataFee.EthAmount()); l.costcap.Cmp(cost) < 0 {
-		l.costcap = cost
+	ethCost := big.NewInt(0)
+	if tx.IsERC20FeeTx() {
+		ethCost = new(big.Int).Set(tx.Value())
+		erc20Cost := new(big.Int).Add(tx.GasFee(), l1DataFee.Fee)
+		if l.costcap.ERC20(*tx.FeeTokenID()).Cmp(erc20Cost) < 0 {
+			l.costcap.SetERC20Amount(*tx.FeeTokenID(), erc20Cost)
+		}
+	} else {
+		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee.Eth())
+	}
+	if l.costcap.Eth().Cmp(ethCost) < 0 {
+		l.costcap.SetEthAmount(ethCost)
 	}
 	if gas := tx.Gas(); l.gascap < gas {
 		l.gascap = gas
@@ -363,10 +375,11 @@ func (l *txList) Forward(threshold uint64) types.Transactions {
 // the newly invalidated transactions.
 func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions, types.Transactions) {
 	// If all transactions are below the threshold, short circuit
-	if l.costcap.Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
+	// TODO erc20 cost limit
+	if l.costcap.Eth().Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
 		return nil, nil
 	}
-	l.costcap = new(big.Int).Set(costLimit) // Lower the caps to the thresholds
+	l.costcap.SetEthAmount(new(big.Int).Set(costLimit)) // Lower the caps to the thresholds
 	l.gascap = gasLimit
 
 	// Filter out all the transactions above the account's funds
@@ -395,12 +408,20 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 // FilterF removes all transactions from the list that satisfy a predicate.
 // Every removed transaction is returned for any post-removal maintenance.
 // Strict-mode invalidated transactions are also returned.
-func (l *txList) FilterF(costLimit *big.Int, gasLimit uint64, f func(tx *types.Transaction) bool) (types.Transactions, types.Transactions) {
+func (l *txList) FilterF(costLimit *big.Int, erc20CostLimit map[uint16]*big.Int, gasLimit uint64, f func(tx *types.Transaction) bool) (types.Transactions, types.Transactions) {
 	// If all transactions are below the threshold, short circuit
-	if l.costcap.Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
+	allLower := true
+	for id, limit := range erc20CostLimit {
+		lower := l.costcap.ERC20(id).Cmp(limit) <= 0
+		if !lower {
+			l.costcap.SetERC20Amount(id, limit)
+		}
+		allLower = allLower && lower
+	}
+	if allLower && l.costcap.Eth().Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
 		return nil, nil
 	}
-	l.costcap = new(big.Int).Set(costLimit) // Lower the caps to the thresholds
+	l.costcap.SetEthAmount(new(big.Int).Set(costLimit)) // Lower the caps to the thresholds
 	l.gascap = gasLimit
 
 	removed := l.txs.Filter(f)

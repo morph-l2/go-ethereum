@@ -563,7 +563,7 @@ func (api *MorphAPI) EstimateL1DataFee(ctx context.Context, args ethapi.Transact
 		return nil, fmt.Errorf("failed to estimate L1 data fee: %w", err)
 	}
 	// TODO
-	result := hexutil.Uint64(l1DataFee.EthAmount().Uint64())
+	result := hexutil.Uint64(l1DataFee.Eth().Uint64())
 	return &result, nil
 }
 

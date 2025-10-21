@@ -89,6 +89,8 @@ type Backend interface {
 type API struct {
 	backend            Backend
 	morphTracerWrapper morphTracerWrapper
+	getBalanceFunc     func(evm *vm.EVM, tokenID *uint16, addr common.Address) (*big.Int, error)
+	addBalanceFunc     func(evm *vm.EVM, tokenID *uint16, addr common.Address, amount *big.Int) error
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
@@ -955,7 +957,14 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		statedb.AddBalance(message.From(), l1DataFee.EthAmount())
+		if message.FeeTokenID() == nil {
+			statedb.AddBalance(message.From(), l1DataFee.Eth())
+		} else {
+			// TODO add erc20 balance??
+			if err := api.addBalanceFunc(vmenv, message.FeeTokenID(), message.From(), l1DataFee.Fee); err != nil {
+				return nil, err
+			}
+		}
 	}
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)

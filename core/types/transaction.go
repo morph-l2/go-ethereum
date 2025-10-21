@@ -37,6 +37,7 @@ var (
 	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
 	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
+	ErrCostNotSupported     = errors.New("erc20 fee transaction cost func not supported")
 	ErrInvalidParamNumber   = errors.New("invalid number of parameters")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
@@ -358,15 +359,18 @@ func (tx *Transaction) FeeTokenID() *uint16 {
 }
 
 // Cost returns gas * gasPrice + value.
-func (tx *Transaction) Cost(tokenRate ...*big.Int) *big.Int {
+func (tx *Transaction) Cost() *big.Int {
 	if tx.IsERC20FeeTx() {
-		if len(tokenRate) != 1 {
-			panic(ErrInvalidParamNumber)
-		}
+		panic(ErrCostNotSupported)
 	}
-	total := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
+	total := tx.GasFee()
 	total.Add(total, tx.Value())
 	return total
+}
+
+// GasFee returns gas * gasPrice.
+func (tx *Transaction) GasFee() *big.Int {
+	return new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
 }
 
 // RawSignatureValues returns the V, R, S signature values of the transaction.
@@ -428,9 +432,14 @@ func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
 	}
 	var err error
 	gasFeeCap := tx.GasFeeCap()
-	if gasFeeCap.Cmp(baseFee) == -1 {
-		err = ErrGasFeeCapTooLow
+	if tx.IsERC20FeeTx() {
+		// TODO import evm or query state for erc20 balance
+	} else {
+		if gasFeeCap.Cmp(baseFee) == -1 {
+			err = ErrGasFeeCapTooLow
+		}
 	}
+
 	return math.BigMin(tx.GasTipCap(), gasFeeCap.Sub(gasFeeCap, baseFee)), err
 }
 

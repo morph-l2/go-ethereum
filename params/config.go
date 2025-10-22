@@ -578,6 +578,7 @@ type ChainConfig struct {
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
+	Morph204Time        *uint64  `json:"morph204Time,omitempty"`        // Morph204Time switch time (nil = no fork, 0 = already on morph204)
 	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
@@ -788,6 +789,11 @@ func (c *ChainConfig) IsCurie(num *big.Int) bool {
 // IsMorph203 returns whether num is either equal to the Morph203 fork block or greater.
 func (c *ChainConfig) IsMorph203(now uint64) bool {
 	return isForkedTime(now, c.Morph203Time)
+}
+
+// IsMorph204 returns whether time is either equal to the Morph204 fork time or greater.
+func (c *ChainConfig) IsMorph204(now uint64) bool {
+	return isForkedTime(now, c.Morph204Time)
 }
 
 func (c *ChainConfig) IsViridian(num *big.Int, time uint64) bool {
@@ -1105,11 +1111,11 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                 *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
-	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsMorph203, IsViridian            bool
+	ChainID                                                  *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul  bool
+	IsBerlin, IsLondon, IsArchimedes, IsShanghai             bool
+	IsBernoulli, IsCurie, IsMorph203, IsViridian, IsMorph204 bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1136,5 +1142,6 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsCurie:          c.IsCurie(num),
 		IsMorph203:       c.IsMorph203(time),
 		IsViridian:       c.IsViridian(num, time),
+		IsMorph204:       c.IsMorph204(time),
 	}
 }

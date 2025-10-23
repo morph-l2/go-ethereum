@@ -641,6 +641,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrTxTypeNotSupported
 	}
 
+	// Reject erc20 fee transactions until EIP-1559 activates.
+	if !pool.eip1559 && tx.Type() == types.ERC20FeeTxType {
+    return ErrTxTypeNotSupported
+	}
 	if !pool.eip7702 && tx.Type() == types.SetCodeTxType {
 		return ErrTxTypeNotSupported
 	}

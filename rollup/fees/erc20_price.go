@@ -6,6 +6,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rollup/rcfg"
 )
 
@@ -25,12 +26,27 @@ var (
 	TokenBalanceSlotMappingSlot = common.BigToHash(big.NewInt(2))
 )
 
-func ExchangeToERC20() *big.Int {
-	return new(big.Int)
-}
+// EthRate returns the ETH exchange rate for the specified token
+func EthRate(tokenID uint16, db StateDB) *big.Int {
+	addr, price, _, err := GetTokenInfoFromStorage(db, TokenRegistryAddress, tokenID)
+	if err != nil {
+		log.Error("Failed to get token info from storage", "tokenID", tokenID, "error", err)
+		return nil
+	}
 
-func ExchangeToEth() *big.Int {
-	return new(big.Int)
+	// If token address is zero, this is not a valid token
+	if addr == (common.Address{}) {
+		log.Error("Invalid token address", "tokenID", tokenID)
+		return nil
+	}
+
+	// If price is nil or zero, this token doesn't have a valid price
+	if price == nil || price.Sign() == 0 {
+		log.Error("Invalid token price", "tokenID", tokenID, "tokenAddr", addr.Hex())
+		return nil
+	}
+
+	return price
 }
 
 // CalculateMappingSlot calculates the storage slot for a mapping key

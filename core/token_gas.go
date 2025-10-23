@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -39,6 +40,60 @@ func (st *StateTransition) GetERC20Balance(tokenAddress, userAddress common.Addr
 	// Parse the result as a big.Int
 	balance := new(big.Int).SetBytes(ret[:32])
 
+	return balance, nil
+}
+
+// GetERC20Balance returns the balance of an ERC20 token for a specific address.
+func GetERC20Balance(evm *vm.EVM, tokenID *uint16, addr common.Address) (*big.Int, error) {
+	balanceSlot := fees.GetTokenBalanceSlotByIDWithState(evm.StateDB, fees.TokenRegistryAddress, *tokenID, fees.TokenAddressMappingSlot)
+
+	tokenAddress, err := fees.GetTokenAddressByIDWithState(evm.StateDB, fees.TokenRegistryAddress, *tokenID, fees.TokenAddressMappingSlot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token address for token ID %d: %v", *tokenID, err)
+	}
+	// Define the ERC20 balanceOf method signature: balanceOf(address)
+	// Function signature: 0x70a08231
+	methodID := []byte{0x70, 0xa0, 0x82, 0x31}
+
+	// Pad the address to 32 bytes
+	paddedAddress := common.LeftPadBytes(addr.Bytes(), 32)
+
+	// Construct the call data: methodID + paddedAddress
+	data := append(methodID, paddedAddress...)
+
+	// Create a message call context
+	sender := vm.AccountRef(addr)
+
+	if balanceSlot != (common.Hash{}) {
+		return getERC20BalanceFromSlot(evm.StateDB, tokenAddress, addr, balanceSlot)
+	}
+	// Execute the call (using StaticCall since we're only reading state)
+	// TODO gas
+	ret, _, err := evm.StaticCall(sender, tokenAddress, data, 200000)
+	if err != nil {
+		return nil, err
+	}
+
+	// If return data is too short, it's an error
+	if len(ret) < 32 {
+		return nil, fmt.Errorf("invalid return data from ERC20 balanceOf call")
+	}
+
+	// Parse the result as a big.Int
+	balance := new(big.Int).SetBytes(ret[:32])
+	return balance, nil
+}
+
+// GetERC20BalanceFromSlot returns the balance of an ERC20 token for a specific address using storage slot
+func getERC20BalanceFromSlot(state vm.StateDB, tokenAddress, userAddress common.Address, balanceSlot common.Hash) (*big.Int, error) {
+	// Calculate the storage slot for the user's balance
+	storageSlot := CalculateERC20BalanceSlot(userAddress, balanceSlot)
+
+	// Get the value from storage
+	value := state.GetState(tokenAddress, storageSlot)
+
+	// Convert hash to big.Int
+	balance := new(big.Int).SetBytes(value[:])
 	return balance, nil
 }
 

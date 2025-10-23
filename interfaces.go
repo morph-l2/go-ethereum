@@ -144,6 +144,8 @@ type CallMsg struct {
 
 	// For ERC20FeeType
 	FeeTokenID *uint16
+	// For SetCodeTxType
+	AuthorizationList []types.SetCodeAuthorization
 }
 
 // A ContractCaller provides contract calls, essentially transactions that are executed by

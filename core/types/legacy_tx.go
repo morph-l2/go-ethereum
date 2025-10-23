@@ -104,6 +104,10 @@ func (tx *LegacyTx) value() *big.Int        { return tx.Value }
 func (tx *LegacyTx) nonce() uint64          { return tx.Nonce }
 func (tx *LegacyTx) to() *common.Address    { return tx.To }
 
+func (tx *LegacyTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+	return dst.Set(tx.GasPrice)
+}
+
 func (tx *LegacyTx) rawSignatureValues() (v, r, s *big.Int) {
 	return tx.V, tx.R, tx.S
 }
@@ -118,4 +122,17 @@ func (tx *LegacyTx) encode(*bytes.Buffer) error {
 
 func (tx *LegacyTx) decode([]byte) error {
 	panic("decode called on LegacyTx)")
+}
+
+// OBS: This is the post-EIP155 hash, the pre-EIP155 does not contain a chainID.
+func (tx *LegacyTx) sigHash(chainID *big.Int) common.Hash {
+	return rlpHash([]any{
+		tx.Nonce,
+		tx.GasPrice,
+		tx.Gas,
+		tx.To,
+		tx.Value,
+		tx.Data,
+		chainID, uint(0), uint(0),
+	})
 }

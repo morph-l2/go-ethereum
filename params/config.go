@@ -316,6 +316,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            NewUint64(0),
+		ViridianTime:            NewUint64(1761544800),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
@@ -346,6 +347,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            NewUint64(1747029600),
+		ViridianTime:            NewUint64(1762149600),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
@@ -382,6 +384,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		ViridianTime:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -418,6 +421,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		ViridianTime:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
@@ -449,6 +453,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		ViridianTime:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -481,6 +486,7 @@ var (
 		BernoulliBlock:          big.NewInt(0),
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
+		ViridianTime:            new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -572,6 +578,7 @@ type ChainConfig struct {
 	BernoulliBlock      *big.Int `json:"bernoulliBlock,omitempty"`      // Bernoulli switch block (nil = no fork, 0 = already on bernoulli)
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
+	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -664,7 +671,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Engine: %v, Morph config: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -685,6 +692,7 @@ func (c *ChainConfig) String() string {
 		c.BernoulliBlock,
 		c.CurieBlock,
 		c.Morph203Time,
+		c.ViridianTime,
 		engine,
 		c.Morph,
 	)
@@ -782,6 +790,10 @@ func (c *ChainConfig) IsMorph203(now uint64) bool {
 	return isForkedTime(now, c.Morph203Time)
 }
 
+func (c *ChainConfig) IsViridian(num *big.Int, time uint64) bool {
+	return c.IsCurie(num) && isTimestampForked(c.ViridianTime, time)
+}
+
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
 func (c *ChainConfig) IsTerminalPoWBlock(parentTotalDiff *big.Int, totalDiff *big.Int) bool {
 	if c.TerminalTotalDifficulty == nil {
@@ -844,6 +856,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "bernoulliBlock", block: c.BernoulliBlock, optional: true},
 		{name: "curieBlock", block: c.CurieBlock, optional: true},
 		{name: "morph203Time", timestamp: c.Morph203Time, optional: true},
+		{name: "viridianTime", timestamp: c.ViridianTime, optional: true},
 	} {
 		if lastFork.name != "" {
 			switch {
@@ -946,6 +959,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTi
 	}
 	if isForkTimestampIncompatible(c.Morph203Time, newcfg.Morph203Time, headTimestamp) {
 		return newTimestampCompatError("Morph203Time fork timestamp", c.Morph203Time, newcfg.Morph203Time)
+	}
+	if isForkTimestampIncompatible(c.ViridianTime, newcfg.ViridianTime, headTimestamp) {
+		return newTimestampCompatError("ViridianTime fork timestamp", c.ViridianTime, newcfg.ViridianTime)
 	}
 	return nil
 }
@@ -1093,7 +1109,7 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsMorph203                        bool
+	IsBernoulli, IsCurie, IsMorph203, IsViridian            bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1119,5 +1135,6 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsBernoulli:      c.IsBernoulli(num),
 		IsCurie:          c.IsCurie(num),
 		IsMorph203:       c.IsMorph203(time),
+		IsViridian:       c.IsViridian(num, time),
 	}
 }

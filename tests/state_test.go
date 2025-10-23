@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 )
 
 func TestState(t *testing.T) {
@@ -115,8 +116,8 @@ func withTrace(t *testing.T, gasLimit uint64, test func(vm.Config) error) {
 	}
 	buf := new(bytes.Buffer)
 	w := bufio.NewWriter(buf)
-	tracer := vm.NewJSONLogger(&vm.LogConfig{}, w)
-	config.Debug, config.Tracer = true, tracer
+	tracer := logger.NewJSONLogger(&logger.Config{}, w)
+	config.Tracer = tracer
 	err2 := test(config)
 	if !reflect.DeepEqual(err, err2) {
 		t.Errorf("different error for second run: %v", err2)

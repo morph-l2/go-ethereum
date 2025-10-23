@@ -265,6 +265,7 @@ type TxPool struct {
 	blacklist *TxBlacklist
 	// TODO
 	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error)
+	getPriceFunc   func(header *types.Header, state *state.StateDB, tokenID *uint16) (*big.Int, error)
 
 	pending map[common.Address]*txList   // All currently processable transactions
 	queue   map[common.Address]*txList   // Queued but non-processable transactions
@@ -345,9 +346,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		}
 		// Create the EVM instance
 		evm := vm.NewEVM(blockContext, txContext, state, pool.chainconfig, vmConfig)
-		// TODO check erc20 balance
-		evm.CallCode()
-		return nil, nil
+		return GetERC20Balance(evm, tokenID, addr)
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -612,10 +611,23 @@ func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccount
 		// If the miner requests tip enforcement, cap the lists now
 		if minTip != nil && !pool.locals.contains(addr) {
 			for i, tx := range txs {
-				if tx.EffectiveGasTipIntCmp(minTip, baseFee) < 0 {
-					txs = txs[:i]
-					break
+				if tx.IsERC20FeeTx() {
+					price, err := pool.getPriceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID())
+					if err != nil {
+						// TODO
+					}
+					minTipByERC20 := new(big.Int).Mul(minTip, price) // TODO
+					if tx.EffectiveGasTipIntCmp(minTipByERC20, baseFee, price) < 0 {
+						txs = txs[:i]
+						break
+					}
+				} else {
+					if tx.EffectiveGasTipIntCmp(minTip, baseFee) < 0 {
+						txs = txs[:i]
+						break
+					}
 				}
+
 			}
 		}
 		if len(txs) > 0 {

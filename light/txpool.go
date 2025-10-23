@@ -117,7 +117,7 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 	// Subscribe events from blockchain
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 	// TODO
-	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) *big.Int {
+	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error) {
 		blockContext := vm.BlockContext{
 			BlockNumber: header.Number,
 			Time:        big.NewInt(int64(header.Time)),
@@ -140,9 +140,7 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 		}
 		// Create the EVM instance
 		evm := vm.NewEVM(blockContext, txContext, state, pool.config, vmConfig)
-		// TODO check erc20 balance
-		evm.CallCode()
-		return nil
+		return core.GetERC20Balance(evm, tokenID, addr)
 	}
 	go pool.eventLoop()
 

@@ -289,7 +289,7 @@ func (st *StateTransition) buyERC20Gas() error {
 	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
 		if !st.msg.IsL1MessageTx() {
 			log.Debug("Adding L1DataFee for ERC20 gas payment", "l1DataFee", st.l1DataFee)
-			mgval = mgval.Add(mgval, st.l1DataFee)
+			mgval = mgval.Add(mgval, st.l1DataFee.Fee)
 		}
 	}
 

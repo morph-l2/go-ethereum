@@ -19,6 +19,7 @@ package core
 import (
 	"container/heap"
 	"github.com/morph-l2/go-ethereum/accounts"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"math"
 	"math/big"
 	"slices"
@@ -505,8 +506,9 @@ func (l *txList) LastElement() *types.Transaction {
 // then the heap is sorted based on the effective tip based on the given base fee.
 // If baseFee is nil then the sorting is based on gasFeeCap.
 type priceHeap struct {
-	baseFee *big.Int // heap should always be re-sorted after baseFee is changed
-	list    []*types.Transaction
+	baseFee      *big.Int // heap should always be re-sorted after baseFee is changed
+	getTokenRate func(evm *vm.EVM, tokenID *uint16) *big.Int
+	list         []*types.Transaction
 }
 
 func (h *priceHeap) Len() int      { return len(h.list) }
@@ -526,7 +528,11 @@ func (h *priceHeap) Less(i, j int) bool {
 func (h *priceHeap) cmp(a, b *types.Transaction) int {
 	if h.baseFee != nil {
 		// Compare effective tips if baseFee is specified
-		if c := a.EffectiveGasTipCmp(b, h.baseFee); c != 0 {
+		aPrice := h.getTokenRate(nil, a.FeeTokenID())
+		bPrice := h.getTokenRate(nil, a.FeeTokenID())
+		// TODO aPrice / bPrice
+
+		if c := a.EffectiveGasTipCmp(b, h.baseFee, aPrice, bPrice); c != 0 {
 			return c
 		}
 	}

@@ -77,7 +77,8 @@ type Receipt struct {
 	ReturnValue []byte `json:"returnValue,omitempty"`
 
 	// Morph rollup
-	L1Fee *TokenFee `json:"l1Fee,omitempty"`
+	L1Fee *big.Int `json:"l1Fee,omitempty"`
+	Rate  *big.Int `json:"rate,omitempty"`
 }
 
 type receiptMarshaling struct {
@@ -107,7 +108,8 @@ type storedReceiptRLP struct {
 	PostStateOrStatus []byte
 	CumulativeGasUsed uint64
 	Logs              []*LogForStorage
-	L1Fee             *TokenFee
+	L1Fee             *big.Int
+	Rate              *big.Int
 }
 
 // v5StoredReceiptRLP is the storage encoding of a receipt used in database version 5.
@@ -306,6 +308,7 @@ func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
 		CumulativeGasUsed: r.CumulativeGasUsed,
 		Logs:              make([]*LogForStorage, len(r.Logs)),
 		L1Fee:             r.L1Fee,
+		Rate:              r.Rate,
 	}
 	for i, log := range r.Logs {
 		enc.Logs[i] = (*LogForStorage)(log)

@@ -230,14 +230,16 @@ type results struct {
 }
 
 type txSorter struct {
-	txs     []*types.Transaction
-	baseFee *big.Int
+	txs        []*types.Transaction
+	baseFee    *big.Int
+	receiptMap map[common.Hash]*types.Receipt
 }
 
-func newSorter(txs []*types.Transaction, baseFee *big.Int) *txSorter {
+func newSorter(txs []*types.Transaction, baseFee *big.Int, receiptMap map[common.Hash]*types.Receipt) *txSorter {
 	return &txSorter{
-		txs:     txs,
-		baseFee: baseFee,
+		txs:        txs,
+		baseFee:    baseFee,
+		receiptMap: receiptMap,
 	}
 }
 
@@ -248,6 +250,28 @@ func (s *txSorter) Swap(i, j int) {
 func (s *txSorter) Less(i, j int) bool {
 	// It's okay to discard the error because a tx would never be
 	// accepted into a block with an invalid effective tip.
+	if s.txs[i].IsERC20FeeTx() || s.txs[j].IsERC20FeeTx() {
+		tip1, _ := s.txs[i].EffectiveGasTip(s.baseFee)
+		if s.txs[i].IsERC20FeeTx() {
+			receipt, ok := s.receiptMap[s.txs[i].Hash()]
+			if !ok {
+				panic("invalid tx")
+			}
+			tip1, _ = s.txs[i].EffectiveGasTip(s.baseFee, receipt.Rate)
+			tip1 = types.ERC20ToEth(tip1, receipt.Rate)
+		}
+
+		tip2, _ := s.txs[j].EffectiveGasTip(s.baseFee)
+		if s.txs[j].IsERC20FeeTx() {
+			receipt, ok := s.receiptMap[s.txs[j].Hash()]
+			if !ok {
+				panic("invalid tx")
+			}
+			tip2, _ = s.txs[j].EffectiveGasTip(s.baseFee, receipt.Rate)
+			tip2 = types.ERC20ToEth(tip2, receipt.Rate)
+		}
+		return tip1.Cmp(tip2) < 0
+	}
 	tip1, _ := s.txs[i].EffectiveGasTip(s.baseFee)
 	tip2, _ := s.txs[j].EffectiveGasTip(s.baseFee)
 	return tip1.Cmp(tip2) < 0
@@ -269,18 +293,37 @@ func (oracle *Oracle) getBlockValues(ctx context.Context, signer types.Signer, b
 	// Sort the transaction by effective tip in ascending sort.
 	txs := make([]*types.Transaction, len(block.Transactions()))
 	copy(txs, block.Transactions())
-	sorter := newSorter(txs, block.BaseFee())
+	receipts, err := oracle.backend.GetReceipts(ctx, block.Hash())
+	if block == nil {
+		select {
+		case result <- results{nil, err}:
+		case <-quit:
+		}
+		return
+	}
+	receiptMap := make(map[common.Hash]*types.Receipt)
+	for _, receipt := range receipts {
+		receiptMap[receipt.TxHash] = receipt
+	}
+	sorter := newSorter(txs, block.BaseFee(), receiptMap)
 	sort.Sort(sorter)
 
 	var prices []*big.Int
 	for _, tx := range sorter.txs {
-		if tx.IsERC20FeeTx() { // TODO
-			continue
+		tip := big.NewInt(0)
+		if tx.IsERC20FeeTx() {
+			tip, _ = tx.EffectiveGasTip(block.BaseFee(), receiptMap[tx.Hash()].Rate)
+			tip = types.ERC20ToEth(tip, receiptMap[tx.Hash()].Rate)
+			if ignoreUnder != nil && tip.Cmp(ignoreUnder) == -1 {
+				continue
+			}
+		} else {
+			tip, _ = tx.EffectiveGasTip(block.BaseFee())
+			if ignoreUnder != nil && tip.Cmp(ignoreUnder) == -1 {
+				continue
+			}
 		}
-		tip, _ := tx.EffectiveGasTip(block.BaseFee())
-		if ignoreUnder != nil && tip.Cmp(ignoreUnder) == -1 {
-			continue
-		}
+
 		sender, err := types.Sender(signer, tx)
 		if err == nil && sender != block.Coinbase() {
 			prices = append(prices, tip)

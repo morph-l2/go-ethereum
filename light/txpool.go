@@ -74,9 +74,8 @@ type TxPool struct {
 	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
 	shanghai bool // Fork indicator whether we are in the shanghai stage.
 
-	currentHead *big.Int // Current blockchain head
-	// TODO
-	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) *big.Int
+	currentHead    *big.Int // Current blockchain head
+	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error)
 }
 
 // TxRelayBackend provides an interface to the mechanism that forwards transacions
@@ -435,8 +434,10 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return errors.New("invalid transaction: insufficient funds for value")
 			}
-			// TODO check erc20 balance
-			erc20Balance := pool.getBalanceFunc(header, currentState, tx.FeeTokenID(), from)
+			erc20Balance, err := pool.getBalanceFunc(header, currentState, tx.FeeTokenID(), from)
+			if err != nil {
+				return err
+			}
 			if erc20Balance.Cmp(new(big.Int).Add(tx.GasFee(), l1DataFee.Fee)) < 0 {
 				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price")
 			}

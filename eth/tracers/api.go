@@ -976,6 +976,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 	l, ok := tracer.(*vm.StructLogger)
 	if ok {
 		l.ResultL1DataFee = result.L1DataFee
+		l.ResultRate = result.Rate
 	}
 	return tracer.GetResult()
 }

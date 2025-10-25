@@ -80,8 +80,11 @@ func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.C
 	}
 	rate := big.NewInt(1)
 	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
-		rate = EthRate(*tx.FeeTokenID(), state)
-		l1DataFee = new(big.Int).Mul(l1DataFee, rate)
+		rate, err = EthRate(state, tx.FeeTokenID())
+		if err != nil {
+			return nil, err
+		}
+		l1DataFee = types.EthToERC20(l1DataFee, rate)
 	}
 	return &types.TokenFee{
 		Fee:  l1DataFee,
@@ -253,8 +256,11 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 	}
 	rate := big.NewInt(1)
 	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
-		rate = EthRate(*tx.FeeTokenID(), state)
-		l1DataFee = new(big.Int).Mul(l1DataFee, rate)
+		rate, err = EthRate(state, tx.FeeTokenID())
+		if err != nil {
+			return nil, err
+		}
+		l1DataFee = types.EthToERC20(l1DataFee, rate)
 	}
 	return &types.TokenFee{
 		Fee:  l1DataFee,

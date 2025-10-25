@@ -118,10 +118,22 @@ func (oracle *Oracle) processBlock(bf *blockFees, percentiles []float64) {
 		}
 		return
 	}
-
+	receiptMap := make(map[common.Hash]*types.Receipt)
+	for _, receipt := range bf.receipts {
+		receiptMap[receipt.TxHash] = receipt
+	}
 	sorter := make(sortGasAndReward, len(bf.block.Transactions()))
 	for i, tx := range bf.block.Transactions() {
-		reward, _ := tx.EffectiveGasTip(bf.block.BaseFee())
+		reward := big.NewInt(0)
+		if tx.IsERC20FeeTx() {
+			receipt, ok := receiptMap[tx.Hash()]
+			if !ok {
+				// TODO
+			}
+			reward, _ = tx.EffectiveGasTip(bf.block.BaseFee(), receipt.Rate)
+		} else {
+			reward, _ = tx.EffectiveGasTip(bf.block.BaseFee())
+		}
 		sorter[i] = txGasAndReward{gasUsed: bf.receipts[i].GasUsed, reward: reward}
 	}
 	sort.Sort(sorter)

@@ -174,7 +174,8 @@ type StructLogger struct {
 	interrupt atomic.Bool // Atomic flag to signal execution interruption
 	reason    error       // Textual reason for the interruption
 
-	ResultL1DataFee *types.TokenFee
+	ResultL1DataFee *big.Int
+	ResultRate      *big.Int
 }
 
 // NewStructLogger returns a new logger
@@ -411,6 +412,7 @@ func (l *StructLogger) GetResult() (json.RawMessage, error) {
 		ReturnValue: returnVal,
 		StructLogs:  formatLogs(l.StructLogs()),
 		L1DataFee:   l.ResultL1DataFee,
+		Rate:        l.ResultRate,
 	})
 }
 

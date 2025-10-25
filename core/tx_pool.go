@@ -262,10 +262,8 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	blacklist *TxBlacklist
-	// TODO
+	blacklist      *TxBlacklist
 	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error)
-	getPriceFunc   func(header *types.Header, state *state.StateDB, tokenID *uint16) (*big.Int, error)
 
 	pending map[common.Address]*txList   // All currently processable transactions
 	queue   map[common.Address]*txList   // Queued but non-processable transactions
@@ -612,12 +610,13 @@ func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccount
 		if minTip != nil && !pool.locals.contains(addr) {
 			for i, tx := range txs {
 				if tx.IsERC20FeeTx() {
-					price, err := pool.getPriceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID())
+					rate, err := fees.EthRate(pool.currentState, tx.FeeTokenID())
 					if err != nil {
-						// TODO
+						return nil
 					}
-					minTipByERC20 := new(big.Int).Mul(minTip, price) // TODO
-					if tx.EffectiveGasTipIntCmp(minTipByERC20, baseFee, price) < 0 {
+					// minTip -> minTip by erc20
+					minTipByERC20 := types.EthToERC20(minTip, rate)
+					if tx.EffectiveGasTipIntCmp(minTipByERC20, baseFee, rate) < 0 {
 						txs = txs[:i]
 						break
 					}
@@ -733,7 +732,11 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if tx.FeeTokenID() == nil {
+	if tx.FeeTokenID() != nil {
+		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
+			return ErrInsufficientFunds
+		}
+	} else {
 		if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 			return ErrInsufficientFunds
 		}
@@ -890,7 +893,7 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 	// Try to insert the transaction into the future queue
 	from, _ := types.Sender(pool.signer, tx) // already validated
 	if pool.queue[from] == nil {
-		pool.queue[from] = newTxList(false)
+		pool.queue[from] = newTxList(false, pool.currentState)
 	}
 
 	inserted, old := pool.queue[from].Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
@@ -943,7 +946,7 @@ func (pool *TxPool) journalTx(from common.Address, tx *types.Transaction) {
 func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.Transaction) bool {
 	// Try to insert the transaction into the pending queue
 	if pool.pending[addr] == nil {
-		pool.pending[addr] = newTxList(true)
+		pool.pending[addr] = newTxList(true, pool.currentState)
 	}
 	list := pool.pending[addr]
 

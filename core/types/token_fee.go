@@ -14,13 +14,12 @@ type TokenFee struct {
 }
 
 func (gf *TokenFee) Eth() *big.Int {
-	return new(big.Int).Mul(gf.Fee, gf.Rate)
+	return ERC20ToEth(gf.Fee, gf.Rate)
 }
 
 // dual currency account
 type SuperAccount struct {
-	ethAmount *big.Int
-	// TODO erc20 accounts
+	ethAmount   *big.Int
 	erc20Amount ERC20Account
 }
 
@@ -40,4 +39,25 @@ func (dca *SuperAccount) SetEthAmount(amount *big.Int) {
 
 func (dca *SuperAccount) SetERC20Amount(id uint16, amount *big.Int) {
 	dca.erc20Amount[id] = amount
+}
+
+// price = erc20Price / ethPrice
+// ethGasPrice / erc20GasPrice = erc20Price / ethPrice
+// erc20GasPrice = ethGasPrice / price
+
+func EthToERC20(amount, rate *big.Int) *big.Int {
+	// TODO handle decimals
+	if rate.Cmp(big.NewInt(0)) <= 0 {
+		panic("invalid rate")
+	}
+	targetAmount := new(big.Int).Mul(amount, rate)
+	return targetAmount
+}
+
+func ERC20ToEth(amount, rate *big.Int) *big.Int {
+	// TODO handle decimals
+	if rate.Cmp(big.NewInt(0)) <= 0 {
+		panic("invalid rate")
+	}
+	return nil
 }

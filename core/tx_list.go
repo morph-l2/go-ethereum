@@ -18,8 +18,6 @@ package core
 
 import (
 	"container/heap"
-	"github.com/morph-l2/go-ethereum/accounts"
-	"github.com/morph-l2/go-ethereum/core/vm"
 	"math"
 	"math/big"
 	"slices"
@@ -280,16 +278,17 @@ type txList struct {
 
 	costcap *types.SuperAccount // Price of the highest costing transaction (reset only if exceeds balance)
 	gascap  uint64              // Gas limit of the highest spending transaction (reset only if exceeds block limit)
+	state   *state.StateDB
 }
 
 // newTxList create a new transaction list for maintaining nonce-indexable fast,
 // gapped, sortable transaction lists.
-func newTxList(strict bool) *txList {
+func newTxList(strict bool, state *state.StateDB) *txList {
 	return &txList{
 		strict:  strict,
 		txs:     newTxSortedMap(),
 		costcap: new(types.SuperAccount),
-		accounts.Account{},
+		state:   state,
 	}
 }
 
@@ -308,7 +307,22 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	// If there's an older better transaction, abort
 	old := l.txs.Get(tx.Nonce())
 	if old != nil {
-		if old.GasFeeCapCmp(tx) >= 0 || old.GasTipCapCmp(tx) >= 0 {
+		oldRate := big.NewInt(1)
+		newRate := big.NewInt(1)
+		var err error
+		if old.IsERC20FeeTx() {
+			oldRate, err = fees.EthRate(l.state, old.FeeTokenID())
+			if err != nil {
+				// TODO
+			}
+		}
+		if tx.IsERC20FeeTx() {
+			newRate, err = fees.EthRate(l.state, tx.FeeTokenID())
+			if err != nil {
+				// TODO
+			}
+		}
+		if old.GasFeeCapCmp(tx, oldRate, newRate) >= 0 || old.GasTipCapCmp(tx, oldRate, newRate) >= 0 {
 			return false, nil
 		}
 		// thresholdFeeCap = oldFC  * (100 + priceBump) / 100
@@ -374,9 +388,8 @@ func (l *txList) Forward(threshold uint64) types.Transactions {
 // a point in calculating all the costs or if the balance covers all. If the threshold
 // is lower than the costgas cap, the caps will be reset to a new high after removing
 // the newly invalidated transactions.
-func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions, types.Transactions) {
+func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, erc20CostLimit map[uint16]*big.Int) (types.Transactions, types.Transactions) {
 	// If all transactions are below the threshold, short circuit
-	// TODO erc20 cost limit
 	if l.costcap.Eth().Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
 		return nil, nil
 	}
@@ -385,7 +398,18 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 
 	// Filter out all the transactions above the account's funds
 	removed := l.txs.Filter(func(tx *types.Transaction) bool {
-		return tx.Gas() > gasLimit || tx.Cost().Cmp(costLimit) > 0
+		allLower := true
+		if tx.IsERC20FeeTx() {
+			for id, limit := range erc20CostLimit {
+				lower := l.costcap.ERC20(id).Cmp(limit) <= 0
+				if !lower {
+					l.costcap.SetERC20Amount(id, limit)
+				}
+				allLower = allLower && lower
+			}
+			return tx.Gas() > gasLimit || tx.Value().Cmp(costLimit) > 0
+		}
+		return !allLower || tx.Gas() > gasLimit || tx.Cost().Cmp(costLimit) > 0
 	})
 
 	if len(removed) == 0 {
@@ -506,9 +530,9 @@ func (l *txList) LastElement() *types.Transaction {
 // then the heap is sorted based on the effective tip based on the given base fee.
 // If baseFee is nil then the sorting is based on gasFeeCap.
 type priceHeap struct {
-	baseFee      *big.Int // heap should always be re-sorted after baseFee is changed
-	getTokenRate func(evm *vm.EVM, tokenID *uint16) *big.Int
-	list         []*types.Transaction
+	baseFee *big.Int // heap should always be re-sorted after baseFee is changed
+	list    []*types.Transaction
+	state   *state.StateDB
 }
 
 func (h *priceHeap) Len() int      { return len(h.list) }
@@ -528,11 +552,25 @@ func (h *priceHeap) Less(i, j int) bool {
 func (h *priceHeap) cmp(a, b *types.Transaction) int {
 	if h.baseFee != nil {
 		// Compare effective tips if baseFee is specified
-		aPrice := h.getTokenRate(nil, a.FeeTokenID())
-		bPrice := h.getTokenRate(nil, a.FeeTokenID())
-		// TODO aPrice / bPrice
+		aRate := big.NewInt(1)
+		bRate := big.NewInt(1)
+		var err error
+		if a.IsERC20FeeTx() {
+			aRate, err = fees.EthRate(h.state, a.FeeTokenID())
+			if err != nil {
+				// TODO
+			}
 
-		if c := a.EffectiveGasTipCmp(b, h.baseFee, aPrice, bPrice); c != 0 {
+		}
+		if b.IsERC20FeeTx() {
+			bRate, err = fees.EthRate(h.state, b.FeeTokenID())
+			if err != nil {
+				// TODO
+			}
+
+		}
+
+		if c := a.EffectiveGasTipCmp(b, h.baseFee, aRate, bRate); c != 0 {
 			return c
 		}
 	}

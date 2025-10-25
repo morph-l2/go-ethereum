@@ -422,6 +422,8 @@ func (miner *Miner) fillTransactions(env *environment, l1Transactions types.Tran
 				l1Txs[sender] = types.Transactions{tx}
 			}
 		}
+		// TODO handle l1 tx??
+
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, l1Txs, env.header.BaseFee)
 		err = miner.commitTransactions(env, txs, env.header.Coinbase, interrupt)
 		if err != nil {

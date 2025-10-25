@@ -175,6 +175,8 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	receipt.BlockNumber = blockNumber
 	receipt.TransactionIndex = uint(statedb.TxIndex())
 	receipt.L1Fee = result.L1DataFee
+	// TODO
+	receipt.Rate = result.Rate
 	return receipt, err
 }
 

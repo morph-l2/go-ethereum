@@ -502,6 +502,7 @@ func (env *TraceEnv) getTxResult(state *state.StateDB, index int, block *types.B
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1DataFee:      result.L1DataFee,
+		Rate:           result.Rate,
 		Gas:            result.UsedGas,
 		Failed:         result.Failed(),
 		ReturnValue:    fmt.Sprintf("%x", returnVal),

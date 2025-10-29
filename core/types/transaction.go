@@ -392,67 +392,29 @@ func (tx *Transaction) RawSignatureValues() (v, r, s *big.Int) {
 }
 
 // GasFeeCapCmp compares the fee cap of two transactions.
-func (tx *Transaction) GasFeeCapCmp(other *Transaction, tokenRate ...*big.Int) int {
-	var tokenID1, tokenID2 uint16
-	if tx.FeeTokenID() != nil {
-		tokenID1 = *tx.FeeTokenID()
-	}
-	if other.FeeTokenID() != nil {
-		tokenID2 = *other.FeeTokenID()
-	}
-	if tokenID1 != tokenID2 {
-		if len(tokenRate) != 2 {
-			panic(errMissingTokenRate)
-		}
-		return ERC20ToEth(tx.inner.gasFeeCap(), tokenRate[0]).Cmp(ERC20ToEth(other.inner.gasFeeCap(), tokenRate[1]))
-	}
+func (tx *Transaction) GasFeeCapCmp(other *Transaction) int {
 	return tx.inner.gasFeeCap().Cmp(other.inner.gasFeeCap())
 }
 
 // GasFeeCapIntCmp compares the fee cap of the transaction against the given fee cap.
-func (tx *Transaction) GasFeeCapIntCmp(other *big.Int, tokenRate ...*big.Int) int {
-	if tx.IsERC20FeeTx() {
-		if len(tokenRate) != 2 {
-			panic(ErrInvalidParamNumber)
-		}
-		return ERC20ToEth(tx.inner.gasFeeCap(), tokenRate[0]).Cmp(ERC20ToEth(other, tokenRate[1]))
-	}
+func (tx *Transaction) GasFeeCapIntCmp(other *big.Int) int {
 	return tx.inner.gasFeeCap().Cmp(other)
 }
 
 // GasTipCapCmp compares the gasTipCap of two transactions.
-func (tx *Transaction) GasTipCapCmp(other *Transaction, tokenRate ...*big.Int) int {
-	var tokenID1, tokenID2 uint16
-	if tx.FeeTokenID() != nil {
-		tokenID1 = *tx.FeeTokenID()
-	}
-	if other.FeeTokenID() != nil {
-		tokenID2 = *other.FeeTokenID()
-	}
-	if tokenID1 != tokenID2 {
-		if len(tokenRate) != 2 {
-			panic(errMissingTokenRate)
-		}
-		return ERC20ToEth(tx.inner.gasTipCap(), tokenRate[0]).Cmp(ERC20ToEth(other.inner.gasTipCap(), tokenRate[1]))
-	}
+func (tx *Transaction) GasTipCapCmp(other *Transaction) int {
 	return tx.inner.gasTipCap().Cmp(other.inner.gasTipCap())
 }
 
 // GasTipCapIntCmp compares the gasTipCap of the transaction against the given gasTipCap.
-func (tx *Transaction) GasTipCapIntCmp(other *big.Int, tokenRate ...*big.Int) int {
-	if tx.IsERC20FeeTx() {
-		if len(tokenRate) != 2 {
-			panic(ErrInvalidParamNumber)
-		}
-		return ERC20ToEth(tx.inner.gasTipCap(), tokenRate[0]).Cmp(ERC20ToEth(other, tokenRate[1]))
-	}
+func (tx *Transaction) GasTipCapIntCmp(other *big.Int) int {
 	return tx.inner.gasTipCap().Cmp(other)
 }
 
 // EffectiveGasTip returns the effective miner gasTipCap for the given base fee.
 // Note: if the effective gasTipCap is negative, this method returns both error
 // the actual negative value, _and_ ErrGasFeeCapTooLow
-func (tx *Transaction) EffectiveGasTip(baseFee *big.Int, tokenRate ...*big.Int) (*big.Int, error) {
+func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
 	if tx.IsL1MessageTx() {
 		return new(big.Int), nil
 	}
@@ -461,17 +423,8 @@ func (tx *Transaction) EffectiveGasTip(baseFee *big.Int, tokenRate ...*big.Int) 
 	}
 	var err error
 	gasFeeCap := tx.GasFeeCap()
-	if tx.IsERC20FeeTx() {
-		if len(tokenRate) != 1 {
-			panic(errMissingTokenRate)
-		}
-		if gasFeeCap.Cmp(EthToERC20(baseFee, tokenRate[0])) == -1 {
-			err = ErrGasFeeCapTooLow
-		}
-	} else {
-		if gasFeeCap.Cmp(baseFee) == -1 {
-			err = ErrGasFeeCapTooLow
-		}
+	if gasFeeCap.Cmp(baseFee) == -1 {
+		err = ErrGasFeeCapTooLow
 	}
 
 	return math.BigMin(tx.GasTipCap(), gasFeeCap.Sub(gasFeeCap, baseFee)), err
@@ -479,30 +432,25 @@ func (tx *Transaction) EffectiveGasTip(baseFee *big.Int, tokenRate ...*big.Int) 
 
 // EffectiveGasTipValue is identical to EffectiveGasTip, but does not return an
 // error in case the effective gasTipCap is negative
-func (tx *Transaction) EffectiveGasTipValue(baseFee *big.Int, tokenRate ...*big.Int) *big.Int {
-	effectiveTip, _ := tx.EffectiveGasTip(baseFee, tokenRate...)
+func (tx *Transaction) EffectiveGasTipValue(baseFee *big.Int) *big.Int {
+	effectiveTip, _ := tx.EffectiveGasTip(baseFee)
 	return effectiveTip
 }
 
 // EffectiveGasTipCmp compares the effective gasTipCap of two transactions assuming the given base fee.
-func (tx *Transaction) EffectiveGasTipCmp(other *Transaction, baseFee *big.Int, tokenRate ...*big.Int) int { // TODO DONE
+func (tx *Transaction) EffectiveGasTipCmp(other *Transaction, baseFee *big.Int) int { // TODO DONE
 	if baseFee == nil {
-		return tx.GasTipCapCmp(other, tokenRate...)
+		return tx.GasTipCapCmp(other)
 	}
-	return tx.EffectiveGasTipValue(baseFee, tokenRate...).Cmp(other.EffectiveGasTipValue(baseFee, tokenRate...))
+	return tx.EffectiveGasTipValue(baseFee).Cmp(other.EffectiveGasTipValue(baseFee))
 }
 
 // EffectiveGasTipIntCmp compares the effective gasTipCap of a transaction to the given gasTipCap.   // TODO DONE
-func (tx *Transaction) EffectiveGasTipIntCmp(other *big.Int, baseFee *big.Int, tokenRate ...*big.Int) int {
+func (tx *Transaction) EffectiveGasTipIntCmp(other *big.Int, baseFee *big.Int) int {
 	if baseFee == nil {
 		return tx.GasTipCapIntCmp(other)
 	}
-	if tx.IsERC20FeeTx() {
-		if len(tokenRate) != 2 {
-			panic(errMissingTokenRate)
-		}
-	}
-	return tx.EffectiveGasTipValue(baseFee, tokenRate...).Cmp(other)
+	return tx.EffectiveGasTipValue(baseFee).Cmp(other)
 }
 
 // BlobGas returns the blob gas limit of the transaction for blob transactions, 0 otherwise.
@@ -859,7 +807,7 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 }
 
 // AsMessage returns the transaction as a core.Message.
-func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int, tokenRate ...*big.Int) (Message, error) {
+func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	msg := Message{
 		nonce:                 tx.Nonce(),
 		gasLimit:              tx.Gas(),
@@ -877,14 +825,8 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int, tokenRate ...*big.I
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
-		if msg.FeeTokenID() != nil {
-			if len(tokenRate) != 1 {
-				panic("missing token rate")
-			}
-			msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, EthToERC20(baseFee, tokenRate[0])), msg.gasFeeCap)
-		} else {
-			msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
-		}
+		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
+
 	}
 	var err error
 	msg.from, err = Sender(s, tx)

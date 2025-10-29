@@ -619,7 +619,7 @@ func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccount
 					}
 					// minTip -> minTip by erc20
 					minTipByERC20 := types.EthToERC20(minTip, rate)
-					if tx.EffectiveGasTipIntCmp(minTipByERC20, baseFee, rate) < 0 {
+					if tx.EffectiveGasTipIntCmp(minTipByERC20, baseFee) < 0 {
 						txs = txs[:i]
 						break
 					}

@@ -126,11 +126,7 @@ func (oracle *Oracle) processBlock(bf *blockFees, percentiles []float64) {
 	for i, tx := range bf.block.Transactions() {
 		reward := big.NewInt(0)
 		if tx.IsERC20FeeTx() {
-			receipt, ok := receiptMap[tx.Hash()]
-			if !ok {
-				// TODO
-			}
-			reward, _ = tx.EffectiveGasTip(bf.block.BaseFee(), receipt.Rate)
+			reward, _ = tx.EffectiveGasTip(bf.block.BaseFee())
 		} else {
 			reward, _ = tx.EffectiveGasTip(bf.block.BaseFee())
 		}

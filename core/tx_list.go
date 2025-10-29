@@ -313,22 +313,7 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	// If there's an older better transaction, abort
 	old := l.txs.Get(tx.Nonce())
 	if old != nil {
-		oldRate := big.NewInt(1)
-		newRate := big.NewInt(1)
-		var err error
-		if old.IsERC20FeeTx() {
-			oldRate, err = fees.EthRate(l.state, old.FeeTokenID())
-			if err != nil {
-				// TODO
-			}
-		}
-		if tx.IsERC20FeeTx() {
-			newRate, err = fees.EthRate(l.state, tx.FeeTokenID())
-			if err != nil {
-				// TODO
-			}
-		}
-		if old.GasFeeCapCmp(tx, oldRate, newRate) >= 0 || old.GasTipCapCmp(tx, oldRate, newRate) >= 0 {
+		if old.GasFeeCapCmp(tx) >= 0 || old.GasTipCapCmp(tx) >= 0 {
 			return false, nil
 		}
 		// thresholdFeeCap = oldFC  * (100 + priceBump) / 100
@@ -558,25 +543,7 @@ func (h *priceHeap) Less(i, j int) bool {
 func (h *priceHeap) cmp(a, b *types.Transaction) int {
 	if h.baseFee != nil {
 		// Compare effective tips if baseFee is specified
-		aRate := big.NewInt(1)
-		bRate := big.NewInt(1)
-		var err error
-		if a.IsERC20FeeTx() {
-			aRate, err = fees.EthRate(h.state, a.FeeTokenID())
-			if err != nil {
-				// TODO
-			}
-
-		}
-		if b.IsERC20FeeTx() {
-			bRate, err = fees.EthRate(h.state, b.FeeTokenID())
-			if err != nil {
-				// TODO
-			}
-
-		}
-
-		if c := a.EffectiveGasTipCmp(b, h.baseFee, aRate, bRate); c != 0 {
+		if c := a.EffectiveGasTipCmp(b, h.baseFee); c != 0 {
 			return c
 		}
 	}

@@ -280,7 +280,7 @@ func (t *Transaction) MaxFeePerGas(ctx context.Context) (*hexutil.Big, error) {
 	switch tx.Type() {
 	case types.AccessListTxType:
 		return nil, nil
-	case types.DynamicFeeTxType:
+	case types.DynamicFeeTxType, types.SetCodeTxType:
 		return (*hexutil.Big)(tx.GasFeeCap()), nil
 	case types.ERC20FeeTxType:
 		return (*hexutil.Big)(tx.GasFeeCap()), nil
@@ -297,7 +297,7 @@ func (t *Transaction) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, e
 	switch tx.Type() {
 	case types.AccessListTxType:
 		return nil, nil
-	case types.DynamicFeeTxType:
+	case types.DynamicFeeTxType, types.SetCodeTxType:
 		return (*hexutil.Big)(tx.GasTipCap()), nil
 	case types.ERC20FeeTxType:
 		return (*hexutil.Big)(tx.GasTipCap()), nil

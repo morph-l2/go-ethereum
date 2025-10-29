@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/holiman/uint256"
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/params"
@@ -127,29 +128,39 @@ type StorageWrapper struct {
 }
 
 type TransactionData struct {
-	Type       uint8           `json:"type"`
-	Nonce      uint64          `json:"nonce"`
-	TxHash     string          `json:"txHash"`
-	Gas        uint64          `json:"gas"`
-	GasPrice   *hexutil.Big    `json:"gasPrice"`
-	GasTipCap  *hexutil.Big    `json:"gasTipCap"`
-	GasFeeCap  *hexutil.Big    `json:"gasFeeCap"`
-	From       common.Address  `json:"from"`
-	To         *common.Address `json:"to"`
-	ChainId    *hexutil.Big    `json:"chainId"`
-	Value      *hexutil.Big    `json:"value"`
-	Data       string          `json:"data"`
-	IsCreate   bool            `json:"isCreate"`
-	AccessList AccessList      `json:"accessList"`
-	V          *hexutil.Big    `json:"v"`
-	R          *hexutil.Big    `json:"r"`
-	S          *hexutil.Big    `json:"s"`
+	Type              uint8                      `json:"type"`
+	Nonce             uint64                     `json:"nonce"`
+	TxHash            string                     `json:"txHash"`
+	Gas               uint64                     `json:"gas"`
+	GasPrice          *hexutil.Big               `json:"gasPrice"`
+	GasTipCap         *hexutil.Big               `json:"gasTipCap"`
+	GasFeeCap         *hexutil.Big               `json:"gasFeeCap"`
+	From              common.Address             `json:"from"`
+	To                *common.Address            `json:"to"`
+	ChainId           *hexutil.Big               `json:"chainId"`
+	Value             *hexutil.Big               `json:"value"`
+	Data              string                     `json:"data"`
+	IsCreate          bool                       `json:"isCreate"`
+	AccessList        AccessList                 `json:"accessList"`
+	AuthorizationList []SetCodeAuthorizationData `json:"authorizationList,omitempty"`
+	V                 *hexutil.Big               `json:"v"`
+	R                 *hexutil.Big               `json:"r"`
+	S                 *hexutil.Big               `json:"s"`
+}
+
+type SetCodeAuthorizationData struct {
+	ChainID uint256.Int    `json:"chainId" gencodec:"required"`
+	Address common.Address `json:"address" gencodec:"required"`
+	Nonce   uint64         `json:"nonce" gencodec:"required"`
+	V       hexutil.Uint64 `json:"yParity" gencodec:"required"`
+	R       hexutil.U256   `json:"r" gencodec:"required"`
+	S       hexutil.U256   `json:"s" gencodec:"required"`
 }
 
 // NewTransactionData returns a transaction that will serialize to the trace
 // representation, with the given location metadata set (if available).
-func NewTransactionData(tx *Transaction, blockNumber uint64, config *params.ChainConfig) *TransactionData {
-	signer := MakeSigner(config, big.NewInt(0).SetUint64(blockNumber))
+func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, config *params.ChainConfig) *TransactionData {
+	signer := MakeSigner(config, big.NewInt(0).SetUint64(blockNumber), blockTime)
 	from, _ := Sender(signer, tx)
 	v, r, s := tx.RawSignatureValues()
 
@@ -159,23 +170,39 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, config *params.Chai
 	}
 
 	result := &TransactionData{
-		Type:       tx.Type(),
-		TxHash:     tx.Hash().String(),
-		Nonce:      nonce,
-		ChainId:    (*hexutil.Big)(tx.ChainId()),
-		From:       from,
-		Gas:        tx.Gas(),
-		GasPrice:   (*hexutil.Big)(tx.GasPrice()),
-		GasTipCap:  (*hexutil.Big)(tx.GasTipCap()),
-		GasFeeCap:  (*hexutil.Big)(tx.GasFeeCap()),
-		To:         tx.To(),
-		Value:      (*hexutil.Big)(tx.Value()),
-		Data:       hexutil.Encode(tx.Data()),
-		IsCreate:   tx.To() == nil,
-		AccessList: tx.AccessList(),
-		V:          (*hexutil.Big)(v),
-		R:          (*hexutil.Big)(r),
-		S:          (*hexutil.Big)(s),
+		Type:              tx.Type(),
+		TxHash:            tx.Hash().String(),
+		Nonce:             nonce,
+		ChainId:           (*hexutil.Big)(tx.ChainId()),
+		From:              from,
+		Gas:               tx.Gas(),
+		GasPrice:          (*hexutil.Big)(tx.GasPrice()),
+		GasTipCap:         (*hexutil.Big)(tx.GasTipCap()),
+		GasFeeCap:         (*hexutil.Big)(tx.GasFeeCap()),
+		To:                tx.To(),
+		Value:             (*hexutil.Big)(tx.Value()),
+		Data:              hexutil.Encode(tx.Data()),
+		IsCreate:          tx.To() == nil,
+		AccessList:        tx.AccessList(),
+		AuthorizationList: convertToAuthorizationData(tx.SetCodeAuthorizations()),
+		V:                 (*hexutil.Big)(v),
+		R:                 (*hexutil.Big)(r),
+		S:                 (*hexutil.Big)(s),
+	}
+	return result
+}
+
+func convertToAuthorizationData(auths []SetCodeAuthorization) []SetCodeAuthorizationData {
+	result := make([]SetCodeAuthorizationData, len(auths))
+	for i, auth := range auths {
+		result[i] = SetCodeAuthorizationData{
+			ChainID: auth.ChainID,
+			Address: auth.Address,
+			Nonce:   auth.Nonce,
+			V:       hexutil.Uint64(auth.V),
+			R:       hexutil.U256(auth.R),
+			S:       hexutil.U256(auth.S),
+		}
 	}
 	return result
 }

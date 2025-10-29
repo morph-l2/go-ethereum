@@ -243,7 +243,7 @@ func (r *Receipt) decodeTyped(b []byte) error {
 		return errShortTypedReceipt
 	}
 	switch b[0] {
-	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, ERC20FeeTxType:
+	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, ERC20FeeTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -444,6 +444,8 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 		rlp.Encode(w, data)
 	case ERC20FeeTxType:
 		w.WriteByte(ERC20FeeTxType)
+	case SetCodeTxType:
+		w.WriteByte(SetCodeTxType)
 		rlp.Encode(w, data)
 	default:
 		// For unsupported types, write nothing. Since this is for
@@ -454,8 +456,8 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 
 // DeriveFields fills the receipts with their computed fields based on consensus
 // data and contextual infos like containing block and transactions.
-func (rs Receipts) DeriveFields(config *params.ChainConfig, hash common.Hash, number uint64, txs Transactions) error {
-	signer := MakeSigner(config, new(big.Int).SetUint64(number))
+func (rs Receipts) DeriveFields(config *params.ChainConfig, hash common.Hash, number uint64, blockTime uint64, baseFee *big.Int, txs Transactions) error {
+	signer := MakeSigner(config, new(big.Int).SetUint64(number), blockTime)
 
 	logIndex := uint(0)
 	if len(txs) != len(rs) {
@@ -470,6 +472,7 @@ func (rs Receipts) DeriveFields(config *params.ChainConfig, hash common.Hash, nu
 		rs[i].BlockHash = hash
 		rs[i].BlockNumber = new(big.Int).SetUint64(number)
 		rs[i].TransactionIndex = uint(i)
+		rs[i].EffectiveGasPrice = txs[i].inner.effectiveGasPrice(new(big.Int), baseFee)
 
 		// The contract address can be derived from the transaction itself
 		if txs[i].To() == nil {

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -33,9 +34,12 @@ import (
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/eth/tracers"
+	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rlp"
@@ -89,58 +93,9 @@ func Transition(ctx *cli.Context) error {
 	glogger.Verbosity(log.Lvl(ctx.Int(VerbosityFlag.Name)))
 	log.Root().SetHandler(glogger)
 
-	var (
-		err    error
-		tracer vm.EVMLogger
-	)
-	var getTracer func(txIndex int, txHash common.Hash) (vm.EVMLogger, error)
-
 	baseDir, err := createBasedir(ctx)
 	if err != nil {
 		return NewError(ErrorIO, fmt.Errorf("failed creating output basedir: %v", err))
-	}
-	if ctx.Bool(TraceFlag.Name) {
-		if ctx.IsSet(TraceDisableMemoryFlag.Name) && ctx.IsSet(TraceEnableMemoryFlag.Name) {
-			return NewError(ErrorConfig, fmt.Errorf("can't use both flags --%s and --%s", TraceDisableMemoryFlag.Name, TraceEnableMemoryFlag.Name))
-		}
-		if ctx.IsSet(TraceDisableReturnDataFlag.Name) && ctx.IsSet(TraceEnableReturnDataFlag.Name) {
-			return NewError(ErrorConfig, fmt.Errorf("can't use both flags --%s and --%s", TraceDisableReturnDataFlag.Name, TraceEnableReturnDataFlag.Name))
-		}
-		if ctx.IsSet(TraceDisableMemoryFlag.Name) {
-			log.Warn(fmt.Sprintf("--%s has been deprecated in favour of --%s", TraceDisableMemoryFlag.Name, TraceEnableMemoryFlag.Name))
-		}
-		if ctx.IsSet(TraceDisableReturnDataFlag.Name) {
-			log.Warn(fmt.Sprintf("--%s has been deprecated in favour of --%s", TraceDisableReturnDataFlag.Name, TraceEnableReturnDataFlag.Name))
-		}
-		// Configure the EVM logger
-		logConfig := &vm.LogConfig{
-			DisableStack:     ctx.Bool(TraceDisableStackFlag.Name),
-			EnableMemory:     !ctx.Bool(TraceDisableMemoryFlag.Name) || ctx.Bool(TraceEnableMemoryFlag.Name),
-			EnableReturnData: !ctx.Bool(TraceDisableReturnDataFlag.Name) || ctx.Bool(TraceEnableReturnDataFlag.Name),
-			Debug:            true,
-		}
-		var prevFile *os.File
-		// This one closes the last file
-		defer func() {
-			if prevFile != nil {
-				prevFile.Close()
-			}
-		}()
-		getTracer = func(txIndex int, txHash common.Hash) (vm.EVMLogger, error) {
-			if prevFile != nil {
-				prevFile.Close()
-			}
-			traceFile, err := os.Create(path.Join(baseDir, fmt.Sprintf("trace-%d-%v.jsonl", txIndex, txHash.String())))
-			if err != nil {
-				return nil, NewError(ErrorIO, fmt.Errorf("failed creating trace-file: %v", err))
-			}
-			prevFile = traceFile
-			return vm.NewJSONLogger(logConfig, traceFile), nil
-		}
-	} else {
-		getTracer = func(txIndex int, txHash common.Hash) (tracer vm.EVMLogger, err error) {
-			return nil, nil
-		}
 	}
 	// We need to load three things: alloc, env and transactions. May be either in
 	// stdin input or in files.
@@ -178,10 +133,7 @@ func Transition(ctx *cli.Context) error {
 	}
 	prestate.Env = *inputData.Env
 
-	vmConfig := vm.Config{
-		Tracer: tracer,
-		Debug:  (tracer != nil),
-	}
+	vmConfig := vm.Config{}
 	// Construct the chainconfig
 	var chainConfig *params.ChainConfig
 	if cConf, extraEips, err := tests.GetChainConfig(ctx.String(ForknameFlag.Name)); err != nil {
@@ -241,7 +193,7 @@ func Transition(ctx *cli.Context) error {
 		}
 	}
 	// We may have to sign the transactions.
-	signer := types.MakeSigner(chainConfig, big.NewInt(int64(prestate.Env.Number)))
+	signer := types.MakeSigner(chainConfig, big.NewInt(int64(prestate.Env.Number)), prestate.Env.Timestamp)
 
 	if txs, err = signUnsignedTransactions(txsWithKeys, signer); err != nil {
 		return NewError(ErrorJson, fmt.Errorf("failed signing transactions: %v", err))
@@ -266,8 +218,33 @@ func Transition(ctx *cli.Context) error {
 		prestate.Env.Difficulty = calcDifficulty(chainConfig, env.Number, env.Timestamp,
 			env.ParentTimestamp, env.ParentDifficulty, env.ParentUncleHash)
 	}
+	// Configure tracer
+	if ctx.IsSet(TraceTracerFlag.Name) { // Custom tracing
+		config := json.RawMessage(ctx.String(TraceTracerConfigFlag.Name))
+		tracer, err := tracers.DefaultDirectory.New(ctx.String(TraceTracerFlag.Name),
+			nil, config, chainConfig)
+		if err != nil {
+			return NewError(ErrorConfig, fmt.Errorf("failed instantiating tracer: %v", err))
+		}
+		vmConfig.Tracer = newResultWriter(baseDir, tracer)
+	} else if ctx.Bool(TraceFlag.Name) { // JSON opcode tracing
+		logConfig := &logger.Config{
+			DisableStack:     ctx.Bool(TraceDisableStackFlag.Name),
+			EnableMemory:     ctx.Bool(TraceEnableMemoryFlag.Name),
+			EnableReturnData: ctx.Bool(TraceEnableReturnDataFlag.Name),
+		}
+		if ctx.Bool(TraceEnableCallFramesFlag.Name) {
+			vmConfig.Tracer = newFileWriter(baseDir, func(out io.Writer) *tracing.Hooks {
+				return logger.NewJSONLoggerWithCallFrames(logConfig, out)
+			})
+		} else {
+			vmConfig.Tracer = newFileWriter(baseDir, func(out io.Writer) *tracing.Hooks {
+				return logger.NewJSONLogger(logConfig, out)
+			})
+		}
+	}
 	// Run the test and aggregate the result
-	s, result, err := prestate.Apply(vmConfig, chainConfig, txs, ctx.Int64(RewardFlag.Name), getTracer)
+	s, result, err := prestate.Apply(vmConfig, chainConfig, txs, ctx.Int64(RewardFlag.Name))
 	if err != nil {
 		return err
 	}

@@ -128,8 +128,8 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 		// Configure minimal VM settings
 		vmConfig := vm.Config{
 			NoBaseFee: true,
-			Debug:     false,
-			Tracer:    nil,
+			//Debug:     false,
+			Tracer: nil,
 			// Disable unnecessary features
 			//JumpTable: vm.NewByzantiumInstructionSet(),
 		}

@@ -396,6 +396,8 @@ func (st *StateTransition) preCheck() error {
 			}
 			// This will panic if baseFee is nil, but basefee presence is verified
 			// as part of header validation.
+			// This will panic if baseFee is nil, but basefee presence is verified
+			// as part of header validation.
 			if st.msg.FeeTokenID() == nil && st.evm.Context.BaseFee != nil && st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
@@ -410,15 +412,16 @@ func (st *StateTransition) preCheck() error {
 						st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee, *st.msg.FeeTokenID(), rate)
 				}
 			}
+			if st.evm.Context.BaseFee != nil && st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
+				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
+					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
+			}
 			if st.evm.Context.BaseFee == nil && st.gasFeeCap.Cmp(big.NewInt(0)) < 0 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
 			}
 		}
 	}
-
-	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
-		return st.buyERC20Gas()
 	// Check that EIP-7702 authorization list signatures are well formed.
 	if st.msg.SetCodeAuthorizations() != nil {
 		if st.msg.To() == nil {
@@ -654,15 +657,16 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 		tokenAddress, _, balanceSlot, _ := fees.GetTokenInfoFromStorage(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
 		_ = st.TransferERC20Hybrid(tokenAddress, *st.evm.ChainConfig().Morph.FeeVaultAddress, st.msg.From(), remaining, balanceSlot)
 	} else {
-	st.state.AddBalance(st.msg.From(), remaining, tracing.BalanceIncreaseGasReturn)
+		st.state.AddBalance(st.msg.From(), remaining, tracing.BalanceIncreaseGasReturn)
 
-	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gas > 0 {
-		st.evm.Config.Tracer.OnGasChange(st.gas, 0, tracing.GasChangeTxLeftOverReturned)
+		if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gas > 0 {
+			st.evm.Config.Tracer.OnGasChange(st.gas, 0, tracing.GasChangeTxLeftOverReturned)
+		}
+
+		// Also return remaining gas to the block gas counter so it is
+		// available for the next transaction.
+		st.gp.AddGas(st.gas)
 	}
-
-	// Also return remaining gas to the block gas counter so it is
-	// available for the next transaction.
-	st.gp.AddGas(st.gas)
 }
 
 // gasUsed returns the amount of gas used up by the state transition.

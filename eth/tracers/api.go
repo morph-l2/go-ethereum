@@ -929,7 +929,7 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *big.Int) (interface{}, error) {
+func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *types.TokenFee) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer       *Tracer
@@ -980,14 +980,14 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
 		if message.FeeTokenID() == nil {
-			statedb.AddBalance(message.From(), l1DataFee.Eth())
+			statedb.AddBalance(message.From(), l1DataFee.Eth(), '1')
 		} else {
 			// TODO add erc20 balance??
 			if err := api.addBalanceFunc(vmenv, message.FeeTokenID(), message.From(), l1DataFee.Fee); err != nil {
 				return nil, err
 			}
 		}
-		statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
+		statedb.AddBalance(message.From(), l1DataFee.Eth(), tracing.BalanceChangeUnspecified)
 	}
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
@@ -996,11 +996,6 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}
 
-	l, ok := tracer.(*vm.StructLogger)
-	if ok {
-		l.ResultL1DataFee = result.L1DataFee
-		l.ResultRate = result.Rate
-	}
 	return tracer.GetResult()
 }
 

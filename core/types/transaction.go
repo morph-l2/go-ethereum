@@ -836,10 +836,10 @@ type Message struct {
 	isFake                bool
 	isL1MessageTx         bool
 	setCodeAuthorizations []SetCodeAuthorization
-  feeTokenID    *uint16
+	feeTokenID            *uint16
 }
 
-func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
+func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, feeTokenID uint16, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
 	return Message{
 		from:                  from,
 		to:                    to,
@@ -854,7 +854,7 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 		setCodeAuthorizations: authList,
 		isFake:                isFake,
 		isL1MessageTx:         false,
-    feeTokenID:            &feeTokenID,
+		feeTokenID:            &feeTokenID,
 	}
 }
 
@@ -873,7 +873,7 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int, tokenRate ...*big.I
 		isFake:                false,
 		isL1MessageTx:         tx.IsL1MessageTx(),
 		setCodeAuthorizations: tx.SetCodeAuthorizations(),
-    feeTokenID:    tx.FeeTokenID(),
+		feeTokenID:            tx.FeeTokenID(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
@@ -904,7 +904,7 @@ func (m Message) AccessList() AccessList                        { return m.acces
 func (m Message) IsFake() bool                                  { return m.isFake }
 func (m Message) IsL1MessageTx() bool                           { return m.isL1MessageTx }
 func (m Message) SetCodeAuthorizations() []SetCodeAuthorization { return m.setCodeAuthorizations }
-func (m Message) FeeTokenID() *uint16    { return m.feeTokenID }
+func (m Message) FeeTokenID() *uint16                           { return m.feeTokenID }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

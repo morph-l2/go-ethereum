@@ -390,7 +390,6 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			}
 		}
 
-	case args.AccessList != nil:
 	case types.AccessListTxType:
 		data = &types.AccessListTx{
 			To:         args.To,

@@ -1383,7 +1383,7 @@ type RPCTransaction struct {
 	Type              hexutil.Uint64               `json:"type"`
 	Accesses          *types.AccessList            `json:"accessList,omitempty"`
 	ChainID           *hexutil.Big                 `json:"chainId,omitempty"`
-  FeeTokenID       *hexutil.Big      `json:"feeTokenID,omitempty"`
+	FeeTokenID        *hexutil.Big                 `json:"feeTokenID,omitempty"`
 	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	V                 *hexutil.Big                 `json:"v"`
 	R                 *hexutil.Big                 `json:"r"`
@@ -1455,6 +1455,7 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		if baseFee != nil && blockHash != (common.Hash{}) {
 			// price = min(tip, gasFeeCap - baseFee) + baseFee
 			// TODO base fee -> erc20 fee
+		}
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())

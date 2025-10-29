@@ -336,8 +336,8 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		// Configure minimal VM settings
 		vmConfig := vm.Config{
 			NoBaseFee: true,
-			Debug:     false,
-			Tracer:    nil,
+			//Debug:     false,
+			Tracer: nil,
 			// Disable unnecessary features
 			//JumpTable: vm.NewByzantiumInstructionSet(),
 		}
@@ -685,7 +685,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 
 	// Reject erc20 fee transactions until EIP-1559 activates.
 	if !pool.eip1559 && tx.Type() == types.ERC20FeeTxType {
-    return ErrTxTypeNotSupported
+		return ErrTxTypeNotSupported
 	}
 	if !pool.eip7702 && tx.Type() == types.SetCodeTxType {
 		return ErrTxTypeNotSupported

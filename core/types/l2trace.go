@@ -55,11 +55,11 @@ type StorageTrace struct {
 // while replaying a transaction in debug mode as well as transaction
 // execution status, the amount of gas used and the return value
 type ExecutionResult struct {
-	L1DataFee   *big.Int `json:"l1DataFee,omitempty"`
-	Rate        *big.Int
-	Gas         uint64 `json:"gas"`
-	Failed      bool   `json:"failed"`
-	ReturnValue string `json:"returnValue"`
+	L1DataFee   *hexutil.Big `json:"l1DataFee,omitempty"`
+	Rate        *hexutil.Big `json:"rate,omitempty"`
+	Gas         uint64       `json:"gas"`
+	Failed      bool         `json:"failed"`
+	ReturnValue string       `json:"returnValue"`
 	// Sender's account state (before Tx)
 	From *AccountWrapper `json:"from,omitempty"`
 	// Receiver's account state (before Tx)

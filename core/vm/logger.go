@@ -411,8 +411,8 @@ func (l *StructLogger) GetResult() (json.RawMessage, error) {
 		Failed:      failed,
 		ReturnValue: returnVal,
 		StructLogs:  formatLogs(l.StructLogs()),
-		L1DataFee:   l.ResultL1DataFee,
-		Rate:        l.ResultRate,
+		L1DataFee:   (*hexutil.Big)(l.ResultL1DataFee),
+		Rate:        (*hexutil.Big)(l.ResultRate),
 	})
 }
 

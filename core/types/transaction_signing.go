@@ -277,14 +277,24 @@ func (s londonSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big
 	if tx.IsL1MessageTx() {
 		return nil, nil, nil, fmt.Errorf("l1 message tx do not have a signature")
 	}
-	txdata, ok := tx.inner.(*DynamicFeeTx)
-	if !ok {
+	// Handle DynamicFeeTx and ERC20FeeTx
+	switch tx.Type() {
+	case DynamicFeeTxType:
+		txdata := tx.inner.(*DynamicFeeTx)
+		// Check that chain ID of tx matches the signer. We also accept ID zero here,
+		// because it indicates that the chain ID was not specified in the tx.
+		if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
+			return nil, nil, nil, ErrInvalidChainId
+		}
+	case ERC20FeeTxType:
+		txdata := tx.inner.(*ERC20FeeTx)
+		// Check that chain ID of tx matches the signer. We also accept ID zero here,
+		// because it indicates that the chain ID was not specified in the tx.
+		if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
+			return nil, nil, nil, ErrInvalidChainId
+		}
+	default:
 		return s.eip2930Signer.SignatureValues(tx, sig)
-	}
-	// Check that chain ID of tx matches the signer. We also accept ID zero here,
-	// because it indicates that the chain ID was not specified in the tx.
-	if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
-		return nil, nil, nil, ErrInvalidChainId
 	}
 	R, S, _ = decodeSignature(sig)
 	V = big.NewInt(int64(sig[64]))
@@ -297,7 +307,26 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 	if tx.IsL1MessageTx() {
 		panic("l1 message tx cannot be signed and do not have a signing hash")
 	}
-	if tx.Type() != DynamicFeeTxType && tx.Type() != ERC20FeeTxType {
+	// ERC20FeeTx includes FeeTokenID in the hash
+	if tx.Type() == ERC20FeeTxType {
+		erc20Tx := tx.inner.(*ERC20FeeTx)
+		return prefixedRlpHash(
+			tx.Type(),
+			[]interface{}{
+				s.chainId,
+				tx.Nonce(),
+				tx.GasTipCap(),
+				tx.GasFeeCap(),
+				tx.Gas(),
+				tx.To(),
+				tx.Value(),
+				tx.Data(),
+				tx.AccessList(),
+				erc20Tx.FeeTokenID,
+			})
+	}
+	// DynamicFeeTx hash calculation
+	if tx.Type() != DynamicFeeTxType {
 		return s.eip2930Signer.Hash(tx)
 	}
 	return prefixedRlpHash(

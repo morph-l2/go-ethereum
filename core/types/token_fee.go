@@ -2,21 +2,6 @@ package types
 
 import "math/big"
 
-var DefaultRate = big.NewInt(1)
-var ZeroTokenFee = &TokenFee{
-	Fee:  big.NewInt(0),
-	Rate: DefaultRate,
-}
-
-type TokenFee struct {
-	Fee  *big.Int
-	Rate *big.Int
-}
-
-func (gf *TokenFee) Eth() *big.Int {
-	return ERC20ToEth(gf.Fee, gf.Rate)
-}
-
 // dual currency account
 type SuperAccount struct {
 	ethAmount   *big.Int
@@ -45,7 +30,7 @@ func (dca *SuperAccount) SetERC20Amount(id uint16, amount *big.Int) {
 // ethGasPrice / erc20GasPrice = erc20Price / ethPrice
 // erc20GasPrice = ethGasPrice / price
 
-func EthToERC20(amount, rate *big.Int) *big.Int {
+func EthToERC20(amount, rate, tokenScale *big.Int) *big.Int {
 	// TODO handle decimals
 	if rate.Cmp(big.NewInt(0)) <= 0 {
 		panic("invalid rate")
@@ -54,10 +39,15 @@ func EthToERC20(amount, rate *big.Int) *big.Int {
 	return targetAmount
 }
 
-func ERC20ToEth(amount, rate *big.Int) *big.Int {
+func ERC20ToEth(amount, rate, tokenScale *big.Int) *big.Int {
 	// TODO handle decimals
 	if rate.Cmp(big.NewInt(0)) <= 0 {
 		panic("invalid rate")
 	}
 	return nil
+}
+
+type TokenRate struct {
+	Rate  *big.Int
+	Scale *big.Int
 }

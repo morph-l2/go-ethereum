@@ -75,7 +75,6 @@ type StateTransition struct {
 	evm        *vm.EVM
 
 	l1DataFee *big.Int
-	rate      *big.Int
 }
 
 // Message represents a message sent to a contract.
@@ -198,7 +197,7 @@ func toWordSize(size uint64) uint64 {
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee, rate *big.Int) *StateTransition {
+func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) *StateTransition {
 	return &StateTransition{
 		gp:        gp,
 		evm:       evm,
@@ -210,7 +209,6 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee, rate *
 		data:      msg.Data(),
 		state:     evm.StateDB,
 		l1DataFee: l1DataFee,
-		rate:      rate,
 	}
 }
 
@@ -221,11 +219,11 @@ func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee, rate *
 // the gas used (which includes gas refunds) and an error if it failed. An error always
 // indicates a core error meaning that the message would always fail for that particular
 // state and would never be accepted within a block.
-func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *types.TokenFee) (*ExecutionResult, error) {
+func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) (*ExecutionResult, error) {
 	defer func(t time.Time) {
 		stateTransitionApplyMessageTimer.Update(time.Since(t))
 	}(time.Now())
-	return NewStateTransition(evm, msg, gp, l1DataFee.Fee, l1DataFee.Rate).TransitionDb()
+	return NewStateTransition(evm, msg, gp, l1DataFee).TransitionDb()
 }
 
 // to returns the recipient of the message.
@@ -402,16 +400,6 @@ func (st *StateTransition) preCheck() error {
 				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
 			}
-			if st.msg.FeeTokenID() != nil && st.evm.Context.BaseFee != nil {
-				rate, err := fees.EthRate(st.state, st.msg.FeeTokenID())
-				if err != nil {
-					return nil
-				}
-				if st.gasFeeCap.Cmp(types.EthToERC20(st.evm.Context.BaseFee, rate)) < 0 {
-					return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s,feeToken:%s,rate:%s", ErrFeeCapTooLow,
-						st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee, *st.msg.FeeTokenID(), rate)
-				}
-			}
 			if st.evm.Context.BaseFee != nil && st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
@@ -538,8 +526,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// no refunds for l1 messages
 	if st.msg.IsL1MessageTx() {
 		return &ExecutionResult{
-			L1DataFee:  types.ZeroTokenFee.Fee,
-			Rate:       types.ZeroTokenFee.Rate,
+			L1DataFee:  big.NewInt(0),
+			Rate:       nil, // TODO nil
 			UsedGas:    st.gasUsed(),
 			Err:        vmerr,
 			ReturnData: ret,
@@ -557,9 +545,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 	// only burn the base fee if the fee vault is not enabled
 	if rules.IsCurie && !st.evm.ChainConfig().Morph.FeeVaultEnabled() {
-		if st.msg.FeeTokenID() != nil {
-			effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, types.EthToERC20(st.evm.Context.BaseFee, st.rate)))
-		}
 		effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.evm.Context.BaseFee))
 	}
 

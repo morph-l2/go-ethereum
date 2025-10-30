@@ -612,22 +612,9 @@ func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccount
 		// If the miner requests tip enforcement, cap the lists now
 		if minTip != nil && !pool.locals.contains(addr) {
 			for i, tx := range txs {
-				if tx.IsERC20FeeTx() {
-					rate, err := fees.EthRate(pool.currentState, tx.FeeTokenID())
-					if err != nil {
-						return nil
-					}
-					// minTip -> minTip by erc20
-					minTipByERC20 := types.EthToERC20(minTip, rate)
-					if tx.EffectiveGasTipIntCmp(minTipByERC20, baseFee) < 0 {
-						txs = txs[:i]
-						break
-					}
-				} else {
-					if tx.EffectiveGasTipIntCmp(minTip, baseFee) < 0 {
-						txs = txs[:i]
-						break
-					}
+				if tx.EffectiveGasTipIntCmp(minTip, baseFee) < 0 {
+					txs = txs[:i]
+					break
 				}
 
 			}
@@ -739,6 +726,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
 	if tx.FeeTokenID() != nil {
+		// TODO check erc20 balance
 		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
 			return ErrInsufficientFunds
 		}
@@ -759,17 +747,17 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			if b := pool.currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return errors.New("invalid transaction: insufficient funds for value")
 			}
-			// TODO check erc20 balance
 			erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), from)
 			if err != nil {
 				return errors.New("query balance failed")
 			}
-			if erc20Balance.Cmp(new(big.Int).Add(tx.GasFee(), l1DataFee.Fee)) < 0 {
+			rate, tokenScale, err := fees.TokenRate(pool.currentState, tx.FeeTokenID())
+			if erc20Balance.Cmp(types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)) < 0 {
 				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price")
 			}
 		} else {
 			// cost == L1 data fee + V + GP * GL
-			if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee.Eth())) < 0 {
+			if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
 				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
 			}
 		}
@@ -1614,9 +1602,14 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 					}
 					erc20CostLimit[*tx.FeeTokenID()] = balance
 				}
-				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(new(big.Int).Add(tx.GasFee(), l1DataFee.Fee)) < 0
+				rate, tokenScale, err := fees.TokenRate(pool.currentState, tx.FeeTokenID())
+				if err != nil {
+					log.Error("Failed to get rate", "err", err, "tx", tx)
+					return false
+				}
+				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)) < 0
 			}
-			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee.Eth())) < 0
+			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 		}
 
 		return false

@@ -53,9 +53,9 @@ type gpoState struct {
 	blobScalar    *big.Int
 }
 
-func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.ChainConfig, signer types.Signer, state StateDB, blockNumber *big.Int) (*types.TokenFee, error) {
+func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.ChainConfig, signer types.Signer, state StateDB, blockNumber *big.Int) (*big.Int, error) {
 	if msg.IsL1MessageTx() {
-		return types.ZeroTokenFee, nil
+		return big.NewInt(0), nil
 	}
 
 	unsigned := asUnsignedTx(msg, baseFee, config.ChainID)
@@ -78,18 +78,7 @@ func EstimateL1DataFeeForMessage(msg Message, baseFee *big.Int, config *params.C
 	} else {
 		l1DataFee = calculateEncodedL1DataFeeCurie(raw, gpoState.l1BaseFee, gpoState.l1BlobBaseFee, gpoState.commitScalar, gpoState.blobScalar)
 	}
-	rate := big.NewInt(1)
-	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
-		rate, err = EthRate(state, tx.FeeTokenID())
-		if err != nil {
-			return nil, err
-		}
-		l1DataFee = types.EthToERC20(l1DataFee, rate)
-	}
-	return &types.TokenFee{
-		Fee:  l1DataFee,
-		Rate: rate,
-	}, nil
+	return l1DataFee, nil
 }
 
 // asUnsignedTx turns a Message into a types.Transaction
@@ -229,9 +218,9 @@ func mulAndScale(x *big.Int, y *big.Int, precision *big.Int) *big.Int {
 	return new(big.Int).Quo(z, precision)
 }
 
-func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.ChainConfig, blockNumber *big.Int) (*types.TokenFee, error) {
+func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.ChainConfig, blockNumber *big.Int) (*big.Int, error) {
 	if tx.IsL1MessageTx() {
-		return types.ZeroTokenFee, nil
+		return big.NewInt(0), nil
 	}
 
 	raw, err := tx.MarshalBinary()
@@ -254,18 +243,8 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 	if !l1DataFee.IsUint64() {
 		l1DataFee.SetUint64(math.MaxUint64)
 	}
-	rate := big.NewInt(1)
-	if tx.IsERC20FeeTx() && tx.FeeTokenID() != nil {
-		rate, err = EthRate(state, tx.FeeTokenID())
-		if err != nil {
-			return nil, err
-		}
-		l1DataFee = types.EthToERC20(l1DataFee, rate)
-	}
-	return &types.TokenFee{
-		Fee:  l1DataFee,
-		Rate: rate,
-	}, nil
+
+	return l1DataFee, nil
 }
 
 func GetL1BaseFee(state StateDB) *big.Int {

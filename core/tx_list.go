@@ -334,7 +334,7 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		}
 	}
 	// Otherwise overwrite the old transaction with the current one
-	l1DataFee := types.ZeroTokenFee
+	l1DataFee := big.NewInt(0)
 	if state != nil && chainconfig != nil {
 		var err error
 		l1DataFee, err = fees.CalculateL1DataFee(tx, state, chainconfig, blockNumber)
@@ -347,12 +347,17 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	ethCost := big.NewInt(0)
 	if tx.IsERC20FeeTx() {
 		ethCost = new(big.Int).Set(tx.Value())
-		erc20Cost := new(big.Int).Add(tx.GasFee(), l1DataFee.Fee)
+		rate, tokenScale, err := fees.TokenRate(l.state, tx.FeeTokenID())
+		if err != nil {
+			log.Error("Failed to get rate", "err", err, "tx", tx)
+			return false, nil
+		}
+		erc20Cost := types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)
 		if l.costcap.ERC20(*tx.FeeTokenID()).Cmp(erc20Cost) < 0 {
 			l.costcap.SetERC20Amount(*tx.FeeTokenID(), erc20Cost)
 		}
 	} else {
-		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee.Eth())
+		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee)
 	}
 	if l.costcap.Eth().Cmp(ethCost) < 0 {
 		l.costcap.SetEthAmount(ethCost)

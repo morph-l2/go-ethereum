@@ -738,7 +738,7 @@ func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallM
 		return nil, err
 	}
 
-	return core.NewStateTransition(vmEnv, msg, gasPool, l1DataFee.Fee, l1DataFee.Rate).TransitionDb()
+	return core.NewStateTransition(vmEnv, msg, gasPool, l1DataFee).TransitionDb()
 }
 
 // SendTransaction updates the pending block to include the given transaction.

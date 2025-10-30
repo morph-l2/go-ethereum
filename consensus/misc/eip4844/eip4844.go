@@ -22,8 +22,8 @@ func CalcExcessBlobGas(parentExcessBlobGas uint64, parentBlobGasUsed uint64) uin
 }
 
 // CalcBlobFee calculates the blobfee from the header's excess blob gas field.
-func CalcBlobFee(excessBlobGas uint64) *big.Int {
-	return fakeExponential(minBlobGasPrice, new(big.Int).SetUint64(excessBlobGas), blobGaspriceUpdateFraction)
+func CalcBlobFee(excessBlobGas, updateFraction uint64) *big.Int {
+	return fakeExponential(minBlobGasPrice, new(big.Int).SetUint64(excessBlobGas), new(big.Int).SetUint64(updateFraction))
 }
 
 // fakeExponential approximates factor * e ** (numerator / denominator) using

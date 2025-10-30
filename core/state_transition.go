@@ -292,10 +292,8 @@ func (st *StateTransition) buyERC20Gas() error {
 	mgval = mgval.Mul(mgval, st.gasPrice)
 
 	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
-		if !st.msg.IsL1MessageTx() {
-			log.Debug("Adding L1DataFee for ERC20 gas payment", "l1DataFee", st.l1DataFee)
-			mgval = mgval.Add(mgval, st.l1DataFee)
-		}
+		log.Debug("Adding L1DataFee for ERC20 gas payment", "l1DataFee", st.l1DataFee)
+		mgval = mgval.Add(mgval, st.l1DataFee)
 	}
 
 	log.Debug("ERC20 gas payment calculation",
@@ -313,8 +311,13 @@ func (st *StateTransition) buyERC20Gas() error {
 	if err != nil {
 		return fmt.Errorf("failed to get ERC20 balance: %v", err)
 	}
-
-	if ERC20balance.Cmp(mgval) < 0 {
+	rate, tokenScale, err := fees.TokenRate(st.state, st.msg.FeeTokenID())
+	if err != nil {
+		return fmt.Errorf("failed to get token rate: %v", err)
+	}
+	// TODO rate cap
+	erc20Mgval := types.EthToERC20(mgval, rate, tokenScale)
+	if ERC20balance.Cmp(erc20Mgval) < 0 {
 		return fmt.Errorf("%w: address %v has insufficient ERC20 balance, have %v need %v (token %s)",
 			ErrInsufficientFunds, st.msg.From().Hex(), ERC20balance, mgval, tokenAddress.Hex())
 	}
@@ -331,7 +334,7 @@ func (st *StateTransition) buyERC20Gas() error {
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err := st.TransferERC20Hybrid(tokenAddress, st.msg.From(), *feeVaultAddress, mgval, balanceSlot); err != nil {
+	if err := st.TransferERC20Hybrid(tokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, balanceSlot); err != nil {
 		return fmt.Errorf("failed to transfer ERC20 tokens for gas payment: %v", err)
 	}
 
@@ -340,6 +343,7 @@ func (st *StateTransition) buyERC20Gas() error {
 		"tokenAddress", tokenAddress.String(),
 		"from", st.msg.From().String(),
 		"amount", mgval,
+		"erc20Amount", erc20Mgval,
 		"feeVault", feeVaultAddress.String())
 
 	return nil
@@ -418,6 +422,9 @@ func (st *StateTransition) preCheck() error {
 		if len(st.msg.SetCodeAuthorizations()) == 0 {
 			return fmt.Errorf("%w (sender %v)", ErrEmptyAuthList, st.msg.From())
 		}
+	}
+	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
+		return st.buyERC20Gas()
 	}
 	return st.buyGas()
 }

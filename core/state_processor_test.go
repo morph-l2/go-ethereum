@@ -60,6 +60,7 @@ func TestStateProcessorErrors(t *testing.T) {
 			CurieBlock:          big.NewInt(0),
 			Morph203Time:        new(uint64),
 			ViridianTime:        new(uint64),
+			EmeraldTime:         new(uint64),
 			Ethash:              new(params.EthashConfig),
 		}
 		signer  = types.LatestSigner(config)

@@ -228,7 +228,7 @@ func testKZGCells(t *testing.T, ckzg bool) {
 
 // goos: darwin
 // goarch: arm64
-// pkg: github.com/ethereum/go-ethereum/crypto/kzg4844
+// pkg: github.com/tenderly/net-morph/crypto/kzg4844
 // cpu: Apple M1 Pro
 // BenchmarkGOKZGComputeCellProofs
 // BenchmarkGOKZGComputeCellProofs-8   	       8	 139012286 ns/op

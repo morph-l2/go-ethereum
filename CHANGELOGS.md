@@ -6,7 +6,7 @@ Tag: None.
 
 Current rev: a79e72f69701695185f2f71788d17998bdd5a5a8.
 
-Based on https://github.com/ethereum/go-ethereum v1.10.13.
+Based on https://github.com/tenderly/net-morph v1.10.13.
 
 **Notable changes:**
 
@@ -63,7 +63,7 @@ Tag: None.
 
 Current rev: c516a9e47739bee96e70aced01fad255c0311897.
 
-Based on https://github.com/ethereum/go-ethereum v1.10.13.
+Based on https://github.com/tenderly/net-morph v1.10.13.
 
 **Notable changes:**
 
@@ -127,7 +127,7 @@ Tag: None.
 
 Current rev: d421337df58074bdee8d8cb8fa592ece5a2300e8.
 
-Based on https://github.com/ethereum/go-ethereum v1.10.13.
+Based on https://github.com/tenderly/net-morph v1.10.13.
 
 **Notable changes:**
 

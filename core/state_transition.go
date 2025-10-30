@@ -311,12 +311,8 @@ func (st *StateTransition) buyERC20Gas() error {
 	if err != nil {
 		return fmt.Errorf("failed to get ERC20 balance: %v", err)
 	}
-	rate, tokenScale, err := fees.TokenRate(st.state, st.msg.FeeTokenID())
-	if err != nil {
-		return fmt.Errorf("failed to get token rate: %v", err)
-	}
 	// TODO rate cap
-	erc20Mgval := types.EthToERC20(mgval, rate, tokenScale)
+	erc20Mgval, err := fees.EthToERC20(st.state, st.msg.FeeTokenID(), mgval)
 	if ERC20balance.Cmp(erc20Mgval) < 0 {
 		return fmt.Errorf("%w: address %v has insufficient ERC20 balance, have %v need %v (token %s)",
 			ErrInsufficientFunds, st.msg.From().Hex(), ERC20balance, mgval, tokenAddress.Hex())
@@ -398,12 +394,6 @@ func (st *StateTransition) preCheck() error {
 			}
 			// This will panic if baseFee is nil, but basefee presence is verified
 			// as part of header validation.
-			// This will panic if baseFee is nil, but basefee presence is verified
-			// as part of header validation.
-			if st.msg.FeeTokenID() == nil && st.evm.Context.BaseFee != nil && st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
-				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
-					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
-			}
 			if st.evm.Context.BaseFee != nil && st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)

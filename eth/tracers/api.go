@@ -91,13 +91,19 @@ type Backend interface {
 type API struct {
 	backend            Backend
 	morphTracerWrapper morphTracerWrapper
-	getBalanceFunc     func(evm *vm.EVM, tokenID *uint16, addr common.Address) (*big.Int, error)
-	addBalanceFunc     func(evm *vm.EVM, tokenID *uint16, addr common.Address, amount *big.Int) error
+	addERC20Balance    func(evm *vm.EVM, tokenID *uint16, addr common.Address, amount *big.Int) error
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
 func NewAPI(backend Backend, morphTracerWrapper morphTracerWrapper) *API {
-	return &API{backend: backend, morphTracerWrapper: morphTracerWrapper}
+	api := &API{backend: backend, morphTracerWrapper: morphTracerWrapper}
+	// TODO
+	api.addERC20Balance = func(evm *vm.EVM, tokenID *uint16, addr common.Address, amount *big.Int) error {
+		var from common.Address
+		// TODO from Addr
+		return core.TransferERC20(evm, tokenID, from, addr, amount)
+	}
+	return api
 }
 
 type chainContext struct {
@@ -982,12 +988,11 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 		if message.FeeTokenID() == nil {
 			statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
 		} else {
-			// TODO add erc20 balance??
-			rate, tokenScale, err := fees.TokenRate(statedb, message.FeeTokenID())
+			erc20Amount, err := fees.EthToERC20(statedb, message.FeeTokenID(), l1DataFee)
 			if err != nil {
 				return nil, err
 			}
-			if err := api.addBalanceFunc(vmenv, message.FeeTokenID(), message.From(), types.EthToERC20(l1DataFee, rate, tokenScale)); err != nil {
+			if err := api.addERC20Balance(vmenv, message.FeeTokenID(), message.From(), erc20Amount); err != nil {
 				return nil, err
 			}
 		}

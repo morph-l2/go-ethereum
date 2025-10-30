@@ -347,12 +347,11 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	ethCost := big.NewInt(0)
 	if tx.IsERC20FeeTx() {
 		ethCost = new(big.Int).Set(tx.Value())
-		rate, tokenScale, err := fees.TokenRate(l.state, tx.FeeTokenID())
+		erc20Cost, err := fees.EthToERC20(state, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 		if err != nil {
-			log.Error("Failed to get rate", "err", err, "tx", tx)
+			log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 			return false, nil
 		}
-		erc20Cost := types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)
 		if l.costcap.ERC20(*tx.FeeTokenID()).Cmp(erc20Cost) < 0 {
 			l.costcap.SetERC20Amount(*tx.FeeTokenID(), erc20Cost)
 		}

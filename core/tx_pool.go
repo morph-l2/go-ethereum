@@ -751,8 +751,11 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			if err != nil {
 				return errors.New("query balance failed")
 			}
-			rate, tokenScale, err := fees.TokenRate(pool.currentState, tx.FeeTokenID())
-			if erc20Balance.Cmp(types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)) < 0 {
+			erc20Amount, err := fees.EthToERC20(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+			if err != nil {
+				return errors.New("query balance failed")
+			}
+			if erc20Balance.Cmp(erc20Amount) < 0 {
 				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price")
 			}
 		} else {

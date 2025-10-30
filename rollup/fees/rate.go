@@ -1,6 +1,7 @@
 package fees
 
 import (
+	"github.com/morph-l2/go-ethereum/core/types"
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -8,11 +9,11 @@ import (
 )
 
 // TokenRate returns the ETH exchange rate for the specified token,erc20Price / ethPrice
-func TokenRate(db StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
+func TokenRate(state StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
 	if tokenID == nil || *tokenID == 0 {
 		return big.NewInt(1), big.NewInt(1), nil
 	}
-	addr, price, _, err := GetTokenInfoFromStorage(db, TokenRegistryAddress, *tokenID)
+	addr, price, _, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, *tokenID)
 	if err != nil {
 		log.Error("Failed to get token info from storage", "tokenID", tokenID, "error", err)
 		return nil, nil, err
@@ -32,4 +33,20 @@ func TokenRate(db StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
 	scale := big.NewInt(10000) // TODO
 
 	return price, scale, err
+}
+
+func EthToERC20(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
+	rate, tokenSacle, err := TokenRate(state, tokenID)
+	if err != nil {
+		return nil, err
+	}
+	return types.EthToERC20(amount, rate, tokenSacle), nil
+}
+
+func ERC20ToETH(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
+	rate, tokenSacle, err := TokenRate(state, tokenID)
+	if err != nil {
+		return nil, err
+	}
+	return types.ERC20ToEth(amount, rate, tokenSacle), nil
 }

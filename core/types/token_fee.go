@@ -2,7 +2,7 @@ package types
 
 import "math/big"
 
-// dual currency account
+// SuperAccount dual currency account
 type SuperAccount struct {
 	ethAmount   *big.Int
 	erc20Amount ERC20Account
@@ -26,28 +26,24 @@ func (dca *SuperAccount) SetERC20Amount(id uint16, amount *big.Int) {
 	dca.erc20Amount[id] = amount
 }
 
-// price = erc20Price / ethPrice
-// ethGasPrice / erc20GasPrice = erc20Price / ethPrice
-// erc20GasPrice = ethGasPrice / price
-
-func EthToERC20(amount, rate, tokenScale *big.Int) *big.Int {
-	// TODO handle decimals
-	if rate.Cmp(big.NewInt(0)) <= 0 {
-		panic("invalid rate")
+// EthToERC20 erc20Amount = ethAmount / (tokenRate / tokenScale) = ethAmount * tokenScale / tokenRate
+func EthToERC20(ethAmount, rate, tokenScale *big.Int) *big.Int {
+	erc20Amount := new(big.Int)
+	remainder := new(big.Int)
+	erc20Amount.QuoRem(new(big.Int).Mul(ethAmount, tokenScale), rate, remainder)
+	if remainder.Sign() != 0 {
+		erc20Amount.Add(erc20Amount, big.NewInt(1))
 	}
-	targetAmount := new(big.Int).Mul(amount, rate)
-	return targetAmount
+	return erc20Amount
 }
 
-func ERC20ToEth(amount, rate, tokenScale *big.Int) *big.Int {
-	// TODO handle decimals
-	if rate.Cmp(big.NewInt(0)) <= 0 {
-		panic("invalid rate")
+// ERC20ToEth ethAmount = erc20Amount * (tokenRate / tokenScale)
+func ERC20ToEth(erc20Amount, rate, tokenScale *big.Int) *big.Int {
+	ethAmount := new(big.Int)
+	remainder := new(big.Int)
+	ethAmount.QuoRem(new(big.Int).Mul(erc20Amount, tokenScale), rate, remainder)
+	if remainder.Sign() != 0 {
+		ethAmount.Add(ethAmount, big.NewInt(1))
 	}
-	return nil
-}
-
-type TokenRate struct {
-	Rate  *big.Int
-	Scale *big.Int
+	return ethAmount
 }

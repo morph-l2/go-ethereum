@@ -91,6 +91,8 @@ type Backend interface {
 type API struct {
 	backend            Backend
 	morphTracerWrapper morphTracerWrapper
+	getBalanceFunc     func(evm *vm.EVM, tokenID *uint16, addr common.Address) (*big.Int, error)
+	addBalanceFunc     func(evm *vm.EVM, tokenID *uint16, addr common.Address, amount *big.Int) error
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
@@ -927,7 +929,7 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *big.Int) (interface{}, error) {
+func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *types.TokenFee) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer       *Tracer
@@ -977,7 +979,15 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
+		if message.FeeTokenID() == nil {
+			statedb.AddBalance(message.From(), l1DataFee.Eth(), '1')
+		} else {
+			// TODO add erc20 balance??
+			if err := api.addBalanceFunc(vmenv, message.FeeTokenID(), message.From(), l1DataFee.Fee); err != nil {
+				return nil, err
+			}
+		}
+		statedb.AddBalance(message.From(), l1DataFee.Eth(), tracing.BalanceChangeUnspecified)
 	}
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)

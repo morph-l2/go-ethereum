@@ -37,12 +37,15 @@ var (
 	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
 	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
+	ErrCostNotSupported     = errors.New("erc20 fee transaction cost func not supported")
+	ErrInvalidParamNumber   = errors.New("invalid number of parameters")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
 	errShortTypedTx         = errors.New("typed transaction too short")
 	errInvalidYParity       = errors.New("'yParity' field must be 0 or 1")
 	errVYParityMismatch     = errors.New("'v' and 'yParity' fields do not match")
 	errVYParityMissing      = errors.New("missing 'yParity' or 'v' field in transaction")
+	errMissingTokenRate     = errors.New("erc20 fee transaction missing token rate")
 )
 
 // Transaction types.
@@ -369,9 +372,17 @@ func (tx *Transaction) FeeTokenID() *uint16 {
 
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
-	total := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
+	if tx.IsERC20FeeTx() {
+		panic(ErrCostNotSupported)
+	}
+	total := tx.GasFee()
 	total.Add(total, tx.Value())
 	return total
+}
+
+// GasFee returns gas * gasPrice.
+func (tx *Transaction) GasFee() *big.Int {
+	return new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
 }
 
 // RawSignatureValues returns the V, R, S signature values of the transaction.
@@ -415,6 +426,7 @@ func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
 	if gasFeeCap.Cmp(baseFee) == -1 {
 		err = ErrGasFeeCapTooLow
 	}
+
 	return math.BigMin(tx.GasTipCap(), gasFeeCap.Sub(gasFeeCap, baseFee)), err
 }
 
@@ -426,14 +438,14 @@ func (tx *Transaction) EffectiveGasTipValue(baseFee *big.Int) *big.Int {
 }
 
 // EffectiveGasTipCmp compares the effective gasTipCap of two transactions assuming the given base fee.
-func (tx *Transaction) EffectiveGasTipCmp(other *Transaction, baseFee *big.Int) int {
+func (tx *Transaction) EffectiveGasTipCmp(other *Transaction, baseFee *big.Int) int { // TODO DONE
 	if baseFee == nil {
 		return tx.GasTipCapCmp(other)
 	}
 	return tx.EffectiveGasTipValue(baseFee).Cmp(other.EffectiveGasTipValue(baseFee))
 }
 
-// EffectiveGasTipIntCmp compares the effective gasTipCap of a transaction to the given gasTipCap.
+// EffectiveGasTipIntCmp compares the effective gasTipCap of a transaction to the given gasTipCap.   // TODO DONE
 func (tx *Transaction) EffectiveGasTipIntCmp(other *big.Int, baseFee *big.Int) int {
 	if baseFee == nil {
 		return tx.GasTipCapIntCmp(other)
@@ -772,10 +784,10 @@ type Message struct {
 	isFake                bool
 	isL1MessageTx         bool
 	setCodeAuthorizations []SetCodeAuthorization
-  feeTokenID    *uint16
+	feeTokenID            *uint16
 }
 
-func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
+func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, feeTokenID uint16, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
 	return Message{
 		from:                  from,
 		to:                    to,
@@ -790,7 +802,7 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 		setCodeAuthorizations: authList,
 		isFake:                isFake,
 		isL1MessageTx:         false,
-    feeTokenID:            &feeTokenID,
+		feeTokenID:            &feeTokenID,
 	}
 }
 
@@ -809,11 +821,12 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		isFake:                false,
 		isL1MessageTx:         tx.IsL1MessageTx(),
 		setCodeAuthorizations: tx.SetCodeAuthorizations(),
-    feeTokenID:    tx.FeeTokenID(),
+		feeTokenID:            tx.FeeTokenID(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
 		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
+
 	}
 	var err error
 	msg.from, err = Sender(s, tx)
@@ -833,7 +846,7 @@ func (m Message) AccessList() AccessList                        { return m.acces
 func (m Message) IsFake() bool                                  { return m.isFake }
 func (m Message) IsL1MessageTx() bool                           { return m.isL1MessageTx }
 func (m Message) SetCodeAuthorizations() []SetCodeAuthorization { return m.setCodeAuthorizations }
-func (m Message) FeeTokenID() *uint16    { return m.feeTokenID }
+func (m Message) FeeTokenID() *uint16                           { return m.feeTokenID }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

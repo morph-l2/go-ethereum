@@ -253,8 +253,6 @@ func (s *modernSigner) Sender(tx *Transaction) (common.Address, error) {
 	if tx.IsL1MessageTx() {
 		return tx.AsL1MessageTx().Sender, nil
 	}
-	if tx.Type() != DynamicFeeTxType && tx.Type() != ERC20FeeTxType {
-		return s.eip2930Signer.Sender(tx)
 	if tt == LegacyTxType {
 		return s.legacy.Sender(tx)
 	}
@@ -286,45 +284,6 @@ func (s *modernSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *bi
 	return R, S, V, nil
 }
 
-// Hash returns the hash to be signed by the sender.
-// It does not uniquely identify the transaction.
-func (s londonSigner) Hash(tx *Transaction) common.Hash {
-	if tx.IsL1MessageTx() {
-		panic("l1 message tx cannot be signed and do not have a signing hash")
-	}
-	if tx.Type() != DynamicFeeTxType && tx.Type() != ERC20FeeTxType {
-		return s.eip2930Signer.Hash(tx)
-	}
-	return prefixedRlpHash(
-		tx.Type(),
-		[]interface{}{
-			s.chainId,
-			tx.Nonce(),
-			tx.GasTipCap(),
-			tx.GasFeeCap(),
-			tx.Gas(),
-			tx.To(),
-			tx.Value(),
-			tx.Data(),
-			tx.AccessList(),
-		})
-}
-
-type eip2930Signer struct{ EIP155Signer }
-
-// NewEIP2930Signer returns a signer that accepts EIP-2930 access list transactions,
-// EIP-155 replay protected transactions, and legacy Homestead transactions.
-func NewEIP2930Signer(chainId *big.Int) Signer {
-	return eip2930Signer{NewEIP155Signer(chainId)}
-}
-
-func (s eip2930Signer) ChainID() *big.Int {
-	return s.chainId
-}
-
-func (s eip2930Signer) Equal(s2 Signer) bool {
-	x, ok := s2.(eip2930Signer)
-	return ok && x.chainId.Cmp(s.chainId) == 0
 // NewViridianSigner returns a signer that accepts
 // - EIP-7702 setCode transactions
 // - EIP-4844 blob transactions

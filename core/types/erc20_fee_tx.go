@@ -98,6 +98,17 @@ func (tx *ERC20FeeTx) value() *big.Int        { return tx.Value }
 func (tx *ERC20FeeTx) nonce() uint64          { return tx.Nonce }
 func (tx *ERC20FeeTx) to() *common.Address    { return tx.To }
 
+func (tx *ERC20FeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+	if baseFee == nil {
+		return dst.Set(tx.GasFeeCap)
+	}
+	tip := dst.Sub(tx.GasFeeCap, baseFee)
+	if tip.Cmp(tx.GasTipCap) > 0 {
+		tip.Set(tx.GasTipCap)
+	}
+	return tip.Add(tip, baseFee)
+}
+
 func (tx *ERC20FeeTx) rawSignatureValues() (v, r, s *big.Int) {
 	return tx.V, tx.R, tx.S
 }
@@ -112,4 +123,21 @@ func (tx *ERC20FeeTx) encode(b *bytes.Buffer) error {
 
 func (tx *ERC20FeeTx) decode(input []byte) error {
 	return rlp.DecodeBytes(input, tx)
+}
+
+func (tx *ERC20FeeTx) sigHash(chainID *big.Int) common.Hash {
+	return prefixedRlpHash(
+		DynamicFeeTxType,
+		[]any{
+			chainID,
+			tx.Nonce,
+			tx.GasTipCap,
+			tx.GasFeeCap,
+			tx.Gas,
+			tx.To,
+			tx.Value,
+			tx.Data,
+			tx.AccessList,
+			tx.FeeTokenID,
+		})
 }

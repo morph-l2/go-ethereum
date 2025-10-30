@@ -25,14 +25,6 @@ var (
 	TokenBalanceSlotMappingSlot = common.BigToHash(big.NewInt(2))
 )
 
-func ExchangeToERC20() *big.Int {
-	return new(big.Int)
-}
-
-func ExchangeToEth() *big.Int {
-	return new(big.Int)
-}
-
 // CalculateMappingSlot calculates the storage slot for a mapping key
 // For mapping(key => value), the slot is: keccak256(abi.encode(key, mappingSlot))
 func CalculateMappingSlot(key uint16, mappingSlot common.Hash) common.Hash {

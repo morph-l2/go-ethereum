@@ -115,8 +115,12 @@ func (h *Handler) calculateL1FeeForBatch(index uint64, blockContextsBytes []byte
 		hash := rawdb.ReadCanonicalHash(h.db, bc.Number)
 		receipts := h.bc.GetReceiptsByHash(hash)
 		for _, receipt := range receipts {
+			rate := big.NewInt(1)
 			if receipt.L1Fee != nil {
-				receivedL1Fee = new(big.Int).Add(receivedL1Fee, receipt.L1Fee)
+				if receipt.Rate != nil {
+					rate = receipt.Rate
+				}
+				receivedL1Fee = new(big.Int).Add(receivedL1Fee, types.ERC20ToEth(receipt.L1Fee, rate))
 			}
 		}
 	}

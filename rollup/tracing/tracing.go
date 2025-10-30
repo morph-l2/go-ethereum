@@ -496,6 +496,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1DataFee:      (*hexutil.Big)(receipt.L1Fee),
+		Rate:           (*hexutil.Big)(receipt.Rate),
 		Gas:            receipt.GasUsed,
 		Failed:         receipt.Status == types.ReceiptStatusFailed,
 		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),

@@ -51,11 +51,12 @@ type TransactOpts struct {
 	Nonce  *big.Int       // Nonce to use for the transaction execution (nil = use pending state)
 	Signer SignerFn       // Method to use for signing the transaction (mandatory)
 
-	Value     *big.Int // Funds to transfer along the transaction (nil = 0 = no funds)
-	GasPrice  *big.Int // Gas price to use for the transaction execution (nil = gas price oracle)
-	GasFeeCap *big.Int // Gas fee cap to use for the 1559 transaction execution (nil = gas price oracle)
-	GasTipCap *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
-	GasLimit  uint64   // Gas limit to set for the transaction execution (0 = estimate)
+	Value      *big.Int // Funds to transfer along the transaction (nil = 0 = no funds)
+	GasPrice   *big.Int // Gas price to use for the transaction execution (nil = gas price oracle)
+	GasFeeCap  *big.Int // Gas fee cap to use for the 1559 transaction execution (nil = gas price oracle)
+	GasTipCap  *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
+	GasLimit   uint64   // Gas limit to set for the transaction execution (0 = estimate)
+	FeeTokenID *big.Int
 
 	Context context.Context // Network context to support cancellation and timeouts (nil = no timeout)
 
@@ -287,6 +288,63 @@ func (c *BoundContract) createDynamicTx(opts *TransactOpts, contract *common.Add
 	return types.NewTx(baseTx), nil
 }
 
+func (c *BoundContract) createERC20FeeTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
+	// Normalize value
+	value := opts.Value
+	if value == nil {
+		value = new(big.Int)
+	}
+	// Estimate TipCap
+	gasTipCap := opts.GasTipCap
+	if gasTipCap == nil {
+		tip, err := c.transactor.SuggestGasTipCap(ensureContext(opts.Context))
+		if err != nil {
+			return nil, err
+		}
+		gasTipCap = tip
+	}
+	// Estimate FeeCap
+	gasFeeCap := opts.GasFeeCap
+	if gasFeeCap == nil {
+		if head.BaseFee != nil {
+			gasFeeCap = new(big.Int).Add(
+				gasTipCap,
+				new(big.Int).Mul(head.BaseFee, big.NewInt(2)),
+			)
+		} else {
+			gasFeeCap = new(big.Int).Set(gasTipCap)
+		}
+	}
+	if gasFeeCap.Cmp(gasTipCap) < 0 {
+		return nil, fmt.Errorf("maxFeePerGas (%v) < maxPriorityFeePerGas (%v)", gasFeeCap, gasTipCap)
+	}
+	// Estimate GasLimit
+	gasLimit := opts.GasLimit
+	if opts.GasLimit == 0 {
+		var err error
+		gasLimit, err = c.estimateGasLimit(opts, contract, input, nil, gasTipCap, gasFeeCap, value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// create the transaction
+	nonce, err := c.getNonce(opts)
+	if err != nil {
+		return nil, err
+	}
+	baseTx := &types.ERC20FeeTx{
+		To:         contract,
+		Nonce:      nonce,
+		GasFeeCap:  gasFeeCap,
+		GasTipCap:  gasTipCap,
+		FeeTokenID: uint16(opts.FeeTokenID.Uint64()),
+		Gas:        gasLimit,
+		Value:      value,
+		Data:       input,
+	}
+	return types.NewTx(baseTx), nil
+}
+
 func (c *BoundContract) createLegacyTx(opts *TransactOpts, contract *common.Address, input []byte) (*types.Transaction, error) {
 	if opts.GasFeeCap != nil || opts.GasTipCap != nil {
 		return nil, errors.New("maxFeePerGas or maxPriorityFeePerGas specified but curie is not active yet")
@@ -377,7 +435,11 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 		if head, errHead := c.transactor.HeaderByNumber(ensureContext(opts.Context), nil); errHead != nil {
 			return nil, errHead
 		} else if head.BaseFee != nil {
-			rawTx, err = c.createDynamicTx(opts, contract, input, head)
+			if opts.FeeTokenID != nil {
+				rawTx, err = c.createERC20FeeTx(opts, contract, input, head)
+			} else {
+				rawTx, err = c.createDynamicTx(opts, contract, input, head)
+			}
 		} else {
 			// Chain is not London ready -> use legacy transaction
 			rawTx, err = c.createLegacyTx(opts, contract, input)

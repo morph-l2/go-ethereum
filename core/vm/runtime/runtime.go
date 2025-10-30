@@ -75,6 +75,7 @@ func setDefaults(cfg *Config) {
 			CurieBlock:          new(big.Int),
 			Morph203Time:        new(uint64),
 			ViridianTime:        new(uint64),
+			EmeraldTime:         new(uint64),
 		}
 	}
 

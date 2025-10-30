@@ -121,6 +121,8 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 	if cfg.JumpTable[STOP] == nil {
 		var jt JumpTable
 		switch {
+		case evm.chainRules.IsEmerald:
+			jt = emeraldInstructionSet
 		case evm.chainRules.IsViridian:
 			jt = viridianInstructionSet
 		case evm.chainRules.IsCurie:

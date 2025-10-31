@@ -87,7 +87,7 @@ type SendTxArgs struct {
 	// For non-legacy transactions
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
-	FeeTokenID *uint16           `json:"feeTokenID,omitempty"`
+	FeeTokenID *hexutil.Uint64   `json:"feeTokenID,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -129,7 +129,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 				Gas:        uint64(args.Gas),
 				GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 				GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-				FeeTokenID: *args.FeeTokenID,
+				FeeTokenID: uint16(*args.FeeTokenID),
 				Value:      (*big.Int)(&args.Value),
 				Data:       input,
 				AccessList: al,

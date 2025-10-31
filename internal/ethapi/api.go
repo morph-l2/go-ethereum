@@ -986,9 +986,9 @@ func (diff *StateOverride) Apply(state *state.StateDB) error {
 	return nil
 }
 
-func EstimateL1MsgFee(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64, config *params.ChainConfig) (*types.TokenFee, error) {
+func EstimateL1MsgFee(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64, config *params.ChainConfig) (*big.Int, error) {
 	if !config.Morph.FeeVaultEnabled() {
-		return types.ZeroTokenFee, nil
+		return big.NewInt(0), nil
 	}
 
 	state, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
@@ -1071,7 +1071,7 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	// Execute the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
 
-	result, err := core.ApplyMessage(evm, msg, gp, types.ZeroTokenFee)
+	result, err := core.ApplyMessage(evm, msg, gp, big.NewInt(0))
 	if err := vmError(); err != nil {
 		return nil, err
 	}
@@ -1176,6 +1176,10 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		if err != nil {
 			return 0, err
 		}
+		// check fee token id
+		if args.FeeTokenID != nil && *args.FeeTokenID != 0 {
+			// TODO check white
+		}
 		balance := state.GetBalance(*args.From) // from can't be nil
 		available := new(big.Int).Set(balance)
 
@@ -1193,11 +1197,12 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			return 0, err
 		}
 		// TODO
-		if l1DataFee.Eth().Cmp(available) >= 0 {
+		if l1DataFee.Cmp(available) >= 0 {
 			return 0, errors.New("insufficient funds for l1 fee")
 		}
-		available.Sub(available, l1DataFee.Eth())
+		available.Sub(available, l1DataFee)
 
+		// TODO erc20 allowance
 		allowance := new(big.Int).Div(available, feeCap)
 
 		// If the allowance is larger than maximum uint64, skip checking

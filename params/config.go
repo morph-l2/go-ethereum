@@ -385,6 +385,7 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
 		ViridianTime:            new(uint64),
+		EmeraldTime:             new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -422,6 +423,7 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
 		ViridianTime:            new(uint64),
+		EmeraldTime:             new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
@@ -454,6 +456,7 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
 		ViridianTime:            new(uint64),
+		EmeraldTime:             new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -487,6 +490,7 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            new(uint64),
 		ViridianTime:            new(uint64),
+		EmeraldTime:             new(uint64),
 		TerminalTotalDifficulty: nil,
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
@@ -579,6 +583,7 @@ type ChainConfig struct {
 	CurieBlock          *big.Int `json:"curieBlock,omitempty"`          // Curie switch block (nil = no fork, 0 = already on curie)
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
 	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
+	EmeraldTime         *uint64  `json:"emeraldTime,omitempty"`         // EmeraldTime switch time (nil = no fork, 0 = already on emerald)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -671,7 +676,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Engine: %v, Morph config: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Emerald: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -693,6 +698,7 @@ func (c *ChainConfig) String() string {
 		c.CurieBlock,
 		c.Morph203Time,
 		c.ViridianTime,
+		c.EmeraldTime,
 		engine,
 		c.Morph,
 	)
@@ -794,6 +800,10 @@ func (c *ChainConfig) IsViridian(num *big.Int, time uint64) bool {
 	return c.IsCurie(num) && isTimestampForked(c.ViridianTime, time)
 }
 
+func (c *ChainConfig) IsEmerald(num *big.Int, time uint64) bool {
+	return isTimestampForked(c.EmeraldTime, time)
+}
+
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
 func (c *ChainConfig) IsTerminalPoWBlock(parentTotalDiff *big.Int, totalDiff *big.Int) bool {
 	if c.TerminalTotalDifficulty == nil {
@@ -857,6 +867,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "curieBlock", block: c.CurieBlock, optional: true},
 		{name: "morph203Time", timestamp: c.Morph203Time, optional: true},
 		{name: "viridianTime", timestamp: c.ViridianTime, optional: true},
+		{name: "emeraldTime", timestamp: c.EmeraldTime, optional: true},
 	} {
 		if lastFork.name != "" {
 			switch {
@@ -962,6 +973,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTi
 	}
 	if isForkTimestampIncompatible(c.ViridianTime, newcfg.ViridianTime, headTimestamp) {
 		return newTimestampCompatError("ViridianTime fork timestamp", c.ViridianTime, newcfg.ViridianTime)
+	}
+	if isForkTimestampIncompatible(c.EmeraldTime, newcfg.EmeraldTime, headTimestamp) {
+		return newTimestampCompatError("EmeraldTime fork timestamp", c.EmeraldTime, newcfg.EmeraldTime)
 	}
 	return nil
 }
@@ -1109,7 +1123,7 @@ type Rules struct {
 	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsMorph203, IsViridian            bool
+	IsBernoulli, IsCurie, IsMorph203, IsViridian, IsEmerald bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1136,5 +1150,6 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsCurie:          c.IsCurie(num),
 		IsMorph203:       c.IsMorph203(time),
 		IsViridian:       c.IsViridian(num, time),
+		IsEmerald:        c.IsEmerald(num, time),
 	}
 }

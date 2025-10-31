@@ -1071,7 +1071,7 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	// Execute the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
 
-	result, err := core.ApplyMessage(evm, msg, gp, common.Big0)
+	result, err := core.ApplyMessage(evm, msg, gp, big.NewInt(0))
 	if err := vmError(); err != nil {
 		return nil, err
 	}
@@ -1176,6 +1176,10 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		if err != nil {
 			return 0, err
 		}
+		// check fee token id
+		if args.FeeTokenID != nil && *args.FeeTokenID != 0 {
+			// TODO check white
+		}
 		balance := state.GetBalance(*args.From) // from can't be nil
 		available := new(big.Int).Set(balance)
 
@@ -1192,11 +1196,13 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		if err != nil {
 			return 0, err
 		}
+		// TODO
 		if l1DataFee.Cmp(available) >= 0 {
 			return 0, errors.New("insufficient funds for l1 fee")
 		}
 		available.Sub(available, l1DataFee)
 
+		// TODO erc20 allowance
 		allowance := new(big.Int).Div(available, feeCap)
 
 		// If the allowance is larger than maximum uint64, skip checking
@@ -1382,6 +1388,7 @@ type RPCTransaction struct {
 	Type              hexutil.Uint64               `json:"type"`
 	Accesses          *types.AccessList            `json:"accessList,omitempty"`
 	ChainID           *hexutil.Big                 `json:"chainId,omitempty"`
+	FeeTokenID        *hexutil.Big                 `json:"feeTokenID,omitempty"`
 	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	V                 *hexutil.Big                 `json:"v"`
 	R                 *hexutil.Big                 `json:"r"`
@@ -1441,6 +1448,19 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		msg := tx.AsL1MessageTx()
 		result.Sender = &msg.Sender
 		result.QueueIndex = (*hexutil.Uint64)(&msg.QueueIndex)
+	case types.ERC20FeeTxType:
+		al := tx.AccessList()
+		result.Accesses = &al
+		result.ChainID = (*hexutil.Big)(tx.ChainId())
+		result.GasFeeCap = (*hexutil.Big)(tx.GasFeeCap())
+		result.GasTipCap = (*hexutil.Big)(tx.GasTipCap())
+		// TODO
+		//result.FeeTokenID = (*hexutil.Big)()
+		// if the transaction has been mined, compute the effective gas price
+		if baseFee != nil && blockHash != (common.Hash{}) {
+			// price = min(tip, gasFeeCap - baseFee) + baseFee
+			// TODO base fee -> erc20 fee
+		}
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())
@@ -1458,11 +1478,13 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		}
 		result.AuthorizationList = tx.SetCodeAuthorizations()
 	}
+
 	return result
 }
 
 // NewRPCPendingTransaction returns a pending transaction that will serialize to the RPC representation
 func NewRPCPendingTransaction(tx *types.Transaction, current *types.Header, config *params.ChainConfig, l1BaseFee *big.Int) *RPCTransaction {
+	// TODO
 	var baseFee *big.Int
 	blockNumber := uint64(0)
 	blockTime := uint64(0)
@@ -1807,6 +1829,7 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
+		"feeRate":           (*hexutil.Big)(receipt.Rate),
 	}
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {

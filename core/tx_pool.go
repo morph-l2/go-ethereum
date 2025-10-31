@@ -19,6 +19,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"math"
 	"math/big"
 	"slices"
@@ -264,7 +265,8 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	blacklist *TxBlacklist
+	blacklist      *TxBlacklist
+	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error)
 
 	pending map[common.Address]*txList   // All currently processable transactions
 	queue   map[common.Address]*txList   // Queued but non-processable transactions
@@ -320,6 +322,32 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		reorgShutdownCh: make(chan struct{}),
 		initDoneCh:      make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
+	}
+	// TODO
+	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error) {
+		blockContext := vm.BlockContext{
+			BlockNumber: header.Number,
+			Time:        big.NewInt(int64(header.Time)),
+			Difficulty:  header.Difficulty,
+			BaseFee:     header.BaseFee,
+			GasLimit:    header.GasLimit,
+		}
+
+		// Configure minimal VM settings
+		vmConfig := vm.Config{
+			NoBaseFee: true,
+			//Debug:     false,
+			Tracer: nil,
+			// Disable unnecessary features
+			//JumpTable: vm.NewByzantiumInstructionSet(),
+		}
+		txContext := vm.TxContext{
+			Origin:   common.Address{},
+			GasPrice: big.NewInt(0),
+		}
+		// Create the EVM instance
+		evm := vm.NewEVM(blockContext, txContext, state, pool.chainconfig, vmConfig)
+		return GetERC20Balance(evm, tokenID, addr)
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -588,6 +616,7 @@ func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccount
 					txs = txs[:i]
 					break
 				}
+
 			}
 		}
 		if len(txs) > 0 {
@@ -641,6 +670,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrTxTypeNotSupported
 	}
 
+	// Reject erc20 fee transactions until EIP-1559 activates.
+	if !pool.eip1559 && tx.Type() == types.ERC20FeeTxType {
+		return ErrTxTypeNotSupported
+	}
 	if !pool.eip7702 && tx.Type() == types.SetCodeTxType {
 		return ErrTxTypeNotSupported
 	}
@@ -692,8 +725,15 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
-		return ErrInsufficientFunds
+	if tx.FeeTokenID() != nil {
+		// TODO check erc20 balance
+		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
+			return ErrInsufficientFunds
+		}
+	} else {
+		if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+			return ErrInsufficientFunds
+		}
 	}
 	// 2. If FeeVault is enabled, perform an additional check for L1 data fees.
 	if pool.chainconfig.Morph.FeeVaultEnabled() {
@@ -703,9 +743,26 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return fmt.Errorf("failed to calculate L1 data fee, err: %w", err)
 		}
 		// Transactor should have enough funds to cover the costs
-		// cost == L1 data fee + V + GP * GL
-		if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
-			return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
+		if tx.IsERC20FeeTx() {
+			if b := pool.currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
+				return errors.New("invalid transaction: insufficient funds for value")
+			}
+			erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), from)
+			if err != nil {
+				return errors.New("query balance failed")
+			}
+			erc20Amount, err := fees.EthToERC20(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+			if err != nil {
+				return errors.New("query balance failed")
+			}
+			if erc20Balance.Cmp(erc20Amount) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price")
+			}
+		} else {
+			// cost == L1 data fee + V + GP * GL
+			if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
+			}
 		}
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
@@ -893,7 +950,7 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 	// Try to insert the transaction into the future queue
 	from, _ := types.Sender(pool.signer, tx) // already validated
 	if pool.queue[from] == nil {
-		pool.queue[from] = newTxList(false)
+		pool.queue[from] = newTxList(false, pool.currentState)
 	}
 
 	inserted, old := pool.queue[from].Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
@@ -946,7 +1003,7 @@ func (pool *TxPool) journalTx(from common.Address, tx *types.Transaction) {
 func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.Transaction) bool {
 	// Try to insert the transaction into the pending queue
 	if pool.pending[addr] == nil {
-		pool.pending[addr] = newTxList(true)
+		pool.pending[addr] = newTxList(true, pool.currentState)
 	}
 	list := pool.pending[addr]
 
@@ -1480,7 +1537,9 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 
 		// Drop all transactions that are too costly (low balance or out of gas)
 		costLimit := pool.currentState.GetBalance(addr)
-		drops, _ := list.FilterF(costLimit, pool.currentMaxGas, pool.executableTxFilter(costLimit))
+		// TODO erc20 cost limit
+		erc20CostLimit := make(map[uint16]*big.Int)
+		drops, _ := list.FilterF(costLimit, erc20CostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, erc20CostLimit))
 		for _, tx := range drops {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
@@ -1525,18 +1584,33 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 	return promoted
 }
 
-func (pool *TxPool) executableTxFilter(costLimit *big.Int) func(tx *types.Transaction) bool {
+func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, erc20CostLimit map[uint16]*big.Int) func(tx *types.Transaction) bool {
 	return func(tx *types.Transaction) bool {
-		if tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0 {
+		if !tx.IsERC20FeeTx() && (tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0) {
 			return true
 		}
-
 		if pool.chainconfig.Morph.FeeVaultEnabled() {
 			// recheck L1 data fee, as the oracle price may have changed
 			l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead)
 			if err != nil {
 				log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
 				return false
+			}
+			if tx.IsERC20FeeTx() {
+				if erc20CostLimit[*tx.FeeTokenID()] == nil {
+					balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), addr)
+					if err != nil || balance == nil {
+						log.Error("Failed to query balance", "err", err, "tx", tx)
+						return false
+					}
+					erc20CostLimit[*tx.FeeTokenID()] = balance
+				}
+				rate, tokenScale, err := fees.TokenRate(pool.currentState, tx.FeeTokenID())
+				if err != nil {
+					log.Error("Failed to get rate", "err", err, "tx", tx)
+					return false
+				}
+				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)) < 0
 			}
 			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 		}
@@ -1698,7 +1772,10 @@ func (pool *TxPool) demoteUnexecutables() {
 		}
 		// Drop all transactions that are too costly (low balance or out of gas), and queue any invalids back for later
 		costLimit := pool.currentState.GetBalance(addr)
-		drops, invalids := list.FilterF(costLimit, pool.currentMaxGas, pool.executableTxFilter(costLimit))
+		// TODO erc20 cost limit
+		erc20CostLimit := make(map[uint16]*big.Int)
+		drops, invalids := list.FilterF(costLimit, erc20CostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, erc20CostLimit))
+
 		for _, tx := range drops {
 			hash := tx.Hash()
 			log.Trace("Removed unpayable pending transaction", "hash", hash)

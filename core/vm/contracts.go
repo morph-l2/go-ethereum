@@ -32,6 +32,7 @@ import (
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/crypto/blake2b"
 	"github.com/morph-l2/go-ethereum/crypto/bn256"
+	"github.com/morph-l2/go-ethereum/crypto/secp256r1"
 	"github.com/morph-l2/go-ethereum/params"
 
 	//lint:ignore SA1019 Needed for precompile
@@ -162,6 +163,8 @@ var PrecompiledContractsEmerald = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{14}): &bls12381Pairing{},
 	common.BytesToAddress([]byte{15}): &bls12381MapG1{},
 	common.BytesToAddress([]byte{16}): &bls12381MapG2{},
+
+	common.BytesToAddress([]byte{0x1, 0x00}): &p256Verify{},
 }
 
 var (
@@ -1193,4 +1196,32 @@ func (c *bls12381MapG2) Run(input []byte) ([]byte, error) {
 
 func (c *bls12381MapG2) Name() string {
 	return "BLS12_MAP_FP2_TO_G2"
+}
+
+// P256VERIFY (secp256r1 signature verification)
+// implemented as a native contract
+type p256Verify struct{}
+
+// RequiredGas returns the gas required to execute the precompiled contract
+func (c *p256Verify) RequiredGas(input []byte) uint64 {
+	return params.P256VerifyGas
+}
+
+// Run executes the precompiled contract with given 160 bytes of param, returning the output and the used gas
+func (c *p256Verify) Run(input []byte) ([]byte, error) {
+	const p256VerifyInputLength = 160
+	if len(input) != p256VerifyInputLength {
+		return nil, nil
+	}
+
+	// Extract hash, r, s, x, y from the input.
+	hash := input[0:32]
+	r, s := new(big.Int).SetBytes(input[32:64]), new(big.Int).SetBytes(input[64:96])
+	x, y := new(big.Int).SetBytes(input[96:128]), new(big.Int).SetBytes(input[128:160])
+
+	// Verify the signature.
+	if secp256r1.Verify(hash, r, s, x, y) {
+		return true32Byte, nil
+	}
+	return nil, nil
 }

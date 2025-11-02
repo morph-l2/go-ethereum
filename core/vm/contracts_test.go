@@ -50,9 +50,9 @@ var allPrecompiles = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{2}):    &sha256hash{},
 	common.BytesToAddress([]byte{3}):    &ripemd160hash{},
 	common.BytesToAddress([]byte{4}):    &dataCopy{},
-	common.BytesToAddress([]byte{5}):    &bigModExp{eip2565: false, emerald: false},
-	common.BytesToAddress([]byte{0xf5}): &bigModExp{eip2565: true, emerald: false},
-	common.BytesToAddress([]byte{0xf6}): &bigModExp{eip2565: true, emerald: true},
+	common.BytesToAddress([]byte{5}):    &bigModExp{eip2565: false, eip7883: false},
+	common.BytesToAddress([]byte{0xf5}): &bigModExp{eip2565: true, eip7883: false},
+	common.BytesToAddress([]byte{0xf6}): &bigModExp{eip2565: true, eip7883: true},
 	common.BytesToAddress([]byte{6}):    &bn256AddIstanbul{},
 	common.BytesToAddress([]byte{7}):    &bn256ScalarMulIstanbul{},
 	common.BytesToAddress([]byte{8}):    &bn256PairingIstanbul{},
@@ -188,7 +188,7 @@ func benchmarkPrecompiled(addr string, test precompiledTest, bench *testing.B) {
 			return
 		}
 		if common.Bytes2Hex(res) != test.Expected {
-			bench.Errorf(fmt.Sprintf("Expected %v, got %v", test.Expected, common.Bytes2Hex(res)))
+			bench.Errorf("Expected %v, got %v", test.Expected, common.Bytes2Hex(res))
 			return
 		}
 	})

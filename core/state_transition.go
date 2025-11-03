@@ -644,7 +644,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			log.Error("Failed to get token info for gas refund", "tokenID", *st.msg.FeeTokenID(), "error", err)
 			return
 		}
-		tokenAmount := fees.EthToERC20ByRateAndScale(remaining, price, tokenInfo.Scale)
+		tokenAmount := types.EthToERC20(remaining, price, tokenInfo.Scale)
 		if err = st.TransferERC20Hybrid(
 			tokenInfo.TokenAddress,
 			*st.evm.ChainConfig().Morph.FeeVaultAddress,

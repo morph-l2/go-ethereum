@@ -1610,7 +1610,7 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 					log.Error("Failed to get rate", "err", err, "tx", tx)
 					return false
 				}
-				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(fees.EthToERC20ByRateAndScale(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)) < 0
+				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)) < 0
 			}
 			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 		}

@@ -13,24 +13,30 @@ func TokenRate(state StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
 	if tokenID == nil || *tokenID == 0 {
 		return big.NewInt(1), big.NewInt(1), nil
 	}
-	addr, price, _, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, *tokenID)
+	info, price, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, *tokenID)
 	if err != nil {
 		log.Error("Failed to get token info from storage", "tokenID", tokenID, "error", err)
 		return nil, nil, err
 	}
 
 	// If token address is zero, this is not a valid token
-	if addr == (common.Address{}) {
+	if info.TokenAddress == (common.Address{}) {
 		log.Error("Invalid token address", "tokenID", tokenID)
 		return nil, nil, err
 	}
 
 	// If price is nil or zero, this token doesn't have a valid price
 	if price == nil || price.Sign() == 0 {
-		log.Error("Invalid token price", "tokenID", tokenID, "tokenAddr", addr.Hex())
+		log.Error("Invalid token price", "tokenID", tokenID, "tokenAddr", info.TokenAddress.Hex())
 		return nil, nil, err
 	}
-	scale := big.NewInt(10000) // TODO
+
+	// Get scale from token info
+	scale, err := GetTokenScaleByIDWithState(state, TokenRegistryAddress, *tokenID)
+	if err != nil {
+		log.Error("Failed to get token scale", "tokenID", tokenID, "error", err)
+		return nil, nil, err
+	}
 
 	return price, scale, err
 }

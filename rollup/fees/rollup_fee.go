@@ -42,6 +42,7 @@ type Message interface {
 // required to compute the L1 fee
 type StateDB interface {
 	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash) common.Hash
 }
 
 type gpoState struct {

@@ -19,7 +19,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"github.com/morph-l2/go-ethereum/core/vm"
 	"math"
 	"math/big"
 	"slices"
@@ -33,6 +32,7 @@ import (
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto/codehash"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"

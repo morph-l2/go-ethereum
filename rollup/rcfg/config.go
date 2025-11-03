@@ -41,4 +41,6 @@ var (
 
 	InitialCommitScalar = big.NewInt(230759955285)
 	InitialBlobScalar   = big.NewInt(417565260)
+
+	L2ERC20RegistryAddress = common.HexToAddress("0x5300000000000000000000000000000000000021")
 )

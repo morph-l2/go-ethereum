@@ -18,6 +18,7 @@ package core
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -280,42 +281,37 @@ func (st *StateTransition) buyGas() error {
 
 // buyERC20Gas handles gas payment using ERC20 tokens
 func (st *StateTransition) buyERC20Gas() error {
-	// Get the token address from the token registry
-	tokenAddress, err := fees.GetTokenAddressByIDWithState(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID(), fees.TokenAddressMappingSlot)
-	if err != nil {
-		return fmt.Errorf("failed to get token address for token ID %d: %v", *st.msg.FeeTokenID(), err)
-	}
-	balanceSlot := fees.GetTokenBalanceSlotByIDWithState(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID(), fees.TokenAddressMappingSlot)
-
 	// Calculate the total ETH fee needed
 	mgval := new(big.Int).SetUint64(st.msg.Gas())
 	mgval = mgval.Mul(mgval, st.gasPrice)
 
-	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
-		log.Debug("Adding L1DataFee for ERC20 gas payment", "l1DataFee", st.l1DataFee)
-		mgval = mgval.Add(mgval, st.l1DataFee)
+	if !st.evm.ChainConfig().Morph.FeeVaultEnabled() {
+		return errors.New("tx need fee vault enable")
 	}
 
-	log.Debug("ERC20 gas payment calculation",
-		"tokenID", *st.msg.FeeTokenID(),
-		"tokenAddress", tokenAddress.Hex(),
-		"fee", mgval,
-	)
+	log.Debug("Adding L1DataFee for ERC20 gas payment", "l1DataFee", st.l1DataFee)
+	mgval = mgval.Add(mgval, st.l1DataFee)
 
 	// Check value
 	if have, want := st.state.GetBalance(st.msg.From()), st.value; have.Cmp(want) < 0 {
 		return fmt.Errorf("%w: address %v value %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have.String(), want.String())
 	}
 	// Check ERC20 token balance
-	ERC20balance, err := st.GetERC20BalanceHybrid(tokenAddress, st.msg.From(), balanceSlot)
+	tokenInfo, ERC20balance, err := st.GetERC20BalanceHybrid(st.msg.FeeTokenID(), st.msg.From())
 	if err != nil {
 		return fmt.Errorf("failed to get ERC20 balance: %v", err)
 	}
+	log.Debug("ERC20 gas payment calculation",
+		"tokenID", *st.msg.FeeTokenID(),
+		"tokenAddress", tokenInfo.TokenAddress.Hex(),
+		"fee", mgval,
+	)
+
 	// TODO rate cap
 	erc20Mgval, err := fees.EthToERC20(st.state, st.msg.FeeTokenID(), mgval)
 	if ERC20balance.Cmp(erc20Mgval) < 0 {
 		return fmt.Errorf("%w: address %v has insufficient ERC20 balance, have %v need %v (token %s)",
-			ErrInsufficientFunds, st.msg.From().Hex(), ERC20balance, mgval, tokenAddress.Hex())
+			ErrInsufficientFunds, st.msg.From().Hex(), ERC20balance, mgval, tokenInfo.TokenAddress.Hex())
 	}
 
 	// Check gas pool
@@ -330,13 +326,13 @@ func (st *StateTransition) buyERC20Gas() error {
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err := st.TransferERC20Hybrid(tokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, balanceSlot); err != nil {
+	if err := st.TransferERC20Hybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, tokenInfo.BalanceSlot); err != nil {
 		return fmt.Errorf("failed to transfer ERC20 tokens for gas payment: %v", err)
 	}
 
 	log.Debug("ERC20 gas payment successful",
 		"tokenID", *st.msg.FeeTokenID(),
-		"tokenAddress", tokenAddress.String(),
+		"tokenAddress", tokenInfo.TokenAddress.String(),
 		"from", st.msg.From().String(),
 		"amount", mgval,
 		"erc20Amount", erc20Mgval,
@@ -633,21 +629,39 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	}
 	st.gas += refund
 
+	// Return remaining gas to the block gas counter at the end, regardless of refund success
+	defer func() {
+		if st.gas > 0 {
+			st.gp.AddGas(st.gas)
+		}
+	}()
+
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
 	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
-		tokenAddress, _, balanceSlot, _ := fees.GetTokenInfoFromStorage(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
-		_ = st.TransferERC20Hybrid(tokenAddress, *st.evm.ChainConfig().Morph.FeeVaultAddress, st.msg.From(), remaining, balanceSlot)
+		tokenInfo, price, err := fees.GetTokenInfoFromStorage(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
+		if err != nil {
+			log.Error("Failed to get token info for gas refund", "tokenID", *st.msg.FeeTokenID(), "error", err)
+			return
+		}
+		tokenAmount := types.EthToERC20(remaining, price, tokenInfo.Scale)
+		if err = st.TransferERC20Hybrid(
+			tokenInfo.TokenAddress,
+			*st.evm.ChainConfig().Morph.FeeVaultAddress,
+			st.msg.From(),
+			tokenAmount,
+			tokenInfo.BalanceSlot,
+		); err != nil {
+			log.Error("Failed to refund ERC20 gas", "tokenID", *st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
+			// Continue execution even if refund fails - refund should not cause transaction to fail
+		}
+		return
 	} else {
 		st.state.AddBalance(st.msg.From(), remaining, tracing.BalanceIncreaseGasReturn)
 
 		if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gas > 0 {
 			st.evm.Config.Tracer.OnGasChange(st.gas, 0, tracing.GasChangeTxLeftOverReturned)
 		}
-
-		// Also return remaining gas to the block gas counter so it is
-		// available for the next transaction.
-		st.gp.AddGas(st.gas)
 	}
 }
 

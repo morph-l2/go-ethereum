@@ -1605,12 +1605,12 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 					}
 					erc20CostLimit[*tx.FeeTokenID()] = balance
 				}
-				rate, tokenScale, err := fees.TokenRate(pool.currentState, tx.FeeTokenID())
+				erc20Amount, err := fees.EthToERC20(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 				if err != nil {
-					log.Error("Failed to get rate", "err", err, "tx", tx)
+					log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 					return false
 				}
-				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenScale)) < 0
+				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(erc20Amount) < 0
 			}
 			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 		}

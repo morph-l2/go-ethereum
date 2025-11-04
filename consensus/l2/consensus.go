@@ -146,6 +146,10 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 	if l2.config.Morph.FeeVaultEnabled() && header.Coinbase != types.EmptyAddress {
 		return errInvalidCoinbase
 	}
+	// Don't waste time checking blocks from the future
+	if header.Time > uint64(time.Now().Unix()) {
+		return consensus.ErrFutureBlock
+	}
 	// Verify the timestamp
 	// we allow the block time to be the same as the parent time after the emerald fork
 	isEmerald := l2.config.IsEmerald(header.Number, header.Time)

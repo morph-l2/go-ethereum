@@ -223,6 +223,7 @@ func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
 	}
 	if fork >= forks.Viridian {
 		s.txtypes[SetCodeTxType] = struct{}{}
+		s.txtypes[ERC20FeeTxType] = struct{}{} // TODO
 	}
 	return s
 }

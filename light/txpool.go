@@ -438,11 +438,11 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 			if err != nil {
 				return err
 			}
-			rate, tokenSacle, err := fees.TokenRate(currentState, tx.FeeTokenID())
+			erc20Fee, err := fees.EthToERC20(currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 			if err != nil {
 				return err
 			}
-			if erc20Balance.Cmp(types.EthToERC20(new(big.Int).Add(tx.GasFee(), l1DataFee), rate, tokenSacle)) < 0 {
+			if erc20Balance.Cmp(erc20Fee) < 0 {
 				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price")
 			}
 			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {

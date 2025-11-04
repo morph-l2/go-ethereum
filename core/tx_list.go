@@ -358,8 +358,10 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	} else {
 		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee)
 	}
-	if l.costcap.Eth().Cmp(ethCost) < 0 {
-		l.costcap.SetEthAmount(ethCost)
+	if ethCost != nil && ethCost.Sign() > 0 {
+		if l.costcap.Eth() == nil || l.costcap.Eth().Cmp(ethCost) < 0 {
+			l.costcap.SetEthAmount(ethCost)
+		}
 	}
 	if gas := tx.Gas(); l.gascap < gas {
 		l.gascap = gas

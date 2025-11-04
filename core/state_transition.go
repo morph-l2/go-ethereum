@@ -103,6 +103,7 @@ type Message interface {
 type ExecutionResult struct {
 	L1DataFee  *big.Int
 	Rate       *big.Int
+	FeeLimit   *big.Int
 	UsedGas    uint64 // Total used gas but include the refunded gas
 	Err        error  // Any error encountered during the execution(listed in core/vm/errors.go)
 	ReturnData []byte // Returned data from evm(function result or data supplied with revert opcode)
@@ -294,7 +295,7 @@ func (st *StateTransition) buyERC20Gas() error {
 
 	// Check value
 	if have, want := st.state.GetBalance(st.msg.From()), st.value; have.Cmp(want) < 0 {
-		return fmt.Errorf("%w: address %v value %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have.String(), want.String())
+		return fmt.Errorf("%w: address %v  have %v want %v", ErrInsufficientValue, st.msg.From().Hex(), have.String(), want.String())
 	}
 	// Check ERC20 token balance
 	tokenInfo, ERC20balance, err := st.GetERC20BalanceHybrid(st.msg.FeeTokenID(), st.msg.From())
@@ -520,7 +521,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if st.msg.IsL1MessageTx() {
 		return &ExecutionResult{
 			L1DataFee:  big.NewInt(0),
-			Rate:       nil, // TODO nil
+			Rate:       nil,           // TODO nil
+			FeeLimit:   big.NewInt(0), // TODO
 			UsedGas:    st.gasUsed(),
 			Err:        vmerr,
 			ReturnData: ret,
@@ -544,16 +546,20 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// The L2 Fee is the same as the fee that is charged in the normal geth
 	// codepath. Add the L1DataFee to the L2 fee for the total fee that is sent
 	// to the sequencer.
-	l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
-	fee := l2Fee
-	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
-		fee = new(big.Int).Add(st.l1DataFee, l2Fee)
+	if st.msg.FeeTokenID() == nil {
+		l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
+		fee := l2Fee
+		if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
+			fee = new(big.Int).Add(st.l1DataFee, l2Fee)
+		}
+		st.state.AddBalance(st.evm.FeeRecipient(), fee, tracing.BalanceIncreaseRewardTransactionFee)
 	}
-	st.state.AddBalance(st.evm.FeeRecipient(), fee, tracing.BalanceIncreaseRewardTransactionFee)
 
 	return &ExecutionResult{
 		L1DataFee:  st.l1DataFee,
 		UsedGas:    st.gasUsed(),
+		Rate:       big.NewInt(0), // TODO
+		FeeLimit:   big.NewInt(0), // TODO
 		Err:        vmerr,
 		ReturnData: ret,
 	}, nil

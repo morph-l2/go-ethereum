@@ -545,8 +545,8 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			}
 		}
 
-	case ERC20FeeTxType:
-		var itx ERC20FeeTx
+	case AltFeeTxType:
+		var itx AltFeeTx
 		inner = &itx
 		if dec.ChainID == nil {
 			return errors.New("missing required field 'chainId' in transaction")

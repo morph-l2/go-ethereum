@@ -50,8 +50,9 @@ type TransactionArgs struct {
 	Data  *hexutil.Bytes `json:"data"`
 	Input *hexutil.Bytes `json:"input"`
 
-	// ERC20FeeTxType
+	// AltFeeTxType
 	FeeTokenID *hexutil.Uint64 `json:"fee_token_id,omitempty"`
+	FeeLimit   *hexutil.Big    `json:"fee_limit,omitempty"`
 
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
@@ -309,7 +310,12 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.FeeTokenID != nil {
 		feeTokenID = uint16(*args.FeeTokenID)
 	}
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, data, accessList, args.AuthorizationList, true)
+	var feeLimit *big.Int
+	if args.FeeLimit != nil {
+		feeLimit = args.FeeLimit.ToInt()
+	}
+
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, data, accessList, args.AuthorizationList, true)
 	return msg, nil
 }
 
@@ -364,7 +370,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			al = *args.AccessList
 		}
 		if args.FeeTokenID != nil {
-			data = &types.ERC20FeeTx{
+			data = &types.AltFeeTx{
 				To:         args.To,
 				ChainID:    (*big.Int)(args.ChainID),
 				Nonce:      uint64(*args.Nonce),

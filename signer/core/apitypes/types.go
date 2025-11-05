@@ -88,6 +88,7 @@ type SendTxArgs struct {
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 	FeeTokenID *hexutil.Uint64   `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -122,7 +123,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			al = *args.AccessList
 		}
 		if args.FeeTokenID != nil {
-			data = &types.ERC20FeeTx{
+			data = &types.AltFeeTx{
 				To:         to,
 				ChainID:    (*big.Int)(args.ChainID),
 				Nonce:      uint64(args.Nonce),

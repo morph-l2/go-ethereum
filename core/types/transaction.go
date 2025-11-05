@@ -36,6 +36,7 @@ var (
 	ErrInvalidSig           = errors.New("invalid transaction v, r, s values")
 	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
 	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
+	ErrCostNotSupported     = errors.New("cost function alt fee transaction not support or use gasFee()")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
@@ -54,7 +55,7 @@ const (
 	SetCodeTxType    = 0x04
 
 	L1MessageTxType = 0x7E
-	ERC20FeeTxType  = 0x7F
+	AltFeeTxType    = 0x7F
 )
 
 // Transaction is an Ethereum transaction.
@@ -219,8 +220,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(L1MessageTx)
 	case SetCodeTxType:
 		inner = new(SetCodeTx)
-	case ERC20FeeTxType:
-		inner = new(ERC20FeeTx)
+	case AltFeeTxType:
+		inner = new(AltFeeTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -330,9 +331,9 @@ func (tx *Transaction) IsL1MessageTx() bool {
 	return tx.Type() == L1MessageTxType
 }
 
-// IsERC20FeeTx returns true if the transaction is erc20 fee tx.
-func (tx *Transaction) IsERC20FeeTx() bool {
-	return tx.Type() == ERC20FeeTxType
+// IsAltFeeTx returns true if the transaction is erc20 fee tx.
+func (tx *Transaction) IsAltFeeTx() bool {
+	return tx.Type() == AltFeeTxType
 }
 
 // AsL1MessageTx casts the tx into an L1 cross-domain tx.
@@ -352,24 +353,31 @@ func (tx *Transaction) L1MessageQueueIndex() uint64 {
 	return tx.AsL1MessageTx().QueueIndex
 }
 
-// AsERC20FeeTx casts the tx into an erc20 fee tx.
-func (tx *Transaction) AsERC20FeeTx() *ERC20FeeTx {
-	if !tx.IsERC20FeeTx() {
+// AsAltFeeTx casts the tx into an erc20 fee tx.
+func (tx *Transaction) AsAltFeeTx() *AltFeeTx {
+	if !tx.IsAltFeeTx() {
 		return nil
 	}
-	return tx.inner.(*ERC20FeeTx)
+	return tx.inner.(*AltFeeTx)
 }
 
 func (tx *Transaction) FeeTokenID() *uint16 {
-	if !tx.IsERC20FeeTx() {
+	if !tx.IsAltFeeTx() {
 		return nil
 	}
-	return &tx.AsERC20FeeTx().FeeTokenID
+	return &tx.AsAltFeeTx().FeeTokenID
+}
+
+func (tx *Transaction) FeeLimit() *big.Int {
+	if !tx.IsAltFeeTx() {
+		return big.NewInt(0)
+	}
+	return tx.AsAltFeeTx().FeeLimit
 }
 
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
-	if tx.IsERC20FeeTx() {
+	if tx.IsAltFeeTx() {
 		panic(ErrCostNotSupported)
 	}
 	total := tx.GasFee()
@@ -435,14 +443,14 @@ func (tx *Transaction) EffectiveGasTipValue(baseFee *big.Int) *big.Int {
 }
 
 // EffectiveGasTipCmp compares the effective gasTipCap of two transactions assuming the given base fee.
-func (tx *Transaction) EffectiveGasTipCmp(other *Transaction, baseFee *big.Int) int { // TODO DONE
+func (tx *Transaction) EffectiveGasTipCmp(other *Transaction, baseFee *big.Int) int {
 	if baseFee == nil {
 		return tx.GasTipCapCmp(other)
 	}
 	return tx.EffectiveGasTipValue(baseFee).Cmp(other.EffectiveGasTipValue(baseFee))
 }
 
-// EffectiveGasTipIntCmp compares the effective gasTipCap of a transaction to the given gasTipCap.   // TODO DONE
+// EffectiveGasTipIntCmp compares the effective gasTipCap of a transaction to the given gasTipCap.
 func (tx *Transaction) EffectiveGasTipIntCmp(other *big.Int, baseFee *big.Int) int {
 	if baseFee == nil {
 		return tx.GasTipCapIntCmp(other)
@@ -782,9 +790,10 @@ type Message struct {
 	isL1MessageTx         bool
 	setCodeAuthorizations []SetCodeAuthorization
 	feeTokenID            *uint16
+	feeLimit              *big.Int
 }
 
-func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, feeTokenID uint16, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
+func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, feeTokenID uint16, feeLimit *big.Int, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
 	return Message{
 		from:                  from,
 		to:                    to,
@@ -800,6 +809,7 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 		isFake:                isFake,
 		isL1MessageTx:         false,
 		feeTokenID:            &feeTokenID,
+		feeLimit:              feeLimit,
 	}
 }
 
@@ -823,7 +833,9 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
 		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
-
+	}
+	if tx.FeeLimit() != nil {
+		msg.feeLimit = tx.FeeLimit()
 	}
 	var err error
 	msg.from, err = Sender(s, tx)
@@ -844,6 +856,7 @@ func (m Message) IsFake() bool                                  { return m.isFak
 func (m Message) IsL1MessageTx() bool                           { return m.isL1MessageTx }
 func (m Message) SetCodeAuthorizations() []SetCodeAuthorization { return m.setCodeAuthorizations }
 func (m Message) FeeTokenID() *uint16                           { return m.feeTokenID }
+func (m Message) FeeLimit() *big.Int                            { return m.feeLimit }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

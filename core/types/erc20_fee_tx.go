@@ -24,7 +24,7 @@ import (
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-type ERC20FeeTx struct {
+type AltFeeTx struct {
 	ChainID    *big.Int
 	Nonce      uint64
 	GasTipCap  *big.Int
@@ -36,6 +36,7 @@ type ERC20FeeTx struct {
 	AccessList AccessList
 
 	FeeTokenID uint16
+	FeeLimit   *big.Int
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -44,12 +45,13 @@ type ERC20FeeTx struct {
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
-func (tx *ERC20FeeTx) copy() TxData {
-	cpy := &ERC20FeeTx{
-		Nonce: tx.Nonce,
-		To:    copyAddressPtr(tx.To),
-		Data:  common.CopyBytes(tx.Data),
-		Gas:   tx.Gas,
+func (tx *AltFeeTx) copy() TxData {
+	cpy := &AltFeeTx{
+		Nonce:      tx.Nonce,
+		To:         copyAddressPtr(tx.To),
+		Data:       common.CopyBytes(tx.Data),
+		Gas:        tx.Gas,
+		FeeTokenID: tx.FeeTokenID,
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
 		Value:      new(big.Int),
@@ -73,6 +75,9 @@ func (tx *ERC20FeeTx) copy() TxData {
 	if tx.GasFeeCap != nil {
 		cpy.GasFeeCap.Set(tx.GasFeeCap)
 	}
+	if tx.FeeLimit != nil {
+		cpy.FeeLimit.Set(tx.FeeLimit)
+	}
 	if tx.V != nil {
 		cpy.V.Set(tx.V)
 	}
@@ -86,19 +91,19 @@ func (tx *ERC20FeeTx) copy() TxData {
 }
 
 // accessors for innerTx.
-func (tx *ERC20FeeTx) txType() byte           { return ERC20FeeTxType }
-func (tx *ERC20FeeTx) chainID() *big.Int      { return tx.ChainID }
-func (tx *ERC20FeeTx) accessList() AccessList { return tx.AccessList }
-func (tx *ERC20FeeTx) data() []byte           { return tx.Data }
-func (tx *ERC20FeeTx) gas() uint64            { return tx.Gas }
-func (tx *ERC20FeeTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
-func (tx *ERC20FeeTx) gasTipCap() *big.Int    { return tx.GasTipCap }
-func (tx *ERC20FeeTx) gasPrice() *big.Int     { return tx.GasFeeCap }
-func (tx *ERC20FeeTx) value() *big.Int        { return tx.Value }
-func (tx *ERC20FeeTx) nonce() uint64          { return tx.Nonce }
-func (tx *ERC20FeeTx) to() *common.Address    { return tx.To }
+func (tx *AltFeeTx) txType() byte           { return AltFeeTxType }
+func (tx *AltFeeTx) chainID() *big.Int      { return tx.ChainID }
+func (tx *AltFeeTx) accessList() AccessList { return tx.AccessList }
+func (tx *AltFeeTx) data() []byte           { return tx.Data }
+func (tx *AltFeeTx) gas() uint64            { return tx.Gas }
+func (tx *AltFeeTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
+func (tx *AltFeeTx) gasTipCap() *big.Int    { return tx.GasTipCap }
+func (tx *AltFeeTx) gasPrice() *big.Int     { return tx.GasFeeCap }
+func (tx *AltFeeTx) value() *big.Int        { return tx.Value }
+func (tx *AltFeeTx) nonce() uint64          { return tx.Nonce }
+func (tx *AltFeeTx) to() *common.Address    { return tx.To }
 
-func (tx *ERC20FeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+func (tx *AltFeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)
 	}
@@ -109,25 +114,25 @@ func (tx *ERC20FeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int
 	return tip.Add(tip, baseFee)
 }
 
-func (tx *ERC20FeeTx) rawSignatureValues() (v, r, s *big.Int) {
+func (tx *AltFeeTx) rawSignatureValues() (v, r, s *big.Int) {
 	return tx.V, tx.R, tx.S
 }
 
-func (tx *ERC20FeeTx) setSignatureValues(chainID, v, r, s *big.Int) {
+func (tx *AltFeeTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	tx.ChainID, tx.V, tx.R, tx.S = chainID, v, r, s
 }
 
-func (tx *ERC20FeeTx) encode(b *bytes.Buffer) error {
+func (tx *AltFeeTx) encode(b *bytes.Buffer) error {
 	return rlp.Encode(b, tx)
 }
 
-func (tx *ERC20FeeTx) decode(input []byte) error {
+func (tx *AltFeeTx) decode(input []byte) error {
 	return rlp.DecodeBytes(input, tx)
 }
 
-func (tx *ERC20FeeTx) sigHash(chainID *big.Int) common.Hash {
+func (tx *AltFeeTx) sigHash(chainID *big.Int) common.Hash {
 	return prefixedRlpHash(
-		DynamicFeeTxType,
+		AltFeeTxType,
 		[]any{
 			chainID,
 			tx.Nonce,
@@ -139,5 +144,6 @@ func (tx *ERC20FeeTx) sigHash(chainID *big.Int) common.Hash {
 			tx.Data,
 			tx.AccessList,
 			tx.FeeTokenID,
+			tx.FeeLimit,
 		})
 }

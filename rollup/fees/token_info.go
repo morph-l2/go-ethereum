@@ -13,7 +13,7 @@ import (
 // - getTokenInfo(uint16 tokenID) returns (TokenInfo)
 // - getTokenPrice(uint16 tokenID) returns (uint256)
 // - getTokenIdByAddress(address) returns (uint16)
-var TokenRegistryAddress = rcfg.L2ERC20RegistryAddress
+var TokenRegistryAddress = rcfg.L2TokenRegistryAddress
 
 // Storage slots for ERC20PriceOracle contract
 // - slot 0: mapping(uint16 => TokenInfo) public tokenRegistry

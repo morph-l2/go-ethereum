@@ -411,6 +411,13 @@ func (st *StateTransition) preCheck() error {
 		}
 	}
 	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
+		active, err := fees.IsTokenActive(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token status failed %v", err)
+		}
+		if !active {
+			return fmt.Errorf("token %v not active", *st.msg.FeeTokenID())
+		}
 		return st.buyERC20Gas()
 	}
 	return st.buyGas()

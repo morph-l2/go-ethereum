@@ -43,4 +43,26 @@ var (
 	InitialBlobScalar   = big.NewInt(417565260)
 
 	L2TokenRegistryAddress = common.HexToAddress("0x5300000000000000000000000000000000000021")
+
+	// TokenRegistrySlot is the storage slot for mapping(uint16 => TokenInfo)
+	// TokenInfo struct layout:
+	//   - tokenAddress: address (offset 0)
+	//   - balanceSlot: bytes32 (offset 1)
+	//   - isActive: bool (offset 2, byte 0)
+	//   - decimals: uint8 (offset 2, byte 1)
+	//   - scale: uint256 (offset 3)
+	// Based on L2TokenRegistryStorageLayout: slot 151
+	TokenRegistrySlot = common.BigToHash(big.NewInt(151))
+	// TokenRegistrationSlot is the storage slot for mapping(address => uint16)
+	// Based on L2TokenRegistryStorageLayout: slot 152
+	TokenRegistrationSlot = common.BigToHash(big.NewInt(152))
+	// PriceRatioSlot is the storage slot for mapping(uint16 => uint256)
+	// Based on L2TokenRegistryStorageLayout: slot 153
+	PriceRatioSlot = common.BigToHash(big.NewInt(153))
+	// AllowListSlot is the storage slot for mapping(address => bool)
+	// Based on L2TokenRegistryStorageLayout: slot 154
+	AllowListSlot = common.BigToHash(big.NewInt(154))
+	// AllowListEnabledSlot is the storage slot for bool allowListEnabled
+	// Based on L2TokenRegistryStorageLayout: slot 155
+	AllowListEnabledSlot = common.BigToHash(big.NewInt(155))
 )

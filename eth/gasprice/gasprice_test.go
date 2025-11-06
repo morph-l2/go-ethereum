@@ -116,6 +116,7 @@ func newTestBackend(t *testing.T, londonBlock *big.Int, pending bool) *testBacke
 	config.CurieBlock = londonBlock
 	config.Morph203Time = nil
 	config.ViridianTime = nil
+	config.EmeraldTime = nil
 	engine := ethash.NewFaker()
 	db := rawdb.NewMemoryDatabase()
 	genesis, err := gspec.Commit(db)

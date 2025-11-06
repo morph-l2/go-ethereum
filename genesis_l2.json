@@ -13,10 +13,13 @@
     "berlinBlock": 0,
     "londonBlock": 0,
     "terminalTotalDifficulty": 0,
-    "archimedesBlock": 0, 
+    "archimedesBlock": 0,
     "shanghaiBlock": 0,
     "bernoulliBlock": 0,
     "curieBlock": 0,
+    "morph203Time": 0,
+    "viridianTime": 0,
+    "emeraldTime": 0,
     "morph": {
       "useZktrie": true,
       "feeVaultAddress": "0x0e87cd091e091562F25CB1cf4641065dA2C049F5"

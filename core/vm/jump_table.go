@@ -57,6 +57,7 @@ var (
 	shanghaiInstructionSet         = newShanghaiInstructionSet()
 	curieInstructionSet            = newCurieInstructionSet()
 	viridianInstructionSet         = newViridianInstructionSet()
+	emeraldInstructionSet          = newEmeraldInstructionSet()
 )
 
 // JumpTable contains the EVM opcodes supported at a given fork.
@@ -65,6 +66,12 @@ type JumpTable [256]*operation
 func newViridianInstructionSet() JumpTable {
 	instructionSet := newCurieInstructionSet()
 	enable7702(&instructionSet) // EIP-7702
+	return instructionSet
+}
+
+func newEmeraldInstructionSet() JumpTable {
+	instructionSet := newViridianInstructionSet()
+	// Emerald-specific changes can be added here in the future
 	return instructionSet
 }
 

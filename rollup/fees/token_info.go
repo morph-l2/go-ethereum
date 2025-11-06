@@ -13,26 +13,7 @@ import (
 // - getTokenInfo(uint16 tokenID) returns (TokenInfo)
 // - getTokenPrice(uint16 tokenID) returns (uint256)
 // - getTokenIdByAddress(address) returns (uint16)
-var TokenRegistryAddress = rcfg.L2ERC20RegistryAddress
-
-// Storage slots for ERC20PriceOracle contract
-// - slot 0: mapping(uint16 => TokenInfo) public tokenRegistry
-// - slot 1: mapping(address => uint16) public tokenRegistration
-// - slot 2: mapping(uint16 => uint256) public priceRatio
-var (
-	// TokenRegistrySlot is the storage slot for mapping(uint16 => TokenInfo)
-	// TokenInfo struct layout:
-	//   - tokenAddress: address (offset 0)
-	//   - balanceSlot: bytes32 (offset 1)
-	//   - isActive: bool (offset 2, byte 0)
-	//   - decimals: uint8 (offset 2, byte 1)
-	//   - scale: uint256 (offset 3)
-	TokenRegistrySlot = common.BigToHash(big.NewInt(0))
-	// TokenRegistrationSlot is the storage slot for mapping(address => uint16)
-	TokenRegistrationSlot = common.BigToHash(big.NewInt(1))
-	// PriceRatioSlot is the storage slot for mapping(uint16 => uint256)
-	PriceRatioSlot = common.BigToHash(big.NewInt(2))
-)
+var TokenRegistryAddress = rcfg.L2TokenRegistryAddress
 
 // TokenInfo represents the token information structure
 type TokenInfo struct {
@@ -91,7 +72,7 @@ func GetUint256MappingValue(state StateDB, contractAddr common.Address, key uint
 
 // GetTokenInfoStructBaseSlot calculates the base storage slot for a TokenInfo struct in the mapping
 func GetTokenInfoStructBaseSlot(tokenID uint16) common.Hash {
-	return CalculateUint16MappingSlot(tokenID, TokenRegistrySlot)
+	return CalculateUint16MappingSlot(tokenID, rcfg.TokenRegistrySlot)
 }
 
 // GetTokenInfo retrieves the complete TokenInfo structure from storage
@@ -100,7 +81,7 @@ func GetTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*
 	baseSlot := GetTokenInfoStructBaseSlot(tokenID)
 
 	// Read tokenAddress (offset 0)
-	tokenAddressSlot := baseSlot
+	tokenAddressSlot := CalculateStructFieldSlot(baseSlot, 0)
 	tokenAddressValue := state.GetState(contractAddr, tokenAddressSlot)
 	tokenAddress := common.BytesToAddress(tokenAddressValue[12:32])
 
@@ -156,7 +137,7 @@ func IsTokenActive(state StateDB, contractAddr common.Address, tokenID uint16) (
 
 // GetTokenPriceByIDWithState retrieves token price ratio from priceRatio mapping
 func GetTokenPriceByIDWithState(state StateDB, contractAddr common.Address, tokenID uint16) (*big.Int, error) {
-	return GetUint256MappingValue(state, contractAddr, tokenID, PriceRatioSlot)
+	return GetUint256MappingValue(state, contractAddr, tokenID, rcfg.PriceRatioSlot)
 }
 
 // GetTokenInfoFromStorage retrieves token address, price, and balance slot from storage

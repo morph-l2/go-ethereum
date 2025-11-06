@@ -988,7 +988,7 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 		if message.FeeTokenID() == nil {
 			statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
 		} else {
-			erc20Amount, err := fees.EthToERC20(statedb, message.FeeTokenID(), l1DataFee)
+			erc20Amount, err := fees.EthToAlt(statedb, message.FeeTokenID(), l1DataFee)
 			if err != nil {
 				return nil, err
 			}

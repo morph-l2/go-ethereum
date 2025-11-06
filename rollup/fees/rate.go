@@ -41,18 +41,18 @@ func TokenRate(state StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
 	return price, scale, err
 }
 
-func EthToERC20(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
+func EthToAlt(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
 	rate, tokenSacle, err := TokenRate(state, tokenID)
 	if err != nil {
 		return nil, err
 	}
-	return types.EthToERC20(amount, rate, tokenSacle), nil
+	return types.EthToAlt(amount, rate, tokenSacle), nil
 }
 
-func ERC20ToETH(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
+func AltToETH(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
 	rate, tokenSacle, err := TokenRate(state, tokenID)
 	if err != nil {
 		return nil, err
 	}
-	return types.ERC20ToEth(amount, rate, tokenSacle), nil
+	return types.AltToEth(amount, rate, tokenSacle), nil
 }

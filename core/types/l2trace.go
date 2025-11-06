@@ -57,7 +57,10 @@ type StorageTrace struct {
 // execution status, the amount of gas used and the return value
 type ExecutionResult struct {
 	L1DataFee   *hexutil.Big `json:"l1DataFee,omitempty"`
-	Rate        *hexutil.Big `json:"rate,omitempty"`
+	FeeTokenID  *uint16      `json:"fee_token_id,omitempty"`
+	FeeRate     *hexutil.Big `json:"feeRate,omitempty"`
+	FeeLimit    *hexutil.Big `json:"feeLimit,omitempty"`
+	FeeUsed     *hexutil.Big `json:"feeUsed,omitempty"`
 	Gas         uint64       `json:"gas"`
 	Failed      bool         `json:"failed"`
 	ReturnValue string       `json:"returnValue"`

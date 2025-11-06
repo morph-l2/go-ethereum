@@ -671,7 +671,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 
 	// Reject erc20 fee transactions until EIP-1559 activates.
-	if !pool.eip1559 && tx.Type() == types.ERC20FeeTxType {
+	if !pool.eip1559 && tx.Type() == types.AltFeeTxType {
 		return ErrTxTypeNotSupported
 	}
 	if !pool.eip7702 && tx.Type() == types.SetCodeTxType {
@@ -743,7 +743,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return fmt.Errorf("failed to calculate L1 data fee, err: %w", err)
 		}
 		// Transactor should have enough funds to cover the costs
-		if tx.IsERC20FeeTx() {
+		if tx.IsAltFeeTx() {
 			if b := pool.currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return errors.New("invalid transaction: insufficient funds for value")
 			}
@@ -751,7 +751,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			if err != nil {
 				return errors.New("query balance failed")
 			}
-			erc20Amount, err := fees.EthToERC20(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+			erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 			if err != nil {
 				return errors.New("query balance failed")
 			}
@@ -1586,7 +1586,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 
 func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, erc20CostLimit map[uint16]*big.Int) func(tx *types.Transaction) bool {
 	return func(tx *types.Transaction) bool {
-		if !tx.IsERC20FeeTx() && (tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0) {
+		if !tx.IsAltFeeTx() && (tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0) {
 			return true
 		}
 		if pool.chainconfig.Morph.FeeVaultEnabled() {
@@ -1596,7 +1596,7 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 				log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
 				return false
 			}
-			if tx.IsERC20FeeTx() {
+			if tx.IsAltFeeTx() {
 				if erc20CostLimit[*tx.FeeTokenID()] == nil {
 					balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), addr)
 					if err != nil || balance == nil {
@@ -1605,7 +1605,7 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 					}
 					erc20CostLimit[*tx.FeeTokenID()] = balance
 				}
-				erc20Amount, err := fees.EthToERC20(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+				erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 				if err != nil {
 					log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 					return false

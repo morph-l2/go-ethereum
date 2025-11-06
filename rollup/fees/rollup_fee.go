@@ -36,6 +36,7 @@ type Message interface {
 	AccessList() types.AccessList
 	IsL1MessageTx() bool
 	FeeTokenID() *uint16
+	FeeLimit() *big.Int
 }
 
 // StateDB represents the StateDB interface
@@ -137,7 +138,7 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 }
 
 func asUnsignedERC20FeeTx(msg Message, chainID *big.Int) *types.Transaction {
-	return types.NewTx(&types.ERC20FeeTx{
+	return types.NewTx(&types.AltFeeTx{
 		Nonce:      msg.Nonce(),
 		To:         msg.To(),
 		Value:      msg.Value(),

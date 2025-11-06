@@ -430,7 +430,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		}
 		// Transactor should have enough funds to cover the costs
 		// cost == L1 data fee + V + GP * GL
-		if tx.IsERC20FeeTx() {
+		if tx.IsAltFeeTx() {
 			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return errors.New("invalid transaction: insufficient funds for value")
 			}
@@ -438,7 +438,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 			if err != nil {
 				return err
 			}
-			erc20Fee, err := fees.EthToERC20(currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+			erc20Fee, err := fees.EthToAlt(currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 			if err != nil {
 				return err
 			}

@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	TokenTransferSig  = "transfer(address,amount)"
+	TokenTransferSig  = "transfer(address,uint256)"
 	TokenBalanceOfSig = "balanceOf(address)"
 )
 
@@ -44,9 +44,12 @@ func (st *StateTransition) GetERC20BalanceHybrid(tokenID uint16, user common.Add
 // TransferERC20Hybrid transfers ERC20 tokens using either storage slot or call method
 // If balanceSlot is zero hash, uses call method; otherwise uses storage slot method
 func (st *StateTransition) TransferERC20Hybrid(tokenAddress, from, to common.Address, amount *big.Int, balanceSlot common.Hash) error {
+	if amount == nil || amount.Cmp(big.NewInt(0)) == 0 {
+		return nil
+	}
 	if balanceSlot == (common.Hash{}) {
 		// Use call method
-		return TransferERC20ByEVM(st.evm, tokenAddress, from, to, amount)
+		return transferERC20ByEVM(st.evm, tokenAddress, from, to, amount)
 	}
 	// Use storage slot method
 	return fees.TransferERC20ByState(st.state, tokenAddress, balanceSlot, from, to, amount)
@@ -76,19 +79,6 @@ func GetERC20Balance(evm *vm.EVM, tokenID uint16, user common.Address) (*big.Int
 	return balance, nil
 }
 
-func TransferERC20(evm *vm.EVM, tokenID *uint16, from, to common.Address, amount *big.Int) error {
-	info, _, err := fees.GetTokenInfoFromStorage(evm.StateDB, fees.TokenRegistryAddress, *tokenID)
-	if err != nil {
-		return fmt.Errorf("failed to get token address for token ID %d: %v", *tokenID, err)
-	}
-	if info.BalanceSlot == (common.Hash{}) {
-		// Use call method
-		return TransferERC20ByEVM(evm, info.TokenAddress, from, to, amount)
-	}
-	// Use storage slot method
-	return fees.TransferERC20ByState(evm.StateDB, info.TokenAddress, info.BalanceSlot, from, to, amount)
-}
-
 // GetERC20BalanceByEVM returns the balance of an ERC20 token for a specific address.
 func GetERC20BalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Address) (*big.Int, error) {
 	methodID := generateMethodSignature(TokenBalanceOfSig)
@@ -116,7 +106,7 @@ func GetERC20BalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Address)
 }
 
 // TransferERC20ByEVM transfers ERC20 tokens from one address to another.
-func TransferERC20ByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amount *big.Int) error {
+func transferERC20ByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amount *big.Int) error {
 	if amount == nil || amount.Sign() <= 0 {
 		return fmt.Errorf("invalid transfer amount")
 	}

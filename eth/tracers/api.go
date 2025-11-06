@@ -91,17 +91,15 @@ type Backend interface {
 type API struct {
 	backend            Backend
 	morphTracerWrapper morphTracerWrapper
-	addERC20Balance    func(evm *vm.EVM, tokenID *uint16, addr common.Address, amount *big.Int) error
+	addERC20Balance    func(evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
 func NewAPI(backend Backend, morphTracerWrapper morphTracerWrapper) *API {
 	api := &API{backend: backend, morphTracerWrapper: morphTracerWrapper}
 	// TODO
-	api.addERC20Balance = func(evm *vm.EVM, tokenID *uint16, addr common.Address, amount *big.Int) error {
-		var from common.Address
-		// TODO from Addr
-		return core.TransferERC20(evm, tokenID, from, addr, amount)
+	api.addERC20Balance = func(evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error {
+		return nil
 	}
 	return api
 }
@@ -985,7 +983,7 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		if message.FeeTokenID() == nil {
+		if message.FeeTokenID() == 0 {
 			statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
 		} else {
 			erc20Amount, err := fees.EthToAlt(statedb, message.FeeTokenID(), l1DataFee)

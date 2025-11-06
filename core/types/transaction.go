@@ -361,11 +361,11 @@ func (tx *Transaction) AsAltFeeTx() *AltFeeTx {
 	return tx.inner.(*AltFeeTx)
 }
 
-func (tx *Transaction) FeeTokenID() *uint16 {
+func (tx *Transaction) FeeTokenID() uint16 {
 	if !tx.IsAltFeeTx() {
-		return nil
+		return 0
 	}
-	return &tx.AsAltFeeTx().FeeTokenID
+	return tx.AsAltFeeTx().FeeTokenID
 }
 
 func (tx *Transaction) FeeLimit() *big.Int {
@@ -789,7 +789,7 @@ type Message struct {
 	isFake                bool
 	isL1MessageTx         bool
 	setCodeAuthorizations []SetCodeAuthorization
-	feeTokenID            *uint16
+	feeTokenID            uint16
 	feeLimit              *big.Int
 }
 
@@ -808,7 +808,7 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 		setCodeAuthorizations: authList,
 		isFake:                isFake,
 		isL1MessageTx:         false,
-		feeTokenID:            &feeTokenID,
+		feeTokenID:            feeTokenID,
 		feeLimit:              feeLimit,
 	}
 }
@@ -855,7 +855,7 @@ func (m Message) AccessList() AccessList                        { return m.acces
 func (m Message) IsFake() bool                                  { return m.isFake }
 func (m Message) IsL1MessageTx() bool                           { return m.isL1MessageTx }
 func (m Message) SetCodeAuthorizations() []SetCodeAuthorization { return m.setCodeAuthorizations }
-func (m Message) FeeTokenID() *uint16                           { return m.feeTokenID }
+func (m Message) FeeTokenID() uint16                            { return m.feeTokenID }
 func (m Message) FeeLimit() *big.Int                            { return m.feeLimit }
 
 // copyAddressPtr copies an address.

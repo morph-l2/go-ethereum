@@ -75,7 +75,7 @@ type TxPool struct {
 	shanghai bool // Fork indicator whether we are in the shanghai stage.
 
 	currentHead    *big.Int // Current blockchain head
-	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error)
+	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
 }
 
 // TxRelayBackend provides an interface to the mechanism that forwards transacions
@@ -115,8 +115,7 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 	}
 	// Subscribe events from blockchain
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
-	// TODO
-	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error) {
+	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error) {
 		blockContext := vm.BlockContext{
 			BlockNumber: header.Number,
 			Time:        big.NewInt(int64(header.Time)),
@@ -128,10 +127,7 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 		// Configure minimal VM settings
 		vmConfig := vm.Config{
 			NoBaseFee: true,
-			//Debug:     false,
-			Tracer: nil,
-			// Disable unnecessary features
-			//JumpTable: vm.NewByzantiumInstructionSet(),
+			Tracer:    nil,
 		}
 		txContext := vm.TxContext{
 			Origin:   common.Address{},
@@ -416,8 +412,28 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if tx.FeeTokenID() == nil {
+	if tx.FeeTokenID() == 0 {
 		if b := currentState.GetBalance(from); b.Cmp(tx.Cost()) < 0 {
+			return core.ErrInsufficientFunds
+		}
+	}
+	if tx.FeeTokenID() != 0 {
+		erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentHeader(), currentState, tx.FeeTokenID(), from)
+		if err != nil {
+			return errors.New("query balance failed")
+		}
+		erc20Amount, err := fees.EthToAlt(currentState, tx.FeeTokenID(), tx.GasFee())
+		if err != nil {
+			return errors.New("query balance failed")
+		}
+		if erc20Balance.Cmp(erc20Amount) < 0 {
+			return errors.New("invalid transaction: insufficient funds for gas * price")
+		}
+		if currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
+			return core.ErrInsufficientFunds
+		}
+	} else {
+		if currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 			return core.ErrInsufficientFunds
 		}
 	}

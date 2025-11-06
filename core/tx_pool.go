@@ -266,7 +266,7 @@ type TxPool struct {
 	journal *txJournal  // Journal of local transaction to back up to disk
 
 	blacklist      *TxBlacklist
-	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error)
+	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
 
 	pending map[common.Address]*txList   // All currently processable transactions
 	queue   map[common.Address]*txList   // Queued but non-processable transactions
@@ -324,7 +324,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
 	}
 	// TODO
-	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID *uint16, addr common.Address) (*big.Int, error) {
+	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error) {
 		blockContext := vm.BlockContext{
 			BlockNumber: header.Number,
 			Time:        big.NewInt(int64(header.Time)),
@@ -725,8 +725,18 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if tx.FeeTokenID() != nil {
-		// TODO check erc20 balance
+	if tx.FeeTokenID() != 0 {
+		erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), from)
+		if err != nil {
+			return errors.New("query balance failed")
+		}
+		erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), tx.GasFee())
+		if err != nil {
+			return errors.New("query balance failed")
+		}
+		if erc20Balance.Cmp(erc20Amount) < 0 {
+			return errors.New("invalid transaction: insufficient funds for gas * price")
+		}
 		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
 			return ErrInsufficientFunds
 		}
@@ -1597,20 +1607,20 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 				return false
 			}
 			if tx.IsAltFeeTx() {
-				if erc20CostLimit[*tx.FeeTokenID()] == nil {
+				if erc20CostLimit[tx.FeeTokenID()] == nil {
 					balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), addr)
 					if err != nil || balance == nil {
 						log.Error("Failed to query balance", "err", err, "tx", tx)
 						return false
 					}
-					erc20CostLimit[*tx.FeeTokenID()] = balance
+					erc20CostLimit[tx.FeeTokenID()] = balance
 				}
 				erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 				if err != nil {
 					log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 					return false
 				}
-				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[*tx.FeeTokenID()].Cmp(erc20Amount) < 0
+				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[tx.FeeTokenID()].Cmp(erc20Amount) < 0
 			}
 			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 		}

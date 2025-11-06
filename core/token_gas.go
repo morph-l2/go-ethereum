@@ -21,8 +21,8 @@ var (
 
 // GetERC20BalanceHybrid returns the balance of an ERC20 token using either storage slot or call method
 // If balanceSlot is zero hash, uses call method; otherwise uses storage slot method
-func (st *StateTransition) GetERC20BalanceHybrid(tokenID *uint16, user common.Address) (*fees.TokenInfo, *big.Int, error) {
-	info, err := fees.GetTokenInfo(st.state, fees.TokenRegistryAddress, *tokenID)
+func (st *StateTransition) GetERC20BalanceHybrid(tokenID uint16, user common.Address) (*fees.TokenInfo, *big.Int, error) {
+	info, err := fees.GetTokenInfo(st.state, fees.TokenRegistryAddress, tokenID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,10 +53,10 @@ func (st *StateTransition) TransferERC20Hybrid(tokenAddress, from, to common.Add
 }
 
 // GetERC20Balance returns the balance of an ERC20 token for a specific address.
-func GetERC20Balance(evm *vm.EVM, tokenID *uint16, user common.Address) (*big.Int, error) {
-	info, err := fees.GetTokenInfo(evm.StateDB, fees.TokenRegistryAddress, *tokenID)
+func GetERC20Balance(evm *vm.EVM, tokenID uint16, user common.Address) (*big.Int, error) {
+	info, err := fees.GetTokenInfo(evm.StateDB, fees.TokenRegistryAddress, tokenID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get token address for token ID %d: %v", *tokenID, err)
+		return nil, fmt.Errorf("failed to get token address for token ID %d: %v", tokenID, err)
 	}
 	balance := new(big.Int)
 	if !bytes.Equal(info.BalanceSlot.Bytes(), common.Hash{}.Bytes()) {

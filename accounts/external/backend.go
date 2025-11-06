@@ -224,7 +224,7 @@ func (api *ExternalSigner) SignTx(account accounts.Account, tx *types.Transactio
 	case types.AltFeeTxType:
 		args.MaxFeePerGas = (*hexutil.Big)(tx.GasFeeCap())
 		args.MaxPriorityFeePerGas = (*hexutil.Big)(tx.GasTipCap())
-		feeTokenID := hexutil.Uint64(*tx.FeeTokenID())
+		feeTokenID := hexutil.Uint64(tx.FeeTokenID())
 		args.FeeTokenID = &feeTokenID
 		args.FeeLimit = (*hexutil.Big)(tx.FeeLimit())
 	default:

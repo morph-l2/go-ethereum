@@ -9,11 +9,11 @@ import (
 )
 
 // TokenRate returns the ETH exchange rate for the specified token,erc20Price / ethPrice
-func TokenRate(state StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
-	if tokenID == nil || *tokenID == 0 {
+func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
+	if tokenID == 0 {
 		return big.NewInt(1), big.NewInt(1), nil
 	}
-	info, price, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, *tokenID)
+	info, price, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, tokenID)
 	if err != nil {
 		log.Error("Failed to get token info from storage", "tokenID", tokenID, "error", err)
 		return nil, nil, err
@@ -32,7 +32,7 @@ func TokenRate(state StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
 	}
 
 	// Get scale from token info
-	scale, err := GetTokenScaleByIDWithState(state, TokenRegistryAddress, *tokenID)
+	scale, err := GetTokenScaleByIDWithState(state, TokenRegistryAddress, tokenID)
 	if err != nil {
 		log.Error("Failed to get token scale", "tokenID", tokenID, "error", err)
 		return nil, nil, err
@@ -41,7 +41,7 @@ func TokenRate(state StateDB, tokenID *uint16) (*big.Int, *big.Int, error) {
 	return price, scale, err
 }
 
-func EthToAlt(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
+func EthToAlt(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {
 	rate, tokenSacle, err := TokenRate(state, tokenID)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func EthToAlt(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error)
 	return types.EthToAlt(amount, rate, tokenSacle), nil
 }
 
-func AltToETH(state StateDB, tokenID *uint16, amount *big.Int) (*big.Int, error) {
+func AltToETH(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {
 	rate, tokenSacle, err := TokenRate(state, tokenID)
 	if err != nil {
 		return nil, err

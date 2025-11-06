@@ -99,7 +99,7 @@ type Message interface {
 	AccessList() types.AccessList
 	IsL1MessageTx() bool
 	SetCodeAuthorizations() []types.SetCodeAuthorization
-	FeeTokenID() *uint16
+	FeeTokenID() uint16
 	FeeLimit() *big.Int
 }
 
@@ -309,7 +309,7 @@ func (st *StateTransition) buyERC20Gas() error {
 		return fmt.Errorf("failed to get ERC20 balance: %v", err)
 	}
 	log.Debug("ERC20 gas payment calculation",
-		"tokenID", *st.msg.FeeTokenID(),
+		"tokenID", st.msg.FeeTokenID(),
 		"tokenAddress", tokenInfo.TokenAddress.Hex(),
 		"fee", mgval,
 	)
@@ -341,7 +341,7 @@ func (st *StateTransition) buyERC20Gas() error {
 	}
 
 	log.Debug("ERC20 gas payment successful",
-		"tokenID", *st.msg.FeeTokenID(),
+		"tokenID", st.msg.FeeTokenID(),
 		"tokenAddress", tokenInfo.TokenAddress.String(),
 		"from", st.msg.From().String(),
 		"amount", mgval,
@@ -420,13 +420,13 @@ func (st *StateTransition) preCheck() error {
 		}
 	}
 
-	if st.msg.FeeTokenID() != nil && *st.msg.FeeTokenID() != 0 {
-		active, err := fees.IsTokenActive(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
+	if st.msg.FeeTokenID() != 0 {
+		active, err := fees.IsTokenActive(st.state, fees.TokenRegistryAddress, st.msg.FeeTokenID())
 		if err != nil {
 			return fmt.Errorf("get token status failed %v", err)
 		}
 		if !active {
-			return fmt.Errorf("token %v not active", *st.msg.FeeTokenID())
+			return fmt.Errorf("token %v not active", st.msg.FeeTokenID())
 		}
 		return st.buyERC20Gas()
 	}
@@ -561,7 +561,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// The L2 Fee is the same as the fee that is charged in the normal geth
 	// codepath. Add the L1DataFee to the L2 fee for the total fee that is sent
 	// to the sequencer.
-	if st.msg.FeeTokenID() == nil {
+	if st.msg.FeeTokenID() == 0 {
 		l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
 		fee := l2Fee
 		if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
@@ -576,7 +576,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		Err:        vmerr,
 		ReturnData: ret,
 	}
-	if st.msg.FeeTokenID() != nil {
+	if st.msg.FeeTokenID() != 0 {
 		result.FeeRate = st.feeRate
 		result.FeeUsed = st.feeUsed // TODO
 		result.TokenScale = st.tokenScale
@@ -663,10 +663,10 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-	if st.msg.FeeTokenID() != nil {
-		tokenInfo, price, err := fees.GetTokenInfoFromStorage(st.state, fees.TokenRegistryAddress, *st.msg.FeeTokenID())
+	if st.msg.FeeTokenID() != 0 {
+		tokenInfo, price, err := fees.GetTokenInfoFromStorage(st.state, fees.TokenRegistryAddress, st.msg.FeeTokenID())
 		if err != nil {
-			log.Error("Failed to get token info for gas refund", "tokenID", *st.msg.FeeTokenID(), "error", err)
+			log.Error("Failed to get token info for gas refund", "tokenID", st.msg.FeeTokenID(), "error", err)
 			return
 		}
 		tokenAmount := types.EthToAlt(remaining, price, tokenInfo.Scale)
@@ -677,7 +677,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			tokenAmount,
 			tokenInfo.BalanceSlot,
 		); err != nil {
-			log.Error("Failed to refund ERC20 gas", "tokenID", *st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
+			log.Error("Failed to refund ERC20 gas", "tokenID", st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
 			// Continue execution even if refund fails - refund should not cause transaction to fail
 		}
 		return

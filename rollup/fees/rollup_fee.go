@@ -35,7 +35,7 @@ type Message interface {
 	Data() []byte
 	AccessList() types.AccessList
 	IsL1MessageTx() bool
-	FeeTokenID() *uint16
+	FeeTokenID() uint16
 	FeeLimit() *big.Int
 }
 
@@ -92,7 +92,7 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 
 		return asUnsignedAccessListTx(msg, chainID)
 	}
-	if msg.FeeTokenID() != nil {
+	if msg.FeeTokenID() != 0 {
 		return asUnsignedERC20FeeTx(msg, chainID)
 	}
 
@@ -145,7 +145,7 @@ func asUnsignedERC20FeeTx(msg Message, chainID *big.Int) *types.Transaction {
 		Gas:        msg.Gas(),
 		GasFeeCap:  msg.GasFeeCap(),
 		GasTipCap:  msg.GasTipCap(),
-		FeeTokenID: *msg.FeeTokenID(),
+		FeeTokenID: msg.FeeTokenID(),
 		Data:       msg.Data(),
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,

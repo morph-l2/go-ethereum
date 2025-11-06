@@ -433,8 +433,12 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		if err != nil {
 			return err
 		}
-		if erc20Balance.Cmp(erc20Amount) < 0 {
-			return errors.New("invalid transaction: insufficient funds for gas * price")
+		limit := erc20Balance
+		if tx.FeeLimit() != nil && tx.FeeLimit().Cmp(limit) > 0 {
+			limit = tx.FeeLimit()
+		}
+		if limit.Cmp(erc20Amount) < 0 {
+			return errors.New("invalid transaction: insufficient funds for gas * price or fee limit too small")
 		}
 		if currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
 			return core.ErrInsufficientValue
@@ -461,12 +465,16 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 			if err != nil {
 				return err
 			}
-			erc20Fee, err := fees.EthToAlt(currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+			erc20Amount, err := fees.EthToAlt(currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 			if err != nil {
 				return err
 			}
-			if erc20Balance.Cmp(erc20Fee) < 0 {
-				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price")
+			limit := erc20Balance
+			if tx.FeeLimit() != nil && tx.FeeLimit().Cmp(limit) > 0 {
+				limit = tx.FeeLimit()
+			}
+			if limit.Cmp(erc20Amount) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
 			}
 			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return errors.New("invalid transaction: insufficient funds for value")

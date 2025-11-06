@@ -192,8 +192,9 @@ func ApplyTransactionWithEVM(msg Message, config *params.ChainConfig, gp *GasPoo
 	receipt.BlockNumber = blockNumber
 	receipt.TransactionIndex = uint(statedb.TxIndex())
 	receipt.L1Fee = result.L1DataFee
-	if tx.FeeTokenID() != nil {
-		receipt.FeeTokenID = tx.FeeTokenID()
+	if tx.FeeTokenID() != 0 {
+		tokenID := tx.FeeTokenID()
+		receipt.FeeTokenID = &tokenID
 		receipt.FeeRate = result.FeeRate
 		receipt.FeeLimit = tx.FeeLimit()
 		receipt.FeeUsed = result.FeeUsed

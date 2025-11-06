@@ -352,8 +352,8 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 			log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 			return false, nil
 		}
-		if l.costcap.Alt(*tx.FeeTokenID()).Cmp(erc20Cost) < 0 {
-			l.costcap.SetAltAmount(*tx.FeeTokenID(), erc20Cost)
+		if l.costcap.Alt(tx.FeeTokenID()).Cmp(erc20Cost) < 0 {
+			l.costcap.SetAltAmount(tx.FeeTokenID(), erc20Cost)
 		}
 	} else {
 		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee)

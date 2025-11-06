@@ -1193,7 +1193,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 				return 0, err
 			}
 			tokenID := uint16(*args.FeeTokenID)
-			altBalance, err := core.GetERC20Balance(evm, &tokenID, args.from())
+			altBalance, err := core.GetERC20Balance(evm, tokenID, args.from())
 			if err != nil {
 				return 0, err
 			}
@@ -1206,7 +1206,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			if err != nil {
 				return 0, err
 			}
-			erc20L1Fee, err := fees.EthToAlt(state, &tokenID, l1DataFee)
+			erc20L1Fee, err := fees.EthToAlt(state, tokenID, l1DataFee)
 			if err != nil {
 				return 0, err
 			}
@@ -1216,7 +1216,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			}
 
 			altAvailable.Sub(altAvailable, erc20L1Fee)
-			altByEth, err := fees.AltToETH(state, &tokenID, altAvailable)
+			altByEth, err := fees.AltToETH(state, tokenID, altAvailable)
 			if err != nil {
 				return 0, err
 			}

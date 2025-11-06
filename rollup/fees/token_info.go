@@ -76,7 +76,12 @@ func GetTokenInfoStructBaseSlot(tokenID uint16) common.Hash {
 }
 
 // GetTokenInfo retrieves the complete TokenInfo structure from storage
-func GetTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*TokenInfo, error) {
+func GetTokenInfo(state StateDB, tokenID uint16) (*TokenInfo, error) {
+	return getTokenInfo(state, TokenRegistryAddress, tokenID)
+}
+
+// getTokenInfo retrieves the complete TokenInfo structure from storage
+func getTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*TokenInfo, error) {
 	// Calculate the base slot for the TokenInfo struct
 	baseSlot := GetTokenInfoStructBaseSlot(tokenID)
 
@@ -118,8 +123,8 @@ func GetTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*
 }
 
 // GetTokenScaleByIDWithState retrieves token scale from TokenInfo struct
-func GetTokenScaleByIDWithState(state StateDB, contractAddr common.Address, tokenID uint16) (*big.Int, error) {
-	info, err := GetTokenInfo(state, contractAddr, tokenID)
+func GetTokenScaleByIDWithState(state StateDB, tokenID uint16) (*big.Int, error) {
+	info, err := GetTokenInfo(state, tokenID)
 	if err != nil {
 		return nil, err
 	}
@@ -127,8 +132,8 @@ func GetTokenScaleByIDWithState(state StateDB, contractAddr common.Address, toke
 }
 
 // IsTokenActive checks if a token is active
-func IsTokenActive(state StateDB, contractAddr common.Address, tokenID uint16) (bool, error) {
-	info, err := GetTokenInfo(state, contractAddr, tokenID)
+func IsTokenActive(state StateDB, tokenID uint16) (bool, error) {
+	info, err := GetTokenInfo(state, tokenID)
 	if err != nil {
 		return false, err
 	}
@@ -144,7 +149,7 @@ func GetTokenPriceByIDWithState(state StateDB, contractAddr common.Address, toke
 // This is a convenience function that combines multiple storage reads
 func GetTokenInfoFromStorage(state StateDB, contractAddr common.Address, tokenID uint16) (*TokenInfo, *big.Int, error) {
 	// Get token info from TokenInfo struct
-	info, err := GetTokenInfo(state, contractAddr, tokenID)
+	info, err := GetTokenInfo(state, tokenID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get token info: %v", err)
 	}

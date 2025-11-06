@@ -418,19 +418,26 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		}
 	}
 	if tx.FeeTokenID() != 0 {
+		active, err := fees.IsTokenActive(currentState, tx.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token status failed %v", err)
+		}
+		if !active {
+			return fmt.Errorf("token %v not active", tx.FeeTokenID())
+		}
 		erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentHeader(), currentState, tx.FeeTokenID(), from)
 		if err != nil {
-			return errors.New("query balance failed")
+			return err
 		}
 		erc20Amount, err := fees.EthToAlt(currentState, tx.FeeTokenID(), tx.GasFee())
 		if err != nil {
-			return errors.New("query balance failed")
+			return err
 		}
 		if erc20Balance.Cmp(erc20Amount) < 0 {
 			return errors.New("invalid transaction: insufficient funds for gas * price")
 		}
 		if currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
-			return core.ErrInsufficientFunds
+			return core.ErrInsufficientValue
 		}
 	} else {
 		if currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
@@ -446,7 +453,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		}
 		// Transactor should have enough funds to cover the costs
 		// cost == L1 data fee + V + GP * GL
-		if tx.IsAltFeeTx() {
+		if tx.FeeTokenID() != 0 {
 			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return errors.New("invalid transaction: insufficient funds for value")
 			}

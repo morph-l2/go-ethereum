@@ -195,9 +195,9 @@ func ApplyTransactionWithEVM(msg Message, config *params.ChainConfig, gp *GasPoo
 	if tx.FeeTokenID() != 0 {
 		tokenID := tx.FeeTokenID()
 		receipt.FeeTokenID = &tokenID
-		receipt.FeeRate = result.FeeRate
 		receipt.FeeLimit = tx.FeeLimit()
-		receipt.FeeUsed = result.FeeUsed
+		receipt.FeeRate = result.FeeRate
+		receipt.TokenScale = result.TokenScale
 	}
 
 	return receipt, err

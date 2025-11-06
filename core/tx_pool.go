@@ -323,7 +323,6 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		initDoneCh:      make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
 	}
-	// TODO
 	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error) {
 		blockContext := vm.BlockContext{
 			BlockNumber: header.Number,
@@ -336,10 +335,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		// Configure minimal VM settings
 		vmConfig := vm.Config{
 			NoBaseFee: true,
-			//Debug:     false,
-			Tracer: nil,
-			// Disable unnecessary features
-			//JumpTable: vm.NewByzantiumInstructionSet(),
+			Tracer:    nil,
 		}
 		txContext := vm.TxContext{
 			Origin:   common.Address{},
@@ -726,13 +722,20 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
 	if tx.FeeTokenID() != 0 {
+		active, err := fees.IsTokenActive(pool.currentState, tx.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token status failed %v", err)
+		}
+		if !active {
+			return fmt.Errorf("token %v not active", tx.FeeTokenID())
+		}
 		erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), from)
 		if err != nil {
-			return errors.New("query balance failed")
+			return err
 		}
 		erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), tx.GasFee())
 		if err != nil {
-			return errors.New("query balance failed")
+			return err
 		}
 		if erc20Balance.Cmp(erc20Amount) < 0 {
 			return errors.New("invalid transaction: insufficient funds for gas * price")
@@ -753,20 +756,20 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return fmt.Errorf("failed to calculate L1 data fee, err: %w", err)
 		}
 		// Transactor should have enough funds to cover the costs
-		if tx.IsAltFeeTx() {
+		if tx.FeeTokenID() != 0 {
 			if b := pool.currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
-				return errors.New("invalid transaction: insufficient funds for value")
+				return ErrInsufficientValue
 			}
 			erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), from)
 			if err != nil {
-				return errors.New("query balance failed")
+				return err
 			}
 			erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 			if err != nil {
-				return errors.New("query balance failed")
+				return err
 			}
 			if erc20Balance.Cmp(erc20Amount) < 0 {
-				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price")
+				return ErrInsufficientGasFee
 			}
 		} else {
 			// cost == L1 data fee + V + GP * GL

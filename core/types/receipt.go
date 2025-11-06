@@ -80,9 +80,9 @@ type Receipt struct {
 	L1Fee *big.Int `json:"l1Fee,omitempty"`
 	// Alt Fee
 	FeeTokenID *uint16  `json:"fee_token_id,omitempty"`
-	FeeRate    *big.Int `json:"rate,omitempty"`
+	FeeRate    *big.Int `json:"fee_rate,omitempty"`
+	TokenScale *big.Int `json:"token_scale,omitempty"`
 	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
-	FeeUsed    *big.Int `json:"fee_spend,,omitempty"`
 }
 
 type receiptMarshaling struct {

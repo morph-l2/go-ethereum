@@ -32,7 +32,7 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 	}
 
 	// Get scale from token info
-	scale, err := GetTokenScaleByIDWithState(state, TokenRegistryAddress, tokenID)
+	scale, err := GetTokenScaleByIDWithState(state, tokenID)
 	if err != nil {
 		log.Error("Failed to get token scale", "tokenID", tokenID, "error", err)
 		return nil, nil, err

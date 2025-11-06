@@ -59,8 +59,8 @@ type ExecutionResult struct {
 	L1DataFee   *hexutil.Big `json:"l1DataFee,omitempty"`
 	FeeTokenID  *uint16      `json:"fee_token_id,omitempty"`
 	FeeRate     *hexutil.Big `json:"feeRate,omitempty"`
+	TokenScale  *hexutil.Big `json:"token_scale,omitempty"`
 	FeeLimit    *hexutil.Big `json:"feeLimit,omitempty"`
-	FeeUsed     *hexutil.Big `json:"feeUsed,omitempty"`
 	Gas         uint64       `json:"gas"`
 	Failed      bool         `json:"failed"`
 	ReturnValue string       `json:"returnValue"`

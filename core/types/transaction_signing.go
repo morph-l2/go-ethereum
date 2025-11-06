@@ -42,6 +42,8 @@ type sigCache struct {
 func MakeSigner(config *params.ChainConfig, blockNumber *big.Int, blockTime uint64) Signer {
 	var signer Signer
 	switch {
+	case config.IsEmerald(blockNumber, blockTime):
+		signer = NewEmeraldSigner(config.ChainID)
 	case config.IsViridian(blockNumber, blockTime):
 		signer = NewViridianSigner(config.ChainID)
 	case config.IsCurie(blockNumber):
@@ -71,6 +73,8 @@ func LatestSigner(config *params.ChainConfig) Signer {
 	var signer Signer
 	if config.ChainID != nil {
 		switch {
+		case config.EmeraldTime != nil:
+			signer = NewEmeraldSigner(config.ChainID)
 		case config.ViridianTime != nil:
 			signer = NewViridianSigner(config.ChainID)
 		case config.CurieBlock != nil:
@@ -98,7 +102,7 @@ func LatestSigner(config *params.ChainConfig) Signer {
 func LatestSignerForChainID(chainID *big.Int) Signer {
 	var signer Signer
 	if chainID != nil {
-		signer = NewViridianSigner(chainID)
+		signer = NewEmeraldSigner(chainID)
 	} else {
 		signer = HomesteadSigner{}
 	}
@@ -225,6 +229,9 @@ func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
 		s.txtypes[SetCodeTxType] = struct{}{}
 		s.txtypes[AltFeeTxType] = struct{}{} // TODO
 	}
+	if fork >= forks.Emerald {
+		// Future Emerald-specific transaction types can be added here
+	}
 	return s
 }
 
@@ -294,6 +301,13 @@ func (s *modernSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *bi
 // - legacy Homestead transactions.
 func NewViridianSigner(chainId *big.Int) Signer {
 	return newModernSigner(chainId, forks.Viridian)
+}
+
+// NewEmeraldSigner returns a signer that accepts
+// - All Viridian transaction types
+// - Future Emerald-specific transaction types
+func NewEmeraldSigner(chainId *big.Int) Signer {
+	return newModernSigner(chainId, forks.Emerald)
 }
 
 // NewCurieSigner returns a signer that accepts

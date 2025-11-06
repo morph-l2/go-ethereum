@@ -78,7 +78,11 @@ type Receipt struct {
 
 	// Morph rollup
 	L1Fee *big.Int `json:"l1Fee,omitempty"`
-	Rate  *big.Int `json:"rate,omitempty"`
+	// Alt Fee
+	FeeTokenID *uint16  `json:"fee_token_id,omitempty"`
+	FeeRate    *big.Int `json:"rate,omitempty"`
+	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
+	FeeUsed    *big.Int `json:"fee_spend,,omitempty"`
 }
 
 type receiptMarshaling struct {
@@ -243,7 +247,7 @@ func (r *Receipt) decodeTyped(b []byte) error {
 		return errShortTypedReceipt
 	}
 	switch b[0] {
-	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, ERC20FeeTxType:
+	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, AltFeeTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -308,7 +312,7 @@ func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
 		CumulativeGasUsed: r.CumulativeGasUsed,
 		Logs:              make([]*LogForStorage, len(r.Logs)),
 		L1Fee:             r.L1Fee,
-		Rate:              r.Rate,
+		Rate:              r.FeeRate,
 	}
 	for i, log := range r.Logs {
 		enc.Logs[i] = (*LogForStorage)(log)
@@ -442,8 +446,8 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 	case L1MessageTxType:
 		w.WriteByte(L1MessageTxType)
 		rlp.Encode(w, data)
-	case ERC20FeeTxType:
-		w.WriteByte(ERC20FeeTxType)
+	case AltFeeTxType:
+		w.WriteByte(AltFeeTxType)
 	case SetCodeTxType:
 		w.WriteByte(SetCodeTxType)
 		rlp.Encode(w, data)

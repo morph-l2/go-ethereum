@@ -51,12 +51,14 @@ type TransactOpts struct {
 	Nonce  *big.Int       // Nonce to use for the transaction execution (nil = use pending state)
 	Signer SignerFn       // Method to use for signing the transaction (mandatory)
 
-	Value      *big.Int // Funds to transfer along the transaction (nil = 0 = no funds)
-	GasPrice   *big.Int // Gas price to use for the transaction execution (nil = gas price oracle)
-	GasFeeCap  *big.Int // Gas fee cap to use for the 1559 transaction execution (nil = gas price oracle)
-	GasTipCap  *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
-	GasLimit   uint64   // Gas limit to set for the transaction execution (0 = estimate)
-	FeeTokenID *big.Int
+	Value     *big.Int // Funds to transfer along the transaction (nil = 0 = no funds)
+	GasPrice  *big.Int // Gas price to use for the transaction execution (nil = gas price oracle)
+	GasFeeCap *big.Int // Gas fee cap to use for the 1559 transaction execution (nil = gas price oracle)
+	GasTipCap *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
+	GasLimit  uint64   // Gas limit to set for the transaction execution (0 = estimate)
+
+	FeeTokenID *big.Int // alt fee token id of transaction execution
+	FeeLimit   *big.Int // alt fee token limit of transaction execution
 
 	Context context.Context // Network context to support cancellation and timeouts (nil = no timeout)
 
@@ -288,7 +290,7 @@ func (c *BoundContract) createDynamicTx(opts *TransactOpts, contract *common.Add
 	return types.NewTx(baseTx), nil
 }
 
-func (c *BoundContract) createERC20FeeTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
+func (c *BoundContract) createAltFeeTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
 	// Normalize value
 	value := opts.Value
 	if value == nil {
@@ -332,12 +334,13 @@ func (c *BoundContract) createERC20FeeTx(opts *TransactOpts, contract *common.Ad
 	if err != nil {
 		return nil, err
 	}
-	baseTx := &types.ERC20FeeTx{
+	baseTx := &types.AltFeeTx{
 		To:         contract,
 		Nonce:      nonce,
 		GasFeeCap:  gasFeeCap,
 		GasTipCap:  gasTipCap,
 		FeeTokenID: uint16(opts.FeeTokenID.Uint64()),
+		FeeLimit:   opts.FeeLimit,
 		Gas:        gasLimit,
 		Value:      value,
 		Data:       input,
@@ -436,7 +439,7 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 			return nil, errHead
 		} else if head.BaseFee != nil {
 			if opts.FeeTokenID != nil {
-				rawTx, err = c.createERC20FeeTx(opts, contract, input, head)
+				rawTx, err = c.createAltFeeTx(opts, contract, input, head)
 			} else {
 				rawTx, err = c.createDynamicTx(opts, contract, input, head)
 			}

@@ -1176,44 +1176,94 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		if err != nil {
 			return 0, err
 		}
-		// check fee token id
-		if args.FeeTokenID != nil && *args.FeeTokenID != 0 {
-			// TODO check white
-		}
 		balance := state.GetBalance(*args.From) // from can't be nil
-		available := new(big.Int).Set(balance)
-
-		// account for tx value
-		if args.Value != nil {
-			if args.Value.ToInt().Cmp(available) >= 0 {
-				return 0, errors.New("insufficient funds for transfer")
+		if args.FeeTokenID != nil {
+			// account for tx value
+			if args.Value != nil {
+				if args.Value.ToInt().Cmp(balance) >= 0 {
+					return 0, errors.New("insufficient funds for transfer")
+				}
 			}
-			available.Sub(available, args.Value.ToInt())
-		}
-
-		// account for l1 fee
-		l1DataFee, err := EstimateL1MsgFee(ctx, b, args, blockNrOrHash, nil, 0, gasCap, b.ChainConfig())
-		if err != nil {
-			return 0, err
-		}
-		// TODO
-		if l1DataFee.Cmp(available) >= 0 {
-			return 0, errors.New("insufficient funds for l1 fee")
-		}
-		available.Sub(available, l1DataFee)
-
-		// TODO erc20 allowance
-		allowance := new(big.Int).Div(available, feeCap)
-
-		// If the allowance is larger than maximum uint64, skip checking
-		if allowance.IsUint64() && hi > allowance.Uint64() {
-			transfer := args.Value
-			if transfer == nil {
-				transfer = new(hexutil.Big)
+			msg, err := args.ToMessage(b.RPCGasCap(), b.CurrentHeader().BaseFee)
+			if err != nil {
+				return 0, err
 			}
-			log.Warn("Gas estimation capped by limited funds", "original", hi, "balance", balance,
-				"sent", transfer.ToInt(), "maxFeePerGas", feeCap, "fundable", allowance)
-			hi = allowance.Uint64()
+			evm, _, err := b.GetEVM(ctx, msg, state, b.CurrentHeader(), &vm.Config{NoBaseFee: true})
+			if err != nil {
+				return 0, err
+			}
+			tokenID := uint16(*args.FeeTokenID)
+			altBalance, err := core.GetERC20Balance(evm, &tokenID, args.from())
+			if err != nil {
+				return 0, err
+			}
+			limit := new(big.Int)
+			if args.FeeLimit != nil {
+				limit = math.BigMin(altBalance, args.FeeLimit.ToInt())
+			}
+			// account for l1 fee
+			l1DataFee, err := EstimateL1MsgFee(ctx, b, args, blockNrOrHash, nil, 0, gasCap, b.ChainConfig())
+			if err != nil {
+				return 0, err
+			}
+			erc20L1Fee, err := fees.EthToAlt(state, &tokenID, l1DataFee)
+			if err != nil {
+				return 0, err
+			}
+			altAvailable := new(big.Int).Set(limit)
+			if erc20L1Fee.Cmp(limit) >= 0 {
+				return 0, errors.New("insufficient funds for l1 fee")
+			}
+
+			altAvailable.Sub(altAvailable, erc20L1Fee)
+			altByEth, err := fees.AltToETH(state, &tokenID, altAvailable)
+			if err != nil {
+				return 0, err
+			}
+			allowance := new(big.Int).Div(altByEth, feeCap)
+
+			// If the allowance is larger than maximum uint64, skip checking
+			if allowance.IsUint64() && hi > allowance.Uint64() {
+				transfer := args.Value
+				if transfer == nil {
+					transfer = new(hexutil.Big)
+				}
+				log.Warn("Gas estimation capped by limited funds", "original", hi, "balance", balance,
+					"sent", transfer.ToInt(), "maxFeePerGas", feeCap, "fundable", allowance)
+				hi = allowance.Uint64()
+			}
+		} else {
+			available := new(big.Int).Set(balance)
+
+			// account for tx value
+			if args.Value != nil {
+				if args.Value.ToInt().Cmp(available) >= 0 {
+					return 0, errors.New("insufficient funds for transfer")
+				}
+				available.Sub(available, args.Value.ToInt())
+			}
+
+			// account for l1 fee
+			l1DataFee, err := EstimateL1MsgFee(ctx, b, args, blockNrOrHash, nil, 0, gasCap, b.ChainConfig())
+			if err != nil {
+				return 0, err
+			}
+			if l1DataFee.Cmp(available) >= 0 {
+				return 0, errors.New("insufficient funds for l1 fee")
+			}
+			available.Sub(available, l1DataFee)
+			allowance := new(big.Int).Div(available, feeCap)
+
+			// If the allowance is larger than maximum uint64, skip checking
+			if allowance.IsUint64() && hi > allowance.Uint64() {
+				transfer := args.Value
+				if transfer == nil {
+					transfer = new(hexutil.Big)
+				}
+				log.Warn("Gas estimation capped by limited funds", "original", hi, "balance", balance,
+					"sent", transfer.ToInt(), "maxFeePerGas", feeCap, "fundable", allowance)
+				hi = allowance.Uint64()
+			}
 		}
 	}
 	// Recap the highest gas allowance with specified gascap.
@@ -1448,7 +1498,7 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		msg := tx.AsL1MessageTx()
 		result.Sender = &msg.Sender
 		result.QueueIndex = (*hexutil.Uint64)(&msg.QueueIndex)
-	case types.ERC20FeeTxType:
+	case types.AltFeeTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
@@ -1829,7 +1879,7 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
-		"feeRate":           (*hexutil.Big)(receipt.Rate),
+		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
 	}
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {

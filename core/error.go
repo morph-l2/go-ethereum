@@ -76,8 +76,11 @@ var (
 	// ErrInsufficientFunds is returned if the total cost of executing a transaction
 	// is higher than the balance of the user's account.
 	ErrInsufficientFunds = errors.New("insufficient funds for gas * price + value")
+
 	// ErrInsufficientValue is returned tx value
 	ErrInsufficientValue = errors.New("insufficient funds for value")
+
+	ErrInsufficientGasFee = errors.New("insufficient funds for gas * price + l1Fee")
 
 	// ErrGasUintOverflow is returned when calculating gas usage.
 	ErrGasUintOverflow = errors.New("gas uint64 overflow")

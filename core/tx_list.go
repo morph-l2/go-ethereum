@@ -345,15 +345,15 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	}
 	l.txs.Put(tx)
 	ethCost := big.NewInt(0)
-	if tx.IsERC20FeeTx() {
+	if tx.IsAltFeeTx() {
 		ethCost = new(big.Int).Set(tx.Value())
-		erc20Cost, err := fees.EthToERC20(state, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+		erc20Cost, err := fees.EthToAlt(state, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 		if err != nil {
 			log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 			return false, nil
 		}
-		if l.costcap.ERC20(*tx.FeeTokenID()).Cmp(erc20Cost) < 0 {
-			l.costcap.SetERC20Amount(*tx.FeeTokenID(), erc20Cost)
+		if l.costcap.Alt(*tx.FeeTokenID()).Cmp(erc20Cost) < 0 {
+			l.costcap.SetAltAmount(*tx.FeeTokenID(), erc20Cost)
 		}
 	} else {
 		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee)
@@ -396,11 +396,11 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, erc20CostLimit map[
 	// Filter out all the transactions above the account's funds
 	removed := l.txs.Filter(func(tx *types.Transaction) bool {
 		allLower := true
-		if tx.IsERC20FeeTx() {
+		if tx.IsAltFeeTx() {
 			for id, limit := range erc20CostLimit {
-				lower := l.costcap.ERC20(id).Cmp(limit) <= 0
+				lower := l.costcap.Alt(id).Cmp(limit) <= 0
 				if !lower {
-					l.costcap.SetERC20Amount(id, limit)
+					l.costcap.SetAltAmount(id, limit)
 				}
 				allLower = allLower && lower
 			}
@@ -434,9 +434,9 @@ func (l *txList) FilterF(costLimit *big.Int, erc20CostLimit map[uint16]*big.Int,
 	// If all transactions are below the threshold, short circuit
 	allLower := true
 	for id, limit := range erc20CostLimit {
-		lower := l.costcap.ERC20(id).Cmp(limit) <= 0
+		lower := l.costcap.Alt(id).Cmp(limit) <= 0
 		if !lower {
-			l.costcap.SetERC20Amount(id, limit)
+			l.costcap.SetAltAmount(id, limit)
 		}
 		allLower = allLower && lower
 	}

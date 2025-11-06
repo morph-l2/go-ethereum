@@ -112,6 +112,9 @@ type stTransaction struct {
 	GasLimit             []uint64            `json:"gasLimit"`
 	Value                []string            `json:"value"`
 	PrivateKey           []byte              `json:"secretKey"`
+
+	FeeTokenID uint16   `json:"fee_token_id,omitempty"`
+	FeeLimit   *big.Int `json:"fee_limit,omitempty"`
 }
 
 type stTransactionMarshaling struct {
@@ -364,7 +367,6 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		if tx.MaxPriorityFeePerGas == nil {
 			tx.MaxPriorityFeePerGas = tx.MaxFeePerGas
 		}
-		// TODO
 		gasPrice = math.BigMin(new(big.Int).Add(tx.MaxPriorityFeePerGas, baseFee),
 			tx.MaxFeePerGas)
 	}
@@ -373,7 +375,8 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 	}
 
 	msg := types.NewMessage(from, to, tx.Nonce, value, gasLimit, gasPrice,
-		tx.MaxFeePerGas, tx.MaxPriorityFeePerGas, data, accessList, nil, false)
+		tx.MaxFeePerGas, tx.MaxPriorityFeePerGas, tx.FeeTokenID, tx.FeeLimit,
+		data, accessList, nil, false)
 	return msg, nil
 }
 

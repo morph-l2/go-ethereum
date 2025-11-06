@@ -496,7 +496,10 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1DataFee:      (*hexutil.Big)(receipt.L1Fee),
-		Rate:           (*hexutil.Big)(receipt.Rate),
+		FeeTokenID:     receipt.FeeTokenID,
+		FeeRate:        (*hexutil.Big)(receipt.FeeRate),
+		FeeLimit:       (*hexutil.Big)(receipt.FeeLimit),
+		FeeUsed:        (*hexutil.Big)(receipt.FeeUsed),
 		Gas:            receipt.GasUsed,
 		Failed:         receipt.Status == types.ReceiptStatusFailed,
 		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),
@@ -533,6 +536,7 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 			rcfg.IsCurieSlot,
 		},
 		rcfg.SequencerAddress: {rcfg.SequencerSetVerifyHashSlot},
+		// rcfg.L2ERC20RegistryAddress: {}, // TODO
 	}
 
 	for addr, storages := range intrinsicStorageProofs {

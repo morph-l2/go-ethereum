@@ -1438,7 +1438,8 @@ type RPCTransaction struct {
 	Type              hexutil.Uint64               `json:"type"`
 	Accesses          *types.AccessList            `json:"accessList,omitempty"`
 	ChainID           *hexutil.Big                 `json:"chainId,omitempty"`
-	FeeTokenID        *hexutil.Big                 `json:"feeTokenID,omitempty"`
+	FeeTokenID        *hexutil.Uint64              `json:"feeTokenID,omitempty"`
+	FeeLimit          *hexutil.Big                 `json:"feeLimit,omitempty"`
 	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	V                 *hexutil.Big                 `json:"v"`
 	R                 *hexutil.Big                 `json:"r"`
@@ -1504,12 +1505,16 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
 		result.GasFeeCap = (*hexutil.Big)(tx.GasFeeCap())
 		result.GasTipCap = (*hexutil.Big)(tx.GasTipCap())
-		// TODO
-		//result.FeeTokenID = (*hexutil.Big)()
+		tokenID := hexutil.Uint64(tx.FeeTokenID())
+		result.FeeTokenID = &tokenID
+		result.FeeLimit = (*hexutil.Big)(tx.FeeLimit())
 		// if the transaction has been mined, compute the effective gas price
 		if baseFee != nil && blockHash != (common.Hash{}) {
 			// price = min(tip, gasFeeCap - baseFee) + baseFee
-			// TODO base fee -> erc20 fee
+			price := math.BigMin(new(big.Int).Add(tx.GasTipCap(), baseFee), tx.GasFeeCap())
+			result.GasPrice = (*hexutil.Big)(price)
+		} else {
+			result.GasPrice = (*hexutil.Big)(tx.GasFeeCap())
 		}
 	case types.SetCodeTxType:
 		al := tx.AccessList()
@@ -1534,7 +1539,6 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 
 // NewRPCPendingTransaction returns a pending transaction that will serialize to the RPC representation
 func NewRPCPendingTransaction(tx *types.Transaction, current *types.Header, config *params.ChainConfig, l1BaseFee *big.Int) *RPCTransaction {
-	// TODO
 	var baseFee *big.Int
 	blockNumber := uint64(0)
 	blockTime := uint64(0)
@@ -1879,7 +1883,10 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
+		"feeTokenID":        receipt.FeeTokenID,
 		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
+		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
+		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
 	}
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {

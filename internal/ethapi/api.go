@@ -1534,7 +1534,6 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 
 // NewRPCPendingTransaction returns a pending transaction that will serialize to the RPC representation
 func NewRPCPendingTransaction(tx *types.Transaction, current *types.Header, config *params.ChainConfig, l1BaseFee *big.Int) *RPCTransaction {
-	// TODO
 	var baseFee *big.Int
 	blockNumber := uint64(0)
 	blockTime := uint64(0)
@@ -1879,7 +1878,10 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
+		"feeTokenID":        receipt.FeeTokenID,
 		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
+		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
+		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
 	}
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {

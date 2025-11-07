@@ -722,7 +722,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if tx.FeeTokenID() != 0 {
+	if tx.IsAltFeeTx() {
 		active, err := fees.IsTokenActive(pool.currentState, tx.FeeTokenID())
 		if err != nil {
 			return fmt.Errorf("get token status failed %v", err)
@@ -761,7 +761,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return fmt.Errorf("failed to calculate L1 data fee, err: %w", err)
 		}
 		// Transactor should have enough funds to cover the costs
-		if tx.FeeTokenID() != 0 {
+		if tx.IsAltFeeTx() {
 			if b := pool.currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return ErrInsufficientValue
 			}
@@ -1625,7 +1625,11 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 						log.Error("Failed to query balance", "err", err, "tx", tx)
 						return false
 					}
-					erc20CostLimit[tx.FeeTokenID()] = balance
+					limit := balance
+					if tx.FeeLimit() != nil && tx.FeeLimit().Sign() != 0 {
+						limit = cmath.BigMin(balance, tx.FeeLimit())
+					}
+					erc20CostLimit[tx.FeeTokenID()] = limit
 				}
 				erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 				if err != nil {

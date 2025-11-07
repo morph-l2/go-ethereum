@@ -131,6 +131,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 				GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 				GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
 				FeeTokenID: uint16(*args.FeeTokenID),
+				FeeLimit:   (*big.Int)(args.FeeLimit),
 				Value:      (*big.Int)(&args.Value),
 				Data:       input,
 				AccessList: al,

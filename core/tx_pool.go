@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
+	cmath "github.com/morph-l2/go-ethereum/common/math"
 	"github.com/morph-l2/go-ethereum/common/prque"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/core/state"
@@ -738,8 +739,8 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return err
 		}
 		limit := erc20Balance
-		if tx.FeeLimit() != nil && tx.FeeLimit().Cmp(limit) > 0 {
-			limit = tx.FeeLimit()
+		if tx.FeeLimit() != nil && tx.FeeLimit().Sign() != 0 {
+			limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
 		}
 		if limit.Cmp(erc20Amount) < 0 {
 			return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
@@ -773,8 +774,8 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 				return err
 			}
 			limit := erc20Balance
-			if tx.FeeLimit() != nil && tx.FeeLimit().Cmp(limit) > 0 {
-				limit = tx.FeeLimit()
+			if tx.FeeLimit() != nil && tx.FeeLimit().Sign() != 0 {
+				limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
 			}
 			if limit.Cmp(erc20Amount) < 0 {
 				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")

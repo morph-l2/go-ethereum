@@ -310,7 +310,7 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.FeeTokenID != nil {
 		feeTokenID = uint16(*args.FeeTokenID)
 	}
-	var feeLimit *big.Int
+	feeLimit := new(big.Int)
 	if args.FeeLimit != nil {
 		feeLimit = args.FeeLimit.ToInt()
 	}

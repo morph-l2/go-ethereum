@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/tyler-smith/go-bip39"
+
 	"github.com/morph-l2/go-ethereum/accounts"
 	"github.com/morph-l2/go-ethereum/accounts/abi"
 	"github.com/morph-l2/go-ethereum/accounts/keystore"

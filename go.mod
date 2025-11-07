@@ -57,7 +57,7 @@ require (
 	github.com/status-im/keycard-go v0.2.0
 	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/tyler-smith/go-bip39 v1.1.0
+	github.com/tyler-smith/go-bip39 v1.0.1-0.20181017060643-dbb3b84ba2ef
 	golang.org/x/crypto v0.35.0
 	golang.org/x/sync v0.11.0
 	golang.org/x/sys v0.30.0

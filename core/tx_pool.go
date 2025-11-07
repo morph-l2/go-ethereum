@@ -19,7 +19,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	cmath "github.com/morph-l2/go-ethereum/common/math"
 	"math"
 	"math/big"
 	"slices"
@@ -29,6 +28,7 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
+	cmath "github.com/morph-l2/go-ethereum/common/math"
 	"github.com/morph-l2/go-ethereum/common/prque"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/core/state"

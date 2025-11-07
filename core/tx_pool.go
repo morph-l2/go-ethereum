@@ -737,8 +737,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		if err != nil {
 			return err
 		}
-		if erc20Balance.Cmp(erc20Amount) < 0 {
-			return errors.New("invalid transaction: insufficient funds for gas * price")
+		limit := erc20Balance
+		if tx.FeeLimit() != nil && tx.FeeLimit().Cmp(limit) > 0 {
+			limit = tx.FeeLimit()
+		}
+		if limit.Cmp(erc20Amount) < 0 {
+			return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
 		}
 		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
 			return ErrInsufficientFunds
@@ -768,8 +772,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			if err != nil {
 				return err
 			}
-			if erc20Balance.Cmp(erc20Amount) < 0 {
-				return ErrInsufficientGasFee
+			limit := erc20Balance
+			if tx.FeeLimit() != nil && tx.FeeLimit().Cmp(limit) > 0 {
+				limit = tx.FeeLimit()
+			}
+			if limit.Cmp(erc20Amount) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
 			}
 		} else {
 			// cost == L1 data fee + V + GP * GL

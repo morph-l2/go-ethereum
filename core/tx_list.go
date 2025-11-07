@@ -287,7 +287,7 @@ func newTxList(strict bool, state *state.StateDB) *txList {
 	return &txList{
 		strict:  strict,
 		txs:     newTxSortedMap(),
-		costcap: new(types.SuperAccount),
+		costcap: types.NewSuperAccount(),
 		state:   state,
 	}
 }

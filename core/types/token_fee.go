@@ -10,11 +10,20 @@ type SuperAccount struct {
 
 type AltAccount = map[uint16]*big.Int
 
+func NewSuperAccount() *SuperAccount {
+	return &SuperAccount{
+		ethAmount: new(big.Int),
+		altAmount: make(AltAccount),
+	}
+}
 func (dca *SuperAccount) Eth() *big.Int {
 	return dca.ethAmount
 }
 
 func (dca *SuperAccount) Alt(id uint16) *big.Int {
+	if dca.altAmount[id] == nil {
+		return new(big.Int)
+	}
 	return dca.altAmount[id]
 }
 

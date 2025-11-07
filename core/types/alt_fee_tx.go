@@ -76,7 +76,7 @@ func (tx *AltFeeTx) copy() TxData {
 		cpy.GasFeeCap.Set(tx.GasFeeCap)
 	}
 	if tx.FeeLimit != nil {
-		cpy.FeeLimit.Set(tx.FeeLimit)
+		cpy.FeeLimit = new(big.Int).Set(tx.FeeLimit)
 	}
 	if tx.V != nil {
 		cpy.V.Set(tx.V)

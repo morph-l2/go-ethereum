@@ -314,7 +314,7 @@ func (st *StateTransition) buyERC20Gas() error {
 
 	erc20Mgval := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
 	feeLimit := erc20Balance
-	if st.msg.FeeLimit() != nil {
+	if st.msg.FeeLimit() != nil && st.msg.FeeLimit().Sign() != 0 {
 		feeLimit = cmath.BigMin(erc20Balance, st.msg.FeeLimit())
 	}
 	if feeLimit.Cmp(erc20Mgval) < 0 {

@@ -26,8 +26,6 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/tyler-smith/go-bip39"
-
 	"github.com/morph-l2/go-ethereum/accounts"
 	"github.com/morph-l2/go-ethereum/accounts/abi"
 	"github.com/morph-l2/go-ethereum/accounts/keystore"
@@ -1198,7 +1196,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 				return 0, err
 			}
 			limit := new(big.Int)
-			if args.FeeLimit != nil {
+			if args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
 				limit = math.BigMin(altBalance, args.FeeLimit.ToInt())
 			}
 			// account for l1 fee

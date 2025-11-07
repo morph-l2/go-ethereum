@@ -834,6 +834,9 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	if baseFee != nil {
 		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
 	}
+	if tx.IsAltFeeTx() && tx.FeeTokenID() == 0 {
+		return msg, errors.New("token id 0 not support")
+	}
 	if tx.FeeLimit() != nil {
 		msg.feeLimit = tx.FeeLimit()
 	}

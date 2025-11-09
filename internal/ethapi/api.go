@@ -1071,7 +1071,7 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	// Execute the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
 
-	result, err := core.ApplyMessage(evm, msg, gp, big.NewInt(0))
+	result, err := core.ApplyMessage(evm, msg, gp, common.Big0)
 	if err := vmError(); err != nil {
 		return nil, err
 	}

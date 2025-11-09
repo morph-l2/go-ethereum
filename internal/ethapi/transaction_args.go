@@ -324,14 +324,14 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 func (args *TransactionArgs) toTransaction() *types.Transaction {
 	usedType := types.LegacyTxType
 	switch {
+	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+		usedType = types.AltFeeTxType
 	case args.AuthorizationList != nil:
 		usedType = types.SetCodeTxType
 	case args.MaxFeePerGas != nil:
 		usedType = types.DynamicFeeTxType
 	case args.AccessList != nil:
 		usedType = types.AccessListTxType
-	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
-		usedType = types.AltFeeTxType
 	}
 	if args.GasPrice != nil {
 		usedType = types.LegacyTxType

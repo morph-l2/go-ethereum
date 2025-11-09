@@ -1438,7 +1438,6 @@ type RPCTransaction struct {
 	Type              hexutil.Uint64               `json:"type"`
 	Accesses          *types.AccessList            `json:"accessList,omitempty"`
 	ChainID           *hexutil.Big                 `json:"chainId,omitempty"`
-	FeeTokenID        *hexutil.Big                 `json:"feeTokenID,omitempty"`
 	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	V                 *hexutil.Big                 `json:"v"`
 	R                 *hexutil.Big                 `json:"r"`
@@ -1448,6 +1447,10 @@ type RPCTransaction struct {
 	// L1 message transaction fields:
 	Sender     *common.Address `json:"sender,omitempty"`
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
+
+	// Alt fee transaction fields:
+	FeeTokenID hexutil.Uint64 `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big   `json:"feeLimit,omitempty"`
 }
 
 // NewRPCTransaction returns a transaction that will serialize to the RPC
@@ -1504,13 +1507,16 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
 		result.GasFeeCap = (*hexutil.Big)(tx.GasFeeCap())
 		result.GasTipCap = (*hexutil.Big)(tx.GasTipCap())
-		// TODO
-		//result.FeeTokenID = (*hexutil.Big)()
 		// if the transaction has been mined, compute the effective gas price
 		if baseFee != nil && blockHash != (common.Hash{}) {
 			// price = min(tip, gasFeeCap - baseFee) + baseFee
-			// TODO base fee -> erc20 fee
+			price := math.BigMin(new(big.Int).Add(tx.GasTipCap(), baseFee), tx.GasFeeCap())
+			result.GasPrice = (*hexutil.Big)(price)
+		} else {
+			result.GasPrice = (*hexutil.Big)(tx.GasFeeCap())
 		}
+		result.FeeTokenID = (hexutil.Uint64)(tx.FeeTokenID())
+		result.FeeLimit = (*hexutil.Big)(tx.FeeLimit())
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())

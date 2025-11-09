@@ -448,6 +448,7 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 		rlp.Encode(w, data)
 	case AltFeeTxType:
 		w.WriteByte(AltFeeTxType)
+		rlp.Encode(w, data)
 	case SetCodeTxType:
 		w.WriteByte(SetCodeTxType)
 		rlp.Encode(w, data)

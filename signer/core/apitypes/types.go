@@ -122,21 +122,6 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		if args.FeeTokenID != nil {
-			data = &types.AltFeeTx{
-				To:         to,
-				ChainID:    (*big.Int)(args.ChainID),
-				Nonce:      uint64(args.Nonce),
-				Gas:        uint64(args.Gas),
-				GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
-				GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-				FeeTokenID: uint16(*args.FeeTokenID),
-				FeeLimit:   (*big.Int)(args.FeeLimit),
-				Value:      (*big.Int)(&args.Value),
-				Data:       input,
-				AccessList: al,
-			}
-		}
 		data = &types.DynamicFeeTx{
 			To:         to,
 			ChainID:    (*big.Int)(args.ChainID),
@@ -144,6 +129,24 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			Gas:        uint64(args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+			Value:      (*big.Int)(&args.Value),
+			Data:       input,
+			AccessList: al,
+		}
+	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+		al := types.AccessList{}
+		if args.AccessList != nil {
+			al = *args.AccessList
+		}
+		data = &types.AltFeeTx{
+			To:         to,
+			ChainID:    (*big.Int)(args.ChainID),
+			Nonce:      uint64(args.Nonce),
+			Gas:        uint64(args.Gas),
+			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
+			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+			FeeTokenID: uint16(*args.FeeTokenID),
+			FeeLimit:   (*big.Int)(args.FeeLimit),
 			Value:      (*big.Int)(&args.Value),
 			Data:       input,
 			AccessList: al,

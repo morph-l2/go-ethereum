@@ -527,7 +527,6 @@ func (l *txList) LastElement() *types.Transaction {
 type priceHeap struct {
 	baseFee *big.Int // heap should always be re-sorted after baseFee is changed
 	list    []*types.Transaction
-	state   *state.StateDB
 }
 
 func (h *priceHeap) Len() int      { return len(h.list) }

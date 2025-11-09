@@ -972,7 +972,7 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 	// Try to insert the transaction into the future queue
 	from, _ := types.Sender(pool.signer, tx) // already validated
 	if pool.queue[from] == nil {
-		pool.queue[from] = newTxList(false, pool.currentState)
+		pool.queue[from] = newTxList(false)
 	}
 
 	inserted, old := pool.queue[from].Add(tx, pool.currentState, pool.config.PriceBump, pool.chainconfig, pool.currentHead)
@@ -1025,7 +1025,7 @@ func (pool *TxPool) journalTx(from common.Address, tx *types.Transaction) {
 func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.Transaction) bool {
 	// Try to insert the transaction into the pending queue
 	if pool.pending[addr] == nil {
-		pool.pending[addr] = newTxList(true, pool.currentState)
+		pool.pending[addr] = newTxList(true)
 	}
 	list := pool.pending[addr]
 
@@ -1543,6 +1543,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 	// Track the promoted transactions to broadcast them at once
 	var promoted []*types.Transaction
 
+	header := pool.chain.CurrentBlock().Header()
 	// Iterate over all accounts and promote any executable transactions
 	for _, addr := range accounts {
 		list := pool.queue[addr]
@@ -1559,9 +1560,15 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 
 		// Drop all transactions that are too costly (low balance or out of gas)
 		costLimit := pool.currentState.GetBalance(addr)
-		// TODO erc20 cost limit
-		erc20CostLimit := make(map[uint16]*big.Int)
-		drops, _ := list.FilterF(costLimit, erc20CostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, erc20CostLimit))
+		altCostLimit := make(map[uint16]*big.Int)
+		for id := range list.costcap.Alts() {
+			altBalance, _ := pool.getBalanceFunc(header, pool.currentState, id, addr)
+			if altBalance == nil {
+				altBalance = big.NewInt(0)
+			}
+			altCostLimit[id] = altBalance
+		}
+		drops, _ := list.FilterF(costLimit, altCostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, altCostLimit))
 		for _, tx := range drops {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
@@ -1606,7 +1613,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 	return promoted
 }
 
-func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, erc20CostLimit map[uint16]*big.Int) func(tx *types.Transaction) bool {
+func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, altCostLimit map[uint16]*big.Int) func(tx *types.Transaction) bool {
 	return func(tx *types.Transaction) bool {
 		if !tx.IsAltFeeTx() && (tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0) {
 			return true
@@ -1619,26 +1626,24 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 				return false
 			}
 			if tx.IsAltFeeTx() {
-				if erc20CostLimit[tx.FeeTokenID()] == nil {
+				if altCostLimit[tx.FeeTokenID()] == nil {
 					balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), addr)
 					if err != nil || balance == nil {
 						log.Error("Failed to query balance", "err", err, "tx", tx)
 						return false
 					}
-					limit := balance
-					if tx.FeeLimit() != nil && tx.FeeLimit().Sign() != 0 {
-						limit = cmath.BigMin(balance, tx.FeeLimit())
-					}
-					erc20CostLimit[tx.FeeTokenID()] = limit
+					// account cost limit
+					altCostLimit[tx.FeeTokenID()] = balance
 				}
-				erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+				altAmount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 				if err != nil {
 					log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 					return false
 				}
-				return costLimit.Cmp(tx.Value()) < 0 || erc20CostLimit[tx.FeeTokenID()].Cmp(erc20Amount) < 0
+				return costLimit.Cmp(tx.Value()) < 0 || altCostLimit[tx.FeeTokenID()].Cmp(altAmount) < 0
+			} else {
+				return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 			}
-			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 		}
 
 		return false
@@ -1785,6 +1790,7 @@ func (pool *TxPool) truncateQueue() {
 // is always explicitly triggered by SetBaseFee and it would be unnecessary and wasteful
 // to trigger a re-heap is this function
 func (pool *TxPool) demoteUnexecutables() {
+	header := pool.chain.CurrentBlock().Header()
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
 		nonce := pool.currentState.GetNonce(addr)
@@ -1798,9 +1804,15 @@ func (pool *TxPool) demoteUnexecutables() {
 		}
 		// Drop all transactions that are too costly (low balance or out of gas), and queue any invalids back for later
 		costLimit := pool.currentState.GetBalance(addr)
-		// TODO erc20 cost limit
-		erc20CostLimit := make(map[uint16]*big.Int)
-		drops, invalids := list.FilterF(costLimit, erc20CostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, erc20CostLimit))
+		altCostLimit := make(map[uint16]*big.Int)
+		for id := range list.costcap.Alts() {
+			altBalance, _ := pool.getBalanceFunc(header, pool.currentState, id, addr)
+			if altBalance == nil {
+				altBalance = big.NewInt(0)
+			}
+			altCostLimit[id] = altBalance
+		}
+		drops, invalids := list.FilterF(costLimit, altCostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, altCostLimit))
 
 		for _, tx := range drops {
 			hash := tx.Hash()

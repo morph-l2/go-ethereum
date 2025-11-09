@@ -1640,7 +1640,11 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 					log.Error("Failed to swap to erc20", "err", err, "tx", tx)
 					return false
 				}
-				return costLimit.Cmp(tx.Value()) < 0 || altCostLimit[tx.FeeTokenID()].Cmp(altAmount) < 0
+				limit := altCostLimit[tx.FeeTokenID()]
+				if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
+					limit = cmath.BigMin(altCostLimit[tx.FeeTokenID()], tx.FeeLimit())
+				}
+				return costLimit.Cmp(tx.Value()) < 0 || limit.Cmp(altAmount) < 0
 			} else {
 				return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 			}

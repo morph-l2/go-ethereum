@@ -137,9 +137,17 @@ func transferERC20ByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amou
 	// Create a message call context
 	sender := vm.AccountRef(from)
 	// Execute the call
-	_, _, err = evm.Call(sender, tokenAddress, data, math.MaxUint64, big.NewInt(0))
+	ret, _, err := evm.Call(sender, tokenAddress, data, math.MaxUint64, big.NewInt(0))
 	if err != nil {
 		return fmt.Errorf("ERC20 transfer call failed: %v", err)
+	}
+
+	// Consider both variants: no return (old tokens) and bool true (standard).
+	if len(ret) > 0 {
+		// ABI bool is 32 bytes; success if last byte == 1
+		if len(ret) < 32 || ret[31] != 1 {
+			return fmt.Errorf("ERC20 transfer returned failure")
+		}
 	}
 
 	// Check balance after transfer

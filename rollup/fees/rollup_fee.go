@@ -44,6 +44,8 @@ type Message interface {
 type StateDB interface {
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash) common.Hash
+	Snapshot() int
+	RevertToSnapshot(int)
 }
 
 type gpoState struct {

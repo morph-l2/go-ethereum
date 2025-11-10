@@ -334,7 +334,7 @@ func (st *StateTransition) buyERC20Gas() error {
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err := st.TransferERC20Hybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, tokenInfo.BalanceSlot); err != nil {
+	if err := st.TransferERC20Hybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, tokenInfo.BalanceSlot, erc20Balance); err != nil {
 		return fmt.Errorf("failed to transfer ERC20 tokens for gas payment: %v", err)
 	}
 
@@ -427,6 +427,12 @@ func (st *StateTransition) preCheck() error {
 			return fmt.Errorf("token %v not active", st.msg.FeeTokenID())
 		}
 		feeRate, tokenScale, err := fees.TokenRate(st.state, st.msg.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token rate failed %v", err)
+		}
+		if feeRate == nil || tokenScale == nil || feeRate.Sign() <= 0 || tokenScale.Sign() <= 0 {
+			return fmt.Errorf("token rate or scale is nil")
+		}
 		st.feeRate = feeRate
 		st.tokenScale = tokenScale
 		return st.buyERC20Gas()
@@ -676,6 +682,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			st.msg.From(),
 			tokenAmount,
 			tokenInfo.BalanceSlot,
+			nil,
 		); err != nil {
 			log.Error("Failed to refund ERC20 gas", "tokenID", st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
 			// Continue execution even if refund fails - refund should not cause transaction to fail

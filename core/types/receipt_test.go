@@ -466,11 +466,11 @@ func TestReceiptMarshalBinary(t *testing.T) {
 	// alt fee Receipt
 	buf.Reset()
 	altFeeReceipt.Bloom = CreateBloom(Receipts{altFeeReceipt})
-	have, err = eip1559Receipt.MarshalBinary()
+	have, err = altFeeReceipt.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal binary error: %v", err)
 	}
-	altFeeReceipts := Receipts{eip1559Receipt}
+	altFeeReceipts := Receipts{altFeeReceipt}
 	altFeeReceipts.EncodeIndex(0, buf)
 	haveEncodeIndex = buf.Bytes()
 	if !bytes.Equal(have, haveEncodeIndex) {

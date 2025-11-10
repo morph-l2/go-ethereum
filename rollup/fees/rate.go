@@ -1,6 +1,7 @@
 package fees
 
 import (
+	"errors"
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -11,9 +12,9 @@ import (
 // TokenRate returns the ETH exchange rate for the specified token,erc20Price / ethPrice
 func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 	if tokenID == 0 {
-		return big.NewInt(1), big.NewInt(1), nil
+		return nil, nil, errors.New("token id 0 not support")
 	}
-	info, price, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, tokenID)
+	info, rate, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, tokenID)
 	if err != nil {
 		log.Error("Failed to get token info from storage", "tokenID", tokenID, "error", err)
 		return nil, nil, err
@@ -26,7 +27,7 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 	}
 
 	// If price is nil or zero, this token doesn't have a valid price
-	if price == nil || price.Sign() == 0 {
+	if rate == nil || rate.Sign() == 0 {
 		log.Error("Invalid token price", "tokenID", tokenID, "tokenAddr", info.TokenAddress.Hex())
 		return nil, nil, err
 	}
@@ -38,7 +39,7 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 		return nil, nil, err
 	}
 
-	return price, scale, err
+	return rate, scale, err
 }
 
 func EthToAlt(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {

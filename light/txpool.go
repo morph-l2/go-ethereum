@@ -430,7 +430,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 			return err
 		}
 		limit := erc20Balance
-		if tx.FeeLimit() != nil && tx.FeeLimit().Sign() != 0 {
+		if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
 			limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
 		}
 		if limit.Cmp(erc20Amount) < 0 {
@@ -466,7 +466,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 				return err
 			}
 			limit := erc20Balance
-			if tx.FeeLimit() != nil && tx.FeeLimit().Sign() != 0 {
+			if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
 				limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
 			}
 			if limit.Cmp(erc20Amount) < 0 {

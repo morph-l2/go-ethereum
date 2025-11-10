@@ -16,6 +16,15 @@ import (
 // - getTokenIdByAddress(address) returns (uint16)
 var TokenRegistryAddress = rcfg.L2TokenRegistryAddress
 
+// TokenInfo solidity struct code:
+// struct TokenInfo {
+// 	address tokenAddress; // ERC20 token contract address
+// 	bytes32 balanceSlot; // Token balance storage slot, bytes32(0) -> nil
+// 	bool isActive; // Whether the token is active
+// 	uint8 decimals; // Token decimals
+// 	uint256 scale; // Core convention: rateScaled = tokenScale * (tokenPrice / ethPrice) * 10^(ethDecimals - tokenDecimals)
+// }
+
 // TokenInfo represents the token information structure
 type TokenInfo struct {
 	TokenAddress common.Address

@@ -14,6 +14,8 @@ func TransferERC20ByState(state StateDB, tokenAddress common.Address, balanceSlo
 		return fmt.Errorf("invalid transfer amount")
 	}
 
+	snapshot := state.Snapshot()
+
 	// Subtract from sender
 	if err := changeERC20BalanceByState(state, tokenAddress, balanceSlot, from, amount, true); err != nil {
 		return fmt.Errorf("failed to subtract ERC20 balance from sender: %v", err)
@@ -21,17 +23,7 @@ func TransferERC20ByState(state StateDB, tokenAddress common.Address, balanceSlo
 
 	// Add to recipient
 	if err := changeERC20BalanceByState(state, tokenAddress, balanceSlot, to, amount, false); err != nil {
-		// If adding to recipient fails, we need to restore the sender's balance
-		// This is a critical error that should not happen in normal circumstances
-		restoreErr := changeERC20BalanceByState(state, tokenAddress, balanceSlot, from, amount, false)
-		if restoreErr != nil {
-			log.Error("Critical error: failed to restore sender balance after transfer failure",
-				"token", tokenAddress.Hex(),
-				"sender", from.Hex(),
-				"recipient", to.Hex(),
-				"amount", amount,
-				"restoreError", restoreErr)
-		}
+		state.RevertToSnapshot(snapshot)
 		return fmt.Errorf("failed to add ERC20 balance to recipient: %v", err)
 	}
 

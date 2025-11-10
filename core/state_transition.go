@@ -329,15 +329,23 @@ func (st *StateTransition) buyERC20Gas() error {
 	st.gas += st.msg.Gas()
 	st.initialGas = st.msg.Gas()
 
+	rollback := true
+	defer func() {
+		if rollback {
+			st.gp.AddGas(st.msg.Gas())
+			st.gas = 0
+			st.initialGas = 0
+		}
+	}()
 	// Transfer ERC20 tokens from user to fee vault
 	feeVaultAddress := st.evm.ChainConfig().Morph.FeeVaultAddress
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err := st.TransferERC20Hybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, tokenInfo.BalanceSlot); err != nil {
+	if err := st.TransferERC20Hybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, tokenInfo.BalanceSlot, erc20Balance); err != nil {
 		return fmt.Errorf("failed to transfer ERC20 tokens for gas payment: %v", err)
 	}
-
+	rollback = false
 	log.Debug("ERC20 gas payment successful",
 		"tokenID", st.msg.FeeTokenID(),
 		"tokenAddress", tokenInfo.TokenAddress.String(),
@@ -428,7 +436,10 @@ func (st *StateTransition) preCheck() error {
 		}
 		feeRate, tokenScale, err := fees.TokenRate(st.state, st.msg.FeeTokenID())
 		if err != nil {
-			return err
+			return fmt.Errorf("get token rate failed %v", err)
+		}
+		if feeRate == nil || tokenScale == nil || feeRate.Sign() <= 0 || tokenScale.Sign() <= 0 {
+			return fmt.Errorf("token rate or scale is nil")
 		}
 		st.feeRate = feeRate
 		st.tokenScale = tokenScale
@@ -679,17 +690,17 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			st.msg.From(),
 			tokenAmount,
 			tokenInfo.BalanceSlot,
+			nil,
 		); err != nil {
 			log.Error("Failed to refund ERC20 gas", "tokenID", st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
 			// Continue execution even if refund fails - refund should not cause transaction to fail
 		}
-		return
 	} else {
 		st.state.AddBalance(st.msg.From(), remaining, tracing.BalanceIncreaseGasReturn)
+	}
 
-		if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gas > 0 {
-			st.evm.Config.Tracer.OnGasChange(st.gas, 0, tracing.GasChangeTxLeftOverReturned)
-		}
+	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gas > 0 {
+		st.evm.Config.Tracer.OnGasChange(st.gas, 0, tracing.GasChangeTxLeftOverReturned)
 	}
 }
 

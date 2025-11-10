@@ -43,13 +43,13 @@ func (st *StateTransition) GetERC20BalanceHybrid(tokenID uint16, user common.Add
 
 // TransferERC20Hybrid transfers ERC20 tokens using either storage slot or call method
 // If balanceSlot is zero hash, uses call method; otherwise uses storage slot method
-func (st *StateTransition) TransferERC20Hybrid(tokenAddress, from, to common.Address, amount *big.Int, balanceSlot common.Hash) error {
+func (st *StateTransition) TransferERC20Hybrid(tokenAddress, from, to common.Address, amount *big.Int, balanceSlot common.Hash, userBalanceBefore *big.Int) error {
 	if amount == nil || amount.Cmp(big.NewInt(0)) == 0 {
 		return nil
 	}
 	if balanceSlot == (common.Hash{}) {
 		// Use call method
-		return transferERC20ByEVM(st.evm, tokenAddress, from, to, amount)
+		return transferERC20ByEVM(st.evm, tokenAddress, from, to, amount, userBalanceBefore)
 	}
 	// Use storage slot method
 	return fees.TransferERC20ByState(st.state, tokenAddress, balanceSlot, from, to, amount)
@@ -106,9 +106,25 @@ func GetERC20BalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Address)
 }
 
 // TransferERC20ByEVM transfers ERC20 tokens from one address to another.
-func transferERC20ByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amount *big.Int) error {
+func transferERC20ByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amount *big.Int, userBalanceBefore *big.Int) error {
 	if amount == nil || amount.Sign() <= 0 {
 		return fmt.Errorf("invalid transfer amount")
+	}
+
+	var fromBalanceBefore *big.Int
+	var err error
+	if userBalanceBefore != nil {
+		fromBalanceBefore = userBalanceBefore
+	} else {
+		fromBalanceBefore, err = GetERC20BalanceByEVM(evm, tokenAddress, from)
+		if err != nil {
+			return fmt.Errorf("failed to get sender balance before transfer: %v", err)
+		}
+	}
+
+	// Check if sender has sufficient balance
+	if fromBalanceBefore.Cmp(amount) < 0 {
+		return fmt.Errorf("insufficient balance: have %s, need %s", fromBalanceBefore.String(), amount.String())
 	}
 
 	methodID := generateMethodSignature(TokenTransferSig)
@@ -126,17 +142,35 @@ func transferERC20ByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amou
 		return fmt.Errorf("ERC20 transfer call failed: %v", err)
 	}
 
-	// Check if the call was successful (ERC20 transfer returns boolean)
-	if len(ret) == 0 {
-		return fmt.Errorf("ERC20 transfer returned no data")
+	// Consider both variants: no return (old tokens) and bool true (standard).
+	if len(ret) > 0 {
+		// ABI bool is 32 bytes; success if last byte == 1
+		if len(ret) < 32 || ret[31] != 1 {
+			return fmt.Errorf("ERC20 transfer returned failure")
+		}
 	}
 
-	// Log the transfer
+	// Check balance after transfer
+	fromBalanceAfter, err := GetERC20BalanceByEVM(evm, tokenAddress, from)
+	if err != nil {
+		return fmt.Errorf("failed to get sender balance after transfer: %v", err)
+	}
+
+	// Verify balance changes
+	expectedFromBalance := new(big.Int).Sub(fromBalanceBefore, amount)
+	if fromBalanceAfter.Cmp(expectedFromBalance) != 0 {
+		return fmt.Errorf("sender balance mismatch: expected %s, got %s", expectedFromBalance.String(), fromBalanceAfter.String())
+	}
+
+	// Log the transfer with balance information
 	log.Debug("ERC20 transfer executed",
 		"token", tokenAddress.Hex(),
 		"from", from.Hex(),
 		"to", to.Hex(),
-		"amount", amount)
+		"amount", amount,
+		"from_balance_before", fromBalanceBefore,
+		"from_balance_after", fromBalanceAfter,
+	)
 
 	return nil
 }

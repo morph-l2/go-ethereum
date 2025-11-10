@@ -6,7 +6,6 @@ import (
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
-	"github.com/morph-l2/go-ethereum/common/math"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
@@ -17,6 +16,8 @@ import (
 var (
 	TokenTransferSig  = "transfer(address,uint256)"
 	TokenBalanceOfSig = "balanceOf(address)"
+
+	maxGas uint64 = 200000
 )
 
 // GetERC20BalanceHybrid returns the balance of an ERC20 token using either storage slot or call method
@@ -89,7 +90,7 @@ func GetERC20BalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Address)
 	// Create a message call context
 	sender := vm.AccountRef(userAddress)
 	// Execute the call (using StaticCall since we're only reading state)
-	ret, _, err := evm.StaticCall(sender, tokenAddress, data, math.MaxUint64)
+	ret, _, err := evm.StaticCall(sender, tokenAddress, data, maxGas)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +138,7 @@ func transferERC20ByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amou
 	// Create a message call context
 	sender := vm.AccountRef(from)
 	// Execute the call
-	ret, _, err := evm.Call(sender, tokenAddress, data, math.MaxUint64, big.NewInt(0))
+	ret, _, err := evm.Call(sender, tokenAddress, data, maxGas, big.NewInt(0))
 	if err != nil {
 		return fmt.Errorf("ERC20 transfer call failed: %v", err)
 	}

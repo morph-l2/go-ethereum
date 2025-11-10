@@ -325,7 +325,15 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
 	}
 	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error) {
+		active, err := fees.IsTokenActive(state, tokenID)
+		if err != nil || !active {
+			return big.NewInt(0), errors.New("invalid token")
+		}
 		blockContext := vm.BlockContext{
+			CanTransfer: CanTransfer,
+			Transfer:    Transfer,
+			GetHash:     func(n uint64) common.Hash { return common.Hash{} },
+			Coinbase:    header.Coinbase,
 			BlockNumber: header.Number,
 			Time:        big.NewInt(int64(header.Time)),
 			Difficulty:  header.Difficulty,
@@ -334,14 +342,8 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		}
 
 		// Configure minimal VM settings
-		vmConfig := vm.Config{
-			NoBaseFee: true,
-			Tracer:    nil,
-		}
-		txContext := vm.TxContext{
-			Origin:   common.Address{},
-			GasPrice: big.NewInt(0),
-		}
+		vmConfig := vm.Config{}
+		txContext := vm.TxContext{}
 		// Create the EVM instance
 		evm := vm.NewEVM(blockContext, txContext, state, pool.chainconfig, vmConfig)
 		return GetERC20Balance(evm, tokenID, addr)

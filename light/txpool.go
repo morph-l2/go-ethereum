@@ -117,7 +117,15 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 	// Subscribe events from blockchain
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error) {
+		active, err := fees.IsTokenActive(state, tokenID)
+		if err != nil || !active {
+			return big.NewInt(0), errors.New("invalid token")
+		}
 		blockContext := vm.BlockContext{
+			CanTransfer: core.CanTransfer,
+			Transfer:    core.Transfer,
+			GetHash:     func(n uint64) common.Hash { return common.Hash{} },
+			Coinbase:    header.Coinbase,
 			BlockNumber: header.Number,
 			Time:        big.NewInt(int64(header.Time)),
 			Difficulty:  header.Difficulty,
@@ -126,14 +134,8 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 		}
 
 		// Configure minimal VM settings
-		vmConfig := vm.Config{
-			NoBaseFee: true,
-			Tracer:    nil,
-		}
-		txContext := vm.TxContext{
-			Origin:   common.Address{},
-			GasPrice: big.NewInt(0),
-		}
+		vmConfig := vm.Config{}
+		txContext := vm.TxContext{}
 		// Create the EVM instance
 		evm := vm.NewEVM(blockContext, txContext, state, pool.config, vmConfig)
 		return core.GetERC20Balance(evm, tokenID, addr)

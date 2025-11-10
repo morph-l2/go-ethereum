@@ -1193,12 +1193,16 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 				return 0, err
 			}
 			tokenID := uint16(*args.FeeTokenID)
+			active, err := fees.IsTokenActive(state, tokenID)
+			if err != nil || !active {
+				return 0, errors.New("invalid token")
+			}
 			altBalance, err := core.GetERC20Balance(evm, tokenID, args.from())
 			if err != nil {
 				return 0, err
 			}
-			limit := new(big.Int)
-			if args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
+			limit := altBalance
+			if args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() > 0 {
 				limit = math.BigMin(altBalance, args.FeeLimit.ToInt())
 			}
 			// account for l1 fee

@@ -1197,7 +1197,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			if err != nil {
 				return 0, err
 			}
-			limit := new(big.Int)
+			limit := altBalance
 			if args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
 				limit = math.BigMin(altBalance, args.FeeLimit.ToInt())
 			}

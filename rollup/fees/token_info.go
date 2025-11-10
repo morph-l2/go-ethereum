@@ -1,6 +1,7 @@
 package fees
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -133,6 +134,9 @@ func GetTokenScaleByIDWithState(state StateDB, tokenID uint16) (*big.Int, error)
 
 // IsTokenActive checks if a token is active
 func IsTokenActive(state StateDB, tokenID uint16) (bool, error) {
+	if tokenID == 0 {
+		return false, errors.New("token id 0 not support ")
+	}
 	info, err := GetTokenInfo(state, tokenID)
 	if err != nil {
 		return false, err

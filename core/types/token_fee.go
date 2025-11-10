@@ -17,6 +17,9 @@ func NewSuperAccount() *SuperAccount {
 	}
 }
 func (dca *SuperAccount) Eth() *big.Int {
+	if dca.ethAmount == nil {
+		return new(big.Int)
+	}
 	return dca.ethAmount
 }
 
@@ -25,6 +28,13 @@ func (dca *SuperAccount) Alt(id uint16) *big.Int {
 		return new(big.Int)
 	}
 	return dca.altAmount[id]
+}
+
+func (dca *SuperAccount) Alts() AltAccount {
+	if dca.altAmount == nil {
+		return make(AltAccount)
+	}
+	return dca.altAmount
 }
 
 func (dca *SuperAccount) SetEthAmount(amount *big.Int) {
@@ -37,6 +47,12 @@ func (dca *SuperAccount) SetAltAmount(id uint16, amount *big.Int) {
 
 // EthToAlt altAmount = ethAmount / (tokenRate / tokenScale) = ethAmount * tokenScale / tokenRate
 func EthToAlt(ethAmount, rate, tokenScale *big.Int) *big.Int {
+	if rate == nil || rate.Sign() <= 0 {
+		panic("invalid token scale")
+	}
+	if tokenScale == nil || tokenScale.Sign() <= 0 {
+		panic("invalid token rate")
+	}
 	altAmount := new(big.Int)
 	remainder := new(big.Int)
 	altAmount.QuoRem(new(big.Int).Mul(ethAmount, tokenScale), rate, remainder)
@@ -48,9 +64,15 @@ func EthToAlt(ethAmount, rate, tokenScale *big.Int) *big.Int {
 
 // AltToEth ethAmount = altAmount * (tokenRate / tokenScale)
 func AltToEth(erc20Amount, rate, tokenScale *big.Int) *big.Int {
+	if rate == nil || rate.Sign() <= 0 {
+		panic("invalid token scale")
+	}
+	if tokenScale == nil || tokenScale.Sign() <= 0 {
+		panic("invalid token rate")
+	}
 	ethAmount := new(big.Int)
 	remainder := new(big.Int)
-	ethAmount.QuoRem(new(big.Int).Mul(erc20Amount, tokenScale), rate, remainder)
+	ethAmount.QuoRem(new(big.Int).Mul(erc20Amount, rate), tokenScale, remainder)
 	if remainder.Sign() != 0 {
 		ethAmount.Add(ethAmount, big.NewInt(1))
 	}

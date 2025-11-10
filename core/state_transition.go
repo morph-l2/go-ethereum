@@ -427,6 +427,9 @@ func (st *StateTransition) preCheck() error {
 			return fmt.Errorf("token %v not active", st.msg.FeeTokenID())
 		}
 		feeRate, tokenScale, err := fees.TokenRate(st.state, st.msg.FeeTokenID())
+		if err != nil {
+			return err
+		}
 		st.feeRate = feeRate
 		st.tokenScale = tokenScale
 		return st.buyERC20Gas()

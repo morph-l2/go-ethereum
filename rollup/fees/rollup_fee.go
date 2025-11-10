@@ -93,7 +93,7 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 		return asUnsignedAccessListTx(msg, chainID)
 	}
 	if msg.FeeTokenID() != 0 {
-		return asUnsignedERC20FeeTx(msg, chainID)
+		return asUnsignedAltFeeTx(msg, chainID)
 	}
 
 	return asUnsignedDynamicTx(msg, chainID)
@@ -137,7 +137,7 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 	})
 }
 
-func asUnsignedERC20FeeTx(msg Message, chainID *big.Int) *types.Transaction {
+func asUnsignedAltFeeTx(msg Message, chainID *big.Int) *types.Transaction {
 	return types.NewTx(&types.AltFeeTx{
 		Nonce:      msg.Nonce(),
 		To:         msg.To(),
@@ -146,6 +146,7 @@ func asUnsignedERC20FeeTx(msg Message, chainID *big.Int) *types.Transaction {
 		GasFeeCap:  msg.GasFeeCap(),
 		GasTipCap:  msg.GasTipCap(),
 		FeeTokenID: msg.FeeTokenID(),
+		FeeLimit:   msg.FeeLimit(),
 		Data:       msg.Data(),
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,

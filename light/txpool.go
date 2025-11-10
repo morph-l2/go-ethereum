@@ -413,12 +413,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if tx.FeeTokenID() == 0 {
-		if b := currentState.GetBalance(from); b.Cmp(tx.Cost()) < 0 {
-			return core.ErrInsufficientFunds
-		}
-	}
-	if tx.FeeTokenID() != 0 {
+	if tx.IsAltFeeTx() {
 		active, err := fees.IsTokenActive(currentState, tx.FeeTokenID())
 		if err != nil {
 			return fmt.Errorf("get token status failed %v", err)
@@ -458,7 +453,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		}
 		// Transactor should have enough funds to cover the costs
 		// cost == L1 data fee + V + GP * GL
-		if tx.FeeTokenID() != 0 {
+		if tx.IsAltFeeTx() {
 			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return errors.New("invalid transaction: insufficient funds for value")
 			}

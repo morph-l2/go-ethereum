@@ -113,7 +113,10 @@ type storedReceiptRLP struct {
 	CumulativeGasUsed uint64
 	Logs              []*LogForStorage
 	L1Fee             *big.Int
-	Rate              *big.Int
+	FeeTokenID        *uint16
+	FeeRate           *big.Int
+	TokenScale        *big.Int
+	FeeLimit          *big.Int
 }
 
 // v5StoredReceiptRLP is the storage encoding of a receipt used in database version 5.
@@ -312,7 +315,10 @@ func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
 		CumulativeGasUsed: r.CumulativeGasUsed,
 		Logs:              make([]*LogForStorage, len(r.Logs)),
 		L1Fee:             r.L1Fee,
-		Rate:              r.FeeRate,
+		FeeTokenID:        r.FeeTokenID,
+		FeeRate:           r.FeeRate,
+		TokenScale:        r.TokenScale,
+		FeeLimit:          r.FeeLimit,
 	}
 	for i, log := range r.Logs {
 		enc.Logs[i] = (*LogForStorage)(log)
@@ -358,6 +364,10 @@ func decodeStoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
 	}
 	r.Bloom = CreateBloom(Receipts{(*Receipt)(r)})
 	r.L1Fee = stored.L1Fee
+	r.FeeTokenID = stored.FeeTokenID
+	r.FeeRate = stored.FeeRate
+	r.TokenScale = stored.TokenScale
+	r.FeeLimit = stored.FeeLimit
 
 	return nil
 }

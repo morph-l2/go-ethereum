@@ -57,7 +57,7 @@ type TransactOpts struct {
 	GasTipCap *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
 	GasLimit  uint64   // Gas limit to set for the transaction execution (0 = estimate)
 
-	FeeTokenID *big.Int // alt fee token id of transaction execution
+	FeeTokenID uint16   // alt fee token id of transaction execution
 	FeeLimit   *big.Int // alt fee token limit of transaction execution
 
 	Context context.Context // Network context to support cancellation and timeouts (nil = no timeout)
@@ -339,7 +339,7 @@ func (c *BoundContract) createAltFeeTx(opts *TransactOpts, contract *common.Addr
 		Nonce:      nonce,
 		GasFeeCap:  gasFeeCap,
 		GasTipCap:  gasTipCap,
-		FeeTokenID: uint16(opts.FeeTokenID.Uint64()),
+		FeeTokenID: opts.FeeTokenID,
 		FeeLimit:   opts.FeeLimit,
 		Gas:        gasLimit,
 		Value:      value,
@@ -438,7 +438,7 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 		if head, errHead := c.transactor.HeaderByNumber(ensureContext(opts.Context), nil); errHead != nil {
 			return nil, errHead
 		} else if head.BaseFee != nil {
-			if opts.FeeTokenID != nil {
+			if opts.FeeTokenID != 0 {
 				rawTx, err = c.createAltFeeTx(opts, contract, input, head)
 			} else {
 				rawTx, err = c.createDynamicTx(opts, contract, input, head)

@@ -1888,10 +1888,12 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
-		"feeTokenID":        receipt.FeeTokenID,
 		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
 		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
 		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
+	}
+	if receipt.FeeTokenID != nil {
+		fields["feeTokenID"] = hexutil.Uint64(*receipt.FeeTokenID)
 	}
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {

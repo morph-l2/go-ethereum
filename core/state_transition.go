@@ -284,8 +284,8 @@ func (st *StateTransition) buyGas() error {
 	return nil
 }
 
-// buyERC20Gas handles gas payment using ERC20 tokens
-func (st *StateTransition) buyERC20Gas() error {
+// buyAltTokenGas handles gas payment using alternative tokens (ERC20, etc.)
+func (st *StateTransition) buyAltTokenGas() error {
 	// Calculate the total ETH fee needed
 	mgval := new(big.Int).SetUint64(st.msg.Gas())
 	mgval = mgval.Mul(mgval, st.gasPrice)
@@ -294,31 +294,31 @@ func (st *StateTransition) buyERC20Gas() error {
 		return errors.New("tx need fee vault enable")
 	}
 
-	log.Debug("Adding L1DataFee for ERC20 gas payment", "l1DataFee", st.l1DataFee)
+	log.Debug("Adding L1DataFee for alt token gas payment", "l1DataFee", st.l1DataFee)
 	mgval = mgval.Add(mgval, st.l1DataFee)
 
 	// Check value
 	if have, want := st.state.GetBalance(st.msg.From()), st.value; have.Cmp(want) < 0 {
 		return fmt.Errorf("%w: address %v  have %v want %v", ErrInsufficientValue, st.msg.From().Hex(), have.String(), want.String())
 	}
-	// Check ERC20 token balance
-	tokenInfo, erc20Balance, err := st.GetERC20BalanceHybrid(st.msg.FeeTokenID(), st.msg.From())
+	// Check alt token balance
+	tokenInfo, tokenBalance, err := st.GetAltTokenBalanceHybrid(st.msg.FeeTokenID(), st.msg.From())
 	if err != nil {
-		return fmt.Errorf("failed to get ERC20 balance: %v", err)
+		return fmt.Errorf("failed to get alt token balance: %v", err)
 	}
-	log.Debug("ERC20 gas payment calculation",
+	log.Debug("Alt token gas payment calculation",
 		"tokenID", st.msg.FeeTokenID(),
 		"tokenAddress", tokenInfo.TokenAddress.Hex(),
 		"fee", mgval,
 	)
 
-	erc20Mgval := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
-	feeLimit := erc20Balance
+	tokenFee := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
+	feeLimit := tokenBalance
 	if st.msg.FeeLimit() != nil && st.msg.FeeLimit().Sign() > 0 {
-		feeLimit = cmath.BigMin(erc20Balance, st.msg.FeeLimit())
+		feeLimit = cmath.BigMin(tokenBalance, st.msg.FeeLimit())
 	}
-	if feeLimit.Cmp(erc20Mgval) < 0 {
-		return fmt.Errorf("%w: address %v has insufficient erc20 balance or fee limit, have %v need %v (token %s)",
+	if feeLimit.Cmp(tokenFee) < 0 {
+		return fmt.Errorf("%w: address %v has insufficient token balance or fee limit, have %v need %v (token %s)",
 			ErrInsufficientGasFee, st.msg.From().Hex(), feeLimit, mgval, tokenInfo.TokenAddress.Hex())
 	}
 
@@ -326,32 +326,29 @@ func (st *StateTransition) buyERC20Gas() error {
 	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
 		return err
 	}
-	st.gas += st.msg.Gas()
-	st.initialGas = st.msg.Gas()
 
-	rollback := true
-	defer func() {
-		if rollback {
-			st.gp.AddGas(st.msg.Gas())
-			st.gas = 0
-			st.initialGas = 0
-		}
-	}()
-	// Transfer ERC20 tokens from user to fee vault
+	// Transfer alt tokens from user to fee vault
 	feeVaultAddress := st.evm.ChainConfig().Morph.FeeVaultAddress
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err := st.TransferERC20Hybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, erc20Mgval, tokenInfo.BalanceSlot, erc20Balance); err != nil {
-		return fmt.Errorf("failed to transfer ERC20 tokens for gas payment: %v", err)
+	if err := st.TransferAltTokenHybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, tokenFee, tokenInfo.BalanceSlot, tokenBalance); err != nil {
+		return fmt.Errorf("failed to transfer alt tokens for gas payment: %v", err)
 	}
-	rollback = false
-	log.Debug("ERC20 gas payment successful",
+
+	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil {
+		st.evm.Config.Tracer.OnGasChange(0, st.msg.Gas(), tracing.GasChangeTxInitialBalance)
+	}
+
+	st.gas += st.msg.Gas()
+	st.initialGas = st.msg.Gas()
+
+	log.Debug("Alt token gas payment successful",
 		"tokenID", st.msg.FeeTokenID(),
 		"tokenAddress", tokenInfo.TokenAddress.String(),
 		"from", st.msg.From().String(),
 		"amount", mgval,
-		"erc20Amount", erc20Mgval,
+		"tokenAmount", tokenFee,
 		"feeVault", feeVaultAddress.String())
 
 	return nil
@@ -443,7 +440,7 @@ func (st *StateTransition) preCheck() error {
 		}
 		st.feeRate = feeRate
 		st.tokenScale = tokenScale
-		return st.buyERC20Gas()
+		return st.buyAltTokenGas()
 	}
 	return st.buyGas()
 }
@@ -684,7 +681,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			return
 		}
 		tokenAmount := types.EthToAlt(remaining, st.feeRate, st.tokenScale)
-		if err = st.TransferERC20Hybrid(
+		if err = st.TransferAltTokenHybrid(
 			tokenInfo.TokenAddress,
 			*st.evm.ChainConfig().Morph.FeeVaultAddress,
 			st.msg.From(),
@@ -692,7 +689,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			tokenInfo.BalanceSlot,
 			nil,
 		); err != nil {
-			log.Error("Failed to refund ERC20 gas", "tokenID", st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
+			log.Error("Failed to refund alt token gas", "tokenID", st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
 			// Continue execution even if refund fails - refund should not cause transaction to fail
 		}
 	} else {

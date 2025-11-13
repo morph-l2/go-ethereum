@@ -138,7 +138,7 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 		txContext := vm.TxContext{}
 		// Create the EVM instance
 		evm := vm.NewEVM(blockContext, txContext, state, pool.config, vmConfig)
-		return core.GetERC20Balance(evm, tokenID, addr)
+		return core.GetAltTokenBalance(evm, tokenID, addr)
 	}
 	go pool.eventLoop()
 

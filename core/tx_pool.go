@@ -346,7 +346,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		txContext := vm.TxContext{}
 		// Create the EVM instance
 		evm := vm.NewEVM(blockContext, txContext, state, pool.chainconfig, vmConfig)
-		return GetERC20Balance(evm, tokenID, addr)
+		return GetAltTokenBalance(evm, tokenID, addr)
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {

@@ -1197,7 +1197,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			if err != nil || !active {
 				return 0, errors.New("invalid token")
 			}
-			altBalance, err := core.GetERC20Balance(evm, tokenID, args.from())
+			altBalance, err := core.GetAltTokenBalance(evm, tokenID, args.from())
 			if err != nil {
 				return 0, err
 			}

@@ -118,10 +118,10 @@ func (oracle *Oracle) processBlock(bf *blockFees, percentiles []float64) {
 		}
 		return
 	}
-
 	sorter := make(sortGasAndReward, len(bf.block.Transactions()))
 	for i, tx := range bf.block.Transactions() {
-		reward, _ := tx.EffectiveGasTip(bf.block.BaseFee())
+		reward := big.NewInt(0)
+		reward, _ = tx.EffectiveGasTip(bf.block.BaseFee())
 		sorter[i] = txGasAndReward{gasUsed: bf.receipts[i].GasUsed, reward: reward}
 	}
 	sort.Sort(sorter)

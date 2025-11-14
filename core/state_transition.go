@@ -17,8 +17,10 @@
 package core
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
-	"math"
+	math "math"
 	"math/big"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/params"
+	"github.com/morph-l2/go-ethereum/rollup/fees"
 )
 
 var emptyKeccakCodeHash = codehash.EmptyKeccakCodeHash
@@ -73,6 +76,9 @@ type StateTransition struct {
 	evm        *vm.EVM
 
 	l1DataFee *big.Int
+
+	feeRate    *big.Int
+	tokenScale *big.Int
 }
 
 // Message represents a message sent to a contract.
@@ -92,12 +98,16 @@ type Message interface {
 	AccessList() types.AccessList
 	IsL1MessageTx() bool
 	SetCodeAuthorizations() []types.SetCodeAuthorization
+	FeeTokenID() uint16
+	FeeLimit() *big.Int
 }
 
 // ExecutionResult includes all output after executing given evm
 // message no matter the execution itself is successful or not.
 type ExecutionResult struct {
 	L1DataFee  *big.Int
+	FeeRate    *big.Int
+	TokenScale *big.Int
 	UsedGas    uint64 // Total used gas but include the refunded gas
 	Err        error  // Any error encountered during the execution(listed in core/vm/errors.go)
 	ReturnData []byte // Returned data from evm(function result or data supplied with revert opcode)
@@ -219,7 +229,6 @@ func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool, l1DataFee *big.Int) (*E
 	defer func(t time.Time) {
 		stateTransitionApplyMessageTimer.Update(time.Since(t))
 	}(time.Now())
-
 	return NewStateTransition(evm, msg, gp, l1DataFee).TransitionDb()
 }
 
@@ -272,6 +281,76 @@ func (st *StateTransition) buyGas() error {
 
 	st.initialGas = st.msg.Gas()
 	st.state.SubBalance(st.msg.From(), mgval, tracing.BalanceDecreaseGasBuy)
+	return nil
+}
+
+// buyAltTokenGas handles gas payment using alternative tokens (ERC20, etc.)
+func (st *StateTransition) buyAltTokenGas() error {
+	// Calculate the total ETH fee needed
+	mgval := new(big.Int).SetUint64(st.msg.Gas())
+	mgval = mgval.Mul(mgval, st.gasPrice)
+
+	if !st.evm.ChainConfig().Morph.FeeVaultEnabled() {
+		return errors.New("tx need fee vault enable")
+	}
+
+	log.Debug("Adding L1DataFee for alt token gas payment", "l1DataFee", st.l1DataFee)
+	mgval = mgval.Add(mgval, st.l1DataFee)
+
+	// Check value
+	if have, want := st.state.GetBalance(st.msg.From()), st.value; have.Cmp(want) < 0 {
+		return fmt.Errorf("%w: address %v  have %v want %v", ErrInsufficientValue, st.msg.From().Hex(), have.String(), want.String())
+	}
+	// Check alt token balance
+	tokenInfo, tokenBalance, err := st.GetAltTokenBalanceHybrid(st.msg.FeeTokenID(), st.msg.From())
+	if err != nil {
+		return fmt.Errorf("failed to get alt token balance: %v", err)
+	}
+	log.Debug("Alt token gas payment calculation",
+		"tokenID", st.msg.FeeTokenID(),
+		"tokenAddress", tokenInfo.TokenAddress.Hex(),
+		"fee", mgval,
+	)
+
+	tokenFee := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
+	feeLimit := tokenBalance
+	if st.msg.FeeLimit() != nil && st.msg.FeeLimit().Sign() > 0 {
+		feeLimit = cmath.BigMin(tokenBalance, st.msg.FeeLimit())
+	}
+	if feeLimit.Cmp(tokenFee) < 0 {
+		return fmt.Errorf("%w: address %v has insufficient token balance or fee limit, have %v need %v (token %s)",
+			ErrInsufficientGasFee, st.msg.From().Hex(), feeLimit, mgval, tokenInfo.TokenAddress.Hex())
+	}
+
+	// Check gas pool
+	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
+		return err
+	}
+
+	// Transfer alt tokens from user to fee vault
+	feeVaultAddress := st.evm.ChainConfig().Morph.FeeVaultAddress
+	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
+		return fmt.Errorf("fee vault address is not configured")
+	}
+	if err := st.TransferAltTokenHybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, tokenFee, tokenInfo.BalanceSlot, tokenBalance); err != nil {
+		return fmt.Errorf("failed to transfer alt tokens for gas payment: %v", err)
+	}
+
+	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil {
+		st.evm.Config.Tracer.OnGasChange(0, st.msg.Gas(), tracing.GasChangeTxInitialBalance)
+	}
+
+	st.gas += st.msg.Gas()
+	st.initialGas = st.msg.Gas()
+
+	log.Debug("Alt token gas payment successful",
+		"tokenID", st.msg.FeeTokenID(),
+		"tokenAddress", tokenInfo.TokenAddress.String(),
+		"from", st.msg.From().String(),
+		"amount", mgval,
+		"tokenAmount", tokenFee,
+		"feeVault", feeVaultAddress.String())
+
 	return nil
 }
 
@@ -342,6 +421,26 @@ func (st *StateTransition) preCheck() error {
 		if len(st.msg.SetCodeAuthorizations()) == 0 {
 			return fmt.Errorf("%w (sender %v)", ErrEmptyAuthList, st.msg.From())
 		}
+	}
+
+	if st.msg.FeeTokenID() != 0 {
+		active, err := fees.IsTokenActive(st.state, st.msg.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token status failed %v", err)
+		}
+		if !active {
+			return fmt.Errorf("token %v not active", st.msg.FeeTokenID())
+		}
+		feeRate, tokenScale, err := fees.TokenRate(st.state, st.msg.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token rate failed %v", err)
+		}
+		if feeRate == nil || tokenScale == nil || feeRate.Sign() <= 0 || tokenScale.Sign() <= 0 {
+			return fmt.Errorf("token rate or scale is nil")
+		}
+		st.feeRate = feeRate
+		st.tokenScale = tokenScale
+		return st.buyAltTokenGas()
 	}
 	return st.buyGas()
 }
@@ -474,19 +573,26 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// The L2 Fee is the same as the fee that is charged in the normal geth
 	// codepath. Add the L1DataFee to the L2 fee for the total fee that is sent
 	// to the sequencer.
-	l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
-	fee := l2Fee
-	if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
-		fee = new(big.Int).Add(st.l1DataFee, l2Fee)
+	if st.msg.FeeTokenID() == 0 {
+		l2Fee := new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip)
+		fee := l2Fee
+		if st.evm.ChainConfig().Morph.FeeVaultEnabled() {
+			fee = new(big.Int).Add(st.l1DataFee, l2Fee)
+		}
+		st.state.AddBalance(st.evm.FeeRecipient(), fee, tracing.BalanceIncreaseRewardTransactionFee)
 	}
-	st.state.AddBalance(st.evm.FeeRecipient(), fee, tracing.BalanceIncreaseRewardTransactionFee)
 
-	return &ExecutionResult{
+	result := &ExecutionResult{
 		L1DataFee:  st.l1DataFee,
 		UsedGas:    st.gasUsed(),
 		Err:        vmerr,
 		ReturnData: ret,
-	}, nil
+	}
+	if st.msg.FeeTokenID() != 0 {
+		result.FeeRate = st.feeRate
+		result.TokenScale = st.tokenScale
+	}
+	return result, nil
 }
 
 // validateAuthorization validates an EIP-7702 authorization against the state.
@@ -559,17 +665,40 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	}
 	st.gas += refund
 
+	// Return remaining gas to the block gas counter at the end, regardless of refund success
+	defer func() {
+		if st.gas > 0 {
+			st.gp.AddGas(st.gas)
+		}
+	}()
+
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
-	st.state.AddBalance(st.msg.From(), remaining, tracing.BalanceIncreaseGasReturn)
+	if st.msg.FeeTokenID() != 0 {
+		tokenInfo, err := fees.GetTokenInfo(st.state, st.msg.FeeTokenID())
+		if err != nil {
+			log.Error("Failed to get token info for gas refund", "tokenID", st.msg.FeeTokenID(), "error", err)
+			return
+		}
+		tokenAmount := types.EthToAlt(remaining, st.feeRate, st.tokenScale)
+		if err = st.TransferAltTokenHybrid(
+			tokenInfo.TokenAddress,
+			*st.evm.ChainConfig().Morph.FeeVaultAddress,
+			st.msg.From(),
+			tokenAmount,
+			tokenInfo.BalanceSlot,
+			nil,
+		); err != nil {
+			log.Error("Failed to refund alt token gas", "tokenID", st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)
+			// Continue execution even if refund fails - refund should not cause transaction to fail
+		}
+	} else {
+		st.state.AddBalance(st.msg.From(), remaining, tracing.BalanceIncreaseGasReturn)
+	}
 
 	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gas > 0 {
 		st.evm.Config.Tracer.OnGasChange(st.gas, 0, tracing.GasChangeTxLeftOverReturned)
 	}
-
-	// Also return remaining gas to the block gas counter so it is
-	// available for the next transaction.
-	st.gp.AddGas(st.gas)
 }
 
 // gasUsed returns the amount of gas used up by the state transition.

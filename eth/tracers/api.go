@@ -91,11 +91,17 @@ type Backend interface {
 type API struct {
 	backend            Backend
 	morphTracerWrapper morphTracerWrapper
+	addERC20Balance    func(evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
 func NewAPI(backend Backend, morphTracerWrapper morphTracerWrapper) *API {
-	return &API{backend: backend, morphTracerWrapper: morphTracerWrapper}
+	api := &API{backend: backend, morphTracerWrapper: morphTracerWrapper}
+	// TODO
+	api.addERC20Balance = func(evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error {
+		return nil
+	}
+	return api
 }
 
 type chainContext struct {
@@ -977,7 +983,17 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
+		if message.FeeTokenID() == 0 {
+			statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
+		} else {
+			erc20Amount, err := fees.EthToAlt(statedb, message.FeeTokenID(), l1DataFee)
+			if err != nil {
+				return nil, err
+			}
+			if err := api.addERC20Balance(vmenv, message.FeeTokenID(), message.From(), erc20Amount); err != nil {
+				return nil, err
+			}
+		}
 	}
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)

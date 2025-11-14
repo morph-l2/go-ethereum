@@ -25,10 +25,12 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
+	cmath "github.com/morph-l2/go-ethereum/common/math"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
 	"github.com/morph-l2/go-ethereum/log"
@@ -73,7 +75,8 @@ type TxPool struct {
 	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
 	shanghai bool // Fork indicator whether we are in the shanghai stage.
 
-	currentHead *big.Int // Current blockchain head
+	currentHead    *big.Int // Current blockchain head
+	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
 }
 
 // TxRelayBackend provides an interface to the mechanism that forwards transacions
@@ -113,6 +116,30 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 	}
 	// Subscribe events from blockchain
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
+	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error) {
+		active, err := fees.IsTokenActive(state, tokenID)
+		if err != nil || !active {
+			return big.NewInt(0), errors.New("invalid token")
+		}
+		blockContext := vm.BlockContext{
+			CanTransfer: core.CanTransfer,
+			Transfer:    core.Transfer,
+			GetHash:     func(n uint64) common.Hash { return common.Hash{} },
+			Coinbase:    header.Coinbase,
+			BlockNumber: header.Number,
+			Time:        big.NewInt(int64(header.Time)),
+			Difficulty:  header.Difficulty,
+			BaseFee:     header.BaseFee,
+			GasLimit:    header.GasLimit,
+		}
+
+		// Configure minimal VM settings
+		vmConfig := vm.Config{}
+		txContext := vm.TxContext{}
+		// Create the EVM instance
+		evm := vm.NewEVM(blockContext, txContext, state, pool.config, vmConfig)
+		return core.GetAltTokenBalance(evm, tokenID, addr)
+	}
 	go pool.eventLoop()
 
 	return pool
@@ -388,8 +415,36 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if b := currentState.GetBalance(from); b.Cmp(tx.Cost()) < 0 {
-		return core.ErrInsufficientFunds
+	if tx.IsAltFeeTx() {
+		active, err := fees.IsTokenActive(currentState, tx.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token status failed %v", err)
+		}
+		if !active {
+			return fmt.Errorf("token %v not active", tx.FeeTokenID())
+		}
+		erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentHeader(), currentState, tx.FeeTokenID(), from)
+		if err != nil {
+			return err
+		}
+		erc20Amount, err := fees.EthToAlt(currentState, tx.FeeTokenID(), tx.GasFee())
+		if err != nil {
+			return err
+		}
+		limit := erc20Balance
+		if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
+			limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
+		}
+		if limit.Cmp(erc20Amount) < 0 {
+			return errors.New("invalid transaction: insufficient funds for gas * price or fee limit too small")
+		}
+		if currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
+			return core.ErrInsufficientValue
+		}
+	} else {
+		if currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+			return core.ErrInsufficientFunds
+		}
 	}
 	// 2. If FeeVault is enabled, perform an additional check for L1 data fees.
 	if pool.config.Morph.FeeVaultEnabled() {
@@ -400,8 +455,32 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		}
 		// Transactor should have enough funds to cover the costs
 		// cost == L1 data fee + V + GP * GL
-		if b := currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
-			return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
+		if tx.IsAltFeeTx() {
+			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
+				return errors.New("invalid transaction: insufficient funds for value")
+			}
+			erc20Balance, err := pool.getBalanceFunc(header, currentState, tx.FeeTokenID(), from)
+			if err != nil {
+				return err
+			}
+			erc20Amount, err := fees.EthToAlt(currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+			if err != nil {
+				return err
+			}
+			limit := erc20Balance
+			if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
+				limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
+			}
+			if limit.Cmp(erc20Amount) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
+			}
+			if b := currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
+				return errors.New("invalid transaction: insufficient funds for value")
+			}
+		} else {
+			if b := currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
+			}
 		}
 	}
 

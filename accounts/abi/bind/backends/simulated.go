@@ -918,6 +918,8 @@ func (m callMsg) IsL1MessageTx() bool          { return false }
 func (m callMsg) SetCodeAuthorizations() []types.SetCodeAuthorization {
 	return m.CallMsg.AuthorizationList
 }
+func (m callMsg) FeeTokenID() uint16 { return m.CallMsg.FeeTokenID }
+func (m callMsg) FeeLimit() *big.Int { return m.CallMsg.FeeLimit }
 
 // filterBackend implements filters.Backend to support filtering for logs without
 // taking bloom-bits acceleration structures into account.

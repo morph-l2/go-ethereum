@@ -130,6 +130,7 @@ func (t *muxTracer) OnStorageChange(a common.Address, k, prev, new common.Hash) 
 			t.OnStorageChange(a, k, prev, new)
 		}
 	}
+	t.structLogger.OnStorageChange(a, k, prev, new)
 }
 
 func (t *muxTracer) OnLog(log *types.Log) {

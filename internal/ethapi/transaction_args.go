@@ -50,6 +50,10 @@ type TransactionArgs struct {
 	Data  *hexutil.Bytes `json:"data"`
 	Input *hexutil.Bytes `json:"input"`
 
+	// AltFeeTxType
+	FeeTokenID *hexutil.Uint64 `json:"fee_token_id,omitempty"`
+	FeeLimit   *hexutil.Big    `json:"fee_limit,omitempty"`
+
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
@@ -165,6 +169,7 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 			GasPrice:             args.GasPrice,
 			MaxFeePerGas:         args.MaxFeePerGas,
 			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
+			FeeTokenID:           args.FeeTokenID,
 			Value:                args.Value,
 			Data:                 (*hexutil.Bytes)(&data),
 			AccessList:           args.AccessList,
@@ -301,7 +306,16 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.AccessList != nil {
 		accessList = *args.AccessList
 	}
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, data, accessList, args.AuthorizationList, true)
+	var feeTokenID uint16
+	if args.FeeTokenID != nil {
+		feeTokenID = uint16(*args.FeeTokenID)
+	}
+	feeLimit := new(big.Int)
+	if args.FeeLimit != nil {
+		feeLimit = args.FeeLimit.ToInt()
+	}
+
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, data, accessList, args.AuthorizationList, true)
 	return msg, nil
 }
 
@@ -310,6 +324,9 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 func (args *TransactionArgs) toTransaction() *types.Transaction {
 	usedType := types.LegacyTxType
 	switch {
+	//	must take precedence over MaxFeePerGas.
+	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+		usedType = types.AltFeeTxType
 	case args.AuthorizationList != nil:
 		usedType = types.SetCodeTxType
 	case args.MaxFeePerGas != nil:
@@ -366,6 +383,26 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			Data:       args.data(),
 			AccessList: al,
 		}
+
+	case types.AltFeeTxType:
+		al := types.AccessList{}
+		if args.AccessList != nil {
+			al = *args.AccessList
+		}
+		data = &types.AltFeeTx{
+			To:         args.To,
+			ChainID:    (*big.Int)(args.ChainID),
+			Nonce:      uint64(*args.Nonce),
+			Gas:        uint64(*args.Gas),
+			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
+			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+			FeeTokenID: uint16(*args.FeeTokenID),
+			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Value:      (*big.Int)(args.Value),
+			Data:       args.data(),
+			AccessList: al,
+		}
+
 	case types.AccessListTxType:
 		data = &types.AccessListTx{
 			To:         args.To,

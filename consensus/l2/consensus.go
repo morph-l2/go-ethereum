@@ -153,7 +153,7 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 	// Verify the timestamp
 	// we allow the block time to be the same as the parent time after the emerald fork
 	isEmerald := l2.config.IsEmerald(header.Number, header.Time)
-	if header.Time < parent.Time || (!isEmerald && header.Time == parent.Time) {
+	if header.Time < parent.Time || (header.Time == parent.Time && !isEmerald) {
 		return errInvalidTimestamp
 	}
 	// Verify the block's difficulty to ensure it's the default constant

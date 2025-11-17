@@ -66,6 +66,22 @@ func CalculateStructFieldSlot(baseSlot common.Hash, fieldOffset uint64) common.H
 	return common.BigToHash(result)
 }
 
+// DecodeBalanceSlot decodes the balance slot from storage
+// Storage uses balanceSlot + 1 to distinguish between unset (0) and actual slot 0
+// This function subtracts 1 to get the actual balance slot value
+// If the stored value is 0 (common.Hash{}), it means balanceSlot is not set, returns as-is
+func DecodeBalanceSlot(storedBalanceSlot common.Hash) common.Hash {
+	// If the stored value is zero hash, it means balanceSlot is not set
+	if storedBalanceSlot == (common.Hash{}) {
+		return storedBalanceSlot
+	}
+
+	// Subtract 1 to get the actual balance slot
+	slotInt := new(big.Int).SetBytes(storedBalanceSlot[:])
+	actualSlotInt := new(big.Int).Sub(slotInt, big.NewInt(1))
+	return common.BigToHash(actualSlotInt)
+}
+
 // GetUint256MappingValue retrieves a value from a mapping storage slot
 func GetUint256MappingValue(state StateDB, contractAddr common.Address, key uint16, mappingSlot common.Hash) (*big.Int, error) {
 	// Calculate the storage slot

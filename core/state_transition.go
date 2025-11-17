@@ -332,7 +332,7 @@ func (st *StateTransition) buyAltTokenGas() error {
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err := st.TransferAltTokenHybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, tokenFee, tokenInfo.BalanceSlot, tokenBalance); err != nil {
+	if err = st.TransferAltTokenHybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, tokenFee, tokenInfo.BalanceSlot, tokenBalance); err != nil {
 		return fmt.Errorf("failed to transfer alt tokens for gas payment: %v", err)
 	}
 

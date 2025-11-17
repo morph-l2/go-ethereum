@@ -35,7 +35,7 @@ func (st *StateTransition) GetAltTokenBalanceHybrid(tokenID uint16, user common.
 		}
 		return info, balance, nil
 	}
-	balance, _, err = fees.GetAltTokenBalanceFromSlot(st.state, info.TokenAddress, user, info.BalanceSlot)
+	balance, _, err = fees.GetAltTokenBalanceFromSlot(st.state, info.TokenAddress, user, fees.DecodeBalanceSlot(info.BalanceSlot))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,7 +53,7 @@ func (st *StateTransition) TransferAltTokenHybrid(tokenAddress, from, to common.
 		return transferAltTokenByEVM(st.evm, tokenAddress, from, to, amount, userBalanceBefore)
 	}
 	// Use storage slot method
-	return fees.TransferAltTokenByState(st.state, tokenAddress, balanceSlot, from, to, amount)
+	return fees.TransferAltTokenByState(st.state, tokenAddress, fees.DecodeBalanceSlot(balanceSlot), from, to, amount)
 }
 
 // GetAltTokenBalance returns the balance of an alt token for a specific address.
@@ -65,7 +65,7 @@ func GetAltTokenBalance(evm *vm.EVM, tokenID uint16, user common.Address) (*big.
 	balance := new(big.Int)
 	if !bytes.Equal(info.BalanceSlot.Bytes(), common.Hash{}.Bytes()) {
 		// balance slot exist
-		balance, _, err = fees.GetAltTokenBalanceFromSlot(evm.StateDB, info.TokenAddress, user, info.BalanceSlot)
+		balance, _, err = fees.GetAltTokenBalanceFromSlot(evm.StateDB, info.TokenAddress, user, fees.DecodeBalanceSlot(info.BalanceSlot))
 		if err != nil {
 			return nil, err
 		}

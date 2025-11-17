@@ -32,6 +32,7 @@ type TokenInfo struct {
 	IsActive     bool
 	Decimals     uint8
 	Scale        *big.Int
+	HasSlot      bool
 }
 
 // CalculateUint16MappingSlot calculates the storage slot for a mapping key
@@ -105,10 +106,16 @@ func getTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*
 		return nil, fmt.Errorf("token with ID %d not found", tokenID)
 	}
 
+	hasSlot := false
 	// Read balanceSlot (offset 1)
 	balanceSlot := CalculateStructFieldSlot(baseSlot, 1)
 	balanceSlotValue := state.GetState(contractAddr, balanceSlot)
-
+	if balanceSlotValue != (common.Hash{}) {
+		hasSlot = true
+		slotInt := new(big.Int).SetBytes(balanceSlotValue[:])
+		actualSlotInt := new(big.Int).Sub(slotInt, big.NewInt(1))
+		balanceSlotValue = common.BigToHash(actualSlotInt)
+	}
 	// Read isActive and decimals (offset 2)
 	// In Solidity packed storage, bool and uint8 are packed from right to left
 	// isActive (bool) is at byte 31 (rightmost/least significant)
@@ -129,6 +136,7 @@ func getTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*
 		IsActive:     isActive,
 		Decimals:     decimals,
 		Scale:        scale,
+		HasSlot:      hasSlot,
 	}, nil
 }
 

@@ -332,7 +332,7 @@ func (st *StateTransition) buyAltTokenGas() error {
 	if feeVaultAddress == nil || bytes.Equal(feeVaultAddress.Bytes(), common.Address{}.Bytes()) {
 		return fmt.Errorf("fee vault address is not configured")
 	}
-	if err = st.TransferAltTokenHybrid(tokenInfo.TokenAddress, st.msg.From(), *feeVaultAddress, tokenFee, tokenInfo.BalanceSlot, tokenBalance); err != nil {
+	if err = st.TransferAltTokenHybrid(tokenInfo, st.msg.From(), *feeVaultAddress, tokenFee, tokenBalance); err != nil {
 		return fmt.Errorf("failed to transfer alt tokens for gas payment: %v", err)
 	}
 
@@ -682,11 +682,10 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 		}
 		tokenAmount := types.EthToAlt(remaining, st.feeRate, st.tokenScale)
 		if err = st.TransferAltTokenHybrid(
-			tokenInfo.TokenAddress,
+			tokenInfo,
 			*st.evm.ChainConfig().Morph.FeeVaultAddress,
 			st.msg.From(),
 			tokenAmount,
-			tokenInfo.BalanceSlot,
 			nil,
 		); err != nil {
 			log.Error("Failed to refund alt token gas", "tokenID", st.msg.FeeTokenID(), "tokenAddress", tokenInfo.TokenAddress.Hex(), "amount", tokenAmount, "error", err)

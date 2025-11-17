@@ -32,6 +32,7 @@ type TokenInfo struct {
 	IsActive     bool
 	Decimals     uint8
 	Scale        *big.Int
+	HasSlot      bool
 }
 
 // CalculateUint16MappingSlot calculates the storage slot for a mapping key
@@ -64,22 +65,6 @@ func CalculateStructFieldSlot(baseSlot common.Hash, fieldOffset uint64) common.H
 	fieldInt := big.NewInt(int64(fieldOffset))
 	result := new(big.Int).Add(baseInt, fieldInt)
 	return common.BigToHash(result)
-}
-
-// DecodeBalanceSlot decodes the balance slot from storage
-// Storage uses balanceSlot + 1 to distinguish between unset (0) and actual slot 0
-// This function subtracts 1 to get the actual balance slot value
-// If the stored value is 0 (common.Hash{}), it means balanceSlot is not set, returns as-is
-func DecodeBalanceSlot(storedBalanceSlot common.Hash) common.Hash {
-	// If the stored value is zero hash, it means balanceSlot is not set
-	if storedBalanceSlot == (common.Hash{}) {
-		return storedBalanceSlot
-	}
-
-	// Subtract 1 to get the actual balance slot
-	slotInt := new(big.Int).SetBytes(storedBalanceSlot[:])
-	actualSlotInt := new(big.Int).Sub(slotInt, big.NewInt(1))
-	return common.BigToHash(actualSlotInt)
 }
 
 // GetUint256MappingValue retrieves a value from a mapping storage slot
@@ -121,10 +106,16 @@ func getTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*
 		return nil, fmt.Errorf("token with ID %d not found", tokenID)
 	}
 
+	hasSlot := false
 	// Read balanceSlot (offset 1)
 	balanceSlot := CalculateStructFieldSlot(baseSlot, 1)
 	balanceSlotValue := state.GetState(contractAddr, balanceSlot)
-
+	if balanceSlotValue != (common.Hash{}) {
+		hasSlot = true
+		slotInt := new(big.Int).SetBytes(balanceSlotValue[:])
+		actualSlotInt := new(big.Int).Sub(slotInt, big.NewInt(1))
+		balanceSlotValue = common.BigToHash(actualSlotInt)
+	}
 	// Read isActive and decimals (offset 2)
 	// In Solidity packed storage, bool and uint8 are packed from right to left
 	// isActive (bool) is at byte 31 (rightmost/least significant)
@@ -145,6 +136,7 @@ func getTokenInfo(state StateDB, contractAddr common.Address, tokenID uint16) (*
 		IsActive:     isActive,
 		Decimals:     decimals,
 		Scale:        scale,
+		HasSlot:      hasSlot,
 	}, nil
 }
 

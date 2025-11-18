@@ -542,7 +542,6 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 			rcfg.TokenRegistrationSlot,
 			rcfg.PriceRatioSlot,
 			rcfg.AllowListSlot,
-			rcfg.AllowListEnabledSlot,
 		},
 	}
 

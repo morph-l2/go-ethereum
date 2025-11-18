@@ -536,7 +536,13 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 			rcfg.IsCurieSlot,
 		},
 		rcfg.SequencerAddress: {rcfg.SequencerSetVerifyHashSlot},
-		// rcfg.L2ERC20RegistryAddress: {}, // TODO
+		rcfg.L2TokenRegistryAddress: {
+			rcfg.AllowListEnabledSlot,
+			rcfg.TokenRegistrySlot,
+			rcfg.TokenRegistrationSlot,
+			rcfg.PriceRatioSlot,
+			rcfg.AllowListSlot,
+		},
 	}
 
 	for addr, storages := range intrinsicStorageProofs {

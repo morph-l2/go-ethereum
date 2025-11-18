@@ -138,6 +138,8 @@ type TransactionData struct {
 	GasPrice          *hexutil.Big               `json:"gasPrice"`
 	GasTipCap         *hexutil.Big               `json:"gasTipCap"`
 	GasFeeCap         *hexutil.Big               `json:"gasFeeCap"`
+	FeeTokenID        *uint16                    `json:"feeTokenID,omitempty"`
+	FeeLimit          *hexutil.Big               `json:"feeLimit,omitempty"`
 	From              common.Address             `json:"from"`
 	To                *common.Address            `json:"to"`
 	ChainId           *hexutil.Big               `json:"chainId"`
@@ -192,6 +194,18 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 		R:                 (*hexutil.Big)(r),
 		S:                 (*hexutil.Big)(s),
 	}
+
+	// Set FeeTokenID and FeeLimit for AltFeeTx
+	if tx.Type() == AltFeeTxType {
+		feeTokenID := tx.FeeTokenID()
+		if feeTokenID != 0 {
+			result.FeeTokenID = &feeTokenID
+		}
+		if feeLimit := tx.FeeLimit(); feeLimit != nil && feeLimit.Sign() > 0 {
+			result.FeeLimit = (*hexutil.Big)(feeLimit)
+		}
+	}
+
 	return result
 }
 

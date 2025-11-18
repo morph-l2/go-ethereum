@@ -65,6 +65,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		MaxBlockRange           int64
 		OverrideMorph203Time    *uint64 `toml:",omitempty"`
 		OverrideMorph300Time    *uint64 `toml:",omitempty"`
+		OverrideEmeraldTime     *uint64 `toml:",omitempty"`
 	}
 	var enc Config
 	enc.Genesis = c.Genesis
@@ -114,6 +115,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.MaxBlockRange = c.MaxBlockRange
 	enc.OverrideMorph203Time = c.OverrideMorph203Time
 	enc.OverrideMorph300Time = c.OverrideViridianTime
+	enc.OverrideEmeraldTime = c.OverrideEmeraldTime
 	return &enc, nil
 }
 
@@ -166,6 +168,8 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		CheckCircuitCapacity    *bool
 		MaxBlockRange           *int64
 		OverrideMorph203Time    *uint64 `toml:",omitempty"`
+		OverrideViridianTime    *uint64 `toml:",omitempty"`
+		OverrideEmeraldTime     *uint64 `toml:",omitempty"`
 	}
 	var dec Config
 	if err := unmarshal(&dec); err != nil {
@@ -308,6 +312,12 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.OverrideMorph203Time != nil {
 		c.OverrideMorph203Time = dec.OverrideMorph203Time
+	}
+	if dec.OverrideViridianTime != nil {
+		c.OverrideViridianTime = dec.OverrideViridianTime
+	}
+	if dec.OverrideEmeraldTime != nil {
+		c.OverrideEmeraldTime = dec.OverrideEmeraldTime
 	}
 	return nil
 }

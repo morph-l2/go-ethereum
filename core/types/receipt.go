@@ -119,6 +119,20 @@ type storedReceiptRLP struct {
 	FeeLimit          *big.Int
 }
 
+// v7StoredReceiptRLP is the storage encoding of a receipt used in database version 7.
+// This version was introduced when AltFee feature was added (2024-11).
+// It includes L1Fee and all AltFee fields (FeeTokenID, FeeRate, TokenScale, FeeLimit).
+type v7StoredReceiptRLP struct {
+	PostStateOrStatus []byte
+	CumulativeGasUsed uint64
+	Logs              []*LogForStorage
+	L1Fee             *big.Int
+	FeeTokenID        *uint16
+	FeeRate           *big.Int
+	TokenScale        *big.Int
+	FeeLimit          *big.Int
+}
+
 // v6StoredReceiptRLP is the storage encoding of a receipt used in database version 6.
 // It includes L1Fee but not the altFee fields.
 type v6StoredReceiptRLP struct {
@@ -349,6 +363,9 @@ func (r *ReceiptForStorage) DecodeRLP(s *rlp.Stream) error {
 	if err := decodeStoredReceiptRLP(r, blob); err == nil {
 		return nil
 	}
+	if err := decodeV7StoredReceiptRLP(r, blob); err == nil {
+		return nil
+	}
 	if err := decodeV6StoredReceiptRLP(r, blob); err == nil {
 		return nil
 	}
@@ -363,6 +380,29 @@ func (r *ReceiptForStorage) DecodeRLP(s *rlp.Stream) error {
 
 func decodeStoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
 	var stored storedReceiptRLP
+	if err := rlp.DecodeBytes(blob, &stored); err != nil {
+		return err
+	}
+	if err := (*Receipt)(r).setStatus(stored.PostStateOrStatus); err != nil {
+		return err
+	}
+	r.CumulativeGasUsed = stored.CumulativeGasUsed
+	r.Logs = make([]*Log, len(stored.Logs))
+	for i, log := range stored.Logs {
+		r.Logs[i] = (*Log)(log)
+	}
+	r.Bloom = CreateBloom(Receipts{(*Receipt)(r)})
+	r.L1Fee = stored.L1Fee
+	r.FeeTokenID = stored.FeeTokenID
+	r.FeeRate = stored.FeeRate
+	r.TokenScale = stored.TokenScale
+	r.FeeLimit = stored.FeeLimit
+
+	return nil
+}
+
+func decodeV7StoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
+	var stored v7StoredReceiptRLP
 	if err := rlp.DecodeBytes(blob, &stored); err != nil {
 		return err
 	}

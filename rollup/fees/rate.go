@@ -38,6 +38,9 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 		log.Error("Failed to get token scale", "tokenID", tokenID, "error", err)
 		return nil, nil, err
 	}
+	if scale == nil || scale.Sign() == 0 {
+		log.Error("Invalid token scale", "tokenID", tokenID, "tokenAddr", info.TokenAddress.Hex())
+	}
 
 	return rate, scale, err
 }

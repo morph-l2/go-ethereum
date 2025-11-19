@@ -118,6 +118,14 @@ func TestLegacyReceiptDecoding(t *testing.T) {
 			encodeAsStoredReceiptRLP,
 		},
 		{
+			"V7StoredReceiptRLP",
+			encodeAsV7StoredReceiptRLP,
+		},
+		{
+			"V6StoredReceiptRLP",
+			encodeAsV6StoredReceiptRLP,
+		},
+		{
 			"V5StoredReceiptRLP",
 			encodeAsV5StoredReceiptRLP,
 		},
@@ -193,6 +201,36 @@ func TestLegacyReceiptDecoding(t *testing.T) {
 
 func encodeAsStoredReceiptRLP(want *Receipt) ([]byte, error) {
 	stored := &storedReceiptRLP{
+		PostStateOrStatus: want.statusEncoding(),
+		CumulativeGasUsed: want.CumulativeGasUsed,
+		Logs:              make([]*LogForStorage, len(want.Logs)),
+		L1Fee:             want.L1Fee,
+	}
+	for i, log := range want.Logs {
+		stored.Logs[i] = (*LogForStorage)(log)
+	}
+	return rlp.EncodeToBytes(stored)
+}
+
+func encodeAsV7StoredReceiptRLP(want *Receipt) ([]byte, error) {
+	stored := &v7StoredReceiptRLP{
+		PostStateOrStatus: want.statusEncoding(),
+		CumulativeGasUsed: want.CumulativeGasUsed,
+		Logs:              make([]*LogForStorage, len(want.Logs)),
+		L1Fee:             want.L1Fee,
+		FeeTokenID:        want.FeeTokenID,
+		FeeRate:           want.FeeRate,
+		TokenScale:        want.TokenScale,
+		FeeLimit:          want.FeeLimit,
+	}
+	for i, log := range want.Logs {
+		stored.Logs[i] = (*LogForStorage)(log)
+	}
+	return rlp.EncodeToBytes(stored)
+}
+
+func encodeAsV6StoredReceiptRLP(want *Receipt) ([]byte, error) {
+	stored := &v6StoredReceiptRLP{
 		PostStateOrStatus: want.statusEncoding(),
 		CumulativeGasUsed: want.CumulativeGasUsed,
 		Logs:              make([]*LogForStorage, len(want.Logs)),

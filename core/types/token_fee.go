@@ -48,10 +48,10 @@ func (dca *SuperAccount) SetAltAmount(id uint16, amount *big.Int) {
 // EthToAlt altAmount = ethAmount / (tokenRate / tokenScale) = ethAmount * tokenScale / tokenRate
 func EthToAlt(ethAmount, rate, tokenScale *big.Int) *big.Int {
 	if rate == nil || rate.Sign() <= 0 {
-		panic("invalid token scale")
+		panic("invalid token rate")
 	}
 	if tokenScale == nil || tokenScale.Sign() <= 0 {
-		panic("invalid token rate")
+		panic("invalid token scale")
 	}
 	altAmount := new(big.Int)
 	remainder := new(big.Int)
@@ -65,10 +65,10 @@ func EthToAlt(ethAmount, rate, tokenScale *big.Int) *big.Int {
 // AltToEth ethAmount = altAmount * (tokenRate / tokenScale)
 func AltToEth(erc20Amount, rate, tokenScale *big.Int) *big.Int {
 	if rate == nil || rate.Sign() <= 0 {
-		panic("invalid token scale")
+		panic("invalid token rate")
 	}
 	if tokenScale == nil || tokenScale.Sign() <= 0 {
-		panic("invalid token rate")
+		panic("invalid token scale")
 	}
 	ethAmount := new(big.Int)
 	remainder := new(big.Int)

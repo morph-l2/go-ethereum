@@ -57,9 +57,9 @@ type StorageTrace struct {
 // execution status, the amount of gas used and the return value
 type ExecutionResult struct {
 	L1DataFee   *hexutil.Big `json:"l1DataFee,omitempty"`
-	FeeTokenID  *uint64      `json:"fee_token_id,omitempty"`
+	FeeTokenID  *uint64      `json:"feeTokenID,omitempty"`
 	FeeRate     *hexutil.Big `json:"feeRate,omitempty"`
-	TokenScale  *hexutil.Big `json:"token_scale,omitempty"`
+	TokenScale  *hexutil.Big `json:"tokenScale,omitempty"`
 	FeeLimit    *hexutil.Big `json:"feeLimit,omitempty"`
 	Gas         uint64       `json:"gas"`
 	Failed      bool         `json:"failed"`
@@ -138,7 +138,7 @@ type TransactionData struct {
 	GasPrice          *hexutil.Big               `json:"gasPrice"`
 	GasTipCap         *hexutil.Big               `json:"gasTipCap"`
 	GasFeeCap         *hexutil.Big               `json:"gasFeeCap"`
-	FeeTokenID        *uint16                    `json:"feeTokenID,omitempty"`
+	FeeTokenID        *uint64                    `json:"feeTokenID,omitempty"`
 	FeeLimit          *hexutil.Big               `json:"feeLimit,omitempty"`
 	From              common.Address             `json:"from"`
 	To                *common.Address            `json:"to"`
@@ -197,7 +197,7 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 
 	// Set FeeTokenID and FeeLimit for AltFeeTx
 	if tx.Type() == AltFeeTxType {
-		feeTokenID := tx.FeeTokenID()
+		feeTokenID := uint64(tx.FeeTokenID())
 		if feeTokenID != 0 {
 			result.FeeTokenID = &feeTokenID
 		}

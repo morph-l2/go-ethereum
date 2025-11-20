@@ -82,10 +82,6 @@ func GetAltTokenBalance(evm *vm.EVM, tokenID uint16, user common.Address) (*big.
 
 // GetAltTokenBalanceByEVM returns the balance of an alt token for a specific address.
 func GetAltTokenBalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Address) (*big.Int, error) {
-	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
-		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
-		defer evm.Config.Tracer.OnSystemCallEnd()
-	}
 	methodID := generateMethodSignature(TokenBalanceOfSig)
 	// Pad the address to 32 bytes
 	paddedAddress := common.LeftPadBytes(userAddress.Bytes(), 32)
@@ -93,6 +89,12 @@ func GetAltTokenBalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Addre
 	data := append(methodID, paddedAddress...)
 	// Create a message call context
 	sender := vm.AccountRef(userAddress)
+
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
+		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
+		defer evm.Config.Tracer.OnSystemCallEnd()
+	}
+
 	// Execute the call (using StaticCall since we're only reading state)
 	ret, _, err := evm.StaticCall(sender, tokenAddress, data, maxGas)
 	if err != nil {
@@ -114,10 +116,6 @@ func GetAltTokenBalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Addre
 func transferAltTokenByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, amount *big.Int, userBalanceBefore *big.Int) error {
 	if amount == nil || amount.Sign() <= 0 {
 		return fmt.Errorf("invalid transfer amount")
-	}
-	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
-		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
-		defer evm.Config.Tracer.OnSystemCallEnd()
 	}
 	var fromBalanceBefore *big.Int
 	var err error
@@ -144,6 +142,12 @@ func transferAltTokenByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, a
 	data := append(methodID, append(paddedAddress, paddedAmount...)...)
 	// Create a message call context
 	sender := vm.AccountRef(from)
+
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
+		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
+		defer evm.Config.Tracer.OnSystemCallEnd()
+	}
+
 	// Execute the call
 	ret, _, err := evm.Call(sender, tokenAddress, data, maxGas, big.NewInt(0))
 	if err != nil {

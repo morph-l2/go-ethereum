@@ -619,7 +619,7 @@ type storedReceiptRLP struct {
 	CumulativeGasUsed uint64
 	Logs              []*types.LogForStorage
 	L1Fee             *big.Int
-	FeeTokenID        *uint16
+	FeeTokenID        *uint64
 	FeeRate           *big.Int
 	TokenScale        *big.Int
 	FeeLimit          *big.Int

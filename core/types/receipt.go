@@ -79,9 +79,9 @@ type Receipt struct {
 	// Morph rollup
 	L1Fee *big.Int `json:"l1Fee,omitempty"`
 	// Alt Fee
-	FeeTokenID *uint16  `json:"fee_token_id,omitempty"`
-	FeeRate    *big.Int `json:"fee_rate,omitempty"`
-	TokenScale *big.Int `json:"token_scale,omitempty"`
+	FeeTokenID *uint64  `json:"feeTokenID,omitempty"`
+	FeeRate    *big.Int `json:"feeRate,omitempty"`
+	TokenScale *big.Int `json:"tokenScale,omitempty"`
 	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
 }
 
@@ -97,6 +97,10 @@ type receiptMarshaling struct {
 	BlockNumber       *hexutil.Big
 	TransactionIndex  hexutil.Uint
 	L1Fee             *hexutil.Big
+	FeeTokenID        *hexutil.Uint64
+	FeeRate           *hexutil.Big
+	TokenScale        *hexutil.Big
+	FeeLimit          *hexutil.Big
 }
 
 // receiptRLP is the consensus encoding of a receipt.
@@ -113,7 +117,7 @@ type storedReceiptRLP struct {
 	CumulativeGasUsed uint64
 	Logs              []*LogForStorage
 	L1Fee             *big.Int
-	FeeTokenID        *uint16
+	FeeTokenID        *uint64
 	FeeRate           *big.Int
 	TokenScale        *big.Int
 	FeeLimit          *big.Int
@@ -127,7 +131,7 @@ type v7StoredReceiptRLP struct {
 	CumulativeGasUsed uint64
 	Logs              []*LogForStorage
 	L1Fee             *big.Int
-	FeeTokenID        *uint16
+	FeeTokenID        *uint64
 	FeeRate           *big.Int
 	TokenScale        *big.Int
 	FeeLimit          *big.Int

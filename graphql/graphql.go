@@ -246,8 +246,6 @@ func (t *Transaction) GasPrice(ctx context.Context) (hexutil.Big, error) {
 	case types.AltFeeTxType:
 		if t.block != nil {
 			if baseFee, _ := t.block.BaseFeePerGas(ctx); baseFee != nil {
-				// TODO base fee of erc20 fee
-				// price = min(tip, gasFeeCap - baseFee) + baseFee
 				return (hexutil.Big)(*math.BigMin(new(big.Int).Add(tx.GasTipCap(), baseFee.ToInt()), tx.GasFeeCap())), nil
 			}
 		}

@@ -334,6 +334,7 @@ func (b *Uint16) UnmarshalGraphQL(input interface{}) error {
 	return err
 }
 
+// Uint64 marshals/unmarshals as a JSON string with 0x prefix.
 type Uint64 uint64
 
 // MarshalText implements encoding.TextMarshaler.

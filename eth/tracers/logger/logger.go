@@ -501,6 +501,7 @@ func (l *StructLogger) OnTxStart(env *tracing.VMContext, tx *types.Transaction, 
 		l.statesAffected[*to] = struct{}{}
 	}
 }
+
 func (l *StructLogger) OnSystemCallStart(env *tracing.VMContext) {
 	l.skip = true
 }

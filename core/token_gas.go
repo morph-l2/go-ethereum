@@ -82,6 +82,10 @@ func GetAltTokenBalance(evm *vm.EVM, tokenID uint16, user common.Address) (*big.
 
 // GetAltTokenBalanceByEVM returns the balance of an alt token for a specific address.
 func GetAltTokenBalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Address) (*big.Int, error) {
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
+		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
+		defer evm.Config.Tracer.OnSystemCallEnd()
+	}
 	methodID := generateMethodSignature(TokenBalanceOfSig)
 	// Pad the address to 32 bytes
 	paddedAddress := common.LeftPadBytes(userAddress.Bytes(), 32)
@@ -111,7 +115,10 @@ func transferAltTokenByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, a
 	if amount == nil || amount.Sign() <= 0 {
 		return fmt.Errorf("invalid transfer amount")
 	}
-
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
+		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
+		defer evm.Config.Tracer.OnSystemCallEnd()
+	}
 	var fromBalanceBefore *big.Int
 	var err error
 	if userBalanceBefore != nil {

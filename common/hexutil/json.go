@@ -32,6 +32,7 @@ var (
 	bigT    = reflect.TypeOf((*Big)(nil))
 	uintT   = reflect.TypeOf(Uint(0))
 	uint64T = reflect.TypeOf(Uint64(0))
+	uint16T = reflect.TypeOf(Uint16(0))
 	u256T   = reflect.TypeOf((*uint256.Int)(nil))
 )
 
@@ -285,9 +286,9 @@ func (b Uint16) MarshalText() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler.
 func (b *Uint16) UnmarshalJSON(input []byte) error {
 	if !isString(input) {
-		return errNonString(uint64T)
+		return errNonString(uint16T)
 	}
-	return wrapTypeError(b.UnmarshalText(input[1:len(input)-1]), uint64T)
+	return wrapTypeError(b.UnmarshalText(input[1:len(input)-1]), uint16T)
 }
 
 // UnmarshalText implements encoding.TextUnmarshaler
@@ -297,7 +298,7 @@ func (b *Uint16) UnmarshalText(input []byte) error {
 		return err
 	}
 	if len(raw) > 16 {
-		return ErrUint64Range
+		return ErrUint16Range
 	}
 	var dec uint64
 	for _, byte := range raw {

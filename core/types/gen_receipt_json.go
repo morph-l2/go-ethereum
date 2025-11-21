@@ -83,7 +83,7 @@ func (r *Receipt) UnmarshalJSON(input []byte) error {
 		TransactionIndex  *hexutil.Uint   `json:"transactionIndex"`
 		ReturnValue       []byte          `json:"returnValue,omitempty"`
 		L1Fee             *hexutil.Big    `json:"l1Fee,omitempty"`
-		FeeTokenID        *uint16         `json:"feeTokenID,omitempty"`
+		FeeTokenID        *hexutil.Uint16 `json:"feeTokenID,omitempty"`
 		FeeRate           *hexutil.Big    `json:"feeRate,omitempty"`
 		TokenScale        *hexutil.Big    `json:"tokenScale,omitempty"`
 		FeeLimit          *hexutil.Big    `json:"feeLimit,omitempty"`
@@ -149,7 +149,8 @@ func (r *Receipt) UnmarshalJSON(input []byte) error {
 		r.L1Fee = (*big.Int)(dec.L1Fee)
 	}
 	if dec.FeeTokenID != nil {
-		r.FeeTokenID = dec.FeeTokenID
+		tokenID := uint16(*dec.FeeTokenID)
+		r.FeeTokenID = &tokenID
 	}
 	if dec.FeeRate != nil {
 		r.FeeRate = (*big.Int)(dec.FeeRate)

@@ -297,7 +297,7 @@ func (b *Uint16) UnmarshalText(input []byte) error {
 	if err != nil {
 		return err
 	}
-	if len(raw) > 16 {
+	if len(raw) > 4 {
 		return ErrUint16Range
 	}
 	var dec uint64

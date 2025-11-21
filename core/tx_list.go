@@ -276,8 +276,8 @@ type txList struct {
 	strict bool         // Whether nonces are strictly continuous or not
 	txs    *txSortedMap // Heap indexed sorted hash map of the transactions
 
-	costcap *big.Int // Price of the highest costing transaction (reset only if exceeds balance)
-	gascap  uint64   // Gas limit of the highest spending transaction (reset only if exceeds block limit)
+	costcap *types.SuperAccount // Price of the highest costing transaction (reset only if exceeds balance)
+	gascap  uint64              // Gas limit of the highest spending transaction (reset only if exceeds block limit)
 }
 
 // newTxList create a new transaction list for maintaining nonce-indexable fast,
@@ -286,7 +286,7 @@ func newTxList(strict bool) *txList {
 	return &txList{
 		strict:  strict,
 		txs:     newTxSortedMap(),
-		costcap: new(big.Int),
+		costcap: types.NewSuperAccount(),
 	}
 }
 
@@ -342,8 +342,24 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		}
 	}
 	l.txs.Put(tx)
-	if cost := new(big.Int).Add(tx.Cost(), l1DataFee); l.costcap.Cmp(cost) < 0 {
-		l.costcap = cost
+	ethCost := big.NewInt(0)
+	if tx.IsAltFeeTx() {
+		ethCost = new(big.Int).Set(tx.Value())
+		altCost, err := fees.EthToAlt(state, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+		if err != nil {
+			log.Error("Failed to swap to erc20", "err", err, "tx", tx)
+			return false, nil
+		}
+		if l.costcap.Alt(tx.FeeTokenID()).Cmp(altCost) < 0 {
+			l.costcap.SetAltAmount(tx.FeeTokenID(), altCost)
+		}
+	} else {
+		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee)
+	}
+	if ethCost != nil && ethCost.Sign() > 0 {
+		if l.costcap.Eth() == nil || l.costcap.Eth().Cmp(ethCost) < 0 {
+			l.costcap.SetEthAmount(ethCost)
+		}
 	}
 	if gas := tx.Gas(); l.gascap < gas {
 		l.gascap = gas
@@ -367,17 +383,28 @@ func (l *txList) Forward(threshold uint64) types.Transactions {
 // a point in calculating all the costs or if the balance covers all. If the threshold
 // is lower than the costgas cap, the caps will be reset to a new high after removing
 // the newly invalidated transactions.
-func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions, types.Transactions) {
+func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, altCostLimit map[uint16]*big.Int) (types.Transactions, types.Transactions) {
 	// If all transactions are below the threshold, short circuit
-	if l.costcap.Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
+	if l.costcap.Eth().Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
 		return nil, nil
 	}
-	l.costcap = new(big.Int).Set(costLimit) // Lower the caps to the thresholds
+	l.costcap.SetEthAmount(new(big.Int).Set(costLimit)) // Lower the caps to the thresholds
 	l.gascap = gasLimit
 
 	// Filter out all the transactions above the account's funds
 	removed := l.txs.Filter(func(tx *types.Transaction) bool {
-		return tx.Gas() > gasLimit || tx.Cost().Cmp(costLimit) > 0
+		allLower := true
+		if tx.IsAltFeeTx() {
+			for id, limit := range altCostLimit {
+				lower := l.costcap.Alt(id).Cmp(limit) <= 0
+				if !lower {
+					l.costcap.SetAltAmount(id, limit)
+				}
+				allLower = allLower && lower
+			}
+			return tx.Gas() > gasLimit || tx.Value().Cmp(costLimit) > 0
+		}
+		return !allLower || tx.Gas() > gasLimit || tx.Cost().Cmp(costLimit) > 0
 	})
 
 	if len(removed) == 0 {
@@ -401,12 +428,20 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 // FilterF removes all transactions from the list that satisfy a predicate.
 // Every removed transaction is returned for any post-removal maintenance.
 // Strict-mode invalidated transactions are also returned.
-func (l *txList) FilterF(costLimit *big.Int, gasLimit uint64, f func(tx *types.Transaction) bool) (types.Transactions, types.Transactions) {
+func (l *txList) FilterF(costLimit *big.Int, altCostLimit map[uint16]*big.Int, gasLimit uint64, f func(tx *types.Transaction) bool) (types.Transactions, types.Transactions) {
 	// If all transactions are below the threshold, short circuit
-	if l.costcap.Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
+	allLower := true
+	for id, limit := range altCostLimit {
+		lower := l.costcap.Alt(id).Cmp(limit) <= 0
+		if !lower {
+			l.costcap.SetAltAmount(id, limit)
+		}
+		allLower = allLower && lower
+	}
+	if allLower && l.costcap.Eth().Cmp(costLimit) <= 0 && l.gascap <= gasLimit {
 		return nil, nil
 	}
-	l.costcap = new(big.Int).Set(costLimit) // Lower the caps to the thresholds
+	l.costcap.SetEthAmount(new(big.Int).Set(costLimit)) // Lower the caps to the thresholds
 	l.gascap = gasLimit
 
 	removed := l.txs.Filter(f)

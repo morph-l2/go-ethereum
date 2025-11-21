@@ -73,6 +73,7 @@ var (
 		utils.OverrideArrowGlacierFlag,
 		utils.OverrideMorph203TimeFlag,
 		utils.OverrideViridianTimeFlag,
+		utils.OverrideEmeraldTimeFlag,
 		utils.EthashCacheDirFlag,
 		utils.EthashCachesInMemoryFlag,
 		utils.EthashCachesOnDiskFlag,

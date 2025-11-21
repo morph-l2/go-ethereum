@@ -375,6 +375,34 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			env.Codes[codeHash] = codeInfo
 		}
 	}
+
+	// For AltFeeTx, manually collect token contract bytecode
+	// since direct storage slot operations don't trigger EVM execution
+	if tx.Type() == types.AltFeeTxType && tx.FeeTokenID() != 0 {
+		tokenInfo, err := fees.GetTokenInfo(statedb, tx.FeeTokenID())
+		if err == nil && tokenInfo.TokenAddress != (common.Address{}) {
+
+			collectBytecode := func(addr common.Address) {
+				code := statedb.GetCode(addr)
+				keccakCodeHash := statedb.GetKeccakCodeHash(addr)
+				poseidonCodeHash := statedb.GetPoseidonCodeHash(addr)
+				codeSize := statedb.GetCodeSize(addr)
+
+				if poseidonCodeHash != (common.Hash{}) {
+					if _, exists := env.Codes[poseidonCodeHash]; !exists {
+						env.Codes[poseidonCodeHash] = logger.CodeInfo{
+							CodeSize:         codeSize,
+							KeccakCodeHash:   keccakCodeHash,
+							PoseidonCodeHash: poseidonCodeHash,
+							Code:             code,
+						}
+					}
+				}
+			}
+			collectBytecode(tokenInfo.TokenAddress)
+			collectBytecode(rcfg.L2TokenRegistryAddress)
+		}
+	}
 	env.cMu.Unlock()
 
 	// merge required proof data
@@ -496,6 +524,10 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1DataFee:      (*hexutil.Big)(receipt.L1Fee),
+		FeeTokenID:     receipt.FeeTokenID,
+		FeeLimit:       (*hexutil.Big)(receipt.FeeLimit),
+		FeeRate:        (*hexutil.Big)(receipt.FeeRate),
+		TokenScale:     (*hexutil.Big)(receipt.TokenScale),
 		Gas:            receipt.GasUsed,
 		Failed:         receipt.Status == types.ReceiptStatusFailed,
 		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),
@@ -532,6 +564,13 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 			rcfg.IsCurieSlot,
 		},
 		rcfg.SequencerAddress: {rcfg.SequencerSetVerifyHashSlot},
+		rcfg.L2TokenRegistryAddress: {
+			rcfg.AllowListEnabledSlot,
+			rcfg.TokenRegistrySlot,
+			rcfg.TokenRegistrationSlot,
+			rcfg.PriceRatioSlot,
+			rcfg.AllowListSlot,
+		},
 	}
 
 	for addr, storages := range intrinsicStorageProofs {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/consensus"
@@ -16,8 +17,8 @@ import (
 )
 
 var (
-	l2Difficulty = common.Big0          // The default block difficulty in the l2 consensus
-	l2Nonce      = types.EncodeNonce(0) // The default block nonce in the l2 consensus
+	Difficulty = common.Big0          // The default block difficulty in the l2 consensus
+	Nonce      = types.EncodeNonce(0) // The default block nonce in the l2 consensus
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -135,7 +136,7 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 		return fmt.Errorf("extra-data must be empty")
 	}
 	// Verify the seal parts. Ensure the nonce and uncle hash are the expected value.
-	if header.Nonce != l2Nonce {
+	if header.Nonce != Nonce {
 		return errInvalidNonce
 	}
 	if header.UncleHash != types.EmptyUncleHash {
@@ -145,13 +146,19 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 	if l2.config.Morph.FeeVaultEnabled() && header.Coinbase != types.EmptyAddress {
 		return errInvalidCoinbase
 	}
+	// Don't waste time checking blocks from the future
+	if header.Time > uint64(time.Now().Unix()) {
+		return consensus.ErrFutureBlock
+	}
 	// Verify the timestamp
-	if header.Time <= parent.Time {
+	// we allow the block time to be the same as the parent time after the emerald fork
+	isEmerald := l2.config.IsEmerald(header.Number, header.Time)
+	if header.Time < parent.Time || (header.Time == parent.Time && !isEmerald) {
 		return errInvalidTimestamp
 	}
 	// Verify the block's difficulty to ensure it's the default constant
-	if l2Difficulty.Cmp(header.Difficulty) != 0 {
-		return fmt.Errorf("invalid difficulty: have %v, want %v", header.Difficulty, l2Difficulty)
+	if Difficulty.Cmp(header.Difficulty) != 0 {
+		return fmt.Errorf("invalid difficulty: have %v, want %v", header.Difficulty, Difficulty)
 	}
 	// Verify that the gas limit is <= 2^63-1
 	if header.GasLimit > params.MaxGasLimit {
@@ -183,13 +190,17 @@ func (l2 *Consensus) verifyHeader(chain consensus.ChainHeaderReader, header, par
 // Prepare implements consensus.Engine, initializing the difficulty field of a
 // header to conform to the beacon protocol. The changes are done inline.
 func (l2 *Consensus) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
-	header.Difficulty = l2Difficulty
-	header.Nonce = l2Nonce
+	header.Difficulty = Difficulty
+	header.Nonce = Nonce
 	header.UncleHash = types.EmptyUncleHash
 	header.Extra = []byte{} // disable extra field filling with bytes
 	// set coinbase to empty address, if feeVault is enabled
 	if l2.config.Morph.FeeVaultEnabled() {
 		header.Coinbase = types.EmptyAddress
+	}
+	// ensure the block is not in the future
+	if l2.config.IsEmerald(header.Number, header.Time) && header.Time > uint64(time.Now().Unix()) {
+		header.Time = uint64(time.Now().Unix())
 	}
 	return nil
 }
@@ -231,7 +242,7 @@ func (l2 *Consensus) SealHash(header *types.Header) common.Hash {
 // the difficulty that a new block should have when created at time
 // given the parent block's time and difficulty.
 func (l2 *Consensus) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return l2Difficulty
+	return Difficulty
 }
 
 // APIs implements consensus.Engine, returning the user facing RPC APIs.

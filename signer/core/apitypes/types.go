@@ -87,6 +87,8 @@ type SendTxArgs struct {
 	// For non-legacy transactions
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
+	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -115,6 +117,25 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 
 	var data types.TxData
 	switch {
+	// must take precedence over MaxFeePerGas.
+	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+		al := types.AccessList{}
+		if args.AccessList != nil {
+			al = *args.AccessList
+		}
+		data = &types.AltFeeTx{
+			To:         to,
+			ChainID:    (*big.Int)(args.ChainID),
+			Nonce:      uint64(args.Nonce),
+			Gas:        uint64(args.Gas),
+			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
+			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+			FeeTokenID: uint16(*args.FeeTokenID),
+			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Value:      (*big.Int)(&args.Value),
+			Data:       input,
+			AccessList: al,
+		}
 	case args.MaxFeePerGas != nil:
 		al := types.AccessList{}
 		if args.AccessList != nil {

@@ -229,7 +229,7 @@ func newModernSigner(chainID *big.Int, fork forks.Fork) Signer {
 		s.txtypes[SetCodeTxType] = struct{}{}
 	}
 	if fork >= forks.Emerald {
-		// Future Emerald-specific transaction types can be added here
+		s.txtypes[AltFeeTxType] = struct{}{}
 	}
 	return s
 }

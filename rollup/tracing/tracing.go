@@ -368,6 +368,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		txStorageTrace.RootAfter = block.Root()
 	}
 
+	proofStorages := structLogger.UpdatedStorages()
 	// merge bytecodes
 	env.cMu.Lock()
 	for codeHash, codeInfo := range structLogger.TracedBytecodes() {
@@ -381,7 +382,6 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	if tx.Type() == types.AltFeeTxType && tx.FeeTokenID() != 0 {
 		tokenInfo, err := fees.GetTokenInfo(statedb, tx.FeeTokenID())
 		if err == nil && tokenInfo.TokenAddress != (common.Address{}) {
-
 			collectBytecode := func(addr common.Address) {
 				code := statedb.GetCode(addr)
 				keccakCodeHash := statedb.GetKeccakCodeHash(addr)
@@ -401,6 +401,31 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			}
 			collectBytecode(tokenInfo.TokenAddress)
 			collectBytecode(rcfg.L2TokenRegistryAddress)
+
+			if proofStorages[rcfg.L2TokenRegistryAddress] == nil {
+				proofStorages[rcfg.L2TokenRegistryAddress] = make(logger.Storage)
+			}
+
+			// Collect TokenInfo struct slots
+			baseSlot := fees.GetTokenInfoStructBaseSlot(tx.FeeTokenID())
+			log.Info("base slot", "base slot", baseSlot.String(), "token id", tx.FeeTokenID(), "token address", tokenInfo.TokenAddress.String())
+			registrySlots := []uint64{
+				0, // tokenAddress
+				1, // balanceSlot
+				2, // isActive + decimals (packed)
+				3, // scale
+			}
+			for _, offset := range registrySlots {
+				slot := fees.CalculateStructFieldSlot(baseSlot, offset)
+				log.Info("offset slot", "offset", offset, "slot", slot.String())
+				value := statedb.GetState(rcfg.L2TokenRegistryAddress, slot)
+				proofStorages[rcfg.L2TokenRegistryAddress][slot] = value
+			}
+
+			// Collect price ratio slot
+			priceRatioSlot := fees.CalculateUint16MappingSlot(tx.FeeTokenID(), rcfg.PriceRatioSlot)
+			priceRatioValue := statedb.GetState(rcfg.L2TokenRegistryAddress, priceRatioSlot)
+			proofStorages[rcfg.L2TokenRegistryAddress][priceRatioSlot] = priceRatioValue
 		}
 	}
 	env.cMu.Unlock()
@@ -440,7 +465,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	}
 
 	zkTrieBuildStart := time.Now()
-	proofStorages := structLogger.UpdatedStorages()
+
 	for addr, keys := range proofStorages {
 		if _, existed := txStorageTrace.StorageProofs[addr.String()]; !existed {
 			txStorageTrace.StorageProofs[addr.String()] = make(map[string][]hexutil.Bytes)
@@ -565,10 +590,6 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 		},
 		rcfg.SequencerAddress: {rcfg.SequencerSetVerifyHashSlot},
 		rcfg.L2TokenRegistryAddress: {
-			rcfg.AllowListEnabledSlot,
-			rcfg.TokenRegistrySlot,
-			rcfg.TokenRegistrationSlot,
-			rcfg.PriceRatioSlot,
 			rcfg.AllowListSlot,
 		},
 	}

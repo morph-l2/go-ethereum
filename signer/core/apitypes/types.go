@@ -87,7 +87,7 @@ type SendTxArgs struct {
 	// For non-legacy transactions
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
-	FeeTokenID *hexutil.Uint64   `json:"feeTokenID,omitempty"`
+	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
 }
 

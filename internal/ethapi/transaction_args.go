@@ -51,8 +51,8 @@ type TransactionArgs struct {
 	Input *hexutil.Bytes `json:"input"`
 
 	// AltFeeTxType
-	FeeTokenID *hexutil.Uint64 `json:"fee_token_id,omitempty"`
-	FeeLimit   *hexutil.Big    `json:"fee_limit,omitempty"`
+	FeeTokenID *hexutil.Uint16 `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big    `json:"feeLimit,omitempty"`
 
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`

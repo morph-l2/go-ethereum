@@ -63,7 +63,7 @@ type txJSON struct {
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 
 	// Alt fee transaction fields:
-	FeeTokenID hexutil.Uint64 `json:"fee_token_id"`
+	FeeTokenID hexutil.Uint16 `json:"fee_token_id"`
 	FeeLimit   *hexutil.Big   `json:"fee_limit"`
 }
 
@@ -199,7 +199,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.Value = (*hexutil.Big)(itx.Value)
 		enc.Input = (*hexutil.Bytes)(&itx.Data)
 		enc.AccessList = &itx.AccessList
-		enc.FeeTokenID = hexutil.Uint64(itx.FeeTokenID)
+		enc.FeeTokenID = hexutil.Uint16(itx.FeeTokenID)
 		enc.FeeLimit = (*hexutil.Big)(itx.FeeLimit)
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)

@@ -113,8 +113,8 @@ type stTransaction struct {
 	Value                []string            `json:"value"`
 	PrivateKey           []byte              `json:"secretKey"`
 
-	FeeTokenID uint16   `json:"fee_token_id,omitempty"`
-	FeeLimit   *big.Int `json:"fee_limit,omitempty"`
+	FeeTokenID uint16   `json:"feeTokenID,omitempty"`
+	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
 }
 
 type stTransactionMarshaling struct {

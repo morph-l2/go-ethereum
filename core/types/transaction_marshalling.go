@@ -63,8 +63,8 @@ type txJSON struct {
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 
 	// Alt fee transaction fields:
-	FeeTokenID hexutil.Uint16 `json:"fee_token_id"`
-	FeeLimit   *hexutil.Big   `json:"fee_limit"`
+	FeeTokenID hexutil.Uint16 `json:"feeTokenID"`
+	FeeLimit   *hexutil.Big   `json:"feeLimit"`
 }
 
 // yParityValue returns the YParity value from JSON. For backwards-compatibility reasons,

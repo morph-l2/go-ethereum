@@ -279,6 +279,10 @@ var (
 		Name:  "override.viridiantime",
 		Usage: "Manually specify the Viridian fork timestamp, overriding the bundled setting",
 	}
+	OverrideEmeraldTimeFlag = &cli.Uint64Flag{
+		Name:  "override.emeraldtime",
+		Usage: "Manually specify the Emerald fork timestamp, overriding the bundled setting",
+	}
 	// Light server and client settings
 	LightServeFlag = cli.IntFlag{
 		Name:  "light.serve",

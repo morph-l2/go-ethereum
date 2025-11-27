@@ -207,6 +207,13 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig, 
 			receipt.TxHash = tx.Hash()
 			receipt.GasUsed = msgResult.UsedGas
 			receipt.L1Fee = msgResult.L1DataFee
+			if msg.FeeTokenID() != 0 {
+				tokenID := msg.FeeTokenID()
+				receipt.FeeTokenID = &tokenID
+				receipt.FeeLimit = msg.FeeLimit()
+				receipt.FeeRate = msgResult.FeeRate
+				receipt.TokenScale = msgResult.TokenScale
+			}
 
 			// If the transaction created a contract, store the creation address in the receipt.
 			if msg.To() == nil {

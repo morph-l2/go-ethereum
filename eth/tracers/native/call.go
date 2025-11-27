@@ -119,6 +119,7 @@ type callTracer struct {
 	depth     int
 	interrupt atomic.Bool // Atomic flag to signal execution interruption
 	reason    error       // Textual reason for the interruption
+	skip      bool
 }
 
 type callTracerConfig struct {
@@ -135,11 +136,13 @@ func newCallTracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *param
 	}
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
-			OnTxStart: t.OnTxStart,
-			OnTxEnd:   t.OnTxEnd,
-			OnEnter:   t.OnEnter,
-			OnExit:    t.OnExit,
-			OnLog:     t.OnLog,
+			OnTxStart:           t.OnTxStart,
+			OnTxEnd:             t.OnTxEnd,
+			OnEnter:             t.OnEnter,
+			OnExit:              t.OnExit,
+			OnLog:               t.OnLog,
+			OnSystemCallStartV2: t.OnSystemCall,
+			OnSystemCallEnd:     t.OnSystemCallEnd,
 		},
 		GetResult: t.GetResult,
 		Stop:      t.Stop,
@@ -158,6 +161,9 @@ func newCallTracerObject(ctx *tracers.Context, cfg json.RawMessage) (*callTracer
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *callTracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+	if t.skip {
+		return
+	}
 	t.depth = depth
 	if t.config.OnlyTopCall && depth > 0 {
 		return
@@ -185,6 +191,9 @@ func (t *callTracer) OnEnter(depth int, typ byte, from common.Address, to common
 // OnExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (t *callTracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	if t.skip {
+		return
+	}
 	if depth == 0 {
 		t.captureEnd(output, gasUsed, err, reverted)
 		return
@@ -218,10 +227,16 @@ func (t *callTracer) captureEnd(output []byte, gasUsed uint64, err error, revert
 }
 
 func (t *callTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
+	if t.skip {
+		return
+	}
 	t.gasLimit = tx.Gas()
 }
 
 func (t *callTracer) OnTxEnd(receipt *types.Receipt, err error) {
+	if t.skip {
+		return
+	}
 	// Error happened during tx validation.
 	if err != nil {
 		return
@@ -235,7 +250,18 @@ func (t *callTracer) OnTxEnd(receipt *types.Receipt, err error) {
 	}
 }
 
+func (t *callTracer) OnSystemCall(env *tracing.VMContext) {
+	t.skip = true
+}
+
+func (t *callTracer) OnSystemCallEnd() {
+	t.skip = false
+}
+
 func (t *callTracer) OnLog(log *types.Log) {
+	if t.skip {
+		return
+	}
 	// Only logs need to be captured via opcode processing
 	if !t.config.WithLog {
 		return

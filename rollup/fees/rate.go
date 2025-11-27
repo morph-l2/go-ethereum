@@ -20,6 +20,10 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 		return nil, nil, err
 	}
 
+	if info.Scale == nil || info.Scale.Sign() == 0 {
+		log.Error("Invalid token scale", "tokenID", tokenID, "tokenAddr", info.TokenAddress.Hex())
+	}
+
 	// If token address is zero, this is not a valid token
 	if info.TokenAddress == (common.Address{}) {
 		log.Error("Invalid token address", "tokenID", tokenID)
@@ -32,17 +36,7 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 		return nil, nil, err
 	}
 
-	// Get scale from token info
-	scale, err := GetTokenScaleByIDWithState(state, tokenID)
-	if err != nil {
-		log.Error("Failed to get token scale", "tokenID", tokenID, "error", err)
-		return nil, nil, err
-	}
-	if scale == nil || scale.Sign() == 0 {
-		log.Error("Invalid token scale", "tokenID", tokenID, "tokenAddr", info.TokenAddress.Hex())
-	}
-
-	return rate, scale, err
+	return rate, info.Scale, err
 }
 
 func EthToAlt(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {

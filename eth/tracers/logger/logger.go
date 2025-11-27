@@ -432,10 +432,6 @@ func (l *StructLogger) OnStorageChange(addr common.Address, slot common.Hash, pr
 	if l.interrupt.Load() {
 		return
 	}
-	// Processing a system call.
-	if l.skip {
-		return
-	}
 	// Initialize storage map for this address if not present
 	if l.storage[addr] == nil {
 		l.storage[addr] = make(Storage)

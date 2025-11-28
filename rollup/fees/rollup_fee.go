@@ -2,6 +2,7 @@ package fees
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"math/big"
 
@@ -242,6 +243,13 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 	} else {
 		l1DataFee = calculateEncodedL1DataFeeCurie(raw, gpoState.l1BaseFee, gpoState.l1BlobBaseFee, gpoState.commitScalar, gpoState.blobScalar)
 	}
+	fmt.Println("gpoState.l1BaseFee===", gpoState.l1BaseFee)
+	fmt.Println("gpoState.l1BlobBaseFee===", gpoState.l1BlobBaseFee)
+	fmt.Println("gpoState.commitScalar===", gpoState.commitScalar)
+	fmt.Println("gpoState.blobScalar===", gpoState.blobScalar)
+	fmt.Println("l1DataFee =======", l1DataFee)
+	fmt.Println("l1DataFee =======", l1DataFee)
+	fmt.Println("l1DataFee =======", l1DataFee)
 
 	// ensure l1DataFee fits into uint64 for circuit compatibility
 	// (note: in practice this value should never be this big)

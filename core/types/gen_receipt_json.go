@@ -33,6 +33,10 @@ func (r Receipt) MarshalJSON() ([]byte, error) {
 		TransactionIndex  hexutil.Uint   `json:"transactionIndex"`
 		ReturnValue       []byte         `json:"returnValue,omitempty"`
 		L1Fee             *hexutil.Big   `json:"l1Fee,omitempty"`
+		FeeTokenID        *uint16        `json:"feeTokenID,omitempty"`
+		FeeRate           *hexutil.Big   `json:"feeRate,omitempty"`
+		TokenScale        *hexutil.Big   `json:"tokenScale,omitempty"`
+		FeeLimit          *hexutil.Big   `json:"feeLimit,omitempty"`
 	}
 	var enc Receipt
 	enc.Type = hexutil.Uint64(r.Type)
@@ -52,6 +56,10 @@ func (r Receipt) MarshalJSON() ([]byte, error) {
 	enc.TransactionIndex = hexutil.Uint(r.TransactionIndex)
 	enc.ReturnValue = r.ReturnValue
 	enc.L1Fee = (*hexutil.Big)(r.L1Fee)
+	enc.FeeTokenID = r.FeeTokenID
+	enc.FeeRate = (*hexutil.Big)(r.FeeRate)
+	enc.TokenScale = (*hexutil.Big)(r.TokenScale)
+	enc.FeeLimit = (*hexutil.Big)(r.FeeLimit)
 	return json.Marshal(&enc)
 }
 
@@ -75,6 +83,10 @@ func (r *Receipt) UnmarshalJSON(input []byte) error {
 		TransactionIndex  *hexutil.Uint   `json:"transactionIndex"`
 		ReturnValue       []byte          `json:"returnValue,omitempty"`
 		L1Fee             *hexutil.Big    `json:"l1Fee,omitempty"`
+		FeeTokenID        *hexutil.Uint16 `json:"feeTokenID,omitempty"`
+		FeeRate           *hexutil.Big    `json:"feeRate,omitempty"`
+		TokenScale        *hexutil.Big    `json:"tokenScale,omitempty"`
+		FeeLimit          *hexutil.Big    `json:"feeLimit,omitempty"`
 	}
 	var dec Receipt
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -136,5 +148,19 @@ func (r *Receipt) UnmarshalJSON(input []byte) error {
 	if dec.L1Fee != nil {
 		r.L1Fee = (*big.Int)(dec.L1Fee)
 	}
+	if dec.FeeTokenID != nil {
+		tokenID := uint16(*dec.FeeTokenID)
+		r.FeeTokenID = &tokenID
+	}
+	if dec.FeeRate != nil {
+		r.FeeRate = (*big.Int)(dec.FeeRate)
+	}
+	if dec.TokenScale != nil {
+		r.TokenScale = (*big.Int)(dec.TokenScale)
+	}
+	if dec.FeeLimit != nil {
+		r.FeeLimit = (*big.Int)(dec.FeeLimit)
+	}
+
 	return nil
 }

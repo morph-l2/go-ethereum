@@ -48,6 +48,8 @@ type (
 func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	var precompiles map[common.Address]PrecompiledContract
 	switch {
+	case evm.chainRules.IsEmerald:
+		precompiles = PrecompiledContractsEmerald
 	case evm.chainRules.IsMorph203:
 		precompiles = PrecompiledContractsMorph203
 	case evm.chainRules.IsBernoulli:

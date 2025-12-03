@@ -271,6 +271,7 @@ func (l *StructLogger) Hooks() *tracing.Hooks {
 		OnSystemCallEnd:     l.OnSystemCallEnd,
 		OnExit:              l.OnExit,
 		OnOpcode:            l.OnOpcode,
+		OnStorageChange:     l.OnStorageChange,
 	}
 }
 
@@ -419,6 +420,31 @@ func (l *StructLogger) OnExit(depth int, output []byte, gasUsed uint64, err erro
 	//}
 }
 
+// OnStorageChange is called when the storage of an account changes.
+// This captures storage changes that occur outside EVM opcode execution,
+// such as direct state modifications (e.g., ERC20 token transfers via storage slots).
+//
+// Note: We always record storage changes here (even if DisableStorage is true)
+// because UpdatedStorages() is used to collect storage proofs for zk circuits.
+// The DisableStorage flag only affects whether storage is included in StructLogs.
+func (l *StructLogger) OnStorageChange(addr common.Address, slot common.Hash, prev, new common.Hash) {
+	// If tracing was interrupted, exit
+	if l.interrupt.Load() {
+		return
+	}
+	// Initialize storage map for this address if not present
+	if l.storage[addr] == nil {
+		l.storage[addr] = make(Storage)
+	}
+	// Record the new storage value
+	// Note: We record the new value, which is consistent with how SSTORE is handled in OnOpcode
+	// We always record storage changes here (regardless of DisableStorage) because
+	// UpdatedStorages() needs this information for proof collection
+	l.storage[addr][slot] = new
+	// Mark this account as affected
+	l.statesAffected[addr] = struct{}{}
+}
+
 func (l *StructLogger) GetResult() (json.RawMessage, error) {
 	// Tracing aborted
 	if l.reason != nil {
@@ -471,6 +497,7 @@ func (l *StructLogger) OnTxStart(env *tracing.VMContext, tx *types.Transaction, 
 		l.statesAffected[*to] = struct{}{}
 	}
 }
+
 func (l *StructLogger) OnSystemCallStart(env *tracing.VMContext) {
 	l.skip = true
 }

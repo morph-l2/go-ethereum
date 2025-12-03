@@ -368,11 +368,64 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		txStorageTrace.RootAfter = block.Root()
 	}
 
+	proofStorages := structLogger.UpdatedStorages()
 	// merge bytecodes
 	env.cMu.Lock()
 	for codeHash, codeInfo := range structLogger.TracedBytecodes() {
 		if codeHash != (common.Hash{}) {
 			env.Codes[codeHash] = codeInfo
+		}
+	}
+
+	// For AltFeeTx, manually collect token contract bytecode
+	// since direct storage slot operations don't trigger EVM execution
+	if tx.Type() == types.AltFeeTxType && tx.FeeTokenID() != 0 {
+		tokenInfo, err := fees.GetTokenInfo(statedb, tx.FeeTokenID())
+		if err == nil && tokenInfo.TokenAddress != (common.Address{}) {
+			collectBytecode := func(addr common.Address) {
+				code := statedb.GetCode(addr)
+				keccakCodeHash := statedb.GetKeccakCodeHash(addr)
+				poseidonCodeHash := statedb.GetPoseidonCodeHash(addr)
+				codeSize := statedb.GetCodeSize(addr)
+
+				if poseidonCodeHash != (common.Hash{}) {
+					if _, exists := env.Codes[poseidonCodeHash]; !exists {
+						env.Codes[poseidonCodeHash] = logger.CodeInfo{
+							CodeSize:         codeSize,
+							KeccakCodeHash:   keccakCodeHash,
+							PoseidonCodeHash: poseidonCodeHash,
+							Code:             code,
+						}
+					}
+				}
+			}
+			collectBytecode(tokenInfo.TokenAddress)
+			collectBytecode(rcfg.L2TokenRegistryAddress)
+
+			if proofStorages[rcfg.L2TokenRegistryAddress] == nil {
+				proofStorages[rcfg.L2TokenRegistryAddress] = make(logger.Storage)
+			}
+
+			// Collect TokenInfo struct slots
+			baseSlot := fees.GetTokenInfoStructBaseSlot(tx.FeeTokenID())
+			log.Info("base slot", "base slot", baseSlot.String(), "token id", tx.FeeTokenID(), "token address", tokenInfo.TokenAddress.String())
+			registrySlots := []uint64{
+				0, // tokenAddress
+				1, // balanceSlot
+				2, // isActive + decimals (packed)
+				3, // scale
+			}
+			for _, offset := range registrySlots {
+				slot := fees.CalculateStructFieldSlot(baseSlot, offset)
+				log.Info("offset slot", "offset", offset, "slot", slot.String())
+				value := statedb.GetState(rcfg.L2TokenRegistryAddress, slot)
+				proofStorages[rcfg.L2TokenRegistryAddress][slot] = value
+			}
+
+			// Collect price ratio slot
+			priceRatioSlot := fees.CalculateUint16MappingSlot(tx.FeeTokenID(), rcfg.PriceRatioSlot)
+			priceRatioValue := statedb.GetState(rcfg.L2TokenRegistryAddress, priceRatioSlot)
+			proofStorages[rcfg.L2TokenRegistryAddress][priceRatioSlot] = priceRatioValue
 		}
 	}
 	env.cMu.Unlock()
@@ -412,7 +465,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	}
 
 	zkTrieBuildStart := time.Now()
-	proofStorages := structLogger.UpdatedStorages()
+
 	for addr, keys := range proofStorages {
 		if _, existed := txStorageTrace.StorageProofs[addr.String()]; !existed {
 			txStorageTrace.StorageProofs[addr.String()] = make(map[string][]hexutil.Bytes)
@@ -496,6 +549,10 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1DataFee:      (*hexutil.Big)(receipt.L1Fee),
+		FeeTokenID:     receipt.FeeTokenID,
+		FeeLimit:       (*hexutil.Big)(receipt.FeeLimit),
+		FeeRate:        (*hexutil.Big)(receipt.FeeRate),
+		TokenScale:     (*hexutil.Big)(receipt.TokenScale),
 		Gas:            receipt.GasUsed,
 		Failed:         receipt.Status == types.ReceiptStatusFailed,
 		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),
@@ -532,6 +589,9 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 			rcfg.IsCurieSlot,
 		},
 		rcfg.SequencerAddress: {rcfg.SequencerSetVerifyHashSlot},
+		rcfg.L2TokenRegistryAddress: {
+			rcfg.AllowListSlot,
+		},
 	}
 
 	for addr, storages := range intrinsicStorageProofs {

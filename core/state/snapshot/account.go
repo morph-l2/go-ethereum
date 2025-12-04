@@ -33,8 +33,8 @@ type Account struct {
 	Balance          *big.Int
 	Root             []byte
 	KeccakCodeHash   []byte
-	PoseidonCodeHash []byte
-	CodeSize         uint64
+	PoseidonCodeHash []byte `rlp:"-"` // zkTrie specific, not serialized to disk
+	CodeSize         uint64 `rlp:"-"` // Can be derived from code, not serialized
 }
 
 // SlimAccount converts a state.Account content into a slim snapshot account

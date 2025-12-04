@@ -136,6 +136,15 @@ type cachingDB struct {
 
 // OpenTrie opens the main account trie at a specific root hash.
 func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
+	// Try to resolve disk state root mapping first.
+	// If the block's trie format differs from our local format,
+	// the mapping will redirect us to the actual on-disk root.
+	diskDB := db.db.DiskDB()
+	if diskRoot, err := rawdb.ReadDiskStateRoot(diskDB, root); err == nil {
+		root = diskRoot
+	}
+	// If mapping doesn't exist, root remains unchanged (normal case).
+
 	if db.zktrie {
 		tr, err := trie.NewZkTrie(root, trie.NewZktrieDatabaseFromTriedb(db.db))
 		if err != nil {

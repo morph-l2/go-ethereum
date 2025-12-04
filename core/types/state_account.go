@@ -31,6 +31,6 @@ type StateAccount struct {
 	KeccakCodeHash []byte
 
 	// StateAccount Morph extensions
-	PoseidonCodeHash []byte
-	CodeSize         uint64
+	PoseidonCodeHash []byte `rlp:"-"` // zkTrie specific, not serialized to disk
+	CodeSize         uint64 `rlp:"-"` // Can be derived from code, not serialized
 }

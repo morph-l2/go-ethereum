@@ -229,8 +229,8 @@ func compareStateObjects(so0, so1 *stateObject, t *testing.T) {
 	if !bytes.Equal(so0.PoseidonCodeHash(), so1.PoseidonCodeHash()) {
 		t.Fatalf("PoseidonCodeHash mismatch: have %v, want %v", so0.PoseidonCodeHash(), so1.PoseidonCodeHash())
 	}
-	if so0.CodeSize() != so1.CodeSize() {
-		t.Fatalf("CodeSize mismatch: have %v, want %v", so0.CodeSize(), so1.CodeSize())
+	if so0.CodeSize(so0.db.db) != so1.CodeSize(so1.db.db) {
+		t.Fatalf("CodeSize mismatch: have %v, want %v", so0.CodeSize(so0.db.db), so1.CodeSize(so1.db.db))
 	}
 	if !bytes.Equal(so0.code, so1.code) {
 		t.Fatalf("Code mismatch: have %v, want %v", so0.code, so1.code)

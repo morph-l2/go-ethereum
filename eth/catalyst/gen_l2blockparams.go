@@ -16,9 +16,11 @@ func (a AssembleL2BlockParams) MarshalJSON() ([]byte, error) {
 	type AssembleL2BlockParams struct {
 		Number       hexutil.Uint64  `json:"number"        gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"`
+		Timestamp    *uint64         `json:"timestamp"`
 	}
 	var enc AssembleL2BlockParams
 	enc.Number = hexutil.Uint64(a.Number)
+	enc.Timestamp = a.Timestamp
 	if a.Transactions != nil {
 		enc.Transactions = make([]hexutil.Bytes, len(a.Transactions))
 		for k, v := range a.Transactions {
@@ -33,6 +35,7 @@ func (a *AssembleL2BlockParams) UnmarshalJSON(input []byte) error {
 	type AssembleL2BlockParams struct {
 		Number       *hexutil.Uint64 `json:"number"        gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"`
+		Timestamp    *uint64         `json:"timestamp"`
 	}
 	var dec AssembleL2BlockParams
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -42,6 +45,7 @@ func (a *AssembleL2BlockParams) UnmarshalJSON(input []byte) error {
 		return errors.New("missing required field 'number' for AssembleL2BlockParams")
 	}
 	a.Number = uint64(*dec.Number)
+	a.Timestamp = dec.Timestamp
 	if dec.Transactions != nil {
 		a.Transactions = make([][]byte, len(dec.Transactions))
 		for k, v := range dec.Transactions {

@@ -124,7 +124,7 @@ type storedReceiptRLP struct {
 }
 
 // v7StoredReceiptRLP is the storage encoding of a receipt used in database version 7.
-// This version was introduced when AltFee feature was added (2024-11).
+// This version was introduced when AltFee feature was added.
 // It includes L1Fee and all AltFee fields (FeeTokenID, FeeRate, TokenScale, FeeLimit).
 type v7StoredReceiptRLP struct {
 	PostStateOrStatus []byte

@@ -1,6 +1,9 @@
 package types
 
-import "math/big"
+import (
+	"errors"
+	"math/big"
+)
 
 // SuperAccount dual currency account
 type SuperAccount struct {
@@ -46,12 +49,12 @@ func (dca *SuperAccount) SetAltAmount(id uint16, amount *big.Int) {
 }
 
 // EthToAlt altAmount = ethAmount / (tokenRate / tokenScale) = ethAmount * tokenScale / tokenRate
-func EthToAlt(ethAmount, rate, tokenScale *big.Int) *big.Int {
+func EthToAlt(ethAmount, rate, tokenScale *big.Int) (*big.Int, error) {
 	if rate == nil || rate.Sign() <= 0 {
-		panic("invalid token rate")
+		return nil, errors.New("invalid rate")
 	}
 	if tokenScale == nil || tokenScale.Sign() <= 0 {
-		panic("invalid token scale")
+		return nil, errors.New("invalid token scale")
 	}
 	altAmount := new(big.Int)
 	remainder := new(big.Int)
@@ -59,16 +62,16 @@ func EthToAlt(ethAmount, rate, tokenScale *big.Int) *big.Int {
 	if remainder.Sign() != 0 {
 		altAmount.Add(altAmount, big.NewInt(1))
 	}
-	return altAmount
+	return altAmount, nil
 }
 
 // AltToEth ethAmount = altAmount * (tokenRate / tokenScale)
-func AltToEth(erc20Amount, rate, tokenScale *big.Int) *big.Int {
+func AltToEth(erc20Amount, rate, tokenScale *big.Int) (*big.Int, error) {
 	if rate == nil || rate.Sign() <= 0 {
-		panic("invalid token rate")
+		return nil, errors.New("invalid rate")
 	}
 	if tokenScale == nil || tokenScale.Sign() <= 0 {
-		panic("invalid token scale")
+		return nil, errors.New("invalid token scale")
 	}
 	ethAmount := new(big.Int)
 	remainder := new(big.Int)
@@ -76,5 +79,5 @@ func AltToEth(erc20Amount, rate, tokenScale *big.Int) *big.Int {
 	if remainder.Sign() != 0 {
 		ethAmount.Add(ethAmount, big.NewInt(1))
 	}
-	return ethAmount
+	return ethAmount, nil
 }

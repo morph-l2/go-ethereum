@@ -37,7 +37,7 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 		return nil, nil, errors.New("invalid token price")
 	}
 
-	return rate, info.Scale, err
+	return rate, info.Scale, nil
 }
 
 func EthToAlt(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {

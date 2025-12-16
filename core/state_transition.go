@@ -312,7 +312,10 @@ func (st *StateTransition) buyAltTokenGas() error {
 		"fee", mgval,
 	)
 
-	tokenFee := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
+	tokenFee, err := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
+	if err != nil {
+		return err
+	}
 	feeLimit := tokenBalance
 	if st.msg.FeeLimit() != nil && st.msg.FeeLimit().Sign() > 0 {
 		feeLimit = cmath.BigMin(tokenBalance, st.msg.FeeLimit())
@@ -434,9 +437,6 @@ func (st *StateTransition) preCheck() error {
 		feeRate, tokenScale, err := fees.TokenRate(st.state, st.msg.FeeTokenID())
 		if err != nil {
 			return fmt.Errorf("get token rate failed %v", err)
-		}
-		if feeRate == nil || tokenScale == nil || feeRate.Sign() <= 0 || tokenScale.Sign() <= 0 {
-			return fmt.Errorf("token rate or scale is nil")
 		}
 		st.feeRate = feeRate
 		st.tokenScale = tokenScale
@@ -680,7 +680,10 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			log.Error("Failed to get token info for gas refund", "tokenID", st.msg.FeeTokenID(), "error", err)
 			return
 		}
-		tokenAmount := types.EthToAlt(remaining, st.feeRate, st.tokenScale)
+		tokenAmount, err := types.EthToAlt(remaining, st.feeRate, st.tokenScale)
+		if err != nil {
+			log.Error("Failed to convert exchange rate", "tokenID", st.msg.FeeTokenID(), "error", err)
+		}
 		if err = st.TransferAltTokenHybrid(
 			tokenInfo,
 			*st.evm.ChainConfig().Morph.FeeVaultAddress,

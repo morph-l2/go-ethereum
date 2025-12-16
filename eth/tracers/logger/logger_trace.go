@@ -59,7 +59,6 @@ func traceCodeWithAddress(l *StructLogger, address common.Address) {
 		// In zkTrie mode, use poseidon hash as key
 		codeHash = poseidonCodeHash
 	}
-	// Otherwise use keccak hash (MPT mode or post-Euclid)
 
 	codeSize := l.env.StateDB.GetCodeSize(address)
 	l.bytecodes[codeHash] = CodeInfo{

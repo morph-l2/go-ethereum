@@ -388,9 +388,16 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 				poseidonCodeHash := statedb.GetPoseidonCodeHash(addr)
 				codeSize := statedb.GetCodeSize(addr)
 
+				// Determine the code key based on trie mode:
+				// zkTrie mode uses poseidon hash, MPT mode uses keccak hash
+				codeKey := keccakCodeHash
 				if poseidonCodeHash != (common.Hash{}) {
-					if _, exists := env.Codes[poseidonCodeHash]; !exists {
-						env.Codes[poseidonCodeHash] = logger.CodeInfo{
+					codeKey = poseidonCodeHash
+				}
+
+				if codeKey != (common.Hash{}) {
+					if _, exists := env.Codes[codeKey]; !exists {
+						env.Codes[codeKey] = logger.CodeInfo{
 							CodeSize:         codeSize,
 							KeccakCodeHash:   keccakCodeHash,
 							PoseidonCodeHash: poseidonCodeHash,

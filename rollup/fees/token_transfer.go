@@ -59,7 +59,7 @@ func changeAltTokenBalanceByState(state StateDB, tokenAddress common.Address, ba
 	amountBytes := common.LeftPadBytes(newBalance.Bytes(), 32)
 	amountHash := common.BytesToHash(amountBytes)
 
-	// Calculate the storage slot for the user's balance
+	// Change user balance
 	state.SetState(tokenAddress, storageSlot, amountHash)
 
 	return nil

@@ -68,12 +68,12 @@ func CalculateStructFieldSlot(baseSlot common.Hash, fieldOffset uint64) common.H
 }
 
 // GetUint256MappingValue retrieves a value from a mapping storage slot
-func GetUint256MappingValue(state StateDB, contractAddr common.Address, key uint16, mappingSlot common.Hash) (*big.Int, error) {
+func GetUint256MappingValue(state StateDB, key uint16, mappingSlot common.Hash) (*big.Int, error) {
 	// Calculate the storage slot
 	storageKey := CalculateUint16MappingSlot(key, mappingSlot)
 
 	// Get the value from storage
-	value := state.GetState(contractAddr, storageKey)
+	value := state.GetState(TokenRegistryAddress, storageKey)
 
 	// Convert hash to big.Int
 	result := new(big.Int).SetBytes(value[:])
@@ -162,13 +162,13 @@ func IsTokenActive(state StateDB, tokenID uint16) (bool, error) {
 }
 
 // GetTokenPriceByIDWithState retrieves token price ratio from priceRatio mapping
-func GetTokenPriceByIDWithState(state StateDB, contractAddr common.Address, tokenID uint16) (*big.Int, error) {
-	return GetUint256MappingValue(state, contractAddr, tokenID, rcfg.PriceRatioSlot)
+func GetTokenPriceByIDWithState(state StateDB, tokenID uint16) (*big.Int, error) {
+	return GetUint256MappingValue(state, tokenID, rcfg.PriceRatioSlot)
 }
 
 // GetTokenInfoFromStorage retrieves token address, price, and balance slot from storage
 // This is a convenience function that combines multiple storage reads
-func GetTokenInfoFromStorage(state StateDB, contractAddr common.Address, tokenID uint16) (*TokenInfo, *big.Int, error) {
+func GetTokenInfoFromStorage(state StateDB, tokenID uint16) (*TokenInfo, *big.Int, error) {
 	// Get token info from TokenInfo struct
 	info, err := GetTokenInfo(state, tokenID)
 	if err != nil {
@@ -176,7 +176,7 @@ func GetTokenInfoFromStorage(state StateDB, contractAddr common.Address, tokenID
 	}
 
 	// Get token price from priceRatio mapping
-	price, err := GetTokenPriceByIDWithState(state, contractAddr, tokenID)
+	price, err := GetTokenPriceByIDWithState(state, tokenID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get token price: %v", err)
 	}

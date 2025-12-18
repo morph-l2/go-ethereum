@@ -111,7 +111,7 @@ func TestValidateL2Block(t *testing.T) {
 	// generic case
 	err = sendTransfer(config, ethService)
 	require.NoError(t, err)
-	ret, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	ret, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), uint64(time.Now().Unix()), nil)
 	require.NoError(t, err)
 	block := ret.Block
 	l2Data := ExecutableL2Data{
@@ -170,7 +170,7 @@ func TestNewL2Block(t *testing.T) {
 
 	err := sendTransfer(config, ethService)
 	require.NoError(t, err)
-	ret, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	ret, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), uint64(time.Now().Unix()), nil)
 	block := ret.Block
 	require.NoError(t, err)
 	l2Data := ExecutableL2Data{
@@ -223,7 +223,7 @@ func TestNewSafeL2Block(t *testing.T) {
 
 	err := sendTransfer(config, ethService)
 	require.NoError(t, err)
-	ret, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), time.Now(), nil)
+	ret, err := ethService.Miner().BuildBlock(ethService.BlockChain().CurrentHeader().Hash(), uint64(time.Now().Unix()), nil)
 	require.NoError(t, err)
 	block := ret.Block
 	l2Data := SafeL2Data{

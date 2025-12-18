@@ -151,6 +151,7 @@ var (
 		utils.MorphFlag,
 		utils.MorphHoleskyFlag,
 		utils.MorphHoodiFlag,
+		utils.MorphMPTFlag,
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,
 		utils.EthStatsURLFlag,

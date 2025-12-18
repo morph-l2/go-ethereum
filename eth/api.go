@@ -659,3 +659,33 @@ func (api *MorphAPI) GetRollupBatchL1FeeByIndex(ctx context.Context, index uint6
 	}
 	return collectedL1Fee, nil
 }
+
+// DiskAndHeaderRoot represents both the disk state root and header root for a block.
+type DiskAndHeaderRoot struct {
+	DiskRoot   common.Hash `json:"diskRoot"`
+	HeaderRoot common.Hash `json:"headerRoot"`
+}
+
+// DiskRoot returns both the disk state root and header root for a given block.
+// This is useful for debugging cross-format state access (zkTrie ↔ MPT).
+// If no disk root mapping exists, returns the block's root for both fields.
+func (api *MorphAPI) DiskRoot(ctx context.Context, blockNrOrHash *rpc.BlockNumberOrHash) (DiskAndHeaderRoot, error) {
+	block, err := api.eth.APIBackend.BlockByNumberOrHash(ctx, *blockNrOrHash)
+	if err != nil {
+		return DiskAndHeaderRoot{}, fmt.Errorf("failed to retrieve block: %w", err)
+	}
+	if block == nil {
+		return DiskAndHeaderRoot{}, fmt.Errorf("block not found: %s", blockNrOrHash.String())
+	}
+
+	if diskRoot, _ := rawdb.ReadDiskStateRoot(api.eth.ChainDb(), block.Root()); diskRoot != (common.Hash{}) {
+		return DiskAndHeaderRoot{
+			DiskRoot:   diskRoot,
+			HeaderRoot: block.Root(),
+		}, nil
+	}
+	return DiskAndHeaderRoot{
+		DiskRoot:   block.Root(),
+		HeaderRoot: block.Root(),
+	}, nil
+}

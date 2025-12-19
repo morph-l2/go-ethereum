@@ -260,7 +260,6 @@ var (
 	}
 
 	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
-	MorphMaxTxPerBlock             = 100
 	MorphHoleskyMaxTxPerBlock      = 1000
 
 	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
@@ -317,10 +316,10 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            NewUint64(0),
 		ViridianTime:            NewUint64(1761544800),
+		EmeraldTime:             NewUint64(1766988000),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
-			MaxTxPerBlock:             &MorphMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphHoodiFeeVaultAddress,
 		},
@@ -348,10 +347,10 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            NewUint64(1747029600),
 		ViridianTime:            NewUint64(1762149600),
+		EmeraldTime:             NewUint64(1767765600),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
-			MaxTxPerBlock:             &MorphMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &rcfg.MorphFeeVaultAddress,
 		},

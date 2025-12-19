@@ -35,12 +35,17 @@ type Message interface {
 	Data() []byte
 	AccessList() types.AccessList
 	IsL1MessageTx() bool
+	FeeTokenID() uint16
+	FeeLimit() *big.Int
 }
 
 // StateDB represents the StateDB interface
 // required to compute the L1 fee
 type StateDB interface {
 	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash) common.Hash
+	Snapshot() int
+	RevertToSnapshot(int)
 }
 
 type gpoState struct {
@@ -89,6 +94,9 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 
 		return asUnsignedAccessListTx(msg, chainID)
 	}
+	if msg.FeeTokenID() != 0 {
+		return asUnsignedAltFeeTx(msg, chainID)
+	}
 
 	return asUnsignedDynamicTx(msg, chainID)
 }
@@ -125,6 +133,22 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 		Gas:        msg.Gas(),
 		GasFeeCap:  msg.GasFeeCap(),
 		GasTipCap:  msg.GasTipCap(),
+		Data:       msg.Data(),
+		AccessList: msg.AccessList(),
+		ChainID:    chainID,
+	})
+}
+
+func asUnsignedAltFeeTx(msg Message, chainID *big.Int) *types.Transaction {
+	return types.NewTx(&types.AltFeeTx{
+		Nonce:      msg.Nonce(),
+		To:         msg.To(),
+		Value:      msg.Value(),
+		Gas:        msg.Gas(),
+		GasFeeCap:  msg.GasFeeCap(),
+		GasTipCap:  msg.GasTipCap(),
+		FeeTokenID: msg.FeeTokenID(),
+		FeeLimit:   msg.FeeLimit(),
 		Data:       msg.Data(),
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,
@@ -224,6 +248,7 @@ func CalculateL1DataFee(tx *types.Transaction, state StateDB, config *params.Cha
 	if !l1DataFee.IsUint64() {
 		l1DataFee.SetUint64(math.MaxUint64)
 	}
+
 	return l1DataFee, nil
 }
 

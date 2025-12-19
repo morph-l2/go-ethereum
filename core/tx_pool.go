@@ -28,10 +28,12 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
+	cmath "github.com/morph-l2/go-ethereum/common/math"
 	"github.com/morph-l2/go-ethereum/common/prque"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto/codehash"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
@@ -264,7 +266,8 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	blacklist *TxBlacklist
+	blacklist      *TxBlacklist
+	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
 
 	pending map[common.Address]*txList   // All currently processable transactions
 	queue   map[common.Address]*txList   // Queued but non-processable transactions
@@ -320,6 +323,30 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		reorgShutdownCh: make(chan struct{}),
 		initDoneCh:      make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
+	}
+	pool.getBalanceFunc = func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error) {
+		active, err := fees.IsTokenActive(state, tokenID)
+		if err != nil || !active {
+			return big.NewInt(0), errors.New("invalid token")
+		}
+		blockContext := vm.BlockContext{
+			CanTransfer: CanTransfer,
+			Transfer:    Transfer,
+			GetHash:     func(n uint64) common.Hash { return common.Hash{} },
+			Coinbase:    header.Coinbase,
+			BlockNumber: header.Number,
+			Time:        big.NewInt(int64(header.Time)),
+			Difficulty:  header.Difficulty,
+			BaseFee:     header.BaseFee,
+			GasLimit:    header.GasLimit,
+		}
+
+		// Configure minimal VM settings
+		vmConfig := vm.Config{}
+		txContext := vm.TxContext{}
+		// Create the EVM instance
+		evm := vm.NewEVM(blockContext, txContext, state, pool.chainconfig, vmConfig)
+		return GetAltTokenBalance(evm, tokenID, addr)
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -588,6 +615,7 @@ func (pool *TxPool) pendingWithMax(minTip *big.Int, baseFee *big.Int, maxAccount
 					txs = txs[:i]
 					break
 				}
+
 			}
 		}
 		if len(txs) > 0 {
@@ -641,6 +669,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrTxTypeNotSupported
 	}
 
+	// Reject erc20 fee transactions until EIP-1559 activates.
+	if !pool.eip1559 && tx.Type() == types.AltFeeTxType {
+		return ErrTxTypeNotSupported
+	}
 	if !pool.eip7702 && tx.Type() == types.SetCodeTxType {
 		return ErrTxTypeNotSupported
 	}
@@ -692,8 +724,36 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
-		return ErrInsufficientFunds
+	if tx.IsAltFeeTx() {
+		active, err := fees.IsTokenActive(pool.currentState, tx.FeeTokenID())
+		if err != nil {
+			return fmt.Errorf("get token status failed %v", err)
+		}
+		if !active {
+			return fmt.Errorf("token %v not active", tx.FeeTokenID())
+		}
+		erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), from)
+		if err != nil {
+			return err
+		}
+		erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), tx.GasFee())
+		if err != nil {
+			return err
+		}
+		limit := erc20Balance
+		if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
+			limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
+		}
+		if limit.Cmp(erc20Amount) < 0 {
+			return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
+		}
+		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
+			return ErrInsufficientFunds
+		}
+	} else {
+		if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+			return ErrInsufficientFunds
+		}
 	}
 	// 2. If FeeVault is enabled, perform an additional check for L1 data fees.
 	if pool.chainconfig.Morph.FeeVaultEnabled() {
@@ -703,9 +763,30 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return fmt.Errorf("failed to calculate L1 data fee, err: %w", err)
 		}
 		// Transactor should have enough funds to cover the costs
-		// cost == L1 data fee + V + GP * GL
-		if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
-			return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
+		if tx.IsAltFeeTx() {
+			if b := pool.currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
+				return ErrInsufficientValue
+			}
+			erc20Balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), from)
+			if err != nil {
+				return err
+			}
+			erc20Amount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+			if err != nil {
+				return err
+			}
+			limit := erc20Balance
+			if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
+				limit = cmath.BigMin(erc20Balance, tx.FeeLimit())
+			}
+			if limit.Cmp(erc20Amount) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
+			}
+		} else {
+			// cost == L1 data fee + V + GP * GL
+			if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
+			}
 		}
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
@@ -1464,6 +1545,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 	// Track the promoted transactions to broadcast them at once
 	var promoted []*types.Transaction
 
+	header := pool.chain.CurrentBlock().Header()
 	// Iterate over all accounts and promote any executable transactions
 	for _, addr := range accounts {
 		list := pool.queue[addr]
@@ -1480,7 +1562,15 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 
 		// Drop all transactions that are too costly (low balance or out of gas)
 		costLimit := pool.currentState.GetBalance(addr)
-		drops, _ := list.FilterF(costLimit, pool.currentMaxGas, pool.executableTxFilter(costLimit))
+		altCostLimit := make(map[uint16]*big.Int)
+		for id := range list.costcap.Alts() {
+			altBalance, _ := pool.getBalanceFunc(header, pool.currentState, id, addr)
+			if altBalance == nil {
+				altBalance = big.NewInt(0)
+			}
+			altCostLimit[id] = altBalance
+		}
+		drops, _ := list.FilterF(costLimit, altCostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, altCostLimit))
 		for _, tx := range drops {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
@@ -1525,12 +1615,11 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 	return promoted
 }
 
-func (pool *TxPool) executableTxFilter(costLimit *big.Int) func(tx *types.Transaction) bool {
+func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, altCostLimit map[uint16]*big.Int) func(tx *types.Transaction) bool {
 	return func(tx *types.Transaction) bool {
-		if tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0 {
+		if !tx.IsAltFeeTx() && (tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0) {
 			return true
 		}
-
 		if pool.chainconfig.Morph.FeeVaultEnabled() {
 			// recheck L1 data fee, as the oracle price may have changed
 			l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead)
@@ -1538,7 +1627,29 @@ func (pool *TxPool) executableTxFilter(costLimit *big.Int) func(tx *types.Transa
 				log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
 				return false
 			}
-			return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
+			if tx.IsAltFeeTx() {
+				if altCostLimit[tx.FeeTokenID()] == nil {
+					balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), addr)
+					if err != nil || balance == nil {
+						log.Error("Failed to query balance", "err", err, "tx", tx)
+						return false
+					}
+					// account cost limit
+					altCostLimit[tx.FeeTokenID()] = balance
+				}
+				altAmount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
+				if err != nil {
+					log.Error("Failed to swap to erc20", "err", err, "tx", tx)
+					return false
+				}
+				limit := altCostLimit[tx.FeeTokenID()]
+				if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {
+					limit = cmath.BigMin(altCostLimit[tx.FeeTokenID()], tx.FeeLimit())
+				}
+				return costLimit.Cmp(tx.Value()) < 0 || limit.Cmp(altAmount) < 0
+			} else {
+				return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
+			}
 		}
 
 		return false
@@ -1685,6 +1796,7 @@ func (pool *TxPool) truncateQueue() {
 // is always explicitly triggered by SetBaseFee and it would be unnecessary and wasteful
 // to trigger a re-heap is this function
 func (pool *TxPool) demoteUnexecutables() {
+	header := pool.chain.CurrentBlock().Header()
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
 		nonce := pool.currentState.GetNonce(addr)
@@ -1698,7 +1810,16 @@ func (pool *TxPool) demoteUnexecutables() {
 		}
 		// Drop all transactions that are too costly (low balance or out of gas), and queue any invalids back for later
 		costLimit := pool.currentState.GetBalance(addr)
-		drops, invalids := list.FilterF(costLimit, pool.currentMaxGas, pool.executableTxFilter(costLimit))
+		altCostLimit := make(map[uint16]*big.Int)
+		for id := range list.costcap.Alts() {
+			altBalance, _ := pool.getBalanceFunc(header, pool.currentState, id, addr)
+			if altBalance == nil {
+				altBalance = big.NewInt(0)
+			}
+			altCostLimit[id] = altBalance
+		}
+		drops, invalids := list.FilterF(costLimit, altCostLimit, pool.currentMaxGas, pool.executableTxFilter(addr, costLimit, altCostLimit))
+
 		for _, tx := range drops {
 			hash := tx.Hash()
 			log.Trace("Removed unpayable pending transaction", "hash", hash)

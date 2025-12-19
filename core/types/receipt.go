@@ -78,6 +78,11 @@ type Receipt struct {
 
 	// Morph rollup
 	L1Fee *big.Int `json:"l1Fee,omitempty"`
+	// Alt Fee
+	FeeTokenID *uint16  `json:"feeTokenID,omitempty"`
+	FeeRate    *big.Int `json:"feeRate,omitempty"`
+	TokenScale *big.Int `json:"tokenScale,omitempty"`
+	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
 }
 
 type receiptMarshaling struct {
@@ -92,6 +97,10 @@ type receiptMarshaling struct {
 	BlockNumber       *hexutil.Big
 	TransactionIndex  hexutil.Uint
 	L1Fee             *hexutil.Big
+	FeeTokenID        *hexutil.Uint16
+	FeeRate           *hexutil.Big
+	TokenScale        *hexutil.Big
+	FeeLimit          *hexutil.Big
 }
 
 // receiptRLP is the consensus encoding of a receipt.
@@ -104,6 +113,33 @@ type receiptRLP struct {
 
 // storedReceiptRLP is the storage encoding of a receipt.
 type storedReceiptRLP struct {
+	PostStateOrStatus []byte
+	CumulativeGasUsed uint64
+	Logs              []*LogForStorage
+	L1Fee             *big.Int
+	FeeTokenID        *uint16
+	FeeRate           *big.Int
+	TokenScale        *big.Int
+	FeeLimit          *big.Int
+}
+
+// v7StoredReceiptRLP is the storage encoding of a receipt used in database version 7.
+// This version was introduced when AltFee feature was added.
+// It includes L1Fee and all AltFee fields (FeeTokenID, FeeRate, TokenScale, FeeLimit).
+type v7StoredReceiptRLP struct {
+	PostStateOrStatus []byte
+	CumulativeGasUsed uint64
+	Logs              []*LogForStorage
+	L1Fee             *big.Int
+	FeeTokenID        *uint16
+	FeeRate           *big.Int
+	TokenScale        *big.Int
+	FeeLimit          *big.Int
+}
+
+// v6StoredReceiptRLP is the storage encoding of a receipt used in database version 6.
+// It includes L1Fee but not the altFee fields.
+type v6StoredReceiptRLP struct {
 	PostStateOrStatus []byte
 	CumulativeGasUsed uint64
 	Logs              []*LogForStorage
@@ -241,7 +277,7 @@ func (r *Receipt) decodeTyped(b []byte) error {
 		return errShortTypedReceipt
 	}
 	switch b[0] {
-	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType:
+	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, AltFeeTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -306,6 +342,10 @@ func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
 		CumulativeGasUsed: r.CumulativeGasUsed,
 		Logs:              make([]*LogForStorage, len(r.Logs)),
 		L1Fee:             r.L1Fee,
+		FeeTokenID:        r.FeeTokenID,
+		FeeRate:           r.FeeRate,
+		TokenScale:        r.TokenScale,
+		FeeLimit:          r.FeeLimit,
 	}
 	for i, log := range r.Logs {
 		enc.Logs[i] = (*LogForStorage)(log)
@@ -327,6 +367,12 @@ func (r *ReceiptForStorage) DecodeRLP(s *rlp.Stream) error {
 	if err := decodeStoredReceiptRLP(r, blob); err == nil {
 		return nil
 	}
+	if err := decodeV7StoredReceiptRLP(r, blob); err == nil {
+		return nil
+	}
+	if err := decodeV6StoredReceiptRLP(r, blob); err == nil {
+		return nil
+	}
 	if err := decodeV3StoredReceiptRLP(r, blob); err == nil {
 		return nil
 	}
@@ -338,6 +384,52 @@ func (r *ReceiptForStorage) DecodeRLP(s *rlp.Stream) error {
 
 func decodeStoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
 	var stored storedReceiptRLP
+	if err := rlp.DecodeBytes(blob, &stored); err != nil {
+		return err
+	}
+	if err := (*Receipt)(r).setStatus(stored.PostStateOrStatus); err != nil {
+		return err
+	}
+	r.CumulativeGasUsed = stored.CumulativeGasUsed
+	r.Logs = make([]*Log, len(stored.Logs))
+	for i, log := range stored.Logs {
+		r.Logs[i] = (*Log)(log)
+	}
+	r.Bloom = CreateBloom(Receipts{(*Receipt)(r)})
+	r.L1Fee = stored.L1Fee
+	r.FeeTokenID = stored.FeeTokenID
+	r.FeeRate = stored.FeeRate
+	r.TokenScale = stored.TokenScale
+	r.FeeLimit = stored.FeeLimit
+
+	return nil
+}
+
+func decodeV7StoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
+	var stored v7StoredReceiptRLP
+	if err := rlp.DecodeBytes(blob, &stored); err != nil {
+		return err
+	}
+	if err := (*Receipt)(r).setStatus(stored.PostStateOrStatus); err != nil {
+		return err
+	}
+	r.CumulativeGasUsed = stored.CumulativeGasUsed
+	r.Logs = make([]*Log, len(stored.Logs))
+	for i, log := range stored.Logs {
+		r.Logs[i] = (*Log)(log)
+	}
+	r.Bloom = CreateBloom(Receipts{(*Receipt)(r)})
+	r.L1Fee = stored.L1Fee
+	r.FeeTokenID = stored.FeeTokenID
+	r.FeeRate = stored.FeeRate
+	r.TokenScale = stored.TokenScale
+	r.FeeLimit = stored.FeeLimit
+
+	return nil
+}
+
+func decodeV6StoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
+	var stored v6StoredReceiptRLP
 	if err := rlp.DecodeBytes(blob, &stored); err != nil {
 		return err
 	}
@@ -438,6 +530,9 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 		rlp.Encode(w, data)
 	case L1MessageTxType:
 		w.WriteByte(L1MessageTxType)
+		rlp.Encode(w, data)
+	case AltFeeTxType:
+		w.WriteByte(AltFeeTxType)
 		rlp.Encode(w, data)
 	case SetCodeTxType:
 		w.WriteByte(SetCodeTxType)

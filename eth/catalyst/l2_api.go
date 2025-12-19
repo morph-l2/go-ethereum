@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/consensus/l2"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/eth"
@@ -277,7 +278,13 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, err
 		BaseFee:   params.BaseFee,
 		BatchHash: batchHash,
 	}
-	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
+	header.Difficulty = l2.Difficulty
+	header.Nonce = l2.Nonce
+	header.UncleHash = types.EmptyUncleHash
+	header.Extra = []byte{}
+	if api.eth.BlockChain().Config().Morph.FeeVaultEnabled() {
+		header.Coinbase = types.EmptyAddress
+	}
 	txs, err := decodeTransactions(params.Transactions)
 	if err != nil {
 		return nil, err
@@ -302,7 +309,13 @@ func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, batchH
 		NextL1MsgIndex: params.NextL1MessageIndex,
 		BatchHash:      bh,
 	}
-	api.eth.Engine().Prepare(api.eth.BlockChain(), header)
+	header.Difficulty = l2.Difficulty
+	header.Nonce = l2.Nonce
+	header.UncleHash = types.EmptyUncleHash
+	header.Extra = []byte{}
+	if api.eth.BlockChain().Config().Morph.FeeVaultEnabled() {
+		header.Coinbase = types.EmptyAddress
+	}
 
 	txs, err := decodeTransactions(params.Transactions)
 	if err != nil {

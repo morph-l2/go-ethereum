@@ -142,6 +142,9 @@ type CallMsg struct {
 	BlobGasFeeCap *big.Int
 	BlobHashes    []common.Hash
 
+	// For ERC20FeeType
+	FeeTokenID uint16
+	FeeLimit   *big.Int
 	// For SetCodeTxType
 	AuthorizationList []types.SetCodeAuthorization
 }

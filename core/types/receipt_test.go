@@ -80,6 +80,23 @@ var (
 		},
 		Type: DynamicFeeTxType,
 	}
+	altFeeReceipt = &Receipt{
+		Status:            ReceiptStatusFailed,
+		CumulativeGasUsed: 1,
+		Logs: []*Log{
+			{
+				Address: common.BytesToAddress([]byte{0x11}),
+				Topics:  []common.Hash{common.HexToHash("dead"), common.HexToHash("beef")},
+				Data:    []byte{0x01, 0x00, 0xff},
+			},
+			{
+				Address: common.BytesToAddress([]byte{0x01, 0x11}),
+				Topics:  []common.Hash{common.HexToHash("dead"), common.HexToHash("beef")},
+				Data:    []byte{0x01, 0x00, 0xff},
+			},
+		},
+		Type: AltFeeTxType,
+	}
 )
 
 func TestDecodeEmptyTypedReceipt(t *testing.T) {
@@ -99,6 +116,14 @@ func TestLegacyReceiptDecoding(t *testing.T) {
 		{
 			"StoredReceiptRLP",
 			encodeAsStoredReceiptRLP,
+		},
+		{
+			"V7StoredReceiptRLP",
+			encodeAsV7StoredReceiptRLP,
+		},
+		{
+			"V6StoredReceiptRLP",
+			encodeAsV6StoredReceiptRLP,
 		},
 		{
 			"V5StoredReceiptRLP",
@@ -176,6 +201,36 @@ func TestLegacyReceiptDecoding(t *testing.T) {
 
 func encodeAsStoredReceiptRLP(want *Receipt) ([]byte, error) {
 	stored := &storedReceiptRLP{
+		PostStateOrStatus: want.statusEncoding(),
+		CumulativeGasUsed: want.CumulativeGasUsed,
+		Logs:              make([]*LogForStorage, len(want.Logs)),
+		L1Fee:             want.L1Fee,
+	}
+	for i, log := range want.Logs {
+		stored.Logs[i] = (*LogForStorage)(log)
+	}
+	return rlp.EncodeToBytes(stored)
+}
+
+func encodeAsV7StoredReceiptRLP(want *Receipt) ([]byte, error) {
+	stored := &v7StoredReceiptRLP{
+		PostStateOrStatus: want.statusEncoding(),
+		CumulativeGasUsed: want.CumulativeGasUsed,
+		Logs:              make([]*LogForStorage, len(want.Logs)),
+		L1Fee:             want.L1Fee,
+		FeeTokenID:        want.FeeTokenID,
+		FeeRate:           want.FeeRate,
+		TokenScale:        want.TokenScale,
+		FeeLimit:          want.FeeLimit,
+	}
+	for i, log := range want.Logs {
+		stored.Logs[i] = (*LogForStorage)(log)
+	}
+	return rlp.EncodeToBytes(stored)
+}
+
+func encodeAsV6StoredReceiptRLP(want *Receipt) ([]byte, error) {
+	stored := &v6StoredReceiptRLP{
 		PostStateOrStatus: want.statusEncoding(),
 		CumulativeGasUsed: want.CumulativeGasUsed,
 		Logs:              make([]*LogForStorage, len(want.Logs)),
@@ -444,6 +499,24 @@ func TestReceiptMarshalBinary(t *testing.T) {
 	eip1559Want := common.FromHex("02f901c58001b9010000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000000000000000000010000080000000000000000000004000000000000000000000000000040000000000000000000000000000800000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000f8bef85d940000000000000000000000000000000000000011f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100fff85d940000000000000000000000000000000000000111f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100ff")
 	if !bytes.Equal(have, eip1559Want) {
 		t.Errorf("encoded RLP mismatch, got %x want %x", have, eip1559Want)
+	}
+
+	// alt fee Receipt
+	buf.Reset()
+	altFeeReceipt.Bloom = CreateBloom(Receipts{altFeeReceipt})
+	have, err = altFeeReceipt.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshal binary error: %v", err)
+	}
+	altFeeReceipts := Receipts{altFeeReceipt}
+	altFeeReceipts.EncodeIndex(0, buf)
+	haveEncodeIndex = buf.Bytes()
+	if !bytes.Equal(have, haveEncodeIndex) {
+		t.Errorf("BinaryMarshal and EncodeIndex mismatch, got %x want %x", have, haveEncodeIndex)
+	}
+	altFeeWant := common.FromHex("02f901c58001b9010000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000000000000000000010000080000000000000000000004000000000000000000000000000040000000000000000000000000000800000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000f8bef85d940000000000000000000000000000000000000011f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100fff85d940000000000000000000000000000000000000111f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100ff")
+	if !bytes.Equal(have, altFeeWant) {
+		t.Errorf("encoded RLP mismatch, got %x want %x", have, altFeeWant)
 	}
 }
 

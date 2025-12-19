@@ -170,6 +170,7 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 			MaxFeePerGas:         args.MaxFeePerGas,
 			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
 			FeeTokenID:           args.FeeTokenID,
+			FeeLimit:             args.FeeLimit,
 			Value:                args.Value,
 			Data:                 (*hexutil.Bytes)(&data),
 			AccessList:           args.AccessList,

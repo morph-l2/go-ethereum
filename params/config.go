@@ -319,6 +319,7 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            NewUint64(0),
 		ViridianTime:            NewUint64(1761544800),
+		EmeraldTime:             NewUint64(1766988000),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
@@ -350,6 +351,7 @@ var (
 		CurieBlock:              big.NewInt(0),
 		Morph203Time:            NewUint64(1747029600),
 		ViridianTime:            NewUint64(1762149600),
+		EmeraldTime:             NewUint64(1767765600),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,

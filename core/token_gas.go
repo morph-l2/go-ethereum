@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bytes"
 	"fmt"
 	"math/big"
 
@@ -63,7 +62,7 @@ func GetAltTokenBalance(evm *vm.EVM, tokenID uint16, user common.Address) (*big.
 		return nil, fmt.Errorf("failed to get token address for token ID %d: %v", tokenID, err)
 	}
 	balance := new(big.Int)
-	if !bytes.Equal(info.BalanceSlot.Bytes(), common.Hash{}.Bytes()) {
+	if info.HasSlot {
 		// balance slot exist
 		balance, _, err = fees.GetAltTokenBalanceFromSlot(evm.StateDB, info.TokenAddress, user, info.BalanceSlot)
 		if err != nil {

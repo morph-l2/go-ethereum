@@ -17,6 +17,8 @@ type BlockTrace struct {
 	Header            *Header            `json:"header"`
 	Transactions      []*TransactionData `json:"transactions"`
 	StorageTrace      *StorageTrace      `json:"storageTrace"`
+	ExecutionResults  []*ExecutionResult `json:"executionResults"`
+	WithdrawTrieRoot  common.Hash        `json:"withdraw_trie_root,omitempty"`
 	Bytecodes         []*BytecodeTrace   `json:"codes"`
 	StartL1QueueIndex uint64             `json:"startL1QueueIndex"`
 }

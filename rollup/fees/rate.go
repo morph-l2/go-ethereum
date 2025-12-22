@@ -24,6 +24,17 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 		log.Error("Invalid token address", "tokenID", tokenID)
 		return nil, nil, errors.New("invalid token address")
 	}
+
+	// If price is nil or zero, this token doesn't have a valid price
+	if rate == nil || rate.Sign() == 0 {
+		log.Error("Invalid token price", "tokenID", tokenID, "tokenAddr", info.TokenAddress.Hex(), "rate", rate.String())
+		return nil, nil, err
+	}
+
+	if info.Scale == nil || info.Scale.Sign() == 0 {
+		log.Error("Invalid token scale", "tokenID", tokenID, "tokenAddr", info.TokenAddress.Hex(), "scale", info.Scale.String())
+		return nil, nil, err
+	}
 	return rate, info.Scale, nil
 }
 

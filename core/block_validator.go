@@ -101,7 +101,12 @@ func (v *BlockValidator) ValidateState(block *types.Block, statedb *state.StateD
 	}
 	// Validate the state root against the received state root and throw
 	// an error if they don't match.
-	if root := statedb.IntermediateRoot(v.config.IsEIP158(header.Number)); header.Root != root {
+	//
+	// XOR condition: Only validate state root when (UseZktrie XOR IsMPTFork) == true
+	// This allows cross-format blocks to pass validation without matching local state root.
+	shouldValidateStateRoot := v.config.Morph.UseZktrie != v.config.IsMPTFork(header.Time)
+
+	if root := statedb.IntermediateRoot(v.config.IsEIP158(header.Number)); shouldValidateStateRoot && header.Root != root {
 		return fmt.Errorf("invalid merkle root (remote: %x local: %x)", header.Root, root)
 	}
 	return nil

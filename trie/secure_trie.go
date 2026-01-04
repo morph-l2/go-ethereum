@@ -221,3 +221,13 @@ func (t *SecureTrie) getSecKeyCache() map[string][]byte {
 	}
 	return t.secKeyCache
 }
+
+func NewSecureNoTracer(root common.Hash, db *Database) (*SecureTrie, error) {
+	t, err := NewSecure(root, db)
+	if err != nil {
+		return nil, err
+	}
+
+	t.trie.tracer = nil
+	return t, nil
+}

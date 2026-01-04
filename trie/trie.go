@@ -66,6 +66,9 @@ type Trie struct {
 	// hashing operation. This number will not directly map to the number of
 	// actually unhashed nodes
 	unhashed int
+
+	// tracer is the tool to track the trie changes.
+	tracer *tracer
 }
 
 // newFlag returns the cache flag value for a newly created node.

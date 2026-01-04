@@ -95,7 +95,7 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 		return asUnsignedAccessListTx(msg, chainID)
 	}
 	if msg.FeeTokenID() != 0 {
-		return asUnsignedAltFeeTx(msg, chainID)
+		return asUnsignedMorphTx(msg, chainID)
 	}
 
 	return asUnsignedDynamicTx(msg, chainID)
@@ -139,8 +139,8 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 	})
 }
 
-func asUnsignedAltFeeTx(msg Message, chainID *big.Int) *types.Transaction {
-	return types.NewTx(&types.AltFeeTx{
+func asUnsignedMorphTx(msg Message, chainID *big.Int) *types.Transaction {
+	return types.NewTx(&types.MorphTx{
 		Nonce:      msg.Nonce(),
 		To:         msg.To(),
 		Value:      msg.Value(),

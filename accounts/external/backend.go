@@ -221,7 +221,7 @@ func (api *ExternalSigner) SignTx(account accounts.Account, tx *types.Transactio
 	case types.DynamicFeeTxType, types.SetCodeTxType:
 		args.MaxFeePerGas = (*hexutil.Big)(tx.GasFeeCap())
 		args.MaxPriorityFeePerGas = (*hexutil.Big)(tx.GasTipCap())
-	case types.AltFeeTxType:
+	case types.MorphTxType:
 		args.MaxFeePerGas = (*hexutil.Big)(tx.GasFeeCap())
 		args.MaxPriorityFeePerGas = (*hexutil.Big)(tx.GasTipCap())
 		feeTokenID := hexutil.Uint16(tx.FeeTokenID())

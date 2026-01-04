@@ -377,9 +377,9 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		}
 	}
 
-	// For AltFeeTx, manually collect token contract bytecode
+	// For MorphTx, manually collect token contract bytecode
 	// since direct storage slot operations don't trigger EVM execution
-	if tx.Type() == types.AltFeeTxType && tx.FeeTokenID() != 0 {
+	if tx.Type() == types.MorphTxType && tx.FeeTokenID() != 0 {
 		tokenInfo, err := fees.GetTokenInfo(statedb, tx.FeeTokenID())
 		if err == nil && tokenInfo.TokenAddress != (common.Address{}) {
 			collectBytecode := func(addr common.Address) {

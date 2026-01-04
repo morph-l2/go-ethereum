@@ -78,11 +78,19 @@ type Receipt struct {
 
 	// Morph rollup
 	L1Fee *big.Int `json:"l1Fee,omitempty"`
+
+	// MorphTx version
+	Version byte `json:"version,omitempty"`
+
 	// Alt Fee
 	FeeTokenID *uint16  `json:"feeTokenID,omitempty"`
 	FeeRate    *big.Int `json:"feeRate,omitempty"`
 	TokenScale *big.Int `json:"tokenScale,omitempty"`
 	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
+
+	// Reference
+	ReferenceKey *common.Hash `json:"referenceKey,omitempty"`
+	Memo         []byte       `json:"memo,omitempty"`
 }
 
 type receiptMarshaling struct {
@@ -277,7 +285,7 @@ func (r *Receipt) decodeTyped(b []byte) error {
 		return errShortTypedReceipt
 	}
 	switch b[0] {
-	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, AltFeeTxType:
+	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, MorphTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -531,8 +539,8 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 	case L1MessageTxType:
 		w.WriteByte(L1MessageTxType)
 		rlp.Encode(w, data)
-	case AltFeeTxType:
-		w.WriteByte(AltFeeTxType)
+	case MorphTxType:
+		w.WriteByte(MorphTxType)
 		rlp.Encode(w, data)
 	case SetCodeTxType:
 		w.WriteByte(SetCodeTxType)

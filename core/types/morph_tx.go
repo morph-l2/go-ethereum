@@ -24,7 +24,7 @@ import (
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-type AltFeeTx struct {
+type MorphTx struct {
 	ChainID    *big.Int
 	Nonce      uint64
 	GasTipCap  *big.Int
@@ -35,8 +35,11 @@ type AltFeeTx struct {
 	Data       []byte
 	AccessList AccessList
 
-	FeeTokenID uint16
-	FeeLimit   *big.Int
+	Version    byte              // version of morph tx
+	FeeTokenID uint16            // ERC20 token ID for fee payment (0 = ETH)
+	FeeLimit   *big.Int          // maximum fee in token units (optional)
+	Reference  *common.Reference // reference key for the transaction (optional)
+	Memo       []byte            // memo for the transaction (optional)
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -45,15 +48,19 @@ type AltFeeTx struct {
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
-func (tx *AltFeeTx) copy() TxData {
-	cpy := &AltFeeTx{
+func (tx *MorphTx) copy() TxData {
+	cpy := &MorphTx{
 		Nonce:      tx.Nonce,
+		Gas:        tx.Gas,
 		To:         copyAddressPtr(tx.To),
 		Data:       common.CopyBytes(tx.Data),
-		Gas:        tx.Gas,
+		Reference:  copyReferencePtr(tx.Reference),
+		Memo:       common.CopyBytes(tx.Memo),
+		Version:    tx.Version,
 		FeeTokenID: tx.FeeTokenID,
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
+		FeeLimit:   new(big.Int),
 		Value:      new(big.Int),
 		ChainID:    new(big.Int),
 		GasTipCap:  new(big.Int),
@@ -76,7 +83,7 @@ func (tx *AltFeeTx) copy() TxData {
 		cpy.GasFeeCap.Set(tx.GasFeeCap)
 	}
 	if tx.FeeLimit != nil {
-		cpy.FeeLimit = new(big.Int).Set(tx.FeeLimit)
+		cpy.FeeLimit.Set(tx.FeeLimit)
 	}
 	if tx.V != nil {
 		cpy.V.Set(tx.V)
@@ -91,19 +98,19 @@ func (tx *AltFeeTx) copy() TxData {
 }
 
 // accessors for innerTx.
-func (tx *AltFeeTx) txType() byte           { return AltFeeTxType }
-func (tx *AltFeeTx) chainID() *big.Int      { return tx.ChainID }
-func (tx *AltFeeTx) accessList() AccessList { return tx.AccessList }
-func (tx *AltFeeTx) data() []byte           { return tx.Data }
-func (tx *AltFeeTx) gas() uint64            { return tx.Gas }
-func (tx *AltFeeTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
-func (tx *AltFeeTx) gasTipCap() *big.Int    { return tx.GasTipCap }
-func (tx *AltFeeTx) gasPrice() *big.Int     { return tx.GasFeeCap }
-func (tx *AltFeeTx) value() *big.Int        { return tx.Value }
-func (tx *AltFeeTx) nonce() uint64          { return tx.Nonce }
-func (tx *AltFeeTx) to() *common.Address    { return tx.To }
+func (tx *MorphTx) txType() byte           { return MorphTxType }
+func (tx *MorphTx) chainID() *big.Int      { return tx.ChainID }
+func (tx *MorphTx) accessList() AccessList { return tx.AccessList }
+func (tx *MorphTx) data() []byte           { return tx.Data }
+func (tx *MorphTx) gas() uint64            { return tx.Gas }
+func (tx *MorphTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
+func (tx *MorphTx) gasTipCap() *big.Int    { return tx.GasTipCap }
+func (tx *MorphTx) gasPrice() *big.Int     { return tx.GasFeeCap }
+func (tx *MorphTx) value() *big.Int        { return tx.Value }
+func (tx *MorphTx) nonce() uint64          { return tx.Nonce }
+func (tx *MorphTx) to() *common.Address    { return tx.To }
 
-func (tx *AltFeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+func (tx *MorphTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)
 	}
@@ -114,25 +121,25 @@ func (tx *AltFeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	return tip.Add(tip, baseFee)
 }
 
-func (tx *AltFeeTx) rawSignatureValues() (v, r, s *big.Int) {
+func (tx *MorphTx) rawSignatureValues() (v, r, s *big.Int) {
 	return tx.V, tx.R, tx.S
 }
 
-func (tx *AltFeeTx) setSignatureValues(chainID, v, r, s *big.Int) {
+func (tx *MorphTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	tx.ChainID, tx.V, tx.R, tx.S = chainID, v, r, s
 }
 
-func (tx *AltFeeTx) encode(b *bytes.Buffer) error {
+func (tx *MorphTx) encode(b *bytes.Buffer) error {
 	return rlp.Encode(b, tx)
 }
 
-func (tx *AltFeeTx) decode(input []byte) error {
+func (tx *MorphTx) decode(input []byte) error {
 	return rlp.DecodeBytes(input, tx)
 }
 
-func (tx *AltFeeTx) sigHash(chainID *big.Int) common.Hash {
+func (tx *MorphTx) sigHash(chainID *big.Int) common.Hash {
 	return prefixedRlpHash(
-		AltFeeTxType,
+		MorphTxType,
 		[]any{
 			chainID,
 			tx.Nonce,

@@ -36,7 +36,7 @@ var (
 	ErrInvalidSig           = errors.New("invalid transaction v, r, s values")
 	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
 	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
-	ErrCostNotSupported     = errors.New("cost function alt fee transaction not support or use gasFee()")
+	ErrCostNotSupported     = errors.New("cost function morph transaction not support or use gasFee()")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
@@ -55,7 +55,7 @@ const (
 	SetCodeTxType    = 0x04
 
 	L1MessageTxType = 0x7E
-	AltFeeTxType    = 0x7F
+	MorphTxType     = 0x7F
 )
 
 // Transaction is an Ethereum transaction.
@@ -220,8 +220,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(L1MessageTx)
 	case SetCodeTxType:
 		inner = new(SetCodeTx)
-	case AltFeeTxType:
-		inner = new(AltFeeTx)
+	case MorphTxType:
+		inner = new(MorphTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -331,9 +331,9 @@ func (tx *Transaction) IsL1MessageTx() bool {
 	return tx.Type() == L1MessageTxType
 }
 
-// IsAltFeeTx returns true if the transaction is erc20 fee tx.
-func (tx *Transaction) IsAltFeeTx() bool {
-	return tx.Type() == AltFeeTxType
+// IsMorphTx returns true if the transaction is morph tx.
+func (tx *Transaction) IsMorphTx() bool {
+	return tx.Type() == MorphTxType
 }
 
 // AsL1MessageTx casts the tx into an L1 cross-domain tx.
@@ -353,31 +353,31 @@ func (tx *Transaction) L1MessageQueueIndex() uint64 {
 	return tx.AsL1MessageTx().QueueIndex
 }
 
-// AsAltFeeTx casts the tx into an erc20 fee tx.
-func (tx *Transaction) AsAltFeeTx() *AltFeeTx {
-	if !tx.IsAltFeeTx() {
+// AsMorphTx casts the tx into an morph tx.
+func (tx *Transaction) AsMorphTx() *MorphTx {
+	if !tx.IsMorphTx() {
 		return nil
 	}
-	return tx.inner.(*AltFeeTx)
+	return tx.inner.(*MorphTx)
 }
 
 func (tx *Transaction) FeeTokenID() uint16 {
-	if !tx.IsAltFeeTx() {
+	if !tx.IsMorphTx() {
 		return 0
 	}
-	return tx.AsAltFeeTx().FeeTokenID
+	return tx.AsMorphTx().FeeTokenID
 }
 
 func (tx *Transaction) FeeLimit() *big.Int {
-	if !tx.IsAltFeeTx() {
+	if !tx.IsMorphTx() {
 		return big.NewInt(0)
 	}
-	return tx.AsAltFeeTx().FeeLimit
+	return tx.AsMorphTx().FeeLimit
 }
 
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
-	if tx.IsAltFeeTx() {
+	if tx.IsMorphTx() {
 		panic(ErrCostNotSupported)
 	}
 	total := tx.GasFee()
@@ -834,7 +834,7 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	if baseFee != nil {
 		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
 	}
-	if tx.IsAltFeeTx() && tx.FeeTokenID() == 0 {
+	if tx.IsMorphTx() && tx.FeeTokenID() == 0 {
 		return msg, errors.New("token id 0 not support")
 	}
 	if tx.FeeLimit() != nil {
@@ -867,6 +867,15 @@ func copyAddressPtr(a *common.Address) *common.Address {
 		return nil
 	}
 	cpy := *a
+	return &cpy
+}
+
+// copyAddressPtr copies an address.
+func copyReferencePtr(h *common.Reference) *common.Reference {
+	if h == nil {
+		return nil
+	}
+	cpy := *h
 	return &cpy
 }
 

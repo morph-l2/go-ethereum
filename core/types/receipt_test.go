@@ -95,7 +95,7 @@ var (
 				Data:    []byte{0x01, 0x00, 0xff},
 			},
 		},
-		Type: AltFeeTxType,
+		Type: MorphTxType,
 	}
 )
 

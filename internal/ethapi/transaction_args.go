@@ -50,9 +50,13 @@ type TransactionArgs struct {
 	Data  *hexutil.Bytes `json:"data"`
 	Input *hexutil.Bytes `json:"input"`
 
-	// AltFeeTxType
+	// MorphTxType
 	FeeTokenID *hexutil.Uint16 `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big    `json:"feeLimit,omitempty"`
+
+	// Reference
+	Reference *common.Hash `json:"reference,omitempty"`
+	// TODO
 
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
@@ -327,7 +331,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 	switch {
 	//	must take precedence over MaxFeePerGas.
 	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
-		usedType = types.AltFeeTxType
+		usedType = types.MorphTxType
 	case args.AuthorizationList != nil:
 		usedType = types.SetCodeTxType
 	case args.MaxFeePerGas != nil:
@@ -385,12 +389,12 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			AccessList: al,
 		}
 
-	case types.AltFeeTxType:
+	case types.MorphTxType:
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		data = &types.AltFeeTx{
+		data = &types.MorphTx{
 			To:         args.To,
 			ChainID:    (*big.Int)(args.ChainID),
 			Nonce:      uint64(*args.Nonce),

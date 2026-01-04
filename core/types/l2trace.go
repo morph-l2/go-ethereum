@@ -195,8 +195,8 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 		S:                 (*hexutil.Big)(s),
 	}
 
-	// Set FeeTokenID and FeeLimit for AltFeeTx
-	if tx.Type() == AltFeeTxType {
+	// Set FeeTokenID and FeeLimit for MorphTx
+	if tx.Type() == MorphTxType {
 		feeTokenID := tx.FeeTokenID()
 		if feeTokenID != 0 {
 			result.FeeTokenID = &feeTokenID

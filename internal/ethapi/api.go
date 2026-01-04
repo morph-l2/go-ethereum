@@ -1505,7 +1505,7 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		msg := tx.AsL1MessageTx()
 		result.Sender = &msg.Sender
 		result.QueueIndex = (*hexutil.Uint64)(&msg.QueueIndex)
-	case types.AltFeeTxType:
+	case types.MorphTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())

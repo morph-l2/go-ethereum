@@ -123,7 +123,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		data = &types.AltFeeTx{
+		data = &types.MorphTx{
 			To:         to,
 			ChainID:    (*big.Int)(args.ChainID),
 			Nonce:      uint64(args.Nonce),

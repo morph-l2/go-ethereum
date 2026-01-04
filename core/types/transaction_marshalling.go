@@ -189,7 +189,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		yparity := itx.V.Uint64()
 		enc.YParity = (*hexutil.Uint64)(&yparity)
 
-	case *AltFeeTx:
+	case *MorphTx:
 		enc.ChainID = (*hexutil.Big)(itx.ChainID)
 		enc.Nonce = (*hexutil.Uint64)(&itx.Nonce)
 		enc.To = tx.To()
@@ -567,8 +567,8 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			}
 		}
 
-	case AltFeeTxType:
-		var itx AltFeeTx
+	case MorphTxType:
+		var itx MorphTx
 		inner = &itx
 		if dec.ChainID == nil {
 			return errors.New("missing required field 'chainId' in transaction")

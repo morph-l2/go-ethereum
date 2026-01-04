@@ -290,7 +290,7 @@ func (c *BoundContract) createDynamicTx(opts *TransactOpts, contract *common.Add
 	return types.NewTx(baseTx), nil
 }
 
-func (c *BoundContract) createAltFeeTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
+func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
 	// Normalize value
 	value := opts.Value
 	if value == nil {
@@ -334,7 +334,7 @@ func (c *BoundContract) createAltFeeTx(opts *TransactOpts, contract *common.Addr
 	if err != nil {
 		return nil, err
 	}
-	baseTx := &types.AltFeeTx{
+	baseTx := &types.MorphTx{
 		To:         contract,
 		Nonce:      nonce,
 		GasFeeCap:  gasFeeCap,
@@ -439,7 +439,7 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 			return nil, errHead
 		} else if head.BaseFee != nil {
 			if opts.FeeTokenID != 0 {
-				rawTx, err = c.createAltFeeTx(opts, contract, input, head)
+				rawTx, err = c.createMorphTx(opts, contract, input, head)
 			} else {
 				rawTx, err = c.createDynamicTx(opts, contract, input, head)
 			}

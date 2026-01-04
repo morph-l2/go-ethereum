@@ -487,6 +487,11 @@ web3._extend({
 			params: 0
 		}),
 		new web3._extend.Method({
+			name: 'config',
+			call: 'eth_config',
+			params: 0
+		}),
+		new web3._extend.Method({
 			name: 'sign',
 			call: 'eth_sign',
 			params: 2,

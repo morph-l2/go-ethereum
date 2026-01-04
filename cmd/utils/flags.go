@@ -287,6 +287,10 @@ var (
 		Name:  "override.emeraldtime",
 		Usage: "Manually specify the Emerald fork timestamp, overriding the bundled setting",
 	}
+	OverrideMPTForkTimeFlag = &cli.Uint64Flag{
+		Name:  "override.mptforktime",
+		Usage: "Manually specify the MPT fork timestamp, overriding the bundled setting",
+	}
 	// Light server and client settings
 	LightServeFlag = cli.IntFlag{
 		Name:  "light.serve",

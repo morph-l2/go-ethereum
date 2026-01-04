@@ -154,10 +154,8 @@ func (l *logger) New(ctx ...interface{}) Logger {
 
 func newContext(prefix []interface{}, suffix []interface{}) []interface{} {
 	normalizedSuffix := normalize(suffix)
-	newCtx := make([]interface{}, len(prefix)+len(normalizedSuffix))
-	n := copy(newCtx, prefix)
-	copy(newCtx[n:], normalizedSuffix)
-	return newCtx
+	newCtx := append([]interface{}(nil), prefix...)
+	return append(newCtx, normalizedSuffix...)
 }
 
 func (l *logger) Trace(msg string, ctx ...interface{}) {
@@ -232,14 +230,10 @@ type Lazy struct {
 type Ctx map[string]interface{}
 
 func (c Ctx) toArray() []interface{} {
-	arr := make([]interface{}, len(c)*2)
 
-	i := 0
+	var arr []interface{}
 	for k, v := range c {
-		arr[i] = k
-		arr[i+1] = v
-		i += 2
+		arr = append(arr, k, v)
 	}
-
 	return arr
 }

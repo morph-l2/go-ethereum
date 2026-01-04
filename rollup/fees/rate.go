@@ -14,7 +14,7 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 	if tokenID == 0 {
 		return nil, nil, errors.New("token id 0 not support")
 	}
-	info, rate, err := GetTokenInfoFromStorage(state, TokenRegistryAddress, tokenID)
+	info, rate, err := GetTokenInfoFromStorage(state, tokenID)
 	if err != nil {
 		log.Error("Failed to get token info from storage", "tokenID", tokenID, "error", err)
 		return nil, nil, err
@@ -28,17 +28,17 @@ func TokenRate(state StateDB, tokenID uint16) (*big.Int, *big.Int, error) {
 }
 
 func EthToAlt(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {
-	rate, tokenScale, err := TokenRate(state, tokenID)
+	rate, scale, err := TokenRate(state, tokenID)
 	if err != nil {
 		return nil, err
 	}
-	return types.EthToAlt(amount, rate, tokenScale)
+	return types.EthToAlt(amount, rate, scale)
 }
 
 func AltToETH(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {
-	rate, tokenScale, err := TokenRate(state, tokenID)
+	rate, scale, err := TokenRate(state, tokenID)
 	if err != nil {
 		return nil, err
 	}
-	return types.AltToEth(amount, rate, tokenScale)
+	return types.AltToEth(amount, rate, scale)
 }

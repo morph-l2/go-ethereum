@@ -74,6 +74,7 @@ var (
 		utils.OverrideMorph203TimeFlag,
 		utils.OverrideViridianTimeFlag,
 		utils.OverrideEmeraldTimeFlag,
+		utils.OverrideMPTForkTimeFlag,
 		utils.EthashCacheDirFlag,
 		utils.EthashCachesInMemoryFlag,
 		utils.EthashCachesOnDiskFlag,

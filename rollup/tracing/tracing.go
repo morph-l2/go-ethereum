@@ -16,6 +16,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/eth/tracers"
 	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	_ "github.com/morph-l2/go-ethereum/eth/tracers/native"
 	"github.com/morph-l2/go-ethereum/ethdb"
@@ -30,6 +31,7 @@ var (
 	getTxResultTimer             = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result", nil)
 	getTxResultApplyMessageTimer = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result/apply_message", nil)
 	getTxResultZkTrieBuildTimer  = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result/zk_trie_build", nil)
+	getTxResultTracerResultTimer = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result/tracer_result", nil)
 	feedTxToTracerTimer          = metrics.NewRegisteredTimer("rollup/tracing/feed_tx_to_tracer", nil)
 	fillBlockTraceTimer          = metrics.NewRegisteredTimer("rollup/tracing/fill_block_trace", nil)
 )
@@ -75,6 +77,9 @@ type TraceEnv struct {
 	// zktrie tracer is used for zktrie storage to build additional deletion proof
 	ZkTrieTracer map[string]state.ZktrieProofTracer
 
+	// ExecutionResults stores the execution result for each transaction
+	ExecutionResults []*types.ExecutionResult
+
 	// StartL1QueueIndex is the next L1 message queue index that this block can process.
 	// Example: If the parent block included QueueIndex=9, then StartL1QueueIndex will
 	// be 10.
@@ -110,6 +115,7 @@ func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Con
 		},
 		Codes:             make(map[common.Hash]logger.CodeInfo),
 		ZkTrieTracer:      make(map[string]state.ZktrieProofTracer),
+		ExecutionResults:  make([]*types.ExecutionResult, block.Transactions().Len()),
 		StartL1QueueIndex: startL1QueueIndex,
 	}
 }
@@ -255,19 +261,50 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		TxHash:  tx.Hash(),
 	}
 
-	txContext := core.NewEVMTxContext(msg)
-	structLogger := logger.NewStructLogger(env.logConfig)
+	sender := &types.AccountWrapper{
+		Address:          from,
+		Nonce:            statedb.GetNonce(from),
+		Balance:          (*hexutil.Big)(statedb.GetBalance(from)),
+		KeccakCodeHash:   statedb.GetKeccakCodeHash(from),
+		PoseidonCodeHash: statedb.GetPoseidonCodeHash(from),
+		CodeSize:         statedb.GetCodeSize(from),
+	}
+	var receiver *types.AccountWrapper
+	if to != nil {
+		receiver = &types.AccountWrapper{
+			Address:          *to,
+			Nonce:            statedb.GetNonce(*to),
+			Balance:          (*hexutil.Big)(statedb.GetBalance(*to)),
+			KeccakCodeHash:   statedb.GetKeccakCodeHash(*to),
+			PoseidonCodeHash: statedb.GetPoseidonCodeHash(*to),
+			CodeSize:         statedb.GetCodeSize(*to),
+		}
+	}
 
-	tracingStateDB := state.NewHookedState(statedb, structLogger.Hooks())
+	txContext := core.NewEVMTxContext(msg)
+	tracerContext := tracers.Context{
+		BlockHash: block.Hash(),
+		TxIndex:   index,
+		TxHash:    tx.Hash(),
+	}
+	callTracer, err := tracers.DefaultDirectory.New("callTracer", &tracerContext, nil, env.chainConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create callTracer: %w", err)
+	}
+
+	applyMessageStart := time.Now()
+	structLogger := logger.NewStructLogger(env.logConfig)
+	tracer := NewMuxTracer(structLogger, *callTracer)
+
+	tracingStateDB := state.NewHookedState(statedb, tracer.Hooks)
 
 	// Run the transaction with tracing enabled.
-	vmenv := vm.NewEVM(env.blockCtx, txContext, tracingStateDB, env.chainConfig, vm.Config{Tracer: structLogger.Hooks(), NoBaseFee: true})
+	vmenv := vm.NewEVM(env.blockCtx, txContext, tracingStateDB, env.chainConfig, vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
 
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
 
-	applyMessageStart := time.Now()
-	_, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), statedb, block.Number(), block.Hash(), tx, new(uint64), vmenv)
+	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), statedb, block.Number(), block.Hash(), tx, new(uint64), vmenv)
 	if err != nil {
 		getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
 		return err
@@ -275,11 +312,23 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
 
 	createdAcc := structLogger.CreatedAccount()
+	var after []*types.AccountWrapper
 	if to == nil {
 		if createdAcc == nil {
 			return errors.New("unexpected tx: address for created contract unavailable")
 		}
 		to = &createdAcc.Address
+	}
+	// collect affected account after tx being applied
+	for _, acc := range []common.Address{from, *to, env.coinbase} {
+		after = append(after, &types.AccountWrapper{
+			Address:          acc,
+			Nonce:            statedb.GetNonce(acc),
+			Balance:          (*hexutil.Big)(statedb.GetBalance(acc)),
+			KeccakCodeHash:   statedb.GetKeccakCodeHash(acc),
+			PoseidonCodeHash: statedb.GetPoseidonCodeHash(acc),
+			CodeSize:         statedb.GetCodeSize(acc),
+		})
 	}
 
 	proofStorages := structLogger.UpdatedStorages()
@@ -445,6 +494,29 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	}
 	getTxResultZkTrieBuildTimer.UpdateSince(zkTrieBuildStart)
 
+	tracerResultTimer := time.Now()
+	callTrace, err := callTracer.GetResult()
+	if err != nil {
+		return fmt.Errorf("failed to get callTracer result: %w", err)
+	}
+	getTxResultTracerResultTimer.UpdateSince(tracerResultTimer)
+
+	env.ExecutionResults[index] = &types.ExecutionResult{
+		From:           sender,
+		To:             receiver,
+		AccountCreated: createdAcc,
+		AccountsAfter:  after,
+		L1DataFee:      (*hexutil.Big)(receipt.L1Fee),
+		FeeTokenID:     receipt.FeeTokenID,
+		FeeLimit:       (*hexutil.Big)(receipt.FeeLimit),
+		FeeRate:        (*hexutil.Big)(receipt.FeeRate),
+		TokenScale:     (*hexutil.Big)(receipt.TokenScale),
+		Gas:            receipt.GasUsed,
+		Failed:         receipt.Status == types.ReceiptStatusFailed,
+		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),
+		CallTrace:      callTrace,
+	}
+
 	return nil
 }
 
@@ -504,6 +576,9 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 		}
 	}
 
+	// Get WithdrawTrieRoot
+	withdrawTrieRoot := statedb.GetState(rcfg.L2MessageQueueAddress, rcfg.WithdrawTrieRootSlot)
+
 	var chainID uint64
 	if env.chainConfig.ChainID != nil {
 		chainID = env.chainConfig.ChainID.Uint64()
@@ -516,6 +591,8 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 		Header:            block.Header(),
 		Bytecodes:         make([]*types.BytecodeTrace, 0, len(env.Codes)),
 		StorageTrace:      env.StorageTrace,
+		ExecutionResults:  env.ExecutionResults,
+		WithdrawTrieRoot:  withdrawTrieRoot,
 		Transactions:      txs,
 		StartL1QueueIndex: env.StartL1QueueIndex,
 	}

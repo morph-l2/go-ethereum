@@ -25,6 +25,7 @@ import (
 	"golang.org/x/crypto/sha3"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/params/forks"
 	"github.com/morph-l2/go-ethereum/rollup/rcfg"
 )
 
@@ -1187,5 +1188,51 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsViridian:       c.IsViridian(num, time),
 		IsEmerald:        c.IsEmerald(num, time),
 		IsMPTFork:        c.IsMPTFork(time),
+	}
+}
+
+// LatestFork returns the latest time-based fork that would be active for the given time.
+// This follows the EIP-7910 pattern for determining the current fork.
+// Note: All block-based forks (Archimedes, Shanghai, Bernoulli, Curie) are assumed to have passed.
+// We only check timestamp-based conditions here.
+func (c *ChainConfig) LatestFork(time uint64) forks.Fork {
+	switch {
+	case isTimestampForked(c.EmeraldTime, time):
+		return forks.Emerald
+	case isTimestampForked(c.ViridianTime, time):
+		return forks.Viridian
+	case isTimestampForked(c.Morph203Time, time):
+		return forks.Morph203
+	default:
+		// All block-based forks are assumed to have passed
+		// Return Curie as the last block-based fork
+		return forks.Curie
+	}
+}
+
+// Timestamp returns the timestamp associated with the fork or returns nil if
+// the fork isn't defined or isn't a time-based fork.
+func (c *ChainConfig) Timestamp(fork forks.Fork) *uint64 {
+	switch fork {
+	case forks.Emerald:
+		return c.EmeraldTime
+	case forks.Viridian:
+		return c.ViridianTime
+	case forks.Morph203:
+		return c.Morph203Time
+	default:
+		return nil
+	}
+}
+
+// ActiveSystemContracts returns the currently active system contracts at the given timestamp.
+// Morph system contracts exist from genesis, so they are always returned.
+func (c *ChainConfig) ActiveSystemContracts(time uint64) map[string]common.Address {
+	return map[string]common.Address{
+		"L2_MESSAGE_QUEUE":    common.HexToAddress("0x5300000000000000000000000000000000000001"),
+		"SEQUENCER":           common.HexToAddress("0x5300000000000000000000000000000000000017"),
+		"FEE_VAULT":           common.HexToAddress("0x530000000000000000000000000000000000000a"),
+		"L1_GAS_PRICE_ORACLE": common.HexToAddress("0x530000000000000000000000000000000000000F"),
+		"L2_TOKEN_REGISTRY":   common.HexToAddress("0x5300000000000000000000000000000000000021"),
 	}
 }

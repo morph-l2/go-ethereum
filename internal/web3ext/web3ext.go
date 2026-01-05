@@ -487,6 +487,11 @@ web3._extend({
 			params: 0
 		}),
 		new web3._extend.Method({
+			name: 'config',
+			call: 'eth_config',
+			params: 0
+		}),
+		new web3._extend.Method({
 			name: 'sign',
 			call: 'eth_sign',
 			params: 2,
@@ -890,6 +895,12 @@ web3._extend({
 			params: 2,
 			inputFormatter: [web3._extend.formatters.inputCallFormatter, web3._extend.formatters.inputBlockNumberFormatter],
 			outputFormatter: web3._extend.utils.toDecimal
+		}),
+		new web3._extend.Method({
+			name: 'diskRoot',
+			call: 'morph_diskRoot',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 	],
 	properties:

@@ -98,7 +98,7 @@ type txTraceTask struct {
 	index   int
 }
 
-func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Config, blockCtx vm.BlockContext, startL1QueueIndex uint64, coinbase common.Address, statedb *state.StateDB, rootBefore common.Hash, block *types.Block, commitAfterApply bool) *TraceEnv {
+func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Config, blockCtx vm.BlockContext, startL1QueueIndex uint64, coinbase common.Address, statedb *state.StateDB, rootBefore common.Hash, rootAfter common.Hash, block *types.Block, commitAfterApply bool) *TraceEnv {
 	return &TraceEnv{
 		logConfig:        logConfig,
 		commitAfterApply: commitAfterApply,
@@ -109,7 +109,7 @@ func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Con
 		blockCtx:         blockCtx,
 		StorageTrace: &types.StorageTrace{
 			RootBefore:    rootBefore,
-			RootAfter:     block.Root(),
+			RootAfter:     rootAfter,
 			Proofs:        make(map[string][]hexutil.Bytes),
 			StorageProofs: make(map[string]map[string][]hexutil.Bytes),
 		},
@@ -140,6 +140,20 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 		log.Error("missing FirstQueueIndexNotInL2Block for block during trace call", "number", parent.NumberU64(), "hash", parent.Hash())
 		return nil, fmt.Errorf("missing FirstQueueIndexNotInL2Block for block during trace call: hash=%v, parentHash=%vv", block.Hash(), parent.Hash())
 	}
+
+	// Get diskRoot for cross-format state access (MPT ↔ zkTrie).
+	// When node's trie format differs from block's format, use diskRoot instead of headerRoot.
+	rootBefore := parent.Root()
+	if diskRoot, err := rawdb.ReadDiskStateRoot(chaindb, parent.Root()); err == nil && diskRoot != (common.Hash{}) {
+		rootBefore = diskRoot
+		log.Debug("Using diskRoot for rootBefore", "headerRoot", parent.Root(), "diskRoot", diskRoot)
+	}
+	rootAfter := block.Root()
+	if diskRoot, err := rawdb.ReadDiskStateRoot(chaindb, block.Root()); err == nil && diskRoot != (common.Hash{}) {
+		rootAfter = diskRoot
+		log.Debug("Using diskRoot for rootAfter", "headerRoot", block.Root(), "diskRoot", diskRoot)
+	}
+
 	env := CreateTraceEnvHelper(
 		chainConfig,
 		&logger.Config{
@@ -152,7 +166,8 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 		*startL1QueueIndex,
 		coinbase,
 		statedb,
-		parent.Root(),
+		rootBefore,
+		rootAfter,
 		block,
 		commitAfterApply,
 	)

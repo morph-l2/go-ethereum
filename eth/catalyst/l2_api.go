@@ -82,7 +82,11 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	}
 
 	start := time.Now()
-	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), time.Now(), transactions)
+	timestamp := time.Now()
+	if params.Timestamp != nil {
+		timestamp = time.Unix(int64(*params.Timestamp), 0)
+	}
+	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), timestamp, transactions)
 	if err != nil {
 		return nil, err
 	}

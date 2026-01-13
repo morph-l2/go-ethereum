@@ -182,6 +182,10 @@ var (
 		Name:  "morph-hoodi",
 		Usage: "Morph Hoodi test network",
 	}
+	MorphMPTFlag = cli.BoolFlag{
+		Name:  "morph-mpt",
+		Usage: "Use MPT (Merkle Patricia Trie) instead of zkTrie for state storage",
+	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
 		Usage: "Ephemeral proof-of-authority network with a pre-funded developer account, mining enabled",
@@ -282,6 +286,10 @@ var (
 	OverrideEmeraldTimeFlag = &cli.Uint64Flag{
 		Name:  "override.emeraldtime",
 		Usage: "Manually specify the Emerald fork timestamp, overriding the bundled setting",
+	}
+	OverrideMPTForkTimeFlag = &cli.Uint64Flag{
+		Name:  "override.mptforktime",
+		Usage: "Manually specify the MPT fork timestamp, overriding the bundled setting",
 	}
 	// Light server and client settings
 	LightServeFlag = cli.IntFlag{
@@ -1777,46 +1785,67 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.NetworkId = 2818
 		}
 		cfg.Genesis = core.DefaultMorphMainnetGenesisBlock()
-		// forced for mainnet
-		// disable pruning
-		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-			log.Crit("Must use --gcmode=archive")
+
+		// Handle MPT flag
+		cfg.Genesis.Config.Morph.UseZktrie = !ctx.GlobalBool(MorphMPTFlag.Name)
+		if cfg.Genesis.Config.Morph.UseZktrie {
+			// zkTrie mode: forced archive mode
+			if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
+				log.Crit("zkTrie mode requires --gcmode=archive")
+			}
+			log.Info("Pruning disabled (zkTrie mode)")
+			cfg.NoPruning = true
+			// disable prefetch
+			log.Info("Prefetch disabled (zkTrie mode)")
+			cfg.NoPrefetch = true
+		} else {
+			// MPT mode: pruning is allowed
+			log.Info("MPT mode enabled, pruning is allowed")
 		}
-		log.Info("Pruning disabled")
-		cfg.NoPruning = true
-		// disable prefetch
-		log.Info("Prefetch disabled")
-		cfg.NoPrefetch = true
 	case ctx.GlobalBool(MorphHoleskyFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2810
 		}
 		cfg.Genesis = core.DefaultMorphHoleskyGenesisBlock()
-		// forced for mainnet
-		// disable pruning
-		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-			log.Crit("Must use --gcmode=archive")
+
+		// Handle MPT flag
+		cfg.Genesis.Config.Morph.UseZktrie = !ctx.GlobalBool(MorphMPTFlag.Name)
+		if cfg.Genesis.Config.Morph.UseZktrie {
+			// zkTrie mode: forced archive mode
+			if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
+				log.Crit("zkTrie mode requires --gcmode=archive")
+			}
+			log.Info("Pruning disabled (zkTrie mode)")
+			cfg.NoPruning = true
+			// disable prefetch
+			log.Info("Prefetch disabled (zkTrie mode)")
+			cfg.NoPrefetch = true
+		} else {
+			// MPT mode: pruning is allowed
+			log.Info("MPT mode enabled, pruning is allowed")
 		}
-		log.Info("Pruning disabled")
-		cfg.NoPruning = true
-		// disable prefetch
-		log.Info("Prefetch disabled")
-		cfg.NoPrefetch = true
 	case ctx.GlobalBool(MorphHoodiFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2910
 		}
 		cfg.Genesis = core.DefaultMorphHoodiGenesisBlock()
-		// forced for mainnet
-		// disable pruning
-		if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-			log.Crit("Must use --gcmode=archive")
+
+		// Handle MPT flag
+		cfg.Genesis.Config.Morph.UseZktrie = !ctx.GlobalBool(MorphMPTFlag.Name)
+		if cfg.Genesis.Config.Morph.UseZktrie {
+			// zkTrie mode: forced archive mode
+			if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
+				log.Crit("zkTrie mode requires --gcmode=archive")
+			}
+			log.Info("Pruning disabled (zkTrie mode)")
+			cfg.NoPruning = true
+			// disable prefetch
+			log.Info("Prefetch disabled (zkTrie mode)")
+			cfg.NoPrefetch = true
+		} else {
+			// MPT mode: pruning is allowed
+			log.Info("MPT mode enabled, pruning is allowed")
 		}
-		log.Info("Pruning disabled")
-		cfg.NoPruning = true
-		// disable prefetch
-		log.Info("Prefetch disabled")
-		cfg.NoPrefetch = true
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337

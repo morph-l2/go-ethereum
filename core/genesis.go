@@ -149,6 +149,7 @@ type ChainOverrides struct {
 	Morph203Time *uint64
 	ViridianTime *uint64
 	EmeraldTime  *uint64
+	MPTForkTime  *uint64
 }
 
 // apply applies the chain overrides on the supplied chain config.
@@ -164,6 +165,9 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 	}
 	if o.EmeraldTime != nil {
 		cfg.EmeraldTime = o.EmeraldTime
+	}
+	if o.MPTForkTime != nil {
+		cfg.MPTForkTime = o.MPTForkTime
 	}
 	return cfg.CheckConfigForkOrder()
 }
@@ -386,7 +390,10 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	statedb.Commit(false)
 	statedb.Database().TrieDB().Commit(root, true, nil)
-
+	if g.Config != nil && g.Config.Morph.GenesisStateRoot != nil {
+		head.Root = *g.Config.Morph.GenesisStateRoot
+		rawdb.WriteDiskStateRoot(db, head.Root, root)
+	}
 	return types.NewBlock(head, nil, nil, nil, trie.NewStackTrie(nil))
 }
 

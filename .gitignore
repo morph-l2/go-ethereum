@@ -48,4 +48,3 @@ profile.cov
 
 **/yarn-error.log
 /build/db*/
-local-test

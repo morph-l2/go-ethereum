@@ -235,10 +235,16 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled()}
+			trieCfg = &trie.Config{
+				Zktrie:    storedcfg.Morph.ZktrieEnabled(),
+				Preimages: storedcfg.Morph.ZktrieEnabled(),
+			}
 		}
 	} else {
-		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled()}
+		trieCfg = &trie.Config{
+			Zktrie:    genesis.Config.Morph.ZktrieEnabled(),
+			Preimages: genesis.Config.Morph.ZktrieEnabled(),
+		}
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
@@ -346,7 +352,12 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled()}
+		// Enable preimages for zktrie mode to ensure key preimages are stored
+		// This is required for the migration-checker tool to verify state equality
+		trieCfg = &trie.Config{
+			Zktrie:    g.Config.Morph.ZktrieEnabled(),
+			Preimages: g.Config.Morph.ZktrieEnabled(),
+		}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)
 	if err != nil {

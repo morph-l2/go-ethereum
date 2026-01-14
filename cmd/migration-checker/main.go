@@ -76,7 +76,7 @@ func dup(s []byte) []byte {
 func checkTrieEquality(dbs *dbs, zkRoot, mptRoot common.Hash, label string, leafChecker func(string, *dbs, []byte, []byte, bool), top, paranoid bool) {
 	zkTrie, err := trie.NewZkTrie(zkRoot, trie.NewZktrieDatabaseFromTriedb(trie.NewDatabaseWithConfig(dbs.zkDb, &trie.Config{Preimages: true})))
 	panicOnError(err, label, "failed to create zk trie")
-	mptTrie, err := trie.NewSecureNoTracer(mptRoot, trie.NewDatabaseWithConfig(dbs.mptDb, &trie.Config{Preimages: true}))
+	mptTrie, err := trie.NewSecure(mptRoot, trie.NewDatabaseWithConfig(dbs.mptDb, &trie.Config{Preimages: true}))
 	panicOnError(err, label, "failed to create mpt trie")
 
 	mptLeafCh := loadMPT(mptTrie, top)

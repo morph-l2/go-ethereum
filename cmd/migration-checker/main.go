@@ -36,6 +36,12 @@ func main() {
 	)
 	flag.Parse()
 
+	if *zkDbPath == "" || *mptDbPath == "" || *zkRoot == "" || *mptRoot == "" {
+		fmt.Println("Error: all flags are required")
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	zkDb, err := leveldb.New(*zkDbPath, 1024, 128, "", true)
 	panicOnError(err, "", "failed to open zk db")
 	mptDb, err := leveldb.New(*mptDbPath, 1024, 128, "", true)

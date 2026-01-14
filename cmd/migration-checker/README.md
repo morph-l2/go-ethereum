@@ -58,7 +58,15 @@ migration-checker \
 | `--mpt-db` | Path to MPT node chaindata (required) |
 | `--zk-root` | ZK trie state root hash (required) |
 | `--mpt-root` | MPT trie state root hash (required) |
-| `--paranoid` | Verify all node hashes during iteration |
+| `--paranoid` | Verify all node hashes during iteration (slower, for debugging) |
+
+### About `--paranoid`
+
+This flag recalculates and verifies every ZK trie node hash during iteration. Use it when:
+- Suspecting database corruption
+- Debugging unexpected verification failures
+
+**Not recommended for normal use** as it significantly increases execution time.
 
 ## Expected Output
 

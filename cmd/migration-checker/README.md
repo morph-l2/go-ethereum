@@ -6,14 +6,6 @@ A tool to verify the correctness of ZK to MPT trie state migration.
 
 This tool compares the state data between a ZK trie node and an MPT trie node to ensure migration was successful. It verifies that all accounts and their storage data are identical.
 
-## Recommended Node Configuration
-
-Both ZK and MPT nodes should run with **archive mode**:
-
-```bash
-geth --gcmode=archive --cache.preimages ...
-```
-
 ## Prerequisites
 
 ### 1. Import Genesis Preimages

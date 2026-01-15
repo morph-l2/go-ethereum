@@ -57,3 +57,8 @@ func (ec *Client) CommitBatch(ctx context.Context, batch *types.RollupBatch, sig
 func (ec *Client) AppendBlsSignature(ctx context.Context, batchHash common.Hash, signature types.BatchSignature) error {
 	return ec.c.CallContext(ctx, nil, "engine_appendBatchSignature", batchHash, signature)
 }
+
+// SetBlockTags sets the safe and finalized block by hash
+func (ec *Client) SetBlockTags(ctx context.Context, safeBlockHash common.Hash, finalizedBlockHash common.Hash) error {
+	return ec.c.CallContext(ctx, nil, "engine_setBlockTags", safeBlockHash, finalizedBlockHash)
+}

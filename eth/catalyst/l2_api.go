@@ -360,3 +360,32 @@ func (api *l2ConsensusAPI) isVerified(blockHash common.Hash) (executionResult, b
 	er, found := api.verified[blockHash]
 	return er, found
 }
+
+// SetBlockTags sets the safe and finalized block by hash.
+// This is called by the node layer when it determines the safe/finalized
+// status based on L1 batch information.
+func (api *l2ConsensusAPI) SetBlockTags(safeBlockHash common.Hash, finalizedBlockHash common.Hash) error {
+	bc := api.eth.BlockChain()
+
+	// Set finalized block
+	if finalizedBlockHash != (common.Hash{}) {
+		finalizedHeader := bc.GetHeaderByHash(finalizedBlockHash)
+		if finalizedHeader == nil {
+			return fmt.Errorf("finalized block %s not found", finalizedBlockHash.Hex())
+		}
+		bc.SetFinalized(finalizedHeader)
+		log.Info("Set finalized block", "number", finalizedHeader.Number, "hash", finalizedBlockHash)
+	}
+
+	// Set safe block
+	if safeBlockHash != (common.Hash{}) {
+		safeHeader := bc.GetHeaderByHash(safeBlockHash)
+		if safeHeader == nil {
+			return fmt.Errorf("safe block %s not found", safeBlockHash.Hex())
+		}
+		bc.SetSafe(safeHeader)
+		log.Info("Set safe block", "number", safeHeader.Number, "hash", safeBlockHash)
+	}
+
+	return nil
+}

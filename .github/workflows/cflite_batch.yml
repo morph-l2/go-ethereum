@@ -86,7 +86,7 @@ jobs:
         id: sarif-check
         if: always() && steps.run.outcome != 'skipped'
         run: |
-          if [ -f "./out/sarif/results.sarif" ]; then
+          if [ -f "./cifuzz-sarif/results.sarif" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -97,6 +97,5 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         if: always() && steps.sarif-check.outputs.exists == 'true'
         with:
-          sarif_file: ./out/sarif/results.sarif
-          checkout_path: ./out/sarif
+          sarif_file: ./cifuzz-sarif/results.sarif
         continue-on-error: true

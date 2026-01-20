@@ -73,9 +73,29 @@ jobs:
           path: ./out/artifacts
           retention-days: 90
 
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Debug - List output files
+        if: always()
+        run: |
+          echo "=== Listing ./out directory ==="
+          find ./out -type f 2>/dev/null || echo "No ./out directory found"
+          echo ""
+          echo "=== Looking for SARIF files ==="
+          find . -name "*.sarif" 2>/dev/null || echo "No SARIF files found"
+
+      - name: Check SARIF file exists
+        id: sarif-check
         if: always() && steps.run.outcome != 'skipped'
+        run: |
+          if [ -f "./out/sarif/results.sarif" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No SARIF file generated (no crashes found)"
+          fi
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.sarif-check.outputs.exists == 'true'
         with:
           sarif_file: ./out/sarif/results.sarif
           checkout_path: ./out/sarif

@@ -46,7 +46,8 @@ jobs:
           language: go
           github-token: ${{ secrets.GITHUB_TOKEN }}
           sanitizer: address
-          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          # Don't pass storage-repo on push to disable incremental analysis (run all fuzzers)
+          storage-repo: ${{ github.event_name != 'push' && env.STORAGE_REPO_URL || '' }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
       - name: Run Fuzzers
@@ -59,7 +60,8 @@ jobs:
           sanitizer: address
           output-sarif: true
           parallel-fuzzing: true
-          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          # Don't pass storage-repo on push to disable incremental analysis
+          storage-repo: ${{ github.event_name != 'push' && env.STORAGE_REPO_URL || '' }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
       - name: Upload Crash

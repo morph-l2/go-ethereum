@@ -1,5 +1,9 @@
 name: ClusterFuzzLite batch fuzzing
 on:
+  # For testing: trigger on push to feat/fuzz branch
+  push:
+    branches:
+      - feat/fuzz
   schedule:
     # Run every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
     - cron: '0 */6 * * *'
@@ -28,9 +32,8 @@ permissions: read-all
 env:
   STORAGE_REPO_URL: ${{ secrets.CLUSTERFUZZLITE_STORAGE_TOKEN && vars.CLUSTERFUZZLITE_STORAGE_REPO && format('https://{0}@github.com/{1}.git', secrets.CLUSTERFUZZLITE_STORAGE_TOKEN, vars.CLUSTERFUZZLITE_STORAGE_REPO) || '' }}
   STORAGE_REPO_BRANCH: main
-  # 5.5 hours = 19800 seconds (max useful time within 6-hour job limit)
-  # Public repos: unlimited free minutes
-  FUZZ_SECONDS: ${{ inputs.fuzz-seconds || '19800' }}
+  # push: 120s (2min), schedule: 120s (2min), manual: use input
+  FUZZ_SECONDS: ${{ github.event_name == 'push' && '120' || github.event_name == 'schedule' && '120' || inputs.fuzz-seconds || '19800' }}
 
 jobs:
   BatchFuzzing:

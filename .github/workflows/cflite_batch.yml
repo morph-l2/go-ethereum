@@ -84,9 +84,9 @@ jobs:
           echo "=== Looking for SARIF files ==="
           find . -name "*.sarif" 2>/dev/null || echo "No SARIF files found"
           echo ""
-          echo "=== SARIF file content (tool name) ==="
+          echo "=== Full SARIF file content ==="
           if [ -f "./cifuzz-sarif/results.sarif" ]; then
-            cat ./cifuzz-sarif/results.sarif | head -50
+            cat ./cifuzz-sarif/results.sarif
           fi
 
       - name: Check SARIF file exists

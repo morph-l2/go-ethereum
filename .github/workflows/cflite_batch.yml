@@ -1,0 +1,76 @@
+name: ClusterFuzzLite batch fuzzing
+on:
+  schedule:
+    # Run every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
+    - cron: '0 */6 * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      fuzz-seconds:
+        description: 'Fuzzing duration in 60 seconds'
+        required: false
+        default: '60'
+        type: string
+
+permissions: read-all
+
+# ==============================================================================
+# Storage Repository Configuration for Organization
+# ==============================================================================
+# Required secrets/variables:
+#   - Secret: CLUSTERFUZZLITE_STORAGE_TOKEN (PAT with repo write access)
+#   - Variable: CLUSTERFUZZLITE_STORAGE_REPO (e.g., morph-l2/fuzz_corpora)
+#
+# Note: GitHub Actions has a 6-hour job time limit.
+# ClusterFuzzLite will automatically run all compiled fuzzers in round-robin.
+# ==============================================================================
+
+env:
+  STORAGE_REPO_URL: ${{ secrets.CLUSTERFUZZLITE_STORAGE_TOKEN && vars.CLUSTERFUZZLITE_STORAGE_REPO && format('https://{0}@github.com/{1}.git', secrets.CLUSTERFUZZLITE_STORAGE_TOKEN, vars.CLUSTERFUZZLITE_STORAGE_REPO) || '' }}
+  STORAGE_REPO_BRANCH: main
+  # 5.5 hours = 19800 seconds (max useful time within 6-hour job limit)
+  # Public repos: unlimited free minutes
+  FUZZ_SECONDS: ${{ inputs.fuzz-seconds || '19800' }}
+
+jobs:
+  BatchFuzzing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: go
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: address
+          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
+
+      - name: Run Fuzzers
+        id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: ${{ env.FUZZ_SECONDS }}
+          mode: 'batch'
+          sanitizer: address
+          output-sarif: true
+          parallel-fuzzing: true
+          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
+
+      - name: Upload Crash
+        uses: actions/upload-artifact@v4
+        if: failure() && steps.run.outcome == 'failure'
+        with:
+          name: crash-artifacts
+          path: ./out/artifacts
+          retention-days: 90
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.run.outcome != 'skipped'
+        with:
+          sarif_file: ./out/sarif/results.sarif
+          checkout_path: ./out/sarif
+        continue-on-error: true

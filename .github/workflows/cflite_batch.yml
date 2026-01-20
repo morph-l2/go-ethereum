@@ -16,7 +16,9 @@ on:
         default: '60'
         type: string
 
-permissions: read-all
+permissions:
+  contents: read
+  security-events: write
 
 # ==============================================================================
 # Storage Repository Configuration for Organization

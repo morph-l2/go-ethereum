@@ -20,7 +20,9 @@ on:
           - prune
           - coverage
 
-permissions: read-all
+permissions:
+  contents: read
+  security-events: write
 
 # ==============================================================================
 # Storage Repository Configuration for Organization

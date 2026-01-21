@@ -86,7 +86,7 @@ jobs:
         id: run
         uses: google/clusterfuzzlite/actions/run_fuzzers@v1
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }} 
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           fuzz-seconds: 600
           mode: 'coverage'
           sanitizer: 'coverage'
@@ -94,6 +94,22 @@ jobs:
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
           # Coverage report will be uploaded to main branch automatically
           storage-repo-branch-coverage: ${{ env.STORAGE_REPO_BRANCH }}
+
+      - name: Debug - Find coverage report
+        if: always()
+        run: |
+          echo "=== Looking for coverage reports ==="
+          find . -name "*.html" -type f 2>/dev/null | head -20
+          echo ""
+          echo "=== Listing ./out directory ==="
+          ls -la ./out/ 2>/dev/null || echo "No ./out directory"
+          echo ""
+          echo "=== Listing ./out/report directory ==="
+          ls -la ./out/report/ 2>/dev/null || echo "No ./out/report directory"
+          echo ""
+          echo "=== Looking for coverage directories ==="
+          find . -type d -name "*coverage*" 2>/dev/null | head -10
+          find . -type d -name "*report*" 2>/dev/null | head -10
 
       - name: Upload Coverage Report (Artifact)
         uses: actions/upload-artifact@v4

@@ -75,20 +75,6 @@ jobs:
           path: ./out/artifacts
           retention-days: 90
 
-      - name: Debug - List output files
-        if: always()
-        run: |
-          echo "=== Listing ./out directory ==="
-          find ./out -type f 2>/dev/null || echo "No ./out directory found"
-          echo ""
-          echo "=== Looking for SARIF files ==="
-          find . -name "*.sarif" 2>/dev/null || echo "No SARIF files found"
-          echo ""
-          echo "=== SARIF file content (tool name) ==="
-          if [ -f "./cifuzz-sarif/results.sarif" ]; then
-            cat ./cifuzz-sarif/results.sarif | head -50
-          fi
-
       - name: Create enhanced SARIF with crash information
         if: always() && steps.run.outcome != 'skipped'
         run: |
@@ -235,16 +221,6 @@ jobs:
               print(f"  - {result['message']['text'][:50]}... -> {result['locations'][0]['physicalLocation']['artifactLocation']['uri']}")
           EOF
 
-      - name: Debug - Show enhanced SARIF content
-        if: always()
-        run: |
-          echo "=== Enhanced SARIF file content ==="
-          if [ -f "./enhanced-results.sarif" ]; then
-            cat ./enhanced-results.sarif
-          else
-            echo "No enhanced SARIF file found"
-          fi
-
       - name: Check SARIF file exists
         id: sarif-check
         if: always() && steps.run.outcome != 'skipped'
@@ -261,5 +237,4 @@ jobs:
         if: always() && steps.sarif-check.outputs.exists == 'true'
         with:
           sarif_file: ./enhanced-results.sarif
-        continue-on-error: true 
-
+        continue-on-error: true

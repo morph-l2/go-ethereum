@@ -92,29 +92,12 @@ jobs:
           sanitizer: 'coverage'
           storage-repo: ${{ env.STORAGE_REPO_URL }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
-          # Coverage report will be uploaded to main branch automatically
           storage-repo-branch-coverage: ${{ env.STORAGE_REPO_BRANCH }}
-
-      - name: Debug - Find coverage report
-        if: always()
-        run: |
-          echo "=== Looking for coverage reports ==="
-          find . -name "*.html" -type f 2>/dev/null | head -20
-          echo ""
-          echo "=== Listing ./out directory ==="
-          ls -la ./out/ 2>/dev/null || echo "No ./out directory"
-          echo ""
-          echo "=== Listing ./out/report directory ==="
-          ls -la ./out/report/ 2>/dev/null || echo "No ./out/report directory"
-          echo ""
-          echo "=== Looking for coverage directories ==="
-          find . -type d -name "*coverage*" 2>/dev/null | head -10
-          find . -type d -name "*report*" 2>/dev/null | head -10
 
       - name: Upload Coverage Report (Artifact)
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage-report
-          path: ./out/report
+          path: ./cifuzz-coverage/report
           retention-days: 30

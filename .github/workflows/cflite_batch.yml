@@ -96,18 +96,16 @@ jobs:
           import json
           import os
           import glob
-          import stat
+          import shutil
 
           sarif_path = "./cifuzz-sarif/results.sarif"
+          sarif_temp_path = "./cifuzz-sarif/results.sarif.tmp"
           artifacts_path = "./out/artifacts"
 
           # Check if SARIF file exists
           if not os.path.exists(sarif_path):
               print("No SARIF file found, skipping")
               exit(0)
-
-          # Make SARIF file writable
-          os.chmod(sarif_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
           # Read existing SARIF
           with open(sarif_path, 'r') as f:
@@ -166,9 +164,13 @@ jobs:
           # Update SARIF with results
           sarif["runs"][0]["results"] = results
 
-          # Write updated SARIF
-          with open(sarif_path, 'w') as f:
+          # Write to temp file first, then move (atomic operation)
+          with open(sarif_temp_path, 'w') as f:
               json.dump(sarif, f, indent=2)
+
+          # Remove original and rename temp file
+          os.remove(sarif_path)
+          shutil.move(sarif_temp_path, sarif_path)
 
           print(f"Added {len(results)} crash results to SARIF")
           EOF

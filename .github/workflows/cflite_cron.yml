@@ -73,7 +73,7 @@ jobs:
           storage-repo: ${{ env.STORAGE_REPO_URL }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
-      - name: Check SARIF file exists
+      - name: Check SARIF file exists 
         id: sarif-check
         if: always() && steps.run.outcome != 'skipped'
         run: |

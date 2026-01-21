@@ -89,6 +89,96 @@ jobs:
             cat ./cifuzz-sarif/results.sarif | head -50
           fi
 
+      - name: Populate SARIF with crash information
+        if: always() && steps.run.outcome != 'skipped'
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          import glob
+
+          sarif_path = "./cifuzz-sarif/results.sarif"
+          artifacts_path = "./out/artifacts"
+
+          # Check if SARIF file exists
+          if not os.path.exists(sarif_path):
+              print("No SARIF file found, skipping")
+              exit(0)
+
+          # Read existing SARIF
+          with open(sarif_path, 'r') as f:
+              sarif = json.load(f)
+
+          # Find all crash files
+          crash_files = []
+          if os.path.exists(artifacts_path):
+              crash_files = glob.glob(f"{artifacts_path}/**/crash-*", recursive=True)
+              crash_files.extend(glob.glob(f"{artifacts_path}/**/leak-*", recursive=True))
+              crash_files.extend(glob.glob(f"{artifacts_path}/**/timeout-*", recursive=True))
+
+          print(f"Found {len(crash_files)} crash artifacts")
+
+          # If no crashes found, keep SARIF as is
+          if not crash_files:
+              print("No crashes to add to SARIF")
+              exit(0)
+
+          # Add results for each crash
+          results = []
+          for crash_file in crash_files:
+              crash_name = os.path.basename(crash_file)
+              fuzzer_name = os.path.basename(os.path.dirname(crash_file)) if os.path.dirname(crash_file) != artifacts_path else "unknown"
+
+              # Determine crash type from filename
+              if crash_name.startswith("crash-"):
+                  rule_id = "no-crashes"
+                  message = f"Fuzzer {fuzzer_name} found a crash"
+              elif crash_name.startswith("leak-"):
+                  rule_id = "direct-leak"
+                  message = f"Fuzzer {fuzzer_name} found a memory leak"
+              elif crash_name.startswith("timeout-"):
+                  rule_id = "no-crashes"
+                  message = f"Fuzzer {fuzzer_name} caused a timeout"
+              else:
+                  rule_id = "no-crashes"
+                  message = f"Fuzzer {fuzzer_name} found an issue"
+
+              result = {
+                  "ruleId": rule_id,
+                  "level": "error",
+                  "message": {
+                      "text": message
+                  },
+                  "locations": [{
+                      "physicalLocation": {
+                          "artifactLocation": {
+                              "uri": crash_file
+                          }
+                      }
+                  }]
+              }
+              results.append(result)
+
+          # Update SARIF with results
+          sarif["runs"][0]["results"] = results
+
+          # Write updated SARIF
+          with open(sarif_path, 'w') as f:
+              json.dump(sarif, f, indent=2)
+
+          print(f"Added {len(results)} crash results to SARIF")
+          EOF
+
+      - name: Debug - Show updated SARIF content
+        if: always()
+        run: |
+          echo "=== Updated SARIF file content ==="
+          if [ -f "./cifuzz-sarif/results.sarif" ]; then
+            cat ./cifuzz-sarif/results.sarif
+          else
+            echo "No SARIF file found"
+          fi
+
       - name: Check SARIF file exists
         id: sarif-check
         if: always() && steps.run.outcome != 'skipped'

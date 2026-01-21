@@ -203,6 +203,9 @@ jobs:
                       "physicalLocation": {
                           "artifactLocation": {
                               "uri": source_file
+                          },
+                          "region": {
+                              "startLine": 1
                           }
                       }
                   }]

@@ -96,6 +96,7 @@ jobs:
           import json
           import os
           import glob
+          import stat
 
           sarif_path = "./cifuzz-sarif/results.sarif"
           artifacts_path = "./out/artifacts"
@@ -104,6 +105,9 @@ jobs:
           if not os.path.exists(sarif_path):
               print("No SARIF file found, skipping")
               exit(0)
+
+          # Make SARIF file writable
+          os.chmod(sarif_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
           # Read existing SARIF
           with open(sarif_path, 'r') as f:

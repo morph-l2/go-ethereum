@@ -1,5 +1,9 @@
 name: ClusterFuzzLite cron tasks
 on:
+  # For testing: trigger on push to feat/fuzz branch
+  push:
+    branches:
+      - feat/fuzz
   schedule:
     # Run daily at midnight UTC
     - cron: '0 0 * * *'
@@ -37,7 +41,7 @@ jobs:
   # ==============================================================================
   Pruning:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'prune' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'prune' }}
     steps:
       - name: Build Fuzzers
         id: build
@@ -65,7 +69,7 @@ jobs:
   # ==============================================================================
   Coverage:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'coverage' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'coverage' }}
     needs: Pruning
     steps:
       - name: Build Fuzzers (Coverage)

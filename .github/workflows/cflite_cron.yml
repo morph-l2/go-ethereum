@@ -1,9 +1,5 @@
 name: ClusterFuzzLite cron tasks
 on:
-  # For testing: trigger on push to feat/fuzz branch
-  push:
-    branches:
-      - feat/fuzz
   schedule:
     # Run daily at midnight UTC
     - cron: '0 0 * * *'
@@ -22,7 +18,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 # ==============================================================================
 # Storage Repository Configuration for Organization
@@ -30,25 +25,19 @@ permissions:
 # Required secrets/variables:
 #   - Secret: CLUSTERFUZZLITE_STORAGE_TOKEN (PAT with repo write access)
 #   - Variable: CLUSTERFUZZLITE_STORAGE_REPO (e.g., morph-l2/fuzz_corpora)
-#
-# For coverage reports on GitHub Pages:
-#   - Enable GitHub Pages on the storage repo using gh-pages branch
-#   - Coverage reports will be published automatically
 # ==============================================================================
 
 env:
   STORAGE_REPO_URL: ${{ secrets.CLUSTERFUZZLITE_STORAGE_TOKEN && vars.CLUSTERFUZZLITE_STORAGE_REPO && format('https://{0}@github.com/{1}.git', secrets.CLUSTERFUZZLITE_STORAGE_TOKEN, vars.CLUSTERFUZZLITE_STORAGE_REPO) || '' }}
   STORAGE_REPO_BRANCH: main
-  STORAGE_REPO_BRANCH_COVERAGE: gh-pages
 
 jobs:
   # ==============================================================================
-  # Corpus Pruning - Required when batch fuzzing is enabled
-  # Removes redundant test cases from the corpus to keep it minimal
+  # Corpus Pruning - Removes redundant test cases from the corpus
   # ==============================================================================
   Pruning:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'prune' }}
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'prune' }}
     steps:
       - name: Build Fuzzers
         id: build
@@ -57,7 +46,6 @@ jobs:
           language: go
           github-token: ${{ secrets.GITHUB_TOKEN }}
           sanitizer: address
-          keep-unaffected-fuzz-targets: ${{ github.event_name == 'push' }}
           storage-repo: ${{ env.STORAGE_REPO_URL }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
@@ -69,35 +57,15 @@ jobs:
           fuzz-seconds: 600
           mode: 'prune'
           sanitizer: address
-          output-sarif: true
           storage-repo: ${{ env.STORAGE_REPO_URL }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
-      - name: Check SARIF file exists 
-        id: sarif-check
-        if: always() && steps.run.outcome != 'skipped'
-        run: |
-          if [ -f "./cifuzz-sarif/results.sarif" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "No SARIF file generated (no crashes found)"
-          fi
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always() && steps.sarif-check.outputs.exists == 'true'
-        with:
-          sarif_file: ./cifuzz-sarif/results.sarif
-        continue-on-error: true
-
   # ==============================================================================
   # Coverage Reports - Generates coverage reports for the fuzz targets
-  # Results can be published to GitHub Pages via storage repo
   # ==============================================================================
   Coverage:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'coverage' }}
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'coverage' }}
     needs: Pruning
     steps:
       - name: Build Fuzzers (Coverage)
@@ -107,7 +75,6 @@ jobs:
           language: go
           github-token: ${{ secrets.GITHUB_TOKEN }}
           sanitizer: coverage
-          keep-unaffected-fuzz-targets: ${{ github.event_name == 'push' }}
           storage-repo: ${{ env.STORAGE_REPO_URL }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
@@ -121,9 +88,10 @@ jobs:
           sanitizer: 'coverage'
           storage-repo: ${{ env.STORAGE_REPO_URL }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
-          storage-repo-branch-coverage: ${{ env.STORAGE_REPO_BRANCH_COVERAGE }}
+          # Coverage report will be uploaded to main branch automatically
+          storage-repo-branch-coverage: ${{ env.STORAGE_REPO_BRANCH }}
 
-      - name: Upload Coverage Report
+      - name: Upload Coverage Report (Artifact)
         uses: actions/upload-artifact@v4
         if: always()
         with:

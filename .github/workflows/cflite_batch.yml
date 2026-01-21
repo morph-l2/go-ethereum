@@ -48,7 +48,6 @@ jobs:
           language: go
           github-token: ${{ secrets.GITHUB_TOKEN }}
           sanitizer: address
-          # Keep all fuzzers on push (disable incremental analysis for testing)
           keep-unaffected-fuzz-targets: ${{ github.event_name == 'push' }}
           storage-repo: ${{ github.event_name != 'push' && env.STORAGE_REPO_URL || '' }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
@@ -63,11 +62,10 @@ jobs:
           sanitizer: address
           output-sarif: true
           parallel-fuzzing: true
-          # Don't pass storage-repo on push to disable incremental analysis
           storage-repo: ${{ github.event_name != 'push' && env.STORAGE_REPO_URL || '' }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
-      - name: Upload Crash
+      - name: Upload Crash Artifacts
         uses: actions/upload-artifact@v4
         if: failure() && steps.run.outcome == 'failure'
         with:
@@ -75,46 +73,141 @@ jobs:
           path: ./out/artifacts
           retention-days: 90
 
-      - name: Create enhanced SARIF with crash information
+      # ========================================================================
+      # Upload crashes to fuzz_corpora repository
+      # ========================================================================
+      - name: Upload crashes to storage repository
+        if: always() && env.STORAGE_REPO_URL != ''
+        run: |
+          set -e
+
+          ARTIFACTS_PATH="./out/artifacts"
+
+          # Check if there are any crash files
+          if [ ! -d "$ARTIFACTS_PATH" ]; then
+            echo "No artifacts directory found, skipping"
+            exit 0
+          fi
+
+          CRASH_COUNT=$(find "$ARTIFACTS_PATH" -name "crash-*" -o -name "leak-*" -o -name "timeout-*" 2>/dev/null | grep -v "\.summary$" | wc -l)
+          if [ "$CRASH_COUNT" -eq 0 ]; then
+            echo "No crashes found, skipping"
+            exit 0
+          fi
+
+          echo "Found $CRASH_COUNT crash files, uploading to storage repo..."
+
+          # Clone storage repo
+          git clone --depth 1 --branch "${{ env.STORAGE_REPO_BRANCH }}" "${{ env.STORAGE_REPO_URL }}" /tmp/fuzz_corpora
+
+          # Create crashes directory with date
+          DATE=$(date +%Y-%m-%d)
+          RUN_ID="${{ github.run_id }}"
+          CRASH_DIR="/tmp/fuzz_corpora/crashes/${DATE}_run${RUN_ID}"
+          mkdir -p "$CRASH_DIR"
+
+          # Create a summary report
+          REPORT_FILE="$CRASH_DIR/REPORT.md"
+          cat > "$REPORT_FILE" << EOF
+          # Fuzzing Crash Report
+
+          - **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Repository**: ${{ github.repository }}
+          - **Branch**: ${{ github.ref_name }}
+          - **Commit**: ${{ github.sha }}
+          - **Run ID**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Sanitizer**: address
+          - **Fuzz Duration**: ${{ env.FUZZ_SECONDS }}s
+
+          ## Crashes Found
+
+          EOF
+
+          # Copy crash files and add to report
+          for crash_file in $(find "$ARTIFACTS_PATH" -name "crash-*" -o -name "leak-*" -o -name "timeout-*" 2>/dev/null | grep -v "\.summary$"); do
+            filename=$(basename "$crash_file")
+            fuzzer_dir=$(basename $(dirname "$crash_file"))
+            parent_dir=$(basename $(dirname $(dirname "$crash_file")))
+
+            # Determine fuzzer name
+            if [[ "$parent_dir" == fuzz_* ]]; then
+              fuzzer_name="${parent_dir#fuzz_}"
+            else
+              fuzzer_name="$fuzzer_dir"
+            fi
+
+            # Create fuzzer subdirectory
+            mkdir -p "$CRASH_DIR/$fuzzer_name"
+
+            # Copy crash file
+            cp "$crash_file" "$CRASH_DIR/$fuzzer_name/"
+
+            # Copy summary if exists
+            if [ -f "${crash_file}.summary" ]; then
+              cp "${crash_file}.summary" "$CRASH_DIR/$fuzzer_name/"
+            fi
+
+            # Add to report
+            echo "### $fuzzer_name / $filename" >> "$REPORT_FILE"
+            echo "" >> "$REPORT_FILE"
+            if [ -f "${crash_file}.summary" ]; then
+              echo '```' >> "$REPORT_FILE"
+              head -50 "${crash_file}.summary" >> "$REPORT_FILE"
+              echo '```' >> "$REPORT_FILE"
+            else
+              echo "No summary available" >> "$REPORT_FILE"
+            fi
+            echo "" >> "$REPORT_FILE"
+          done
+
+          # Commit and push
+          cd /tmp/fuzz_corpora
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Add crashes from ${{ github.repository }} run ${{ github.run_id }}" || echo "No changes to commit"
+          git push || echo "Failed to push, maybe no changes"
+
+          echo "✅ Crashes uploaded to storage repository"
+          echo "📁 Location: crashes/${DATE}_run${RUN_ID}/"
+
+      # ========================================================================
+      # SARIF upload (keep trying, might work someday)
+      # ========================================================================
+      - name: Create enhanced SARIF
         if: always() && steps.run.outcome != 'skipped'
         run: |
           python3 << 'EOF'
           import json
           import os
           import glob
-          import re
 
           original_sarif_path = "./cifuzz-sarif/results.sarif"
           enhanced_sarif_path = "./enhanced-results.sarif"
           artifacts_path = "./out/artifacts"
 
-          # Check if original SARIF file exists
           if not os.path.exists(original_sarif_path):
               print("No SARIF file found, skipping")
               exit(0)
 
-          # Read existing SARIF
           with open(original_sarif_path, 'r') as f:
               sarif = json.load(f)
 
-          # Find all crash files
           crash_files = []
           if os.path.exists(artifacts_path):
               crash_files = glob.glob(f"{artifacts_path}/**/crash-*", recursive=True)
               crash_files.extend(glob.glob(f"{artifacts_path}/**/leak-*", recursive=True))
               crash_files.extend(glob.glob(f"{artifacts_path}/**/timeout-*", recursive=True))
+              # Filter out .summary files
+              crash_files = [f for f in crash_files if not f.endswith('.summary')]
 
           print(f"Found {len(crash_files)} crash artifacts")
 
-          # If no crashes found, copy original SARIF as-is
           if not crash_files:
-              print("No crashes to add to SARIF, using original")
               with open(enhanced_sarif_path, 'w') as f:
                   json.dump(sarif, f, indent=2)
               exit(0)
 
-          # Map fuzzer names to source file paths
-          # This mapping should cover all fuzzers in the repository
           fuzzer_to_source = {
               "bn256": "tests/fuzzers/bn256/bn256_fuzz.go",
               "bls12381": "tests/fuzzers/bls12381/precompile_fuzzer.go",
@@ -129,115 +222,67 @@ jobs:
               "trie": "tests/fuzzers/trie/trie-fuzzer.go",
               "txfetcher": "tests/fuzzers/txfetcher/txfetcher_fuzzer.go",
               "vflux": "tests/fuzzers/vflux/client-fuzzer.go",
-              "bn256_cloudflare": "tests/fuzzers/bn256/bn256_fuzz.go",
-              "bn256_google": "tests/fuzzers/bn256/bn256_fuzz.go",
           }
 
-          # Add results for each crash
           results = []
           for crash_file in crash_files:
               crash_name = os.path.basename(crash_file)
-
-              # Extract fuzzer name from directory structure
-              # Path format: ./out/artifacts/fuzz_<fuzzer_name>/<sanitizer>/crash-*
               path_parts = crash_file.split(os.sep)
+
               fuzzer_dir = None
               for part in path_parts:
                   if part.startswith("fuzz_"):
                       fuzzer_dir = part.replace("fuzz_", "")
                       break
-
               if not fuzzer_dir:
                   fuzzer_dir = os.path.basename(os.path.dirname(crash_file))
 
-              # Map fuzzer directory name to source file
               source_file = None
               for fuzzer_key, source_path in fuzzer_to_source.items():
                   if fuzzer_key in fuzzer_dir.lower():
                       source_file = source_path
                       break
-
-              # Fallback: if no mapping found, try to find the fuzzer file
               if not source_file:
-                  # Try to find a matching fuzzer file
-                  fuzzer_pattern = f"tests/fuzzers/{fuzzer_dir}/*_fuzz*.go"
-                  matching_files = glob.glob(fuzzer_pattern)
-                  if matching_files:
-                      source_file = matching_files[0]
-                  else:
-                      # Ultimate fallback: use a generic path
-                      source_file = f"tests/fuzzers/{fuzzer_dir}"
+                  source_file = f"tests/fuzzers/{fuzzer_dir}/fuzz.go"
 
-              # Determine crash type from filename
               if crash_name.startswith("crash-"):
-                  rule_id = "no-crashes"
-                  message = f"Fuzzer '{fuzzer_dir}' found a crash"
+                  rule_id, message = "no-crashes", f"Fuzzer '{fuzzer_dir}' found a crash"
               elif crash_name.startswith("leak-"):
-                  rule_id = "direct-leak"
-                  message = f"Fuzzer '{fuzzer_dir}' found a memory leak"
+                  rule_id, message = "direct-leak", f"Fuzzer '{fuzzer_dir}' found a memory leak"
               elif crash_name.startswith("timeout-"):
-                  rule_id = "no-crashes"
-                  message = f"Fuzzer '{fuzzer_dir}' caused a timeout"
+                  rule_id, message = "no-crashes", f"Fuzzer '{fuzzer_dir}' caused a timeout"
               else:
-                  rule_id = "no-crashes"
-                  message = f"Fuzzer '{fuzzer_dir}' found an issue"
+                  rule_id, message = "no-crashes", f"Fuzzer '{fuzzer_dir}' found an issue"
 
-              # Read crash summary if available
-              summary_file = crash_file + ".summary" if not crash_file.endswith(".summary") else crash_file
+              summary_file = crash_file + ".summary"
               if os.path.exists(summary_file):
                   try:
                       with open(summary_file, 'r', errors='ignore') as f:
-                          summary_content = f.read(1000)  # Read first 1000 chars
-                          if summary_content:
-                              message += f"\n\nCrash summary:\n{summary_content}"
+                          message += f"\n\nCrash summary:\n{f.read(1000)}"
                   except:
                       pass
 
-              result = {
+              results.append({
                   "ruleId": rule_id,
                   "level": "error",
-                  "message": {
-                      "text": message
-                  },
+                  "message": {"text": message},
                   "locations": [{
                       "physicalLocation": {
-                          "artifactLocation": {
-                              "uri": source_file
-                          },
-                          "region": {
-                              "startLine": 1
-                          }
+                          "artifactLocation": {"uri": source_file},
+                          "region": {"startLine": 1}
                       }
                   }]
-              }
-              results.append(result)
+              })
 
-          # Update SARIF with results
           sarif["runs"][0]["results"] = results
-
-          # Write enhanced SARIF to a new location (outside cifuzz-sarif directory)
           with open(enhanced_sarif_path, 'w') as f:
               json.dump(sarif, f, indent=2)
-
-          print(f"Created enhanced SARIF with {len(results)} crash results")
-          for result in results:
-              print(f"  - {result['message']['text'][:50]}... -> {result['locations'][0]['physicalLocation']['artifactLocation']['uri']}")
+          print(f"Created enhanced SARIF with {len(results)} results")
           EOF
-
-      - name: Check SARIF file exists
-        id: sarif-check
-        if: always() && steps.run.outcome != 'skipped'
-        run: |
-          if [ -f "./enhanced-results.sarif" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "No SARIF file generated"
-          fi
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v4
-        if: always() && steps.sarif-check.outputs.exists == 'true'
+        if: always() && hashFiles('./enhanced-results.sarif') != ''
         with:
           sarif_file: ./enhanced-results.sarif
         continue-on-error: true

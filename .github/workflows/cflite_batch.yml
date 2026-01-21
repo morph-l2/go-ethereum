@@ -261,5 +261,5 @@ jobs:
         if: always() && steps.sarif-check.outputs.exists == 'true'
         with:
           sarif_file: ./enhanced-results.sarif
-        continue-on-error: true
+        continue-on-error: true 
 

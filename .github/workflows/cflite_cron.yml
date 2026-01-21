@@ -94,6 +94,24 @@ jobs:
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
           storage-repo-branch-coverage: ${{ env.STORAGE_REPO_BRANCH }}
 
+      - name: Debug - List all directories
+        if: always()
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo ""
+          echo "=== List root level ==="
+          ls -la
+          echo ""
+          echo "=== Find cifuzz directories ==="
+          find . -maxdepth 2 -type d -name "cifuzz*" 2>/dev/null
+          echo ""
+          echo "=== Find any coverage or report files ==="
+          find . -type f \( -name "*.html" -o -name "*coverage*" \) 2>/dev/null | head -20
+          echo ""
+          echo "=== Check cifuzz-coverage if exists ==="
+          ls -laR ./cifuzz-coverage/ 2>/dev/null || echo "No cifuzz-coverage directory"
+
       - name: Upload Coverage Report (Artifact)
         uses: actions/upload-artifact@v4
         if: always()

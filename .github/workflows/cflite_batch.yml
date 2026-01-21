@@ -96,6 +96,7 @@ jobs:
           import json
           import os
           import glob
+          import re
 
           original_sarif_path = "./cifuzz-sarif/results.sarif"
           enhanced_sarif_path = "./enhanced-results.sarif"
@@ -114,7 +115,7 @@ jobs:
           crash_files = []
           if os.path.exists(artifacts_path):
               crash_files = glob.glob(f"{artifacts_path}/**/crash-*", recursive=True)
-              crash_files.extend(glob.glob(f"{artifacts_path}/**/leak-*", recursive=True)  )
+              crash_files.extend(glob.glob(f"{artifacts_path}/**/leak-*", recursive=True))
               crash_files.extend(glob.glob(f"{artifacts_path}/**/timeout-*", recursive=True))
 
           print(f"Found {len(crash_files)} crash artifacts")
@@ -126,25 +127,85 @@ jobs:
                   json.dump(sarif, f, indent=2)
               exit(0)
 
+          # Map fuzzer names to source file paths
+          # This mapping should cover all fuzzers in the repository
+          fuzzer_to_source = {
+              "bn256": "tests/fuzzers/bn256/bn256_fuzz.go",
+              "bls12381": "tests/fuzzers/bls12381/precompile_fuzzer.go",
+              "difficulty": "tests/fuzzers/difficulty/difficulty-fuzz.go",
+              "bitutil": "tests/fuzzers/bitutil/compress_fuzz.go",
+              "keystore": "tests/fuzzers/keystore/keystore-fuzzer.go",
+              "runtime": "tests/fuzzers/runtime/runtime_fuzz.go",
+              "stacktrie": "tests/fuzzers/stacktrie/trie_fuzzer.go",
+              "rlp": "tests/fuzzers/rlp/rlp_fuzzer.go",
+              "abi": "tests/fuzzers/abi/abifuzzer.go",
+              "secp256k1": "tests/fuzzers/secp256k1/secp_fuzzer.go",
+              "trie": "tests/fuzzers/trie/trie-fuzzer.go",
+              "txfetcher": "tests/fuzzers/txfetcher/txfetcher_fuzzer.go",
+              "vflux": "tests/fuzzers/vflux/client-fuzzer.go",
+              "bn256_cloudflare": "tests/fuzzers/bn256/bn256_fuzz.go",
+              "bn256_google": "tests/fuzzers/bn256/bn256_fuzz.go",
+          }
+
           # Add results for each crash
           results = []
           for crash_file in crash_files:
               crash_name = os.path.basename(crash_file)
-              fuzzer_name = os.path.basename(os.path.dirname(crash_file)) if os.path.dirname(crash_file) != artifacts_path else "unknown"
+
+              # Extract fuzzer name from directory structure
+              # Path format: ./out/artifacts/fuzz_<fuzzer_name>/<sanitizer>/crash-*
+              path_parts = crash_file.split(os.sep)
+              fuzzer_dir = None
+              for part in path_parts:
+                  if part.startswith("fuzz_"):
+                      fuzzer_dir = part.replace("fuzz_", "")
+                      break
+
+              if not fuzzer_dir:
+                  fuzzer_dir = os.path.basename(os.path.dirname(crash_file))
+
+              # Map fuzzer directory name to source file
+              source_file = None
+              for fuzzer_key, source_path in fuzzer_to_source.items():
+                  if fuzzer_key in fuzzer_dir.lower():
+                      source_file = source_path
+                      break
+
+              # Fallback: if no mapping found, try to find the fuzzer file
+              if not source_file:
+                  # Try to find a matching fuzzer file
+                  fuzzer_pattern = f"tests/fuzzers/{fuzzer_dir}/*_fuzz*.go"
+                  matching_files = glob.glob(fuzzer_pattern)
+                  if matching_files:
+                      source_file = matching_files[0]
+                  else:
+                      # Ultimate fallback: use a generic path
+                      source_file = f"tests/fuzzers/{fuzzer_dir}"
 
               # Determine crash type from filename
               if crash_name.startswith("crash-"):
                   rule_id = "no-crashes"
-                  message = f"Fuzzer {fuzzer_name} found a crash"
+                  message = f"Fuzzer '{fuzzer_dir}' found a crash"
               elif crash_name.startswith("leak-"):
                   rule_id = "direct-leak"
-                  message = f"Fuzzer {fuzzer_name} found a memory leak"
+                  message = f"Fuzzer '{fuzzer_dir}' found a memory leak"
               elif crash_name.startswith("timeout-"):
                   rule_id = "no-crashes"
-                  message = f"Fuzzer {fuzzer_name} caused a timeout"
+                  message = f"Fuzzer '{fuzzer_dir}' caused a timeout"
               else:
                   rule_id = "no-crashes"
-                  message = f"Fuzzer {fuzzer_name} found an issue"
+                  message = f"Fuzzer '{fuzzer_dir}' found an issue"
+
+              # Read crash summary if available
+              summary_file = crash_file + ".summary" if not crash_file.endswith(".summary") else crash_file
+              if os.path.exists(summary_file):
+                  try:
+                      with open(summary_file, 'r', errors='ignore') as f:
+                          summary_content = f.read(1000)  # Read first 1000 chars
+                          if summary_content:
+                              message += f"\n\nCrash summary:\n{summary_content}"
+                  except:
+                      pass
 
               result = {
                   "ruleId": rule_id,
@@ -155,7 +216,7 @@ jobs:
                   "locations": [{
                       "physicalLocation": {
                           "artifactLocation": {
-                              "uri": crash_file
+                              "uri": source_file
                           }
                       }
                   }]
@@ -170,6 +231,8 @@ jobs:
               json.dump(sarif, f, indent=2)
 
           print(f"Created enhanced SARIF with {len(results)} crash results")
+          for result in results:
+              print(f"  - {result['message']['text'][:50]}... -> {result['locations'][0]['physicalLocation']['artifactLocation']['uri']}")
           EOF
 
       - name: Debug - Show enhanced SARIF content

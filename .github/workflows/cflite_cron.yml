@@ -647,7 +647,7 @@ jobs:
           echo "$coverage_rows" > /tmp/coverage_rows.html
 
       - name: Send daily coverage report email
-        if: always() && github.event_name == 'schedule'
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}

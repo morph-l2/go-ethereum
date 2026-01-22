@@ -294,7 +294,15 @@ jobs:
             # Note: When testdata/fuzz exists, Go will automatically use it as seed corpus
             # The fuzz tests will run the corpus through the fuzz target
             echo "Running tests with coverage..."
-            if go test -v -cover -coverprofile="coverage-reports/${pkg_name}.out" \
+
+            # blake2b needs -tags=gofuzz because of platform-specific assembly
+            if [ "$pkg_name" = "blake2b" ]; then
+              TEST_FLAGS="-tags=gofuzz"
+            else
+              TEST_FLAGS=""
+            fi
+
+            if go test $TEST_FLAGS -v -cover -coverprofile="coverage-reports/${pkg_name}.out" \
                 "./${pkg_path}/..." 2>&1 | tee "coverage-reports/${pkg_name}.log"; then
               echo "Coverage completed for $pkg_name"
             else

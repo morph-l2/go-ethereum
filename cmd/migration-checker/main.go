@@ -79,6 +79,8 @@ func main() {
 
 	// Final summary
 	accountBar.Finish()
+	// Update storage bar total to actual count so it shows 100%
+	storageBar.ChangeMax64(int64(storageDone.Load()))
 	storageBar.Finish()
 	elapsed := time.Since(startTime)
 	fmt.Fprintln(os.Stderr, "")
@@ -133,7 +135,7 @@ func checkTrieEquality(dbs *dbs, zkRoot, mptRoot common.Hash, label string, leaf
 				BarEnd:        "]",
 			}),
 		)
-		// Storage bar uses -1 for unknown total (will show count only)
+		// Storage bar - start with -1 (unknown), will update to actual count at end
 		storageBar = progressbar.NewOptions64(-1,
 			progressbar.OptionSetDescription("💾 Storage   "),
 			progressbar.OptionSetWriter(os.Stderr),
@@ -141,9 +143,15 @@ func checkTrieEquality(dbs *dbs, zkRoot, mptRoot common.Hash, label string, leaf
 			progressbar.OptionShowIts(),
 			progressbar.OptionSetWidth(40),
 			progressbar.OptionThrottle(100*time.Millisecond),
-			progressbar.OptionSpinnerType(14),
 			progressbar.OptionShowElapsedTimeOnFinish(),
 			progressbar.OptionOnCompletion(func() { fmt.Fprintln(os.Stderr) }),
+			progressbar.OptionSetTheme(progressbar.Theme{
+				Saucer:        "█",
+				SaucerHead:    "█",
+				SaucerPadding: "░",
+				BarStart:      "[",
+				BarEnd:        "]",
+			}),
 		)
 	}
 

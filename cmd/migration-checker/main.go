@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -16,10 +17,18 @@ import (
 	"github.com/morph-l2/go-ethereum/ethdb/leveldb"
 	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/trie"
+	"github.com/schollz/progressbar/v3"
 )
 
 var accountsDone atomic.Uint64
+var storageDone atomic.Uint64
 var trieCheckers = make(chan struct{}, runtime.GOMAXPROCS(0)*4)
+
+// Progress bar instances
+var accountBar *progressbar.ProgressBar
+var storageBar *progressbar.ProgressBar
+var totalAccounts int64
+var totalStorage int64
 
 type dbs struct {
 	zkDb  *leveldb.Database
@@ -28,11 +37,13 @@ type dbs struct {
 
 func main() {
 	var (
-		mptDbPath = flag.String("mpt-db", "", "path to the MPT node DB")
-		zkDbPath  = flag.String("zk-db", "", "path to the ZK node DB")
-		mptRoot   = flag.String("mpt-root", "", "root hash of the MPT node")
-		zkRoot    = flag.String("zk-root", "", "root hash of the ZK node")
-		paranoid  = flag.Bool("paranoid", false, "verifies all node contents against their expected hash")
+		mptDbPath        = flag.String("mpt-db", "", "path to the MPT node DB")
+		zkDbPath         = flag.String("zk-db", "", "path to the ZK node DB")
+		mptRoot          = flag.String("mpt-root", "", "root hash of the MPT node")
+		zkRoot           = flag.String("zk-root", "", "root hash of the ZK node")
+		paranoid         = flag.Bool("paranoid", false, "verifies all node contents against their expected hash")
+		estAccounts      = flag.Int64("est-accounts", 500000, "estimated total accounts (for progress bar)")
+		estStorageSlots  = flag.Int64("est-storage", 5000000, "estimated total storage slots (for progress bar)")
 	)
 	flag.Parse()
 
@@ -42,6 +53,46 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize progress bars
+	totalAccounts = *estAccounts
+	totalStorage = *estStorageSlots
+
+	accountBar = progressbar.NewOptions64(totalAccounts,
+		progressbar.OptionSetDescription("📦 Accounts  "),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowIts(),
+		progressbar.OptionSetWidth(40),
+		progressbar.OptionThrottle(100*time.Millisecond),
+		progressbar.OptionShowElapsedTimeOnFinish(),
+		progressbar.OptionOnCompletion(func() { fmt.Fprintln(os.Stderr) }),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
+
+	storageBar = progressbar.NewOptions64(totalStorage,
+		progressbar.OptionSetDescription("💾 Storage   "),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowIts(),
+		progressbar.OptionSetWidth(40),
+		progressbar.OptionThrottle(100*time.Millisecond),
+		progressbar.OptionShowElapsedTimeOnFinish(),
+		progressbar.OptionOnCompletion(func() { fmt.Fprintln(os.Stderr) }),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
+
 	zkDb, err := leveldb.New(*zkDbPath, 1024, 128, "", true)
 	panicOnError(err, "", "failed to open zk db")
 	mptDb, err := leveldb.New(*mptDbPath, 1024, 128, "", true)
@@ -49,6 +100,12 @@ func main() {
 
 	zkRootHash := common.HexToHash(*zkRoot)
 	mptRootHash := common.HexToHash(*mptRoot)
+
+	fmt.Fprintln(os.Stderr, "🚀 Starting migration checker...")
+	fmt.Fprintf(os.Stderr, "   Estimated accounts: %d, storage slots: %d\n", totalAccounts, totalStorage)
+	fmt.Fprintln(os.Stderr, "")
+
+	startTime := time.Now()
 
 	for i := 0; i < runtime.GOMAXPROCS(0)*4; i++ {
 		trieCheckers <- struct{}{}
@@ -62,6 +119,16 @@ func main() {
 	for i := 0; i < runtime.GOMAXPROCS(0)*4; i++ {
 		<-trieCheckers
 	}
+
+	// Final summary
+	accountBar.Finish()
+	storageBar.Finish()
+	elapsed := time.Since(startTime)
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "✅ Migration check completed!")
+	fmt.Fprintf(os.Stderr, "   Total accounts checked: %d\n", accountsDone.Load())
+	fmt.Fprintf(os.Stderr, "   Total storage slots checked: %d\n", storageDone.Load())
+	fmt.Fprintf(os.Stderr, "   Time elapsed: %s\n", elapsed.Round(time.Second))
 }
 
 func panicOnError(err error, label, msg string) {
@@ -152,12 +219,12 @@ func checkAccountEquality(label string, dbs *dbs, zkAccountBytes, mptAccountByte
 
 			checkTrieEquality(dbs, zkRoot, mptRoot, label, checkStorageEquality, false, paranoid)
 			accountsDone.Add(1)
-			fmt.Println("Accounts done:", accountsDone.Load())
+			accountBar.Add(1)
 			trieCheckers <- struct{}{}
 		}()
 	} else {
 		accountsDone.Add(1)
-		fmt.Println("Accounts done:", accountsDone.Load())
+		accountBar.Add(1)
 	}
 }
 
@@ -169,6 +236,8 @@ func checkStorageEquality(label string, _ *dbs, zkStorageBytes, mptStorageBytes 
 	if !bytes.Equal(zkValue[:], mptValue[:]) {
 		panic(fmt.Sprintf("%s storage mismatch: zk: %s, mpt: %s", label, zkValue.Hex(), mptValue.Hex()))
 	}
+	storageDone.Add(1)
+	storageBar.Add(1)
 }
 
 func loadMPT(mptTrie *trie.SecureTrie, parallel bool) chan map[string][]byte {
@@ -205,10 +274,6 @@ func loadMPT(mptTrie *trie.SecureTrie, parallel bool) chan map[string][]byte {
 				if parallel {
 					mptLeafMutex.Unlock()
 				}
-
-				if parallel && len(mptLeafMap)%10000 == 0 {
-					fmt.Println("MPT Accounts Loaded:", len(mptLeafMap))
-				}
 			}
 		}()
 	}
@@ -216,6 +281,9 @@ func loadMPT(mptTrie *trie.SecureTrie, parallel bool) chan map[string][]byte {
 	respChan := make(chan map[string][]byte)
 	go func() {
 		mptWg.Wait()
+		if parallel {
+			fmt.Fprintf(os.Stderr, "📂 MPT trie loaded: %d leaves\n", len(mptLeafMap))
+		}
 		respChan <- mptLeafMap
 	}()
 	return respChan
@@ -241,11 +309,10 @@ func loadZkTrie(zkTrie *trie.ZkTrie, parallel, paranoid bool) chan map[string][]
 			if parallel {
 				zkLeafMutex.Unlock()
 			}
-
-			if parallel && len(zkLeafMap)%10000 == 0 {
-				fmt.Println("ZK Accounts Loaded:", len(zkLeafMap))
-			}
 		}, parallel, paranoid)
+		if parallel {
+			fmt.Fprintf(os.Stderr, "📂 ZK trie loaded: %d leaves\n", len(zkLeafMap))
+		}
 		zkDone <- zkLeafMap
 	}()
 	return zkDone

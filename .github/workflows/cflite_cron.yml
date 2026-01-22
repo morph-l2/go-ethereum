@@ -66,57 +66,240 @@ jobs:
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
   # ==============================================================================
-  # Coverage Reports - Generates coverage reports for the fuzz targets
+  # Coverage Reports - Using Go native coverage with libFuzzer corpus conversion
+  # ==============================================================================
+  # Note: ClusterFuzzLite's coverage mode doesn't work with Go native fuzzers
+  # due to corpus format incompatibility (Issue #13285). We use a custom approach:
+  # 1. Download libFuzzer-format corpus from storage repo
+  # 2. Convert to Go native fuzz format
+  # 3. Run Go test with coverage using the converted corpus
+  # 4. Generate HTML reports
   # ==============================================================================
   Coverage:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'coverage' }}
     needs: Pruning
     steps:
-      - name: Build Fuzzers (Coverage)
-        id: build
-        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
-        with:
-          language: go
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          sanitizer: coverage
-          storage-repo: ${{ env.STORAGE_REPO_URL }}
-          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Run Coverage
-        id: run
-        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          fuzz-seconds: 600
-          mode: 'coverage'
-          sanitizer: 'coverage'
-          storage-repo: ${{ env.STORAGE_REPO_URL }}
-          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
-          storage-repo-branch-coverage: ${{ env.COVERAGE_BRANCH }}
+          go-version: '1.22'
 
-      - name: Debug - List all directories
-        if: always()
+      - name: Download corpus from storage repo
         run: |
-          echo "=== Current directory ==="
-          pwd
-          echo ""
-          echo "=== List root level ==="
-          ls -la
-          echo ""
-          echo "=== Find cifuzz directories ==="
-          find . -maxdepth 2 -type d -name "cifuzz*" 2>/dev/null
-          echo ""
-          echo "=== Find any coverage or report files ==="
-          find . -type f \( -name "*.html" -o -name "*coverage*" \) 2>/dev/null | head -20
-          echo ""
-          echo "=== Check cifuzz-coverage if exists ==="
-          ls -laR ./cifuzz-coverage/ 2>/dev/null || echo "No cifuzz-coverage directory"
+          echo "=== Cloning corpus repository ==="
+          git clone --depth 1 --branch ${{ env.STORAGE_REPO_BRANCH }} \
+            ${{ env.STORAGE_REPO_URL }} /tmp/fuzz_corpora || {
+            echo "Failed to clone storage repo, continuing without corpus"
+            mkdir -p /tmp/fuzz_corpora/corpus
+          }
+          echo "=== Corpus downloaded ==="
+          ls -la /tmp/fuzz_corpora/corpus/ | head -20
 
-      - name: Upload Coverage Report (Artifact)
+      - name: Convert libFuzzer corpus to Go native format and run coverage
+        run: |
+          set -e
+          mkdir -p coverage-reports
+
+          # Define fuzzer mappings: fuzzer_name -> package_path:fuzz_function
+          declare -A FUZZERS=(
+            # ABI fuzzer
+            ["fuzz_abi"]="tests/fuzzers/abi:FuzzABI"
+            # Bitutil fuzzer
+            ["fuzz_bitutil"]="tests/fuzzers/bitutil:FuzzBitutil"
+            # Difficulty fuzzer
+            ["fuzz_difficulty"]="tests/fuzzers/difficulty:FuzzDifficulty"
+            # Keystore fuzzer
+            ["fuzz_keystore"]="tests/fuzzers/keystore:FuzzKeystore"
+            # RLP fuzzer
+            ["fuzz_rlp"]="tests/fuzzers/rlp:FuzzRlp"
+            # Runtime fuzzer
+            ["fuzz_runtime"]="tests/fuzzers/runtime:FuzzRuntime"
+            # Trie fuzzer
+            ["fuzz_trie"]="tests/fuzzers/trie:FuzzTrie"
+            # StackTrie fuzzer
+            ["fuzz_stacktrie"]="tests/fuzzers/stacktrie:FuzzStacktrie"
+            # Range proof fuzzer
+            ["fuzz_rangeproof"]="tests/fuzzers/rangeproof:FuzzRangeproof"
+            # TxFetcher fuzzer
+            ["fuzz_txfetcher"]="tests/fuzzers/txfetcher:FuzzTxfetcher"
+            # VFlux ClientPool fuzzer
+            ["fuzz_vflux_clientpool"]="tests/fuzzers/vflux:FuzzVfluxClientPool"
+            # LES fuzzer
+            ["fuzz_les"]="tests/fuzzers/les:FuzzLes"
+            # BN256 fuzzers
+            ["fuzz_bn256_add"]="tests/fuzzers/bn256:FuzzBn256Add"
+            ["fuzz_bn256_mul"]="tests/fuzzers/bn256:FuzzBn256Mul"
+            ["fuzz_bn256_pair"]="tests/fuzzers/bn256:FuzzBn256Pair"
+            # secp256k1 fuzzer
+            ["fuzz_secp256k1"]="tests/fuzzers/secp256k1:FuzzSecp256k1"
+            # BLS12-381 fuzzers
+            ["fuzz_bls12381_g1_add"]="tests/fuzzers/bls12381:FuzzG1Add"
+            ["fuzz_bls12381_g1_multiexp"]="tests/fuzzers/bls12381:FuzzG1MultiExp"
+            ["fuzz_bls12381_g2_add"]="tests/fuzzers/bls12381:FuzzG2Add"
+            ["fuzz_bls12381_g2_multiexp"]="tests/fuzzers/bls12381:FuzzG2MultiExp"
+            ["fuzz_bls12381_pairing"]="tests/fuzzers/bls12381:FuzzPairing"
+            ["fuzz_bls12381_map_g1"]="tests/fuzzers/bls12381:FuzzMapG1"
+            ["fuzz_bls12381_map_g2"]="tests/fuzzers/bls12381:FuzzMapG2"
+            ["fuzz_bls12381_g1_subgroup"]="tests/fuzzers/bls12381:FuzzG1SubgroupChecks"
+            ["fuzz_bls12381_g2_subgroup"]="tests/fuzzers/bls12381:FuzzG2SubgroupChecks"
+            # BLS12-381 cross-library consistency checks
+            ["fuzz_bls12381_cross_g1_add"]="tests/fuzzers/bls12381:FuzzCrossG1Add"
+            ["fuzz_bls12381_cross_g2_add"]="tests/fuzzers/bls12381:FuzzCrossG2Add"
+            ["fuzz_bls12381_cross_g1_multiexp"]="tests/fuzzers/bls12381:FuzzCrossG1MultiExp"
+            ["fuzz_bls12381_cross_g2_multiexp"]="tests/fuzzers/bls12381:FuzzCrossG2MultiExp"
+            ["fuzz_bls12381_cross_pairing"]="tests/fuzzers/bls12381:FuzzCrossPairing"
+            # Blake2b fuzzer
+            ["fuzz_blake2b"]="crypto/blake2b:FuzzBlake2bF"
+          )
+
+          total_coverage=0
+          fuzzer_count=0
+
+          for fuzzer_name in "${!FUZZERS[@]}"; do
+            IFS=':' read -r pkg_path fuzz_func <<< "${FUZZERS[$fuzzer_name]}"
+            corpus_dir="/tmp/fuzz_corpora/corpus/${fuzzer_name}"
+
+            echo ""
+            echo "============================================================"
+            echo "Processing: $fuzzer_name ($fuzz_func in $pkg_path)"
+            echo "============================================================"
+
+            if [ ! -d "$corpus_dir" ]; then
+              echo "No corpus found for $fuzzer_name, skipping"
+              continue
+            fi
+
+            corpus_count=$(ls -1 "$corpus_dir" 2>/dev/null | wc -l)
+            echo "Corpus contains $corpus_count files"
+
+            if [ "$corpus_count" -eq 0 ]; then
+              echo "Empty corpus, skipping"
+              continue
+            fi
+
+            # Create Go native fuzz testdata directory
+            # Go expects: testdata/fuzz/<FuzzFuncName>/<corpus_files>
+            testdata_dir="./${pkg_path}/testdata/fuzz/${fuzz_func}"
+            mkdir -p "$testdata_dir"
+
+            # Convert libFuzzer corpus to Go native format
+            # Go native format: each file starts with "go test fuzz v1\n" header
+            # followed by the data type and value
+            echo "Converting corpus to Go native format..."
+            converted=0
+            for corpus_file in "$corpus_dir"/*; do
+              if [ -f "$corpus_file" ]; then
+                filename=$(basename "$corpus_file")
+                # Read binary data and convert to Go fuzz format
+                # Format: go test fuzz v1\n[]byte("base64_encoded_data")
+                base64_data=$(base64 -w0 "$corpus_file" 2>/dev/null || base64 "$corpus_file")
+                printf 'go test fuzz v1\n[]byte("%s")\n' "$base64_data" > "$testdata_dir/$filename"
+                ((converted++)) || true
+              fi
+            done
+            echo "Converted $converted corpus files"
+
+            # Run Go test with coverage
+            echo "Running coverage for $fuzz_func..."
+            cd "$pkg_path"
+
+            # Run the fuzz test with converted corpus (no fuzzing, just run corpus)
+            if go test -v -run="^$" -fuzz="^${fuzz_func}$" -fuzztime=1x \
+                -cover -coverprofile="../../../coverage-reports/${fuzzer_name}.out" \
+                . 2>&1 | tee "../../../coverage-reports/${fuzzer_name}.log"; then
+              echo "Coverage completed for $fuzzer_name"
+            else
+              echo "Coverage failed for $fuzzer_name, trying alternative method..."
+              # Fallback: run regular tests with coverage
+              go test -v -cover -coverprofile="../../../coverage-reports/${fuzzer_name}.out" \
+                . 2>&1 || true
+            fi
+
+            cd - > /dev/null
+
+            # Check if coverage file was generated
+            if [ -f "coverage-reports/${fuzzer_name}.out" ]; then
+              coverage=$(go tool cover -func="coverage-reports/${fuzzer_name}.out" 2>/dev/null | \
+                grep total | awk '{print $3}' | tr -d '%' || echo "0")
+              echo "Coverage for $fuzzer_name: ${coverage}%"
+              ((fuzzer_count++)) || true
+            fi
+
+            # Cleanup testdata
+            rm -rf "./${pkg_path}/testdata"
+          done
+
+          echo ""
+          echo "============================================================"
+          echo "Coverage Summary"
+          echo "============================================================"
+          echo "Processed $fuzzer_count fuzzers"
+
+          # Generate HTML reports
+          echo ""
+          echo "Generating HTML reports..."
+          for coverage_file in coverage-reports/*.out; do
+            if [ -f "$coverage_file" ]; then
+              name=$(basename "$coverage_file" .out)
+              go tool cover -html="$coverage_file" -o="coverage-reports/${name}.html" 2>/dev/null || true
+              echo "Generated: coverage-reports/${name}.html"
+            fi
+          done
+
+          # Create summary report
+          echo ""
+          echo "Creating summary report..."
+          REPORT_DATE=$(date -u)
+          cat > coverage-reports/index.html <<'HTMLEOF1'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Go-Ethereum Fuzzer Coverage Report</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; }
+              h1 { color: #333; }
+              table { border-collapse: collapse; width: 100%; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #4CAF50; color: white; }
+              tr:nth-child(even) { background-color: #f2f2f2; }
+              a { color: #0066cc; }
+            </style>
+          </head>
+          <body>
+            <h1>Go-Ethereum Fuzzer Coverage Report</h1>
+            <p>Generated: REPORT_DATE_PLACEHOLDER</p>
+            <table>
+              <tr><th>Fuzzer</th><th>Coverage</th><th>Report</th></tr>
+          HTMLEOF1
+          sed -i.bak "s/REPORT_DATE_PLACEHOLDER/${REPORT_DATE}/g" coverage-reports/index.html
+          rm -f coverage-reports/index.html.bak
+
+          for coverage_file in coverage-reports/*.out; do
+            if [ -f "$coverage_file" ]; then
+              name=$(basename "$coverage_file" .out)
+              cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
+              echo "    <tr><td>${name}</td><td>${cov}</td><td><a href=\"${name}.html\">View</a></td></tr>" >> coverage-reports/index.html
+            fi
+          done
+
+          cat >> coverage-reports/index.html <<'HTMLEOF2'
+            </table>
+          </body>
+          </html>
+          HTMLEOF2
+
+          echo ""
+          echo "=== Final coverage reports ==="
+          ls -la coverage-reports/
+
+      - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-report
-          path: ./cifuzz-coverage/report
+          name: go-coverage-report
+          path: coverage-reports/
           retention-days: 30

@@ -349,8 +349,14 @@ jobs:
               name=$(basename "$coverage_file" .out)
               cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' | tr -d '%' || echo "0")
               corpus_count=0
-              if [ -d "tests/fuzzers/${name}/testdata/fuzz" ]; then
-                corpus_count=$(find "tests/fuzzers/${name}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
               fi
               coverage_data="${coverage_data}${name}|${cov}|${corpus_count}\n"
               ((total_packages++)) || true
@@ -451,8 +457,14 @@ jobs:
 
               # Count corpus files
               corpus_count=0
-              if [ -d "tests/fuzzers/${name}/testdata/fuzz" ]; then
-                corpus_count=$(find "tests/fuzzers/${name}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
               fi
 
               echo "      <tr>" >> coverage-reports/index.html
@@ -550,8 +562,14 @@ jobs:
               cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' | tr -d '%' || echo "0")
 
               corpus_count=0
-              if [ -d "tests/fuzzers/${name}/testdata/fuzz" ]; then
-                corpus_count=$(find "tests/fuzzers/${name}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
               fi
 
               echo "| ${name} | ${cov}% | ${corpus_count} |" >> "$SUMMARY_FILE"
@@ -619,8 +637,14 @@ jobs:
               cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' | tr -d '%' || echo "0")
 
               corpus_count=0
-              if [ -d "tests/fuzzers/${name}/testdata/fuzz" ]; then
-                corpus_count=$(find "tests/fuzzers/${name}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
               fi
 
               # Color based on coverage

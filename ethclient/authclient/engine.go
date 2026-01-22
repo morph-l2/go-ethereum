@@ -58,6 +58,11 @@ func (ec *Client) AppendBlsSignature(ctx context.Context, batchHash common.Hash,
 	return ec.c.CallContext(ctx, nil, "engine_appendBatchSignature", batchHash, signature)
 }
 
+// SetBlockTags sets the safe and finalized block by hash
+func (ec *Client) SetBlockTags(ctx context.Context, safeBlockHash common.Hash, finalizedBlockHash common.Hash) error {
+	return ec.c.CallContext(ctx, nil, "engine_setBlockTags", safeBlockHash, finalizedBlockHash)
+}
+
 // AssembleL2BlockV2 assembles a L2 Block based on parent hash.
 // This differs from AssembleL2Block which uses block number.
 // Using parent hash allows building on any parent block, enabling future reorg support.

@@ -194,6 +194,9 @@ type BlockChain struct {
 	currentBlock     atomic.Value // Current head of the block chain
 	currentFastBlock atomic.Value // Current head of the fast-sync chain (may be above the block chain!)
 
+	currentSafeBlock      atomic.Pointer[types.Header] // Current safe block (derived from L1 batch committed)
+	currentFinalizedBlock atomic.Pointer[types.Header] // Current finalized block (derived from L1 batch finalized)
+
 	stateCache    state.Database // State database to reuse between imports (contains state cache)
 	bodyCache     *lru.Cache     // Cache for the most recent block bodies
 	bodyRLPCache  *lru.Cache     // Cache for the most recent block bodies in RLP encoded format
@@ -478,6 +481,14 @@ func (bc *BlockChain) loadLastState() error {
 			headFastBlockGauge.Update(int64(block.NumberU64()))
 		}
 	}
+	// Restore the last known finalized block, and set safe = finalized on startup
+	if head := rawdb.ReadFinalizedBlockHash(bc.db); head != (common.Hash{}) {
+		if header := bc.GetHeaderByHash(head); header != nil {
+			bc.currentFinalizedBlock.Store(header)
+			bc.currentSafeBlock.Store(header) // safe = finalized on startup
+			log.Info("Loaded finalized block", "number", header.Number, "hash", header.Hash())
+		}
+	}
 	// Issue a status log for the user
 	currentFastBlock := bc.CurrentFastBlock()
 
@@ -488,6 +499,9 @@ func (bc *BlockChain) loadLastState() error {
 	log.Info("Loaded most recent local header", "number", currentHeader.Number, "hash", currentHeader.Hash(), "td", headerTd, "age", common.PrettyAge(time.Unix(int64(currentHeader.Time), 0)))
 	log.Info("Loaded most recent local full block", "number", currentBlock.Number(), "hash", currentBlock.Hash(), "td", blockTd, "age", common.PrettyAge(time.Unix(int64(currentBlock.Time()), 0)))
 	log.Info("Loaded most recent local fast block", "number", currentFastBlock.Number(), "hash", currentFastBlock.Hash(), "td", fastTd, "age", common.PrettyAge(time.Unix(int64(currentFastBlock.Time()), 0)))
+	if finalizedBlock := bc.CurrentFinalizedBlock(); finalizedBlock != nil {
+		log.Info("Loaded most recent local finalized block", "number", finalizedBlock.Number, "hash", finalizedBlock.Hash())
+	}
 	if pivot := rawdb.ReadLastPivotNumber(bc.db); pivot != nil {
 		log.Info("Loaded last fast-sync pivot marker", "number", *pivot)
 	}

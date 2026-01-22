@@ -176,16 +176,25 @@ func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error
 		_, _, stateDb := api.eth.miner.Pending()
 		return stateDb.RawDump(opts), nil
 	}
-	var block *types.Block
-	if blockNr == rpc.LatestBlockNumber {
-		block = api.eth.blockchain.CurrentBlock()
-	} else {
-		block = api.eth.blockchain.GetBlockByNumber(uint64(blockNr))
+	var header *types.Header
+	switch blockNr {
+	case rpc.LatestBlockNumber:
+		header = api.eth.blockchain.CurrentBlock().Header()
+	case rpc.SafeBlockNumber:
+		header = api.eth.blockchain.CurrentSafeBlock()
+	case rpc.FinalizedBlockNumber:
+		header = api.eth.blockchain.CurrentFinalizedBlock()
+	default:
+		block := api.eth.blockchain.GetBlockByNumber(uint64(blockNr))
+		if block == nil {
+			return state.Dump{}, fmt.Errorf("block #%d not found", blockNr)
+		}
+		header = block.Header()
 	}
-	if block == nil {
+	if header == nil {
 		return state.Dump{}, fmt.Errorf("block #%d not found", blockNr)
 	}
-	stateDb, err := api.eth.BlockChain().StateAt(block.Root())
+	stateDb, err := api.eth.BlockChain().StateAt(header.Root)
 	if err != nil {
 		return state.Dump{}, err
 	}
@@ -264,16 +273,25 @@ func (api *PublicDebugAPI) AccountRange(blockNrOrHash rpc.BlockNumberOrHash, sta
 			// the miner and operate on those
 			_, _, stateDb = api.eth.miner.Pending()
 		} else {
-			var block *types.Block
-			if number == rpc.LatestBlockNumber {
-				block = api.eth.blockchain.CurrentBlock()
-			} else {
-				block = api.eth.blockchain.GetBlockByNumber(uint64(number))
+			var header *types.Header
+			switch number {
+			case rpc.LatestBlockNumber:
+				header = api.eth.blockchain.CurrentBlock().Header()
+			case rpc.SafeBlockNumber:
+				header = api.eth.blockchain.CurrentSafeBlock()
+			case rpc.FinalizedBlockNumber:
+				header = api.eth.blockchain.CurrentFinalizedBlock()
+			default:
+				block := api.eth.blockchain.GetBlockByNumber(uint64(number))
+				if block == nil {
+					return state.IteratorDump{}, fmt.Errorf("block #%d not found", number)
+				}
+				header = block.Header()
 			}
-			if block == nil {
+			if header == nil {
 				return state.IteratorDump{}, fmt.Errorf("block #%d not found", number)
 			}
-			stateDb, err = api.eth.BlockChain().StateAt(block.Root())
+			stateDb, err = api.eth.BlockChain().StateAt(header.Root)
 			if err != nil {
 				return state.IteratorDump{}, err
 			}

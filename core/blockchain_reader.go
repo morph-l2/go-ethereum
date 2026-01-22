@@ -49,6 +49,20 @@ func (bc *BlockChain) CurrentFastBlock() *types.Block {
 	return bc.currentFastBlock.Load().(*types.Block)
 }
 
+// CurrentSafeBlock retrieves the current safe block of the canonical chain.
+// The safe block is derived from L1 batch committed status.
+// Returns nil if no safe block has been set yet.
+func (bc *BlockChain) CurrentSafeBlock() *types.Header {
+	return bc.currentSafeBlock.Load()
+}
+
+// CurrentFinalizedBlock retrieves the current finalized block of the canonical chain.
+// The finalized block is derived from L1 batch finalized status.
+// Returns nil if no finalized block has been set yet.
+func (bc *BlockChain) CurrentFinalizedBlock() *types.Header {
+	return bc.currentFinalizedBlock.Load()
+}
+
 // HasHeader checks if a block header is present in the database or not, caching
 // it if present.
 func (bc *BlockChain) HasHeader(hash common.Hash, number uint64) bool {

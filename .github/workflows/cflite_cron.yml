@@ -575,6 +575,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Add coverage report ${DATE} from ${{ github.repository }}" || echo "No changes to commit"
+          git pull --rebase origin ${{ env.STORAGE_REPO_BRANCH }} || true
           git push || echo "Failed to push"
 
           echo "✅ Coverage reports uploaded to storage repository"

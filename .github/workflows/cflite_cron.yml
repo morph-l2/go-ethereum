@@ -66,14 +66,16 @@ jobs:
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 
   # ==============================================================================
-  # Coverage Reports - Using Go native coverage with libFuzzer corpus conversion
+  # Coverage Reports - Using Go native coverage with corpus conversion
   # ==============================================================================
-  # Note: ClusterFuzzLite's coverage mode doesn't work with Go native fuzzers
-  # due to corpus format incompatibility (Issue #13285). We use a custom approach:
+  # Process:
   # 1. Download libFuzzer-format corpus from storage repo
-  # 2. Convert to Go native fuzz format
-  # 3. Run Go test with coverage using the converted corpus
-  # 4. Generate HTML reports
+  # 2. Convert to Go native fuzz format (testdata/fuzz directories) inline
+  # 3. Run Go tests with coverage - fuzz functions will execute corpus as seed inputs
+  # 4. Generate HTML coverage reports
+  #
+  # Key insight: Go 1.18+ automatically runs seed corpus from testdata/fuzz when
+  # executing fuzz tests, even without -fuzz flag. This gives us corpus coverage.
   # ==============================================================================
   Coverage:
     runs-on: ubuntu-latest
@@ -99,138 +101,199 @@ jobs:
           echo "=== Corpus downloaded ==="
           ls -la /tmp/fuzz_corpora/corpus/ | head -20
 
-      - name: Run coverage with corpus data
+      - name: Convert corpus to Go native format
+        run: |
+          echo "=== Converting ClusterFuzzLite corpus to Go native format ==="
+
+          if [ ! -d "/tmp/fuzz_corpora/corpus" ]; then
+            echo "No corpus directory found, skipping conversion"
+            exit 0
+          fi
+
+          # Inline Python script for corpus conversion
+          python3 << 'PYTHON_EOF'
+          import os
+          import sys
+          from pathlib import Path
+
+          # Fuzzer mapping: libFuzzer corpus name -> (Go package path, FuzzFunction name)
+          FUZZER_MAP = {
+              "fuzz_abi": ("tests/fuzzers/abi", "FuzzABI"),
+              "fuzz_bitutil": ("tests/fuzzers/bitutil", "FuzzBitutil"),
+              "fuzz_difficulty": ("tests/fuzzers/difficulty", "FuzzDifficulty"),
+              "fuzz_keystore": ("tests/fuzzers/keystore", "FuzzKeystore"),
+              "fuzz_rlp": ("tests/fuzzers/rlp", "FuzzRlp"),
+              "fuzz_runtime": ("tests/fuzzers/runtime", "FuzzRuntime"),
+              "fuzz_trie": ("tests/fuzzers/trie", "FuzzTrie"),
+              "fuzz_stacktrie": ("tests/fuzzers/stacktrie", "FuzzStacktrie"),
+              "fuzz_rangeproof": ("tests/fuzzers/rangeproof", "FuzzRangeproof"),
+              "fuzz_txfetcher": ("tests/fuzzers/txfetcher", "FuzzTxfetcher"),
+              "fuzz_vflux_clientpool": ("tests/fuzzers/vflux", "FuzzClientPool"),
+              "fuzz_les": ("tests/fuzzers/les", "FuzzLes"),
+              "fuzz_bn256_add": ("tests/fuzzers/bn256", "FuzzBn256Add"),
+              "fuzz_bn256_mul": ("tests/fuzzers/bn256", "FuzzBn256Mul"),
+              "fuzz_bn256_pair": ("tests/fuzzers/bn256", "FuzzBn256Pair"),
+              "fuzz_secp256k1": ("tests/fuzzers/secp256k1", "FuzzSecp256k1"),
+              "fuzz_bls12381_g1_add": ("tests/fuzzers/bls12381", "FuzzG1Add"),
+              "fuzz_bls12381_g1_multiexp": ("tests/fuzzers/bls12381", "FuzzG1MultiExp"),
+              "fuzz_bls12381_g2_add": ("tests/fuzzers/bls12381", "FuzzG2Add"),
+              "fuzz_bls12381_g2_multiexp": ("tests/fuzzers/bls12381", "FuzzG2MultiExp"),
+              "fuzz_bls12381_pairing": ("tests/fuzzers/bls12381", "FuzzPairing"),
+              "fuzz_bls12381_map_g1": ("tests/fuzzers/bls12381", "FuzzMapG1"),
+              "fuzz_bls12381_map_g2": ("tests/fuzzers/bls12381", "FuzzMapG2"),
+          }
+
+          def is_printable_ascii(data):
+              """Check if data is printable ASCII."""
+              if len(data) == 0:
+                  return True
+              try:
+                  decoded = data.decode('ascii')
+                  return all(32 <= ord(c) < 127 or c in '\t\n\r' for c in decoded)
+              except:
+                  return False
+
+          def encode_bytes_for_go(data):
+              """Encode bytes for Go native corpus format."""
+              if len(data) == 0:
+                  return '[]byte("")'
+
+              if is_printable_ascii(data):
+                  s = data.decode('ascii')
+                  s = s.replace('\\', '\\\\')
+                  s = s.replace('"', '\\"')
+                  s = s.replace('\n', '\\n')
+                  s = s.replace('\r', '\\r')
+                  s = s.replace('\t', '\\t')
+                  return f'[]byte("{s}")'
+
+              hex_str = ''.join(f'\\x{b:02x}' for b in data)
+              return f'[]byte("{hex_str}")'
+
+          def convert_corpus_file(source_path, target_path):
+              """Convert a single libFuzzer corpus file to Go native format."""
+              try:
+                  with open(source_path, 'rb') as f:
+                      data = f.read()
+
+                  target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                  with open(target_path, 'w', encoding='utf-8') as f:
+                      f.write('go test fuzz v1\n')
+                      f.write(encode_bytes_for_go(data) + '\n')
+
+                  return True
+              except Exception as e:
+                  print(f"  Error converting {source_path.name}: {e}")
+                  return False
+
+          source_base = Path("/tmp/fuzz_corpora/corpus")
+          target_base = Path(".")
+
+          print("=" * 60)
+          print("Converting ClusterFuzzLite corpus to Go native format")
+          print("=" * 60)
+
+          total_converted = 0
+          total_fuzzers = 0
+
+          for fuzzer_name, (pkg_path, fuzz_func) in sorted(FUZZER_MAP.items()):
+              corpus_dir = source_base / fuzzer_name
+
+              if not corpus_dir.exists():
+                  continue
+
+              corpus_files = [f for f in corpus_dir.iterdir() if f.is_file() and not f.name.startswith('.')]
+
+              if not corpus_files:
+                  continue
+
+              print(f"→ {fuzzer_name} -> {fuzz_func} ({len(corpus_files)} files)")
+
+              target_dir = target_base / pkg_path / "testdata" / "fuzz" / fuzz_func
+
+              converted = 0
+              for corpus_file in corpus_files:
+                  target_path = target_dir / corpus_file.name
+                  if convert_corpus_file(corpus_file, target_path):
+                      converted += 1
+
+              print(f"  ✓ Converted: {converted} files")
+              total_converted += converted
+              total_fuzzers += 1
+
+          print("=" * 60)
+          print(f"Total: {total_fuzzers} fuzzers, {total_converted} files converted")
+          print("=" * 60)
+          PYTHON_EOF
+
+          echo ""
+          echo "=== Checking generated testdata directories ==="
+          find tests/fuzzers -type d -name "testdata" -exec sh -c 'echo "{}:"; find {} -type f | wc -l' \;
+
+      - name: Run coverage for fuzzer packages
         run: |
           set -e
           mkdir -p coverage-reports
 
-          # Define fuzzer mappings: fuzzer_name -> package_path:fuzz_function
-          declare -A FUZZERS=(
-            ["fuzz_abi"]="tests/fuzzers/abi:FuzzABI"
-            ["fuzz_bitutil"]="tests/fuzzers/bitutil:FuzzBitutil"
-            ["fuzz_difficulty"]="tests/fuzzers/difficulty:FuzzDifficulty"
-            ["fuzz_keystore"]="tests/fuzzers/keystore:FuzzKeystore"
-            ["fuzz_rlp"]="tests/fuzzers/rlp:FuzzRlp"
-            ["fuzz_runtime"]="tests/fuzzers/runtime:FuzzRuntime"
-            ["fuzz_trie"]="tests/fuzzers/trie:FuzzTrie"
-            ["fuzz_stacktrie"]="tests/fuzzers/stacktrie:FuzzStacktrie"
-            ["fuzz_rangeproof"]="tests/fuzzers/rangeproof:FuzzRangeproof"
-            ["fuzz_txfetcher"]="tests/fuzzers/txfetcher:FuzzTxfetcher"
-            ["fuzz_vflux_clientpool"]="tests/fuzzers/vflux:FuzzVfluxClientPool"
-            ["fuzz_les"]="tests/fuzzers/les:FuzzLes"
-            ["fuzz_bn256_add"]="tests/fuzzers/bn256:FuzzAdd"
-            ["fuzz_bn256_mul"]="tests/fuzzers/bn256:FuzzMul"
-            ["fuzz_bn256_pair"]="tests/fuzzers/bn256:FuzzPair"
-            ["fuzz_secp256k1"]="tests/fuzzers/secp256k1:FuzzSecp256k1"
-            ["fuzz_bls12381_g1_add"]="tests/fuzzers/bls12381:FuzzG1Add"
-            ["fuzz_bls12381_g1_multiexp"]="tests/fuzzers/bls12381:FuzzG1MultiExp"
-            ["fuzz_bls12381_g2_add"]="tests/fuzzers/bls12381:FuzzG2Add"
-            ["fuzz_bls12381_g2_multiexp"]="tests/fuzzers/bls12381:FuzzG2MultiExp"
-            ["fuzz_bls12381_pairing"]="tests/fuzzers/bls12381:FuzzPairing"
-            ["fuzz_bls12381_map_g1"]="tests/fuzzers/bls12381:FuzzMapG1"
-            ["fuzz_bls12381_map_g2"]="tests/fuzzers/bls12381:FuzzMapG2"
-            ["fuzz_blake2b"]="crypto/blake2b:FuzzBlake2bF"
+          # List of fuzzer packages to run coverage on
+          FUZZER_PACKAGES=(
+            "tests/fuzzers/abi"
+            "tests/fuzzers/bitutil"
+            "tests/fuzzers/difficulty"
+            "tests/fuzzers/keystore"
+            "tests/fuzzers/rlp"
+            "tests/fuzzers/runtime"
+            "tests/fuzzers/trie"
+            "tests/fuzzers/stacktrie"
+            "tests/fuzzers/rangeproof"
+            "tests/fuzzers/txfetcher"
+            "tests/fuzzers/vflux"
+            "tests/fuzzers/les"
+            "tests/fuzzers/bn256"
+            "tests/fuzzers/secp256k1"
+            "tests/fuzzers/bls12381"
           )
 
           fuzzer_count=0
 
-          for fuzzer_name in "${!FUZZERS[@]}"; do
-            IFS=':' read -r pkg_path fuzz_func <<< "${FUZZERS[$fuzzer_name]}"
-            corpus_dir="/tmp/fuzz_corpora/corpus/${fuzzer_name}"
+          for pkg_path in "${FUZZER_PACKAGES[@]}"; do
+            pkg_name=$(basename "$pkg_path")
 
             echo ""
             echo "============================================================"
-            echo "Processing: $fuzzer_name ($fuzz_func in $pkg_path)"
+            echo "Processing: $pkg_name ($pkg_path)"
             echo "============================================================"
 
-            if [ ! -d "$corpus_dir" ]; then
-              echo "No corpus found for $fuzzer_name, skipping"
+            if [ ! -d "$pkg_path" ]; then
+              echo "Package not found, skipping"
               continue
             fi
 
-            corpus_count=$(ls -1 "$corpus_dir" 2>/dev/null | wc -l)
-            echo "Corpus contains $corpus_count files"
-
-            if [ "$corpus_count" -eq 0 ]; then
-              echo "Empty corpus, skipping"
-              continue
-            fi
-
-            # Get package name from go.mod or directory
-            pkg_name=$(basename "$pkg_path")
-
-            # Create wrapper test file that reads corpus and calls fuzz function
-            wrapper_file="./${pkg_path}/corpus_coverage_test.go"
-
-            cat > "$wrapper_file" << GOEOF
-          package ${pkg_name}
-
-          import (
-              "os"
-              "path/filepath"
-              "testing"
-          )
-
-          func TestCorpusCoverage(t *testing.T) {
-              corpusDir := "${corpus_dir}"
-
-              entries, err := os.ReadDir(corpusDir)
-              if err != nil {
-                  t.Skipf("Cannot read corpus dir: %v", err)
-                  return
-              }
-
-              t.Logf("Running %d corpus files through ${fuzz_func}", len(entries))
-
-              for _, entry := range entries {
-                  if entry.IsDir() {
-                      continue
-                  }
-
-                  filePath := filepath.Join(corpusDir, entry.Name())
-                  data, err := os.ReadFile(filePath)
-                  if err != nil {
-                      t.Logf("Warning: cannot read %s: %v", entry.Name(), err)
-                      continue
-                  }
-
-                  // Call the fuzz function with corpus data
-                  // Use recover to catch panics (expected for some crash-inducing inputs)
-                  func() {
-                      defer func() {
-                          if r := recover(); r != nil {
-                              t.Logf("Panic on %s (expected for crash inputs): %v", entry.Name(), r)
-                          }
-                      }()
-                      ${fuzz_func}(data)
-                  }()
-              }
-          }
-          GOEOF
-
-            echo "Created wrapper test: $wrapper_file"
-
-            # Run the wrapper test with coverage
-            echo "Running coverage for $fuzz_func with corpus data..."
-            cd "$pkg_path"
-
-            if go test -v -cover -coverprofile="../../../coverage-reports/${fuzzer_name}.out" \
-                -run="TestCorpusCoverage" . 2>&1 | tee "../../../coverage-reports/${fuzzer_name}.log"; then
-              echo "Coverage completed for $fuzzer_name"
+            # Check if testdata/fuzz exists (corpus available)
+            if [ -d "$pkg_path/testdata/fuzz" ]; then
+              corpus_count=$(find "$pkg_path/testdata/fuzz" -type f ! -name ".*" | wc -l | tr -d ' ')
+              echo "Found testdata/fuzz with $corpus_count corpus files"
             else
-              echo "Coverage failed for $fuzzer_name (some panics are expected)"
+              echo "No testdata/fuzz directory (will run tests without corpus)"
             fi
 
-            cd - > /dev/null
-
-            # Cleanup wrapper test
-            rm -f "$wrapper_file"
+            # Run tests with coverage
+            # Note: When testdata/fuzz exists, Go will automatically use it as seed corpus
+            # The fuzz tests will run the corpus through the fuzz target
+            echo "Running tests with coverage..."
+            if go test -v -cover -coverprofile="coverage-reports/${pkg_name}.out" \
+                "./${pkg_path}/..." 2>&1 | tee "coverage-reports/${pkg_name}.log"; then
+              echo "Coverage completed for $pkg_name"
+            else
+              echo "Some tests failed for $pkg_name (may be expected)"
+            fi
 
             # Check if coverage file was generated
-            if [ -f "coverage-reports/${fuzzer_name}.out" ]; then
-              coverage=$(go tool cover -func="coverage-reports/${fuzzer_name}.out" 2>/dev/null | \
+            if [ -f "coverage-reports/${pkg_name}.out" ] && [ -s "coverage-reports/${pkg_name}.out" ]; then
+              coverage=$(go tool cover -func="coverage-reports/${pkg_name}.out" 2>/dev/null | \
                 grep total | awk '{print $3}' | tr -d '%' || echo "0")
-              echo "Coverage for $fuzzer_name: ${coverage}%"
+              echo "Coverage for $pkg_name: ${coverage}%"
               ((fuzzer_count++)) || true
             fi
           done
@@ -239,13 +302,13 @@ jobs:
           echo "============================================================"
           echo "Coverage Summary"
           echo "============================================================"
-          echo "Processed $fuzzer_count fuzzers"
+          echo "Processed $fuzzer_count packages"
 
           # Generate HTML reports
           echo ""
           echo "Generating HTML reports..."
           for coverage_file in coverage-reports/*.out; do
-            if [ -f "$coverage_file" ]; then
+            if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
               name=$(basename "$coverage_file" .out)
               go tool cover -html="$coverage_file" -o="coverage-reports/${name}.html" 2>/dev/null || true
               echo "Generated: coverage-reports/${name}.html"
@@ -268,24 +331,22 @@ jobs:
               th { background-color: #4CAF50; color: white; }
               tr:nth-child(even) { background-color: #f2f2f2; }
               a { color: #0066cc; }
-              .high { background-color: #90EE90; }
-              .medium { background-color: #FFE4B5; }
-              .low { background-color: #FFB6C1; }
             </style>
           </head>
           <body>
             <h1>Go-Ethereum Fuzzer Coverage Report</h1>
-            <p>Generated: $(date -u)</p>
-            <p>Coverage is calculated by running corpus data through each fuzzer.</p>
-            <table>
-              <tr><th>Fuzzer</th><th>Coverage</th><th>Report</th></tr>
           HTMLEOF
 
+          echo "    <p>Generated: $(date -u)</p>" >> coverage-reports/index.html
+          echo "    <p>Coverage is calculated by running corpus data through each fuzzer package.</p>" >> coverage-reports/index.html
+          echo "    <table>" >> coverage-reports/index.html
+          echo "      <tr><th>Package</th><th>Coverage</th><th>Report</th></tr>" >> coverage-reports/index.html
+
           for coverage_file in coverage-reports/*.out; do
-            if [ -f "$coverage_file" ]; then
+            if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
               name=$(basename "$coverage_file" .out)
               cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
-              echo "    <tr><td>${name}</td><td>${cov}</td><td><a href=\"${name}.html\">View</a></td></tr>" >> coverage-reports/index.html
+              echo "      <tr><td>${name}</td><td>${cov}</td><td><a href=\"${name}.html\">View</a></td></tr>" >> coverage-reports/index.html
             fi
           done
 
@@ -334,7 +395,7 @@ jobs:
           cp -r "$COVERAGE_DIR" /tmp/fuzz_corpora/coverage/latest
 
           # Create coverage index
-          cat > /tmp/fuzz_corpora/coverage/README.md << 'EOF'
+          cat > /tmp/fuzz_corpora/coverage/README.md << 'READMEEOF'
           # Fuzzer Coverage Reports
 
           Coverage reports are generated by running corpus data through each fuzzer.
@@ -345,7 +406,7 @@ jobs:
 
           ## All Reports
 
-          EOF
+          READMEEOF
 
           # List all reports
           for dir in $(ls -d /tmp/fuzz_corpora/coverage/20*/ 2>/dev/null | sort -r | head -20); do

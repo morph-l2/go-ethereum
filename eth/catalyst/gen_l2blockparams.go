@@ -16,6 +16,7 @@ func (a AssembleL2BlockParams) MarshalJSON() ([]byte, error) {
 	type AssembleL2BlockParams struct {
 		Number       hexutil.Uint64  `json:"number"        gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"`
+		Timestamp    *hexutil.Uint64 `json:"timestamp"`
 	}
 	var enc AssembleL2BlockParams
 	enc.Number = hexutil.Uint64(a.Number)
@@ -25,6 +26,7 @@ func (a AssembleL2BlockParams) MarshalJSON() ([]byte, error) {
 			enc.Transactions[k] = v
 		}
 	}
+	enc.Timestamp = (*hexutil.Uint64)(a.Timestamp)
 	return json.Marshal(&enc)
 }
 
@@ -33,6 +35,7 @@ func (a *AssembleL2BlockParams) UnmarshalJSON(input []byte) error {
 	type AssembleL2BlockParams struct {
 		Number       *hexutil.Uint64 `json:"number"        gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"`
+		Timestamp    *hexutil.Uint64 `json:"timestamp"`
 	}
 	var dec AssembleL2BlockParams
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -47,6 +50,9 @@ func (a *AssembleL2BlockParams) UnmarshalJSON(input []byte) error {
 		for k, v := range dec.Transactions {
 			a.Transactions[k] = v
 		}
+	}
+	if dec.Timestamp != nil {
+		a.Timestamp = (*uint64)(dec.Timestamp)
 	}
 	return nil
 }

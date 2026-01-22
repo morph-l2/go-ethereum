@@ -125,6 +125,9 @@ var (
 	rollupBatchSignaturePrefix    = []byte("R-bs")
 	rollupBatchL1DataFeePrefix    = []byte("R-df")
 	rollupBatchHeadBatchHasFeeKey = []byte("R-hbf")
+
+	// diskStateRoot mapping
+	diskStateRootPrefix = []byte("dsr") // diskStateRootPrefix + headerRoot -> diskRoot
 )
 
 const (
@@ -312,4 +315,9 @@ func RollupBatchSignatureSignerKey(batchHash common.Hash, signer common.Address)
 // RollupBatchL1DataFeeKey = rollupBatchL1DataFeePrefix + batchIndex
 func RollupBatchL1DataFeeKey(batchIndex uint64) []byte {
 	return append(rollupBatchL1DataFeePrefix, encodeBigEndian(batchIndex)...)
+}
+
+// diskStateRootKey = diskStateRootPrefix + headerRoot
+func diskStateRootKey(headerRoot common.Hash) []byte {
+	return append(diskStateRootPrefix, headerRoot.Bytes()...)
 }

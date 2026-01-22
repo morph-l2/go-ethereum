@@ -229,3 +229,98 @@ func TestCalcGasLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestStateRootValidationXOR(t *testing.T) {
+	tests := []struct {
+		name              string
+		useZktrie         bool
+		blockTime         uint64
+		mptForkTime       *uint64
+		expectValidation  bool
+		description       string
+	}{
+		{
+			name:             "zkTrie node, before fork",
+			useZktrie:        true,
+			blockTime:        500,
+			mptForkTime:      uint64Ptr(1000),
+			expectValidation: true,
+			description:      "zkTrie node processing zkTrie block (same format) - should validate",
+		},
+		{
+			name:             "zkTrie node, after fork",
+			useZktrie:        true,
+			blockTime:        1500,
+			mptForkTime:      uint64Ptr(1000),
+			expectValidation: false,
+			description:      "zkTrie node processing MPT block (cross-format) - should skip validation",
+		},
+		{
+			name:             "MPT node, before fork",
+			useZktrie:        false,
+			blockTime:        500,
+			mptForkTime:      uint64Ptr(1000),
+			expectValidation: false,
+			description:      "MPT node processing zkTrie block (cross-format) - should skip validation",
+		},
+		{
+			name:             "MPT node, after fork",
+			useZktrie:        false,
+			blockTime:        1500,
+			mptForkTime:      uint64Ptr(1000),
+			expectValidation: true,
+			description:      "MPT node processing MPT block (same format) - should validate",
+		},
+		{
+			name:             "No fork configured, zkTrie node",
+			useZktrie:        true,
+			blockTime:        1500,
+			mptForkTime:      nil,
+			expectValidation: true,
+			description:      "No MPT fork, zkTrie node always validates",
+		},
+		{
+			name:             "No fork configured, MPT node",
+			useZktrie:        false,
+			blockTime:        1500,
+			mptForkTime:      nil,
+			expectValidation: false,
+			description:      "No MPT fork, MPT node never validates (backwards compat)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &params.ChainConfig{
+				Morph: params.MorphConfig{
+					UseZktrie: tt.useZktrie,
+				},
+				MPTForkTime: tt.mptForkTime,
+			}
+
+			// Calculate XOR condition
+			isMPTFork := config.IsMPTFork(tt.blockTime)
+			shouldValidate := tt.useZktrie != isMPTFork
+
+			if shouldValidate != tt.expectValidation {
+				t.Errorf("%s\n  Expected validation: %v, got: %v\n  UseZktrie=%v, IsMPTFork=%v, XOR=%v",
+					tt.description,
+					tt.expectValidation,
+					shouldValidate,
+					tt.useZktrie,
+					isMPTFork,
+					shouldValidate)
+			} else {
+				t.Logf("✓ %s: validation=%v (UseZktrie=%v XOR IsMPTFork=%v)",
+					tt.description,
+					shouldValidate,
+					tt.useZktrie,
+					isMPTFork)
+			}
+		})
+	}
+}
+
+func uint64Ptr(v uint64) *uint64 {
+	return &v
+}

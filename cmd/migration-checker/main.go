@@ -37,13 +37,11 @@ type dbs struct {
 
 func main() {
 	var (
-		mptDbPath        = flag.String("mpt-db", "", "path to the MPT node DB")
-		zkDbPath         = flag.String("zk-db", "", "path to the ZK node DB")
-		mptRoot          = flag.String("mpt-root", "", "root hash of the MPT node")
-		zkRoot           = flag.String("zk-root", "", "root hash of the ZK node")
-		paranoid         = flag.Bool("paranoid", false, "verifies all node contents against their expected hash")
-		estAccounts      = flag.Int64("est-accounts", 500000, "estimated total accounts (for progress bar)")
-		estStorageSlots  = flag.Int64("est-storage", 5000000, "estimated total storage slots (for progress bar)")
+		mptDbPath = flag.String("mpt-db", "", "path to the MPT node DB")
+		zkDbPath  = flag.String("zk-db", "", "path to the ZK node DB")
+		mptRoot   = flag.String("mpt-root", "", "root hash of the MPT node")
+		zkRoot    = flag.String("zk-root", "", "root hash of the ZK node")
+		paranoid  = flag.Bool("paranoid", false, "verifies all node contents against their expected hash")
 	)
 	flag.Parse()
 
@@ -52,46 +50,6 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-
-	// Initialize progress bars
-	totalAccounts = *estAccounts
-	totalStorage = *estStorageSlots
-
-	accountBar = progressbar.NewOptions64(totalAccounts,
-		progressbar.OptionSetDescription("📦 Accounts  "),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionShowCount(),
-		progressbar.OptionShowIts(),
-		progressbar.OptionSetWidth(40),
-		progressbar.OptionThrottle(100*time.Millisecond),
-		progressbar.OptionShowElapsedTimeOnFinish(),
-		progressbar.OptionOnCompletion(func() { fmt.Fprintln(os.Stderr) }),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "█",
-			SaucerHead:    "█",
-			SaucerPadding: "░",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-	)
-
-	storageBar = progressbar.NewOptions64(totalStorage,
-		progressbar.OptionSetDescription("💾 Storage   "),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionShowCount(),
-		progressbar.OptionShowIts(),
-		progressbar.OptionSetWidth(40),
-		progressbar.OptionThrottle(100*time.Millisecond),
-		progressbar.OptionShowElapsedTimeOnFinish(),
-		progressbar.OptionOnCompletion(func() { fmt.Fprintln(os.Stderr) }),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "█",
-			SaucerHead:    "█",
-			SaucerPadding: "░",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-	)
 
 	zkDb, err := leveldb.New(*zkDbPath, 1024, 128, "", true)
 	panicOnError(err, "", "failed to open zk db")
@@ -102,7 +60,6 @@ func main() {
 	mptRootHash := common.HexToHash(*mptRoot)
 
 	fmt.Fprintln(os.Stderr, "🚀 Starting migration checker...")
-	fmt.Fprintf(os.Stderr, "   Estimated accounts: %d, storage slots: %d\n", totalAccounts, totalStorage)
 	fmt.Fprintln(os.Stderr, "")
 
 	startTime := time.Now()
@@ -154,6 +111,40 @@ func checkTrieEquality(dbs *dbs, zkRoot, mptRoot common.Hash, label string, leaf
 
 	if len(mptLeafMap) != len(zkLeafMap) {
 		panic(fmt.Sprintf("%s MPT and ZK trie leaf count mismatch: MPT: %d, ZK: %d", label, len(mptLeafMap), len(zkLeafMap)))
+	}
+
+	// Initialize progress bars with actual counts (only for top-level/account trie)
+	if top {
+		totalAccounts = int64(len(zkLeafMap))
+		accountBar = progressbar.NewOptions64(totalAccounts,
+			progressbar.OptionSetDescription("📦 Accounts  "),
+			progressbar.OptionSetWriter(os.Stderr),
+			progressbar.OptionShowCount(),
+			progressbar.OptionShowIts(),
+			progressbar.OptionSetWidth(40),
+			progressbar.OptionThrottle(100*time.Millisecond),
+			progressbar.OptionShowElapsedTimeOnFinish(),
+			progressbar.OptionOnCompletion(func() { fmt.Fprintln(os.Stderr) }),
+			progressbar.OptionSetTheme(progressbar.Theme{
+				Saucer:        "█",
+				SaucerHead:    "█",
+				SaucerPadding: "░",
+				BarStart:      "[",
+				BarEnd:        "]",
+			}),
+		)
+		// Storage bar uses -1 for unknown total (will show count only)
+		storageBar = progressbar.NewOptions64(-1,
+			progressbar.OptionSetDescription("💾 Storage   "),
+			progressbar.OptionSetWriter(os.Stderr),
+			progressbar.OptionShowCount(),
+			progressbar.OptionShowIts(),
+			progressbar.OptionSetWidth(40),
+			progressbar.OptionThrottle(100*time.Millisecond),
+			progressbar.OptionSpinnerType(14),
+			progressbar.OptionShowElapsedTimeOnFinish(),
+			progressbar.OptionOnCompletion(func() { fmt.Fprintln(os.Stderr) }),
+		)
 	}
 
 	for preimageKey, zkValue := range zkLeafMap {

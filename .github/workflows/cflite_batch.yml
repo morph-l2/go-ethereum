@@ -286,3 +286,66 @@ jobs:
         with:
           sarif_file: ./enhanced-results.sarif
         continue-on-error: true
+
+      # ========================================================================
+      # Email Notification - Crash Alert (only when crashes found)
+      # ========================================================================
+      - name: Send crash alert email
+        if: failure() && steps.run.outcome == 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "🚨 [CRASH ALERT] Fuzzing found crashes in ${{ github.repository }}"
+          to: ${{ vars.FUZZ_ALERT_EMAIL }}
+          from: "Fuzzing Bot <${{ secrets.SMTP_USERNAME }}>"
+          html_body: |
+            <html>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: #f44336; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0;">🚨 Crash Alert</h1>
+              </div>
+
+              <div style="padding: 20px; background: #fff3f3; border: 1px solid #ffcdd2;">
+                <h2 style="color: #c62828; margin-top: 0;">Fuzzing discovered potential vulnerabilities!</h2>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Repository</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ github.repository }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Branch</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ github.ref_name }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Commit</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ github.sha }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Fuzz Duration</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ env.FUZZ_SECONDS }}s</td>
+                  </tr>
+                </table>
+
+                <div style="margin-top: 20px;">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                     style="display: inline-block; background: #c62828; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">
+                    View Crash Details →
+                  </a>
+                </div>
+
+                <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
+                  Please investigate and fix the crashes as soon as possible.
+                  Crash artifacts are available in the workflow run.
+                </p>
+              </div>
+
+              <div style="padding: 15px; background: #f5f5f5; text-align: center; font-size: 0.8em; color: #666;">
+                Sent by ClusterFuzzLite • ${{ github.repository }}
+              </div>
+            </body>
+            </html>
+        continue-on-error: true

@@ -120,27 +120,38 @@ jobs:
           FUZZER_MAP = {
               "fuzz_abi": ("tests/fuzzers/abi", "FuzzABI"),
               "fuzz_bitutil": ("tests/fuzzers/bitutil", "FuzzBitutil"),
+              "fuzz_blake2b": ("crypto/blake2b", "FuzzBlake2bF"),
               "fuzz_difficulty": ("tests/fuzzers/difficulty", "FuzzDifficulty"),
               "fuzz_keystore": ("tests/fuzzers/keystore", "FuzzKeystore"),
+              "fuzz_les": ("tests/fuzzers/les", "FuzzLes"),
+              "fuzz_rangeproof": ("tests/fuzzers/rangeproof", "FuzzRangeproof"),
               "fuzz_rlp": ("tests/fuzzers/rlp", "FuzzRlp"),
               "fuzz_runtime": ("tests/fuzzers/runtime", "FuzzRuntime"),
-              "fuzz_trie": ("tests/fuzzers/trie", "FuzzTrie"),
+              "fuzz_secp256k1": ("tests/fuzzers/secp256k1", "FuzzSecp256k1"),
               "fuzz_stacktrie": ("tests/fuzzers/stacktrie", "FuzzStacktrie"),
-              "fuzz_rangeproof": ("tests/fuzzers/rangeproof", "FuzzRangeproof"),
+              "fuzz_trie": ("tests/fuzzers/trie", "FuzzTrie"),
               "fuzz_txfetcher": ("tests/fuzzers/txfetcher", "FuzzTxfetcher"),
-              "fuzz_vflux_clientpool": ("tests/fuzzers/vflux", "FuzzClientPool"),
-              "fuzz_les": ("tests/fuzzers/les", "FuzzLes"),
+              "fuzz_vflux_clientpool": ("tests/fuzzers/vflux", "FuzzVfluxClientPool"),
+              # bn256
               "fuzz_bn256_add": ("tests/fuzzers/bn256", "FuzzBn256Add"),
               "fuzz_bn256_mul": ("tests/fuzzers/bn256", "FuzzBn256Mul"),
               "fuzz_bn256_pair": ("tests/fuzzers/bn256", "FuzzBn256Pair"),
-              "fuzz_secp256k1": ("tests/fuzzers/secp256k1", "FuzzSecp256k1"),
+              # bls12381
               "fuzz_bls12381_g1_add": ("tests/fuzzers/bls12381", "FuzzG1Add"),
               "fuzz_bls12381_g1_multiexp": ("tests/fuzzers/bls12381", "FuzzG1MultiExp"),
+              "fuzz_bls12381_g1_subgroup": ("tests/fuzzers/bls12381", "FuzzG1SubgroupChecks"),
               "fuzz_bls12381_g2_add": ("tests/fuzzers/bls12381", "FuzzG2Add"),
               "fuzz_bls12381_g2_multiexp": ("tests/fuzzers/bls12381", "FuzzG2MultiExp"),
+              "fuzz_bls12381_g2_subgroup": ("tests/fuzzers/bls12381", "FuzzG2SubgroupChecks"),
               "fuzz_bls12381_pairing": ("tests/fuzzers/bls12381", "FuzzPairing"),
               "fuzz_bls12381_map_g1": ("tests/fuzzers/bls12381", "FuzzMapG1"),
               "fuzz_bls12381_map_g2": ("tests/fuzzers/bls12381", "FuzzMapG2"),
+              # bls12381 cross
+              "fuzz_bls12381_cross_g1_add": ("tests/fuzzers/bls12381", "FuzzCrossG1Add"),
+              "fuzz_bls12381_cross_g1_multiexp": ("tests/fuzzers/bls12381", "FuzzCrossG1MultiExp"),
+              "fuzz_bls12381_cross_g2_add": ("tests/fuzzers/bls12381", "FuzzCrossG2Add"),
+              "fuzz_bls12381_cross_g2_multiexp": ("tests/fuzzers/bls12381", "FuzzCrossG2MultiExp"),
+              "fuzz_bls12381_cross_pairing": ("tests/fuzzers/bls12381", "FuzzCrossPairing"),
           }
 
           def is_printable_ascii(data):
@@ -240,19 +251,20 @@ jobs:
           FUZZER_PACKAGES=(
             "tests/fuzzers/abi"
             "tests/fuzzers/bitutil"
+            "tests/fuzzers/bls12381"
+            "tests/fuzzers/bn256"
             "tests/fuzzers/difficulty"
             "tests/fuzzers/keystore"
+            "tests/fuzzers/les"
+            "tests/fuzzers/rangeproof"
             "tests/fuzzers/rlp"
             "tests/fuzzers/runtime"
-            "tests/fuzzers/trie"
+            "tests/fuzzers/secp256k1"
             "tests/fuzzers/stacktrie"
-            "tests/fuzzers/rangeproof"
+            "tests/fuzzers/trie"
             "tests/fuzzers/txfetcher"
             "tests/fuzzers/vflux"
-            "tests/fuzzers/les"
-            "tests/fuzzers/bn256"
-            "tests/fuzzers/secp256k1"
-            "tests/fuzzers/bls12381"
+            "crypto/blake2b"
           )
 
           fuzzer_count=0

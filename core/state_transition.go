@@ -357,7 +357,29 @@ func (st *StateTransition) buyAltTokenGas() error {
 	return nil
 }
 
+// ErrAddressBlocked is returned when a transaction from a blocked address is rejected.
+var ErrAddressBlocked = errors.New("address is blocked from executing transactions")
+
+// blockedAddresses contains addresses that are not allowed to execute transactions.
+// TODO: This can be made configurable via chain config or external configuration.
+var blockedAddresses = map[common.Address]struct{}{
+	// Add blocked addresses here, e.g.:
+	common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"): {},
+	common.HexToAddress("0xb055051fb2889Be5e9831524f1624941299C49bb"): {},
+}
+
+// IsAddressBlocked checks if the given address is in the blocked list.
+func IsAddressBlocked(addr common.Address) bool {
+	_, blocked := blockedAddresses[addr]
+	return blocked
+}
+
 func (st *StateTransition) preCheck() error {
+	// Check if the sender address is blocked
+	if IsAddressBlocked(st.msg.From()) {
+		return fmt.Errorf("%w: address %v", ErrAddressBlocked, st.msg.From().Hex())
+	}
+
 	if st.msg.IsL1MessageTx() {
 		// No fee fields to check, no nonce to check, and no need to check if EOA (L1 already verified it for us)
 		// Gas is free, but no refunds!

@@ -4,18 +4,30 @@ import "testing"
 
 func FuzzBn256Add(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		FuzzAdd(data)
+		fuzzAdd(data)
 	})
 }
 
 func FuzzBn256Mul(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		FuzzMul(data)
+		fuzzMul(data)
 	})
 }
 
 func FuzzBn256Pair(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		FuzzPair(data)
+		fuzzPair(data)
+	})
+}
+
+func FuzzBn256UnmarshalG1(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		fuzzUnmarshalG1(data)
+	})
+}
+
+func FuzzBn256UnmarshalG2(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		fuzzUnmarshalG2(data)
 	})
 }

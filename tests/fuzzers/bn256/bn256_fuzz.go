@@ -240,17 +240,3 @@ func normalizeGTToGnark(cloudflareOrGoogleGT []byte) *gnark.GT {
 	return gRes
 }
 
-// FuzzAdd is the exported version of fuzzAdd for use with testing.F
-func FuzzAdd(data []byte) int {
-	return fuzzAdd(data)
-}
-
-// FuzzMul is the exported version of fuzzMul for use with testing.F
-func FuzzMul(data []byte) int {
-	return fuzzMul(data)
-}
-
-// FuzzPair is the exported version of fuzzPair for use with testing.F
-func FuzzPair(data []byte) int {
-	return fuzzPair(data)
-}

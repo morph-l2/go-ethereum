@@ -20,6 +20,14 @@ import (
 	"testing"
 )
 
+// FuzzABI is the native Go 1.18+ fuzz test.
+// Run with: go test -fuzz=FuzzABI -fuzztime=30s
+func FuzzABI(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		runFuzzer(data)
+	})
+}
+
 // TestReplicate can be used to replicate crashers from the fuzzing tests.
 // Just replace testString with the data in .quoted
 func TestReplicate(t *testing.T) {

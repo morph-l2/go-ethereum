@@ -1,0 +1,737 @@
+name: ClusterFuzzLite cron tasks
+on:
+  # For testing: trigger on push to feat/fuzz branch
+  push:
+    branches:
+      - feat/fuzz
+  schedule:
+    # Run daily at midnight UTC
+    - cron: '0 0 * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Task to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - prune
+          - coverage
+
+permissions:
+  contents: read
+
+# ==============================================================================
+# Storage Repository Configuration for Organization
+# ==============================================================================
+# Required secrets/variables:
+#   - Secret: CLUSTERFUZZLITE_STORAGE_TOKEN (PAT with repo write access)
+#   - Variable: CLUSTERFUZZLITE_STORAGE_REPO (e.g., morph-l2/fuzz_corpora)
+# ==============================================================================
+
+env:
+  STORAGE_REPO_URL: ${{ secrets.CLUSTERFUZZLITE_STORAGE_TOKEN && vars.CLUSTERFUZZLITE_STORAGE_REPO && format('https://{0}@github.com/{1}.git', secrets.CLUSTERFUZZLITE_STORAGE_TOKEN, vars.CLUSTERFUZZLITE_STORAGE_REPO) || '' }}
+  STORAGE_REPO_BRANCH: main
+  COVERAGE_BRANCH: coverage-reports
+
+jobs:
+  # ==============================================================================
+  # Corpus Pruning - Removes redundant test cases from the corpus
+  # ==============================================================================
+  Pruning:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'prune' }}
+    steps:
+      - name: Build Fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: go
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: address
+          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
+
+      - name: Run Pruning
+        id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 7200
+          mode: 'prune'
+          sanitizer: address
+          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
+
+  # ==============================================================================
+  # Coverage Reports - Using Go native coverage with corpus conversion
+  # ==============================================================================
+  # Process:
+  # 1. Download libFuzzer-format corpus from storage repo
+  # 2. Convert to Go native fuzz format (testdata/fuzz directories) inline
+  # 3. Run Go tests with coverage - fuzz functions will execute corpus as seed inputs
+  # 4. Generate HTML coverage reports
+  #
+  # Key insight: Go 1.18+ automatically runs seed corpus from testdata/fuzz when
+  # executing fuzz tests, even without -fuzz flag. This gives us corpus coverage.
+  # ==============================================================================
+  Coverage:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.task == 'all' || github.event.inputs.task == 'coverage' }}
+    needs: Pruning
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Download corpus from storage repo
+        run: |
+          echo "=== Cloning corpus repository ==="
+          git clone --depth 1 --branch ${{ env.STORAGE_REPO_BRANCH }} \
+            ${{ env.STORAGE_REPO_URL }} /tmp/fuzz_corpora || {
+            echo "Failed to clone storage repo, continuing without corpus"
+            mkdir -p /tmp/fuzz_corpora/corpus
+          }
+          echo "=== Corpus downloaded ==="
+          ls -la /tmp/fuzz_corpora/corpus/ | head -20
+
+      - name: Convert corpus to Go native format
+        run: |
+          echo "=== Converting ClusterFuzzLite corpus to Go native format ==="
+
+          if [ ! -d "/tmp/fuzz_corpora/corpus" ]; then
+            echo "No corpus directory found, skipping conversion"
+            exit 0
+          fi
+
+          # Inline Python script for corpus conversion
+          python3 << 'PYTHON_EOF'
+          import os
+          import sys
+          from pathlib import Path
+
+          # Fuzzer mapping: libFuzzer corpus name -> (Go package path, FuzzFunction name)
+          FUZZER_MAP = {
+              "fuzz_abi": ("tests/fuzzers/abi", "FuzzABI"),
+              "fuzz_bitutil": ("tests/fuzzers/bitutil", "FuzzBitutil"),
+              "fuzz_blake2b": ("crypto/blake2b", "FuzzBlake2bF"),
+              "fuzz_difficulty": ("tests/fuzzers/difficulty", "FuzzDifficulty"),
+              "fuzz_keystore": ("tests/fuzzers/keystore", "FuzzKeystore"),
+              "fuzz_les": ("tests/fuzzers/les", "FuzzLes"),
+              "fuzz_rangeproof": ("tests/fuzzers/rangeproof", "FuzzRangeproof"),
+              "fuzz_rlp": ("tests/fuzzers/rlp", "FuzzRlp"),
+              "fuzz_runtime": ("tests/fuzzers/runtime", "FuzzRuntime"),
+              "fuzz_secp256k1": ("tests/fuzzers/secp256k1", "FuzzSecp256k1"),
+              "fuzz_stacktrie": ("tests/fuzzers/stacktrie", "FuzzStacktrie"),
+              "fuzz_trie": ("tests/fuzzers/trie", "FuzzTrie"),
+              "fuzz_txfetcher": ("tests/fuzzers/txfetcher", "FuzzTxfetcher"),
+              "fuzz_vflux_clientpool": ("tests/fuzzers/vflux", "FuzzVfluxClientPool"),
+              # bn256
+              "fuzz_bn256_add": ("tests/fuzzers/bn256", "FuzzBn256Add"),
+              "fuzz_bn256_mul": ("tests/fuzzers/bn256", "FuzzBn256Mul"),
+              "fuzz_bn256_pair": ("tests/fuzzers/bn256", "FuzzBn256Pair"),
+              "fuzz_bn256_unmarshal_g1": ("tests/fuzzers/bn256", "FuzzBn256UnmarshalG1"),
+              "fuzz_bn256_unmarshal_g2": ("tests/fuzzers/bn256", "FuzzBn256UnmarshalG2"),
+              # bls12381
+              "fuzz_bls12381_g1_add": ("tests/fuzzers/bls12381", "FuzzG1Add"),
+              "fuzz_bls12381_g1_multiexp": ("tests/fuzzers/bls12381", "FuzzG1MultiExp"),
+              "fuzz_bls12381_g1_subgroup": ("tests/fuzzers/bls12381", "FuzzG1SubgroupChecks"),
+              "fuzz_bls12381_g2_add": ("tests/fuzzers/bls12381", "FuzzG2Add"),
+              "fuzz_bls12381_g2_multiexp": ("tests/fuzzers/bls12381", "FuzzG2MultiExp"),
+              "fuzz_bls12381_g2_subgroup": ("tests/fuzzers/bls12381", "FuzzG2SubgroupChecks"),
+              "fuzz_bls12381_pairing": ("tests/fuzzers/bls12381", "FuzzPairing"),
+              "fuzz_bls12381_map_g1": ("tests/fuzzers/bls12381", "FuzzMapG1"),
+              "fuzz_bls12381_map_g2": ("tests/fuzzers/bls12381", "FuzzMapG2"),
+              # bls12381 cross
+              "fuzz_bls12381_cross_g1_add": ("tests/fuzzers/bls12381", "FuzzCrossG1Add"),
+              "fuzz_bls12381_cross_g1_multiexp": ("tests/fuzzers/bls12381", "FuzzCrossG1MultiExp"),
+              "fuzz_bls12381_cross_g2_add": ("tests/fuzzers/bls12381", "FuzzCrossG2Add"),
+              "fuzz_bls12381_cross_g2_multiexp": ("tests/fuzzers/bls12381", "FuzzCrossG2MultiExp"),
+              "fuzz_bls12381_cross_pairing": ("tests/fuzzers/bls12381", "FuzzCrossPairing"),
+          }
+
+          def is_printable_ascii(data):
+              """Check if data is printable ASCII."""
+              if len(data) == 0:
+                  return True
+              try:
+                  decoded = data.decode('ascii')
+                  return all(32 <= ord(c) < 127 or c in '\t\n\r' for c in decoded)
+              except:
+                  return False
+
+          def encode_bytes_for_go(data):
+              """Encode bytes for Go native corpus format."""
+              if len(data) == 0:
+                  return '[]byte("")'
+
+              if is_printable_ascii(data):
+                  s = data.decode('ascii')
+                  s = s.replace('\\', '\\\\')
+                  s = s.replace('"', '\\"')
+                  s = s.replace('\n', '\\n')
+                  s = s.replace('\r', '\\r')
+                  s = s.replace('\t', '\\t')
+                  return f'[]byte("{s}")'
+
+              hex_str = ''.join(f'\\x{b:02x}' for b in data)
+              return f'[]byte("{hex_str}")'
+
+          def convert_corpus_file(source_path, target_path):
+              """Convert a single libFuzzer corpus file to Go native format."""
+              try:
+                  with open(source_path, 'rb') as f:
+                      data = f.read()
+
+                  target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                  with open(target_path, 'w', encoding='utf-8') as f:
+                      f.write('go test fuzz v1\n')
+                      f.write(encode_bytes_for_go(data) + '\n')
+
+                  return True
+              except Exception as e:
+                  print(f"  Error converting {source_path.name}: {e}")
+                  return False
+
+          source_base = Path("/tmp/fuzz_corpora/corpus")
+          target_base = Path(".")
+
+          print("=" * 60)
+          print("Converting ClusterFuzzLite corpus to Go native format")
+          print("=" * 60)
+
+          total_converted = 0
+          total_fuzzers = 0
+
+          for fuzzer_name, (pkg_path, fuzz_func) in sorted(FUZZER_MAP.items()):
+              corpus_dir = source_base / fuzzer_name
+
+              if not corpus_dir.exists():
+                  continue
+
+              corpus_files = [f for f in corpus_dir.iterdir() if f.is_file() and not f.name.startswith('.')]
+
+              if not corpus_files:
+                  continue
+
+              print(f"→ {fuzzer_name} -> {fuzz_func} ({len(corpus_files)} files)")
+
+              target_dir = target_base / pkg_path / "testdata" / "fuzz" / fuzz_func
+
+              converted = 0
+              for corpus_file in corpus_files:
+                  target_path = target_dir / corpus_file.name
+                  if convert_corpus_file(corpus_file, target_path):
+                      converted += 1
+
+              print(f"  ✓ Converted: {converted} files")
+              total_converted += converted
+              total_fuzzers += 1
+
+          print("=" * 60)
+          print(f"Total: {total_fuzzers} fuzzers, {total_converted} files converted")
+          print("=" * 60)
+          PYTHON_EOF
+
+          echo ""
+          echo "=== Checking generated testdata directories ==="
+          find tests/fuzzers -type d -name "testdata" -exec sh -c 'echo "{}:"; find {} -type f | wc -l' \;
+
+      - name: Run coverage for fuzzer packages
+        run: |
+          set -e
+          mkdir -p coverage-reports
+
+          # List of fuzzer packages to run coverage on
+          FUZZER_PACKAGES=(
+            "tests/fuzzers/abi"
+            "tests/fuzzers/bitutil"
+            "tests/fuzzers/bls12381"
+            "tests/fuzzers/bn256"
+            "tests/fuzzers/difficulty"
+            "tests/fuzzers/keystore"
+            "tests/fuzzers/les"
+            "tests/fuzzers/rangeproof"
+            "tests/fuzzers/rlp"
+            "tests/fuzzers/runtime"
+            "tests/fuzzers/secp256k1"
+            "tests/fuzzers/stacktrie"
+            "tests/fuzzers/trie"
+            "tests/fuzzers/txfetcher"
+            "tests/fuzzers/vflux"
+            "crypto/blake2b"
+          )
+
+          fuzzer_count=0
+
+          for pkg_path in "${FUZZER_PACKAGES[@]}"; do
+            pkg_name=$(basename "$pkg_path")
+
+            echo ""
+            echo "============================================================"
+            echo "Processing: $pkg_name ($pkg_path)"
+            echo "============================================================"
+
+            if [ ! -d "$pkg_path" ]; then
+              echo "Package not found, skipping"
+              continue
+            fi
+
+            # Check if testdata/fuzz exists (corpus available)
+            if [ -d "$pkg_path/testdata/fuzz" ]; then
+              corpus_count=$(find "$pkg_path/testdata/fuzz" -type f ! -name ".*" | wc -l | tr -d ' ')
+              echo "Found testdata/fuzz with $corpus_count corpus files"
+            else
+              echo "No testdata/fuzz directory (will run tests without corpus)"
+            fi
+
+            # Run tests with coverage
+            # Note: When testdata/fuzz exists, Go will automatically use it as seed corpus
+            # The fuzz tests will run the corpus through the fuzz target
+            echo "Running tests with coverage..."
+
+            # blake2b needs -tags=gofuzz because of platform-specific assembly
+            if [ "$pkg_name" = "blake2b" ]; then
+              TEST_FLAGS="-tags=gofuzz"
+            else
+              TEST_FLAGS=""
+            fi
+
+            if go test $TEST_FLAGS -v -cover -coverprofile="coverage-reports/${pkg_name}.out" \
+                "./${pkg_path}/..." 2>&1 | tee "coverage-reports/${pkg_name}.log"; then
+              echo "Coverage completed for $pkg_name"
+            else
+              echo "Some tests failed for $pkg_name (may be expected)"
+            fi
+
+            # Check if coverage file was generated
+            if [ -f "coverage-reports/${pkg_name}.out" ] && [ -s "coverage-reports/${pkg_name}.out" ]; then
+              coverage=$(go tool cover -func="coverage-reports/${pkg_name}.out" 2>/dev/null | \
+                grep total | awk '{print $3}' | tr -d '%' || echo "0")
+              echo "Coverage for $pkg_name: ${coverage}%"
+              ((fuzzer_count++)) || true
+            fi
+          done
+
+          echo ""
+          echo "============================================================"
+          echo "Coverage Summary"
+          echo "============================================================"
+          echo "Processed $fuzzer_count packages"
+
+          # Generate HTML reports
+          echo ""
+          echo "Generating HTML reports..."
+          for coverage_file in coverage-reports/*.out; do
+            if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
+              name=$(basename "$coverage_file" .out)
+              go tool cover -html="$coverage_file" -o="coverage-reports/${name}.html" 2>/dev/null || true
+              echo "Generated: coverage-reports/${name}.html"
+            fi
+          done
+
+          # Create summary report
+          echo ""
+          echo "Creating summary report..."
+
+          # Calculate stats for summary
+          total_packages=0
+          total_coverage=0
+          coverage_data=""
+
+          for coverage_file in coverage-reports/*.out; do
+            if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
+              name=$(basename "$coverage_file" .out)
+              cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' | tr -d '%' || echo "0")
+              corpus_count=0
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              fi
+              coverage_data="${coverage_data}${name}|${cov}|${corpus_count}\n"
+              ((total_packages++)) || true
+              total_coverage=$(echo "$total_coverage + $cov" | bc)
+            fi
+          done
+
+          # Calculate average
+          if [ "$total_packages" -gt 0 ]; then
+            avg_coverage=$(echo "scale=1; $total_coverage / $total_packages" | bc)
+          else
+            avg_coverage="0"
+          fi
+
+          cat > coverage-reports/index.html << HTMLEOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Go-Ethereum Fuzzer Coverage Report</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; max-width: 1200px; margin: 0 auto; padding: 20px; }
+              h1 { color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }
+              .summary { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+              .summary h2 { margin-top: 0; color: #333; }
+              .stats { display: flex; gap: 30px; flex-wrap: wrap; }
+              .stat-box { background: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              .stat-value { font-size: 2em; font-weight: bold; color: #4CAF50; }
+              .stat-label { color: #666; font-size: 0.9em; }
+              table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+              th, td { border: 1px solid #ddd; padding: 12px 8px; text-align: left; }
+              th { background-color: #4CAF50; color: white; }
+              tr:nth-child(even) { background-color: #f9f9f9; }
+              tr:hover { background-color: #f1f1f1; }
+              a { color: #0066cc; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+              .coverage-high { color: #2e7d32; font-weight: bold; }
+              .coverage-medium { color: #f57c00; font-weight: bold; }
+              .coverage-low { color: #c62828; font-weight: bold; }
+              .progress-bar { background: #e0e0e0; border-radius: 4px; height: 20px; overflow: hidden; }
+              .progress-fill { height: 100%; transition: width 0.3s; }
+            </style>
+          </head>
+          <body>
+            <h1>Go-Ethereum Fuzzer Coverage Report</h1>
+
+            <div class="summary">
+              <h2>Summary</h2>
+              <div class="stats">
+                <div class="stat-box">
+                  <div class="stat-value">${avg_coverage}%</div>
+                  <div class="stat-label">Average Coverage</div>
+                </div>
+                <div class="stat-box">
+                  <div class="stat-value">${total_packages}</div>
+                  <div class="stat-label">Packages Tested</div>
+                </div>
+                <div class="stat-box">
+                  <div class="stat-value">$(date -u +"%Y-%m-%d")</div>
+                  <div class="stat-label">Report Date</div>
+                </div>
+              </div>
+              <p style="margin-top: 15px; color: #666;">
+                Generated: $(date -u)<br>
+                Coverage is calculated by running corpus data through each fuzzer package.
+              </p>
+            </div>
+
+            <h2>Package Details</h2>
+            <table>
+              <tr>
+                <th>Package</th>
+                <th>Coverage</th>
+                <th>Progress</th>
+                <th>Corpus Files</th>
+                <th>Report</th>
+              </tr>
+          HTMLEOF
+
+          # Add rows for each package
+          for coverage_file in coverage-reports/*.out; do
+            if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
+              name=$(basename "$coverage_file" .out)
+              cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' | tr -d '%' || echo "0")
+              cov_display="${cov}%"
+
+              # Determine color class
+              cov_int=${cov%.*}
+              if [ "$cov_int" -ge 70 ]; then
+                cov_class="coverage-high"
+                bar_color="#4CAF50"
+              elif [ "$cov_int" -ge 40 ]; then
+                cov_class="coverage-medium"
+                bar_color="#ff9800"
+              else
+                cov_class="coverage-low"
+                bar_color="#f44336"
+              fi
+
+              # Count corpus files
+              corpus_count=0
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              fi
+
+              echo "      <tr>" >> coverage-reports/index.html
+              echo "        <td><strong>${name}</strong></td>" >> coverage-reports/index.html
+              echo "        <td class=\"${cov_class}\">${cov_display}</td>" >> coverage-reports/index.html
+              echo "        <td><div class=\"progress-bar\"><div class=\"progress-fill\" style=\"width: ${cov}%; background: ${bar_color};\"></div></div></td>" >> coverage-reports/index.html
+              echo "        <td>${corpus_count}</td>" >> coverage-reports/index.html
+              echo "        <td><a href=\"${name}.html\">View Details</a></td>" >> coverage-reports/index.html
+              echo "      </tr>" >> coverage-reports/index.html
+            fi
+          done
+
+          cat >> coverage-reports/index.html << 'HTMLEOF2'
+            </table>
+
+            <footer style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 0.9em;">
+              <p>Generated by ClusterFuzzLite Coverage Workflow</p>
+            </footer>
+          </body>
+          </html>
+          HTMLEOF2
+
+          echo ""
+          echo "============================================================"
+          echo "Coverage Summary"
+          echo "============================================================"
+          echo "Total packages: $total_packages"
+          echo "Average coverage: ${avg_coverage}%"
+          echo ""
+          echo "=== Final coverage reports ==="
+          ls -la coverage-reports/
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go-coverage-report
+          path: coverage-reports/
+          retention-days: 30
+
+      - name: Upload coverage to storage repository
+        if: always() && env.STORAGE_REPO_URL != ''
+        run: |
+          if [ ! -d "coverage-reports" ] || [ -z "$(ls -A coverage-reports/*.html 2>/dev/null)" ]; then
+            echo "No coverage reports to upload"
+            exit 0
+          fi
+
+          echo "Uploading coverage reports to storage repo..."
+
+          # Reuse existing clone or clone fresh
+          if [ -d "/tmp/fuzz_corpora/.git" ]; then
+            echo "Using existing corpus repo clone"
+            cd /tmp/fuzz_corpora && git pull origin ${{ env.STORAGE_REPO_BRANCH }} || true
+            cd -
+          else
+            git clone --depth 1 --branch ${{ env.STORAGE_REPO_BRANCH }} \
+              ${{ env.STORAGE_REPO_URL }} /tmp/fuzz_corpora
+          fi
+
+          # Create coverage directory with date
+          DATE=$(date +%Y-%m-%d)
+          COVERAGE_DIR="/tmp/fuzz_corpora/coverage/${DATE}"
+          mkdir -p "$COVERAGE_DIR"
+
+          # Copy coverage reports
+          cp -r coverage-reports/* "$COVERAGE_DIR/"
+
+          # Update latest symlink / copy
+          rm -rf /tmp/fuzz_corpora/coverage/latest
+          cp -r "$COVERAGE_DIR" /tmp/fuzz_corpora/coverage/latest
+
+          # Create coverage summary markdown
+          SUMMARY_FILE="/tmp/fuzz_corpora/coverage/SUMMARY.md"
+
+          cat > "$SUMMARY_FILE" << 'SUMMARYEOF'
+          # Fuzzer Coverage Summary
+
+          Coverage reports generated by running corpus data through each fuzzer.
+
+          SUMMARYEOF
+
+          # Add summary stats
+          echo "## Latest Report (${DATE})" >> "$SUMMARY_FILE"
+          echo "" >> "$SUMMARY_FILE"
+          echo "| Package | Coverage | Corpus Files |" >> "$SUMMARY_FILE"
+          echo "|---------|----------|--------------|" >> "$SUMMARY_FILE"
+
+          total_packages=0
+          total_coverage=0
+
+          for coverage_file in coverage-reports/*.out; do
+            if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
+              name=$(basename "$coverage_file" .out)
+              cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' | tr -d '%' || echo "0")
+
+              corpus_count=0
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              fi
+
+              echo "| ${name} | ${cov}% | ${corpus_count} |" >> "$SUMMARY_FILE"
+              ((total_packages++)) || true
+              total_coverage=$(echo "$total_coverage + $cov" | bc)
+            fi
+          done
+
+          # Calculate and add average
+          if [ "$total_packages" -gt 0 ]; then
+            avg_coverage=$(echo "scale=1; $total_coverage / $total_packages" | bc)
+          else
+            avg_coverage="0"
+          fi
+
+          echo "" >> "$SUMMARY_FILE"
+          echo "**Average Coverage: ${avg_coverage}%** | **Packages: ${total_packages}**" >> "$SUMMARY_FILE"
+          echo "" >> "$SUMMARY_FILE"
+
+          # Add links
+          echo "## View Full Reports" >> "$SUMMARY_FILE"
+          echo "" >> "$SUMMARY_FILE"
+          echo "- [Latest HTML Report](./latest/index.html)" >> "$SUMMARY_FILE"
+          echo "" >> "$SUMMARY_FILE"
+          echo "## Historical Reports" >> "$SUMMARY_FILE"
+          echo "" >> "$SUMMARY_FILE"
+
+          # List all reports
+          for dir in $(ls -d /tmp/fuzz_corpora/coverage/20*/ 2>/dev/null | sort -r | head -20); do
+            date_dir=$(basename "$dir")
+            echo "- [${date_dir}](./${date_dir}/index.html)" >> "$SUMMARY_FILE"
+          done
+
+          echo "" >> "$SUMMARY_FILE"
+          echo "---" >> "$SUMMARY_FILE"
+          echo "*Generated: $(date -u)*" >> "$SUMMARY_FILE"
+
+          # Commit and push
+          cd /tmp/fuzz_corpora
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Add coverage report ${DATE} from ${{ github.repository }}" || echo "No changes to commit"
+          git pull --rebase origin ${{ env.STORAGE_REPO_BRANCH }} || true
+          git push || echo "Failed to push"
+
+          echo "✅ Coverage reports uploaded to storage repository"
+          echo "📁 Location: coverage/${DATE}/"
+
+      # ========================================================================
+      # Email Notification - Daily Coverage Report
+      # ========================================================================
+      - name: Prepare coverage email data
+        id: coverage_data
+        if: always()
+        run: |
+          # Calculate coverage stats for email
+          total_packages=0
+          total_coverage=0
+          coverage_rows=""
+
+          for coverage_file in coverage-reports/*.out; do
+            if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
+              name=$(basename "$coverage_file" .out)
+              cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' | tr -d '%' || echo "0")
+
+              corpus_count=0
+              # Handle different package paths (crypto/blake2b vs tests/fuzzers/xxx)
+              if [ "$name" = "blake2b" ]; then
+                pkg_dir="crypto/blake2b"
+              else
+                pkg_dir="tests/fuzzers/${name}"
+              fi
+              if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+              fi
+
+              # Color based on coverage
+              cov_int=${cov%.*}
+              if [ "$cov_int" -ge 70 ]; then
+                color="#2e7d32"
+              elif [ "$cov_int" -ge 40 ]; then
+                color="#f57c00"
+              else
+                color="#c62828"
+              fi
+
+              coverage_rows="${coverage_rows}<tr><td style='padding:8px;border-bottom:1px solid #ddd;'>${name}</td><td style='padding:8px;border-bottom:1px solid #ddd;color:${color};font-weight:bold;'>${cov}%</td><td style='padding:8px;border-bottom:1px solid #ddd;'>${corpus_count}</td></tr>"
+
+              ((total_packages++)) || true
+              total_coverage=$(echo "$total_coverage + $cov" | bc)
+            fi
+          done
+
+          if [ "$total_packages" -gt 0 ]; then
+            avg_coverage=$(echo "scale=1; $total_coverage / $total_packages" | bc)
+          else
+            avg_coverage="0"
+          fi
+
+          # Output for next step
+          echo "avg_coverage=${avg_coverage}" >> $GITHUB_OUTPUT
+          echo "total_packages=${total_packages}" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+          # Save coverage rows to file (too long for env var)
+          echo "$coverage_rows" > /tmp/coverage_rows.html
+
+      - name: Send daily coverage report email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "📊 [Daily Report] Fuzzer Coverage - ${{ steps.coverage_data.outputs.avg_coverage }}% avg (${{ steps.coverage_data.outputs.date }})"
+          to: ${{ vars.FUZZ_REPORT_EMAIL }}
+          from: "Fuzzing Bot <${{ secrets.SMTP_USERNAME }}>"
+          html_body: |
+            <html>
+            <body style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto;">
+              <div style="background: #4CAF50; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0;">📊 Daily Coverage Report</h1>
+              </div>
+
+              <div style="padding: 20px;">
+                <table style="width: 100%; margin-bottom: 20px;">
+                  <tr>
+                    <td style="width: 33%; background: #e8f5e9; padding: 15px; border-radius: 8px; text-align: center;">
+                      <div style="font-size: 2em; font-weight: bold; color: #2e7d32;">${{ steps.coverage_data.outputs.avg_coverage }}%</div>
+                      <div style="color: #666;">Average Coverage</div>
+                    </td>
+                    <td style="width: 33%; background: #e3f2fd; padding: 15px; border-radius: 8px; text-align: center;">
+                      <div style="font-size: 2em; font-weight: bold; color: #1565c0;">${{ steps.coverage_data.outputs.total_packages }}</div>
+                      <div style="color: #666;">Packages</div>
+                    </td>
+                    <td style="width: 33%; background: #fff3e0; padding: 15px; border-radius: 8px; text-align: center;">
+                      <div style="font-size: 2em; font-weight: bold; color: #e65100;">${{ steps.coverage_data.outputs.date }}</div>
+                      <div style="color: #666;">Report Date</div>
+                    </td>
+                  </tr>
+                </table>
+
+                <div style="margin-top: 20px; text-align: center;">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                     style="display: inline-block; background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">
+                    View Full Report →
+                  </a>
+                </div>
+
+                <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
+                  Coverage is calculated by running corpus data through each fuzzer package.
+                  <br>Color coding: <span style="color:#2e7d32;">■ ≥70%</span> | <span style="color:#f57c00;">■ 40-70%</span> | <span style="color:#c62828;">■ &lt;40%</span>
+                </p>
+              </div>
+
+              <div style="padding: 15px; background: #f5f5f5; text-align: center; font-size: 0.8em; color: #666;">
+                Sent by ClusterFuzzLite • ${{ github.repository }}
+              </div>
+            </body>
+            </html>
+        continue-on-error: true

@@ -1,0 +1,352 @@
+name: ClusterFuzzLite batch fuzzing
+on:
+  # For testing: trigger on push to feat/fuzz branch
+  push:
+    branches:
+      - feat/fuzz
+  schedule:
+    # Run every 6 hours: 00:00, 06:00, 12:00, 18:00
+    - cron: '0 */6 * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      fuzz-seconds:
+        description: 'Fuzzing duration in 60 seconds'
+        required: false
+        default: '60'
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+# ==============================================================================
+# Storage Repository Configuration for Organization
+# ==============================================================================
+# Required secrets/variables:
+#   - Secret: CLUSTERFUZZLITE_STORAGE_TOKEN (PAT with repo write access)
+#   - Variable: CLUSTERFUZZLITE_STORAGE_REPO (e.g., morph-l2/fuzz_corpora)
+#
+# Note: GitHub Actions has a 6-hour job time limit.
+# ClusterFuzzLite will automatically run all compiled fuzzers in round-robin.
+# ==============================================================================
+
+env:
+  STORAGE_REPO_URL: ${{ secrets.CLUSTERFUZZLITE_STORAGE_TOKEN && vars.CLUSTERFUZZLITE_STORAGE_REPO && format('https://{0}@github.com/{1}.git', secrets.CLUSTERFUZZLITE_STORAGE_TOKEN, vars.CLUSTERFUZZLITE_STORAGE_REPO) || '' }}
+  STORAGE_REPO_BRANCH: main
+  # push: 120s (2min), schedule: 120s (2min), manual: use input
+  FUZZ_SECONDS: ${{ github.event_name == 'push' && '600' || github.event_name == 'schedule' && '14400' || inputs.fuzz-seconds || '19800' }}
+
+jobs:
+  BatchFuzzing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: go
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: address
+          keep-unaffected-fuzz-targets: ${{ github.event_name == 'push' }}
+          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
+
+      - name: Run Fuzzers
+        id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: ${{ env.FUZZ_SECONDS }}
+          mode: 'batch'
+          sanitizer: address
+          output-sarif: true
+          parallel-fuzzing: true
+          storage-repo: ${{ env.STORAGE_REPO_URL }}
+          storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
+
+      - name: Upload Crash Artifacts
+        uses: actions/upload-artifact@v4
+        if: failure() && steps.run.outcome == 'failure'
+        with:
+          name: crash-artifacts
+          path: ./out/artifacts
+          retention-days: 90
+
+      # ========================================================================
+      # Upload crashes to fuzz_corpora repository
+      # ========================================================================
+      - name: Upload crashes to storage repository
+        if: always() && env.STORAGE_REPO_URL != ''
+        run: |
+          set -e
+
+          ARTIFACTS_PATH="./out/artifacts"
+
+          # Check if there are any crash files
+          if [ ! -d "$ARTIFACTS_PATH" ]; then
+            echo "No artifacts directory found, skipping"
+            exit 0
+          fi
+
+          CRASH_COUNT=$(find "$ARTIFACTS_PATH" -name "crash-*" -o -name "leak-*" -o -name "timeout-*" 2>/dev/null | grep -v "\.summary$" | wc -l)
+          if [ "$CRASH_COUNT" -eq 0 ]; then
+            echo "No crashes found, skipping"
+            exit 0
+          fi
+
+          echo "Found $CRASH_COUNT crash files, uploading to storage repo..."
+
+          # Clone storage repo
+          git clone --depth 1 --branch "${{ env.STORAGE_REPO_BRANCH }}" "${{ env.STORAGE_REPO_URL }}" /tmp/fuzz_corpora
+
+          # Create crashes directory with date
+          DATE=$(date +%Y-%m-%d)
+          RUN_ID="${{ github.run_id }}"
+          CRASH_DIR="/tmp/fuzz_corpora/crashes/${DATE}_run${RUN_ID}"
+          mkdir -p "$CRASH_DIR"
+
+          # Create a summary report
+          REPORT_FILE="$CRASH_DIR/REPORT.md"
+          cat > "$REPORT_FILE" << EOF
+          # Fuzzing Crash Report
+
+          - **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Repository**: ${{ github.repository }}
+          - **Branch**: ${{ github.ref_name }}
+          - **Commit**: ${{ github.sha }}
+          - **Run ID**: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Sanitizer**: address
+          - **Fuzz Duration**: ${{ env.FUZZ_SECONDS }}s
+
+          ## Crashes Found
+
+          EOF
+
+          # Copy crash files and add to report
+          for crash_file in $(find "$ARTIFACTS_PATH" -name "crash-*" -o -name "leak-*" -o -name "timeout-*" 2>/dev/null | grep -v "\.summary$"); do
+            filename=$(basename "$crash_file")
+            fuzzer_dir=$(basename $(dirname "$crash_file"))
+            parent_dir=$(basename $(dirname $(dirname "$crash_file")))
+
+            # Determine fuzzer name
+            if [[ "$parent_dir" == fuzz_* ]]; then
+              fuzzer_name="${parent_dir#fuzz_}"
+            else
+              fuzzer_name="$fuzzer_dir"
+            fi
+
+            # Create fuzzer subdirectory
+            mkdir -p "$CRASH_DIR/$fuzzer_name"
+
+            # Copy crash file
+            cp "$crash_file" "$CRASH_DIR/$fuzzer_name/"
+
+            # Copy summary if exists
+            if [ -f "${crash_file}.summary" ]; then
+              cp "${crash_file}.summary" "$CRASH_DIR/$fuzzer_name/"
+            fi
+
+            # Add to report
+            echo "### $fuzzer_name / $filename" >> "$REPORT_FILE"
+            echo "" >> "$REPORT_FILE"
+            if [ -f "${crash_file}.summary" ]; then
+              echo '```' >> "$REPORT_FILE"
+              head -50 "${crash_file}.summary" >> "$REPORT_FILE"
+              echo '```' >> "$REPORT_FILE"
+            else
+              echo "No summary available" >> "$REPORT_FILE"
+            fi
+            echo "" >> "$REPORT_FILE"
+          done
+
+          # Commit and push
+          cd /tmp/fuzz_corpora
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Add crashes from ${{ github.repository }} run ${{ github.run_id }}" || echo "No changes to commit"
+          git pull --rebase origin ${{ env.STORAGE_REPO_BRANCH }} || true
+          git push || echo "Failed to push, maybe no changes"
+
+          echo "✅ Crashes uploaded to storage repository"
+          echo "📁 Location: crashes/${DATE}_run${RUN_ID}/"
+
+      # ========================================================================
+      # SARIF upload (keep trying, might work someday)
+      # ========================================================================
+      - name: Create enhanced SARIF
+        if: always() && steps.run.outcome != 'skipped'
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          import glob
+
+          original_sarif_path = "./cifuzz-sarif/results.sarif"
+          enhanced_sarif_path = "./enhanced-results.sarif"
+          artifacts_path = "./out/artifacts"
+
+          if not os.path.exists(original_sarif_path):
+              print("No SARIF file found, skipping")
+              exit(0)
+
+          with open(original_sarif_path, 'r') as f:
+              sarif = json.load(f)
+
+          crash_files = []
+          if os.path.exists(artifacts_path):
+              crash_files = glob.glob(f"{artifacts_path}/**/crash-*", recursive=True)
+              crash_files.extend(glob.glob(f"{artifacts_path}/**/leak-*", recursive=True))
+              crash_files.extend(glob.glob(f"{artifacts_path}/**/timeout-*", recursive=True))
+              # Filter out .summary files
+              crash_files = [f for f in crash_files if not f.endswith('.summary')]
+
+          print(f"Found {len(crash_files)} crash artifacts")
+
+          if not crash_files:
+              with open(enhanced_sarif_path, 'w') as f:
+                  json.dump(sarif, f, indent=2)
+              exit(0)
+
+          fuzzer_to_source = {
+              "bn256": "tests/fuzzers/bn256/bn256_fuzz.go",
+              "bls12381": "tests/fuzzers/bls12381/precompile_fuzzer.go",
+              "difficulty": "tests/fuzzers/difficulty/difficulty-fuzz.go",
+              "bitutil": "tests/fuzzers/bitutil/compress_fuzz.go",
+              "keystore": "tests/fuzzers/keystore/keystore-fuzzer.go",
+              "runtime": "tests/fuzzers/runtime/runtime_fuzz.go",
+              "stacktrie": "tests/fuzzers/stacktrie/trie_fuzzer.go",
+              "rlp": "tests/fuzzers/rlp/rlp_fuzzer.go",
+              "abi": "tests/fuzzers/abi/abifuzzer.go",
+              "secp256k1": "tests/fuzzers/secp256k1/secp_fuzzer.go",
+              "trie": "tests/fuzzers/trie/trie-fuzzer.go",
+              "txfetcher": "tests/fuzzers/txfetcher/txfetcher_fuzzer.go",
+              "vflux": "tests/fuzzers/vflux/client-fuzzer.go",
+          }
+
+          results = []
+          for crash_file in crash_files:
+              crash_name = os.path.basename(crash_file)
+              path_parts = crash_file.split(os.sep)
+
+              fuzzer_dir = None
+              for part in path_parts:
+                  if part.startswith("fuzz_"):
+                      fuzzer_dir = part.replace("fuzz_", "")
+                      break
+              if not fuzzer_dir:
+                  fuzzer_dir = os.path.basename(os.path.dirname(crash_file))
+
+              source_file = None
+              for fuzzer_key, source_path in fuzzer_to_source.items():
+                  if fuzzer_key in fuzzer_dir.lower():
+                      source_file = source_path
+                      break
+              if not source_file:
+                  source_file = f"tests/fuzzers/{fuzzer_dir}/fuzz.go"
+
+              if crash_name.startswith("crash-"):
+                  rule_id, message = "no-crashes", f"Fuzzer '{fuzzer_dir}' found a crash"
+              elif crash_name.startswith("leak-"):
+                  rule_id, message = "direct-leak", f"Fuzzer '{fuzzer_dir}' found a memory leak"
+              elif crash_name.startswith("timeout-"):
+                  rule_id, message = "no-crashes", f"Fuzzer '{fuzzer_dir}' caused a timeout"
+              else:
+                  rule_id, message = "no-crashes", f"Fuzzer '{fuzzer_dir}' found an issue"
+
+              summary_file = crash_file + ".summary"
+              if os.path.exists(summary_file):
+                  try:
+                      with open(summary_file, 'r', errors='ignore') as f:
+                          message += f"\n\nCrash summary:\n{f.read(1000)}"
+                  except:
+                      pass
+
+              results.append({
+                  "ruleId": rule_id,
+                  "level": "error",
+                  "message": {"text": message},
+                  "locations": [{
+                      "physicalLocation": {
+                          "artifactLocation": {"uri": source_file},
+                          "region": {"startLine": 1}
+                      }
+                  }]
+              })
+
+          sarif["runs"][0]["results"] = results
+          with open(enhanced_sarif_path, 'w') as f:
+              json.dump(sarif, f, indent=2)
+          print(f"Created enhanced SARIF with {len(results)} results")
+          EOF
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('./enhanced-results.sarif') != ''
+        with:
+          sarif_file: ./enhanced-results.sarif
+        continue-on-error: true
+
+      # ========================================================================
+      # Email Notification - Crash Alert (only when crashes found)
+      # ========================================================================
+      - name: Send crash alert email
+        if: failure() && steps.run.outcome == 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "🚨 [CRASH ALERT] Fuzzing found crashes in ${{ github.repository }}"
+          to: ${{ vars.FUZZ_ALERT_EMAIL }}
+          from: "Fuzzing Bot <${{ secrets.SMTP_USERNAME }}>"
+          html_body: |
+            <html>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: #f44336; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0;">🚨 Crash Alert</h1>
+              </div>
+
+              <div style="padding: 20px; background: #fff3f3; border: 1px solid #ffcdd2;">
+                <h2 style="color: #c62828; margin-top: 0;">Fuzzing discovered potential vulnerabilities!</h2>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Repository</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ github.repository }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Branch</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ github.ref_name }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Commit</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ github.sha }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>Fuzz Duration</strong></td>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${{ env.FUZZ_SECONDS }}s</td>
+                  </tr>
+                </table>
+
+                <div style="margin-top: 20px;">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                     style="display: inline-block; background: #c62828; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">
+                    View Crash Details →
+                  </a>
+                </div>
+
+                <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
+                  Please investigate and fix the crashes as soon as possible.
+                  Crash artifacts are available in the workflow run.
+                </p>
+              </div>
+
+              <div style="padding: 15px; background: #f5f5f5; text-align: center; font-size: 0.8em; color: #666;">
+                Sent by ClusterFuzzLite • ${{ github.repository }}
+              </div>
+            </body>
+            </html>
+        continue-on-error: true

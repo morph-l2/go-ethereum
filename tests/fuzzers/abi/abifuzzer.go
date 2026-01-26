@@ -145,8 +145,8 @@ func runFuzzer(input []byte) int {
 			continue
 		}
 		structs, b := unpackPack(abi, name, input)
-		c := packUnpack(abi, name, &structs)
-		good = good || b || c
+		_ = packUnpack(abi, name, &structs)
+		good = good || b
 	}
 	if good {
 		return 1

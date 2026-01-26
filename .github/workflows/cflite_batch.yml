@@ -35,7 +35,7 @@ env:
   STORAGE_REPO_URL: ${{ secrets.CLUSTERFUZZLITE_STORAGE_TOKEN && vars.CLUSTERFUZZLITE_STORAGE_REPO && format('https://{0}@github.com/{1}.git', secrets.CLUSTERFUZZLITE_STORAGE_TOKEN, vars.CLUSTERFUZZLITE_STORAGE_REPO) || '' }}
   STORAGE_REPO_BRANCH: main
   # push: 120s (2min), schedule: 120s (2min), manual: use input
-  FUZZ_SECONDS: ${{ github.event_name == 'push' && '14400' || github.event_name == 'schedule' && '14400' || inputs.fuzz-seconds || '19800' }}
+  FUZZ_SECONDS: ${{ github.event_name == 'push' && '600' || github.event_name == 'schedule' && '14400' || inputs.fuzz-seconds || '19800' }}
 
 jobs:
   BatchFuzzing:

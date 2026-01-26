@@ -70,6 +70,8 @@ compile_native_go_fuzzer $MODULE/tests/fuzzers/les FuzzLes fuzz_les
 compile_native_go_fuzzer $MODULE/tests/fuzzers/bn256 FuzzBn256Add fuzz_bn256_add
 compile_native_go_fuzzer $MODULE/tests/fuzzers/bn256 FuzzBn256Mul fuzz_bn256_mul
 compile_native_go_fuzzer $MODULE/tests/fuzzers/bn256 FuzzBn256Pair fuzz_bn256_pair
+compile_native_go_fuzzer $MODULE/tests/fuzzers/bn256 FuzzBn256UnmarshalG1 fuzz_bn256_unmarshal_g1
+compile_native_go_fuzzer $MODULE/tests/fuzzers/bn256 FuzzBn256UnmarshalG2 fuzz_bn256_unmarshal_g2
 
 # ==============================================================================
 # secp256k1 fuzzer - tests secp256k1 curve point addition

@@ -136,6 +136,8 @@ jobs:
               "fuzz_bn256_add": ("tests/fuzzers/bn256", "FuzzBn256Add"),
               "fuzz_bn256_mul": ("tests/fuzzers/bn256", "FuzzBn256Mul"),
               "fuzz_bn256_pair": ("tests/fuzzers/bn256", "FuzzBn256Pair"),
+              "fuzz_bn256_unmarshal_g1": ("tests/fuzzers/bn256", "FuzzBn256UnmarshalG1"),
+              "fuzz_bn256_unmarshal_g2": ("tests/fuzzers/bn256", "FuzzBn256UnmarshalG2"),
               # bls12381
               "fuzz_bls12381_g1_add": ("tests/fuzzers/bls12381", "FuzzG1Add"),
               "fuzz_bls12381_g1_multiexp": ("tests/fuzzers/bls12381", "FuzzG1MultiExp"),

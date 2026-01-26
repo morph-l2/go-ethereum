@@ -80,7 +80,7 @@ var (
 		},
 		Type: DynamicFeeTxType,
 	}
-	altFeeReceipt = &Receipt{
+	morphTxReceipt = &Receipt{
 		Status:            ReceiptStatusFailed,
 		CumulativeGasUsed: 1,
 		Logs: []*Log{
@@ -116,6 +116,10 @@ func TestLegacyReceiptDecoding(t *testing.T) {
 		{
 			"StoredReceiptRLP",
 			encodeAsStoredReceiptRLP,
+		},
+		{
+			"V8StoredReceiptRLP",
+			encodeAsV8StoredReceiptRLP,
 		},
 		{
 			"V7StoredReceiptRLP",
@@ -205,6 +209,26 @@ func encodeAsStoredReceiptRLP(want *Receipt) ([]byte, error) {
 		CumulativeGasUsed: want.CumulativeGasUsed,
 		Logs:              make([]*LogForStorage, len(want.Logs)),
 		L1Fee:             want.L1Fee,
+	}
+	for i, log := range want.Logs {
+		stored.Logs[i] = (*LogForStorage)(log)
+	}
+	return rlp.EncodeToBytes(stored)
+}
+
+func encodeAsV8StoredReceiptRLP(want *Receipt) ([]byte, error) {
+	stored := &v8StoredReceiptRLP{
+		PostStateOrStatus: want.statusEncoding(),
+		CumulativeGasUsed: want.CumulativeGasUsed,
+		Logs:              make([]*LogForStorage, len(want.Logs)),
+		L1Fee:             want.L1Fee,
+		FeeTokenID:        want.FeeTokenID,
+		FeeRate:           want.FeeRate,
+		TokenScale:        want.TokenScale,
+		FeeLimit:          want.FeeLimit,
+		Version:           want.Version,
+		Reference:         want.Reference,
+		Memo:              want.Memo,
 	}
 	for i, log := range want.Logs {
 		stored.Logs[i] = (*LogForStorage)(log)
@@ -501,22 +525,23 @@ func TestReceiptMarshalBinary(t *testing.T) {
 		t.Errorf("encoded RLP mismatch, got %x want %x", have, eip1559Want)
 	}
 
-	// alt fee Receipt
+	// TODO
+	// MorphTx Receipt
 	buf.Reset()
-	altFeeReceipt.Bloom = CreateBloom(Receipts{altFeeReceipt})
-	have, err = altFeeReceipt.MarshalBinary()
+	morphTxReceipt.Bloom = CreateBloom(Receipts{morphTxReceipt})
+	have, err = morphTxReceipt.MarshalBinary()
 	if err != nil {
 		t.Fatalf("marshal binary error: %v", err)
 	}
-	altFeeReceipts := Receipts{altFeeReceipt}
-	altFeeReceipts.EncodeIndex(0, buf)
+	morphTxReceipts := Receipts{morphTxReceipt}
+	morphTxReceipts.EncodeIndex(0, buf)
 	haveEncodeIndex = buf.Bytes()
 	if !bytes.Equal(have, haveEncodeIndex) {
 		t.Errorf("BinaryMarshal and EncodeIndex mismatch, got %x want %x", have, haveEncodeIndex)
 	}
-	altFeeWant := common.FromHex("02f901c58001b9010000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000000000000000000010000080000000000000000000004000000000000000000000000000040000000000000000000000000000800000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000f8bef85d940000000000000000000000000000000000000011f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100fff85d940000000000000000000000000000000000000111f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100ff")
-	if !bytes.Equal(have, altFeeWant) {
-		t.Errorf("encoded RLP mismatch, got %x want %x", have, altFeeWant)
+	morphTxWant := common.FromHex("02f901c58001b9010000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000000000000000000010000080000000000000000000004000000000000000000000000000040000000000000000000000000000800000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000f8bef85d940000000000000000000000000000000000000011f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100fff85d940000000000000000000000000000000000000111f842a0000000000000000000000000000000000000000000000000000000000000deada0000000000000000000000000000000000000000000000000000000000000beef830100ff")
+	if !bytes.Equal(have, morphTxWant) {
+		t.Errorf("encoded RLP mismatch, got %x want %x", have, morphTxWant)
 	}
 }
 

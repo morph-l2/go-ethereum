@@ -333,7 +333,13 @@ func (tx *Transaction) IsL1MessageTx() bool {
 
 // IsMorphTx returns true if the transaction is morph tx.
 func (tx *Transaction) IsMorphTx() bool {
+	// TODO: check if altfee used
 	return tx.Type() == MorphTxType
+}
+
+// IsMorphTxWithAltFee returns true if the transaction is morph tx with alt fee.
+func (tx *Transaction) IsMorphTxWithAltFee() bool {
+	return tx.IsMorphTx() && tx.FeeTokenID() != 0
 }
 
 // AsL1MessageTx casts the tx into an L1 cross-domain tx.
@@ -375,8 +381,33 @@ func (tx *Transaction) FeeLimit() *big.Int {
 	return tx.AsMorphTx().FeeLimit
 }
 
+// Version returns the version of the MorphTx, or 0 if not a MorphTx.
+func (tx *Transaction) Version() uint8 {
+	if !tx.IsMorphTx() {
+		return 0
+	}
+	return tx.AsMorphTx().Version
+}
+
+// Reference returns the reference of the MorphTx, or nil if not a MorphTx.
+func (tx *Transaction) Reference() *common.Reference {
+	if !tx.IsMorphTx() {
+		return nil
+	}
+	return tx.AsMorphTx().Reference
+}
+
+// Memo returns the memo of the MorphTx, or nil if not a MorphTx.
+func (tx *Transaction) Memo() []byte {
+	if !tx.IsMorphTx() {
+		return []byte{}
+	}
+	return tx.AsMorphTx().Memo
+}
+
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
+	// TODO: morph tx without fee token
 	if tx.IsMorphTx() {
 		panic(ErrCostNotSupported)
 	}
@@ -791,9 +822,30 @@ type Message struct {
 	setCodeAuthorizations []SetCodeAuthorization
 	feeTokenID            uint16
 	feeLimit              *big.Int
+	version               uint8
+	reference             *common.Reference
+	memo                  []byte
 }
 
-func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, feeTokenID uint16, feeLimit *big.Int, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
+func NewMessage(
+	from common.Address,
+	to *common.Address,
+	nonce uint64,
+	amount *big.Int,
+	gasLimit uint64,
+	gasPrice *big.Int,
+	gasFeeCap *big.Int,
+	gasTipCap *big.Int,
+	feeTokenID uint16,
+	feeLimit *big.Int,
+	version uint8,
+	reference *common.Reference,
+	memo []byte,
+	data []byte,
+	accessList AccessList,
+	authList []SetCodeAuthorization,
+	isFake bool,
+) Message {
 	return Message{
 		from:                  from,
 		to:                    to,
@@ -810,6 +862,9 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 		isL1MessageTx:         false,
 		feeTokenID:            feeTokenID,
 		feeLimit:              feeLimit,
+		version:               version,
+		reference:             reference,
+		memo:                  memo,
 	}
 }
 
@@ -829,17 +884,18 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		isL1MessageTx:         tx.IsL1MessageTx(),
 		setCodeAuthorizations: tx.SetCodeAuthorizations(),
 		feeTokenID:            tx.FeeTokenID(),
+		version:               tx.Version(),
+		reference:             tx.Reference(),
+		memo:                  tx.Memo(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
 		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
 	}
-	if tx.IsMorphTx() && tx.FeeTokenID() == 0 {
-		return msg, errors.New("token id 0 not support")
-	}
 	if tx.FeeLimit() != nil {
 		msg.feeLimit = tx.FeeLimit()
 	}
+
 	var err error
 	msg.from, err = Sender(s, tx)
 	return msg, err
@@ -860,6 +916,9 @@ func (m Message) IsL1MessageTx() bool                           { return m.isL1M
 func (m Message) SetCodeAuthorizations() []SetCodeAuthorization { return m.setCodeAuthorizations }
 func (m Message) FeeTokenID() uint16                            { return m.feeTokenID }
 func (m Message) FeeLimit() *big.Int                            { return m.feeLimit }
+func (m Message) Version() uint8                                { return m.version }
+func (m Message) Reference() *common.Reference                  { return m.reference }
+func (m Message) Memo() []byte                                  { return m.memo }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

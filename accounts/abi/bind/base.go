@@ -57,8 +57,11 @@ type TransactOpts struct {
 	GasTipCap *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
 	GasLimit  uint64   // Gas limit to set for the transaction execution (0 = estimate)
 
-	FeeTokenID uint16   // alt fee token id of transaction execution
-	FeeLimit   *big.Int // alt fee token limit of transaction execution
+	FeeTokenID uint16            // alt fee token id of transaction execution
+	FeeLimit   *big.Int          // alt fee token limit of transaction execution
+	Version    byte              // version of morph tx
+	Reference  *common.Reference // reference key for the transaction (optional)
+	Memo       []byte            // memo for the transaction (optional)
 
 	Context context.Context // Network context to support cancellation and timeouts (nil = no timeout)
 
@@ -342,6 +345,9 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 		FeeTokenID: opts.FeeTokenID,
 		FeeLimit:   opts.FeeLimit,
 		Gas:        gasLimit,
+		Version:    opts.Version,
+		Reference:  opts.Reference,
+		Memo:       opts.Memo,
 		Value:      value,
 		Data:       input,
 	}
@@ -438,7 +444,7 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 		if head, errHead := c.transactor.HeaderByNumber(ensureContext(opts.Context), nil); errHead != nil {
 			return nil, errHead
 		} else if head.BaseFee != nil {
-			if opts.FeeTokenID != 0 {
+			if opts.FeeTokenID != 0 || opts.Version != 0 || opts.Reference != nil || len(opts.Memo) > 0 {
 				rawTx, err = c.createMorphTx(opts, contract, input, head)
 			} else {
 				rawTx, err = c.createDynamicTx(opts, contract, input, head)

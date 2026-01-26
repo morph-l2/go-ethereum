@@ -37,6 +37,9 @@ type Message interface {
 	IsL1MessageTx() bool
 	FeeTokenID() uint16
 	FeeLimit() *big.Int
+	Version() byte
+	Reference() *common.Reference
+	Memo() []byte
 }
 
 // StateDB represents the StateDB interface
@@ -94,7 +97,7 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 
 		return asUnsignedAccessListTx(msg, chainID)
 	}
-	if msg.FeeTokenID() != 0 {
+	if msg.FeeTokenID() != 0 || msg.Version() != 0 || msg.Reference() != nil || len(msg.Memo()) > 0 {
 		return asUnsignedMorphTx(msg, chainID)
 	}
 
@@ -149,6 +152,9 @@ func asUnsignedMorphTx(msg Message, chainID *big.Int) *types.Transaction {
 		GasTipCap:  msg.GasTipCap(),
 		FeeTokenID: msg.FeeTokenID(),
 		FeeLimit:   msg.FeeLimit(),
+		Version:    msg.Version(),
+		Reference:  msg.Reference(),
+		Memo:       msg.Memo(),
 		Data:       msg.Data(),
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,

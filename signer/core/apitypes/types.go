@@ -89,6 +89,9 @@ type SendTxArgs struct {
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    byte              `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -132,6 +135,9 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
 			FeeTokenID: uint16(*args.FeeTokenID),
 			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Version:    args.Version,
+			Reference:  args.Reference,
+			Memo:       *args.Memo,
 			Value:      (*big.Int)(&args.Value),
 			Data:       input,
 			AccessList: al,

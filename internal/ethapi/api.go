@@ -39,6 +39,7 @@ import (
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -1452,9 +1453,12 @@ type RPCTransaction struct {
 	Sender     *common.Address `json:"sender,omitempty"`
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 
-	// Alt fee transaction fields:
-	FeeTokenID hexutil.Uint64 `json:"feeTokenID,omitempty"`
-	FeeLimit   *hexutil.Big   `json:"feeLimit,omitempty"`
+	// MorphTx fields:
+	FeeTokenID hexutil.Uint64    `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    uint8             `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 }
 
 // NewRPCTransaction returns a transaction that will serialize to the RPC
@@ -1521,6 +1525,10 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		}
 		result.FeeTokenID = (hexutil.Uint64)(tx.FeeTokenID())
 		result.FeeLimit = (*hexutil.Big)(tx.FeeLimit())
+		result.Version = tx.Version()
+		result.Reference = tx.Reference()
+		memo := hexutil.Bytes(tx.Memo())
+		result.Memo = &memo
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())
@@ -1796,6 +1804,31 @@ func (s *PublicTransactionPoolAPI) GetTransactionCount(ctx context.Context, addr
 	return (*hexutil.Uint64)(&nonce), state.Error()
 }
 
+// GetTransactionsByReference returns all transactions for the given reference.
+// Results are sorted by blockTimestamp and txIndex (ascending order).
+func (s *PublicTransactionPoolAPI) GetTransactionsByReference(ctx context.Context, reference common.Reference) ([]*RPCTransaction, error) {
+	entries := rawdb.ReadReferenceIndexEntries(s.b.ChainDb(), reference)
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	var result []*RPCTransaction
+	for _, entry := range entries {
+		tx, blockHash, blockNumber, index, err := s.b.GetTransaction(ctx, entry.TxHash)
+		if err != nil {
+			continue
+		}
+		if tx != nil {
+			header, err := s.b.HeaderByHash(ctx, blockHash)
+			if err != nil {
+				continue
+			}
+			result = append(result, NewRPCTransaction(tx, blockHash, blockNumber, header.Time, index, header.BaseFee, s.b.ChainConfig()))
+		}
+	}
+	return result, nil
+}
+
 // GetTransactionByHash returns the transaction for the given hash
 func (s *PublicTransactionPoolAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
 	// Try to return an already finalized transaction
@@ -1891,7 +1924,12 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
 		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
 		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
+		// TODO
+		"version":   hexutil.Uint64(receipt.Version),
+		"reference": (*common.Reference)(receipt.Reference),
+		"memo":      hexutil.Bytes(receipt.Memo),
 	}
+	// TODO
 	if receipt.FeeTokenID != nil {
 		fields["feeTokenID"] = hexutil.Uint16(*receipt.FeeTokenID)
 	}

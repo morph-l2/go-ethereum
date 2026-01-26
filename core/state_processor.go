@@ -198,6 +198,9 @@ func ApplyTransactionWithEVM(msg Message, config *params.ChainConfig, gp *GasPoo
 		receipt.FeeLimit = tx.FeeLimit()
 		receipt.FeeRate = result.FeeRate
 		receipt.TokenScale = result.TokenScale
+		receipt.Version = tx.Version()
+		receipt.Reference = tx.Reference()
+		receipt.Memo = tx.Memo()
 	}
 
 	return receipt, err

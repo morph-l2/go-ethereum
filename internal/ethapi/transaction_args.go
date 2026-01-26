@@ -51,12 +51,11 @@ type TransactionArgs struct {
 	Input *hexutil.Bytes `json:"input"`
 
 	// MorphTxType
-	FeeTokenID *hexutil.Uint16 `json:"feeTokenID,omitempty"`
-	FeeLimit   *hexutil.Big    `json:"feeLimit,omitempty"`
-
-	// Reference
-	Reference *common.Hash `json:"reference,omitempty"`
-	// TODO
+	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    *byte             `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
@@ -175,6 +174,9 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
 			FeeTokenID:           args.FeeTokenID,
 			FeeLimit:             args.FeeLimit,
+			Version:              args.Version,
+			Reference:            args.Reference,
+			Memo:                 args.Memo,
 			Value:                args.Value,
 			Data:                 (*hexutil.Bytes)(&data),
 			AccessList:           args.AccessList,
@@ -319,8 +321,20 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.FeeLimit != nil {
 		feeLimit = args.FeeLimit.ToInt()
 	}
+	if args.Version == nil {
+		return types.Message{}, errors.New("version is not set")
+	}
+	version := *args.Version
+	reference := new(common.Reference)
+	if args.Reference != nil {
+		reference = args.Reference
+	}
+	memo := []byte{}
+	if args.Memo != nil {
+		memo = *args.Memo
+	}
 
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, data, accessList, args.AuthorizationList, true)
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.AuthorizationList, true)
 	return msg, nil
 }
 
@@ -330,7 +344,10 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 	usedType := types.LegacyTxType
 	switch {
 	//	must take precedence over MaxFeePerGas.
-	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil && *args.Version > 0) ||
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0):
 		usedType = types.MorphTxType
 	case args.AuthorizationList != nil:
 		usedType = types.SetCodeTxType
@@ -401,8 +418,11 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			Gas:        uint64(*args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+			Version:    *args.Version,
 			FeeTokenID: uint16(*args.FeeTokenID),
 			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Reference:  args.Reference,
+			Memo:       *args.Memo,
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: al,

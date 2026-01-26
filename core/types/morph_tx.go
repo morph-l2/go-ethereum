@@ -35,7 +35,7 @@ type MorphTx struct {
 	Data       []byte
 	AccessList AccessList
 
-	Version    byte              // version of morph tx
+	Version    uint8             // version of morph tx
 	FeeTokenID uint16            // ERC20 token ID for fee payment (0 = ETH)
 	FeeLimit   *big.Int          // maximum fee in token units (optional)
 	Reference  *common.Reference // reference key for the transaction (optional)
@@ -150,7 +150,10 @@ func (tx *MorphTx) sigHash(chainID *big.Int) common.Hash {
 			tx.Value,
 			tx.Data,
 			tx.AccessList,
+			tx.Version,
 			tx.FeeTokenID,
 			tx.FeeLimit,
+			tx.Reference,
+			tx.Memo,
 		})
 }

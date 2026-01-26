@@ -408,6 +408,12 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		go bc.maintainTxIndex(txIndexBlock)
 	}
 
+	// Start reference indexer/unindexer (using same lookup limit as tx index).
+	if txLookupLimit != nil {
+		bc.wg.Add(1)
+		go bc.maintainReferenceIndex(txIndexBlock)
+	}
+
 	// If periodic cache journal is required, spin it up.
 	if bc.cacheConfig.TrieCleanRejournal > 0 {
 		if bc.cacheConfig.TrieCleanRejournal < time.Minute {
@@ -2127,6 +2133,94 @@ func (bc *BlockChain) maintainTxIndex(ancients uint64) {
 		case <-bc.quit:
 			if done != nil {
 				log.Info("Waiting background transaction indexer to exit")
+				<-done
+			}
+			return
+		}
+	}
+}
+
+// maintainReferenceIndex is responsible for the construction and deletion of the
+// reference index for MorphTx transactions.
+//
+// User can use flag `txlookuplimit` to specify a "recentness" block, below
+// which ancient reference indices get deleted. If `txlookuplimit` is 0, it means
+// all reference indices will be reserved.
+//
+// The user can adjust the txlookuplimit value for each launch after fast
+// sync, Geth will automatically construct the missing indices and delete
+// the extra indices.
+func (bc *BlockChain) maintainReferenceIndex(ancients uint64) {
+	defer bc.wg.Done()
+
+	// Before starting the actual maintenance, we need to handle a special case,
+	// where user might init Geth with an external ancient database. If so, we
+	// need to reindex all necessary references before starting to process any
+	// pruning requests.
+	if ancients > 0 {
+		var from = uint64(0)
+		if bc.txLookupLimit != 0 && ancients > bc.txLookupLimit {
+			from = ancients - bc.txLookupLimit
+		}
+		rawdb.IndexReferences(bc.db, from, ancients, bc.quit)
+	}
+
+	// indexBlocks reindexes or unindexes references depending on user configuration
+	indexBlocks := func(tail *uint64, head uint64, done chan struct{}) {
+		defer func() { done <- struct{}{} }()
+
+		// If the user just upgraded Geth to a new version which supports reference
+		// index pruning, write the new tail and remove anything older.
+		if tail == nil {
+			if bc.txLookupLimit == 0 || head < bc.txLookupLimit {
+				// Nothing to delete, write the tail and return
+				rawdb.WriteReferenceIndexTail(bc.db, 0)
+			} else {
+				// Prune all stale reference indices and record the reference index tail
+				rawdb.UnindexReferences(bc.db, 0, head-bc.txLookupLimit+1, bc.quit)
+			}
+			return
+		}
+		// If a previous indexing existed, make sure that we fill in any missing entries
+		if bc.txLookupLimit == 0 || head < bc.txLookupLimit {
+			if *tail > 0 {
+				rawdb.IndexReferences(bc.db, 0, *tail, bc.quit)
+			}
+			return
+		}
+		// Update the reference index to the new chain state
+		if head-bc.txLookupLimit+1 < *tail {
+			// Reindex a part of missing indices and rewind index tail to HEAD-limit
+			rawdb.IndexReferences(bc.db, head-bc.txLookupLimit+1, *tail, bc.quit)
+		} else {
+			// Unindex a part of stale indices and forward index tail to HEAD-limit
+			rawdb.UnindexReferences(bc.db, *tail, head-bc.txLookupLimit+1, bc.quit)
+		}
+	}
+
+	// Any reindexing done, start listening to chain events and moving the index window
+	var (
+		done   chan struct{}                  // Non-nil if background unindexing or reindexing routine is active.
+		headCh = make(chan ChainHeadEvent, 1) // Buffered to avoid locking up the event feed
+	)
+	sub := bc.SubscribeChainHeadEvent(headCh)
+	if sub == nil {
+		return
+	}
+	defer sub.Unsubscribe()
+
+	for {
+		select {
+		case head := <-headCh:
+			if done == nil {
+				done = make(chan struct{})
+				go indexBlocks(rawdb.ReadReferenceIndexTail(bc.db), head.Block.NumberU64(), done)
+			}
+		case <-done:
+			done = nil
+		case <-bc.quit:
+			if done != nil {
+				log.Info("Waiting background reference indexer to exit")
 				<-done
 			}
 			return

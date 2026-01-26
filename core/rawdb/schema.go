@@ -122,6 +122,11 @@ var (
 	rollupBatchSignaturePrefix    = []byte("R-bs")
 	rollupBatchL1DataFeePrefix    = []byte("R-df")
 	rollupBatchHeadBatchHasFeeKey = []byte("R-hbf")
+
+	// Reference index: Key(prefix + reference + blockTimestamp + txIndex + txHash) : Value (nil)
+	referenceIndexPrefix = []byte("ref")
+	// Track the oldest block whose reference indices have been indexed
+	referenceIndexTailKey = []byte("ReferenceIndexTail")
 )
 
 const (
@@ -309,4 +314,26 @@ func RollupBatchSignatureSignerKey(batchHash common.Hash, signer common.Address)
 // RollupBatchL1DataFeeKey = rollupBatchL1DataFeePrefix + batchIndex
 func RollupBatchL1DataFeeKey(batchIndex uint64) []byte {
 	return append(rollupBatchL1DataFeePrefix, encodeBigEndian(batchIndex)...)
+}
+
+// referenceIndexKey = referenceIndexPrefix + reference + blockTimestamp + txIndex + txHash
+// Key format: prefix(3) + reference(32) + blockTimestamp(8) + txIndex(8) + txHash(32) = 83 bytes
+func referenceIndexKey(reference common.Reference, blockTimestamp uint64, txIndex uint64, txHash common.Hash) []byte {
+	key := make([]byte, len(referenceIndexPrefix)+common.ReferenceLength+8+8+common.HashLength)
+	copy(key, referenceIndexPrefix)
+	offset := len(referenceIndexPrefix)
+	copy(key[offset:], reference[:])
+	offset += common.ReferenceLength
+	binary.BigEndian.PutUint64(key[offset:], blockTimestamp)
+	offset += 8
+	binary.BigEndian.PutUint64(key[offset:], txIndex)
+	offset += 8
+	copy(key[offset:], txHash[:])
+	return key
+}
+
+// referenceIndexKeyPrefix = referenceIndexPrefix + reference
+// Used for range queries by reference
+func referenceIndexKeyPrefix(reference common.Reference) []byte {
+	return append(referenceIndexPrefix, reference[:]...)
 }

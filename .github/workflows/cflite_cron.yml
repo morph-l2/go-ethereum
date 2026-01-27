@@ -1,9 +1,6 @@
 name: ClusterFuzzLite cron tasks
 on:
   # For testing: trigger on push to feat/fuzz branch
-  push:
-    branches:
-      - feat/fuzz
   schedule:
     # Run daily at midnight UTC
     - cron: '0 0 * * *'

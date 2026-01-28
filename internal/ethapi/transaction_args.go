@@ -50,9 +50,12 @@ type TransactionArgs struct {
 	Data  *hexutil.Bytes `json:"data"`
 	Input *hexutil.Bytes `json:"input"`
 
-	// AltFeeTxType
-	FeeTokenID *hexutil.Uint16 `json:"feeTokenID,omitempty"`
-	FeeLimit   *hexutil.Big    `json:"feeLimit,omitempty"`
+	// MorphTxType
+	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    *byte             `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
@@ -158,6 +161,10 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if args.To == nil && len(args.data()) == 0 {
 		return errors.New(`contract creation without any data provided`)
 	}
+	// Validate memo length for MorphTx
+	if args.Memo != nil && len(*args.Memo) > common.MaxMemoLength {
+		return errors.New("memo exceeds maximum length of 64 bytes")
+	}
 	// Estimate the gas usage if necessary.
 	if args.Gas == nil {
 		// These fields are immutable during the estimation, safe to
@@ -171,6 +178,9 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
 			FeeTokenID:           args.FeeTokenID,
 			FeeLimit:             args.FeeLimit,
+			Version:              args.Version,
+			Reference:            args.Reference,
+			Memo:                 args.Memo,
 			Value:                args.Value,
 			Data:                 (*hexutil.Bytes)(&data),
 			AccessList:           args.AccessList,
@@ -315,8 +325,21 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.FeeLimit != nil {
 		feeLimit = args.FeeLimit.ToInt()
 	}
+	// Default to Version 1 for new MorphTx transactions
+	version := byte(types.MorphTxVersion1)
+	if args.Version != nil {
+		version = *args.Version
+	}
+	reference := new(common.Reference)
+	if args.Reference != nil {
+		reference = args.Reference
+	}
+	memo := new([]byte)
+	if args.Memo != nil {
+		memo = (*[]byte)(args.Memo)
+	}
 
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, data, accessList, args.AuthorizationList, true)
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.AuthorizationList, true)
 	return msg, nil
 }
 
@@ -326,8 +349,11 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 	usedType := types.LegacyTxType
 	switch {
 	//	must take precedence over MaxFeePerGas.
-	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
-		usedType = types.AltFeeTxType
+	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil && *args.Version > 0) ||
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0):
+		usedType = types.MorphTxType
 	case args.AuthorizationList != nil:
 		usedType = types.SetCodeTxType
 	case args.MaxFeePerGas != nil:
@@ -385,20 +411,32 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			AccessList: al,
 		}
 
-	case types.AltFeeTxType:
+	case types.MorphTxType:
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		data = &types.AltFeeTx{
+		// Default to Version 1 for new MorphTx transactions
+		version := uint8(types.MorphTxVersion1)
+		if args.Version != nil {
+			version = *args.Version
+		}
+		var feeTokenID uint16
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		data = &types.MorphTx{
 			To:         args.To,
 			ChainID:    (*big.Int)(args.ChainID),
 			Nonce:      uint64(*args.Nonce),
 			Gas:        uint64(*args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-			FeeTokenID: uint16(*args.FeeTokenID),
+			Version:    version,
+			FeeTokenID: feeTokenID,
 			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Reference:  args.Reference,
+			Memo:       (*[]byte)(args.Memo),
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: al,

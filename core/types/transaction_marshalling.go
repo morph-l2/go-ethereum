@@ -62,9 +62,12 @@ type txJSON struct {
 	Sender     *common.Address `json:"sender,omitempty"`
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 
-	// Alt fee transaction fields:
-	FeeTokenID hexutil.Uint16 `json:"feeTokenID"`
-	FeeLimit   *hexutil.Big   `json:"feeLimit"`
+	// MorphTx transaction fields:
+	FeeTokenID hexutil.Uint16    `json:"feeTokenID"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit"`
+	Version    *uint8            `json:"version"`
+	Reference  *common.Reference `json:"reference"`
+	Memo       *hexutil.Bytes    `json:"memo"`
 }
 
 // yParityValue returns the YParity value from JSON. For backwards-compatibility reasons,
@@ -189,7 +192,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		yparity := itx.V.Uint64()
 		enc.YParity = (*hexutil.Uint64)(&yparity)
 
-	case *AltFeeTx:
+	case *MorphTx:
 		enc.ChainID = (*hexutil.Big)(itx.ChainID)
 		enc.Nonce = (*hexutil.Uint64)(&itx.Nonce)
 		enc.To = tx.To()
@@ -201,6 +204,9 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.AccessList = &itx.AccessList
 		enc.FeeTokenID = hexutil.Uint16(itx.FeeTokenID)
 		enc.FeeLimit = (*hexutil.Big)(itx.FeeLimit)
+		enc.Version = (*uint8)(&itx.Version)
+		enc.Reference = (*common.Reference)(itx.Reference)
+		enc.Memo = (*hexutil.Bytes)(itx.Memo)
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
 		enc.S = (*hexutil.Big)(itx.S)
@@ -567,8 +573,8 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			}
 		}
 
-	case AltFeeTxType:
-		var itx AltFeeTx
+	case MorphTxType:
+		var itx MorphTx
 		inner = &itx
 		if dec.ChainID == nil {
 			return errors.New("missing required field 'chainId' in transaction")
@@ -599,6 +605,9 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.FeeTokenID = uint16(dec.FeeTokenID)
 		itx.FeeLimit = (*big.Int)(dec.FeeLimit)
 		itx.Value = (*big.Int)(dec.Value)
+		itx.Version = *dec.Version
+		itx.Reference = (*common.Reference)(dec.Reference)
+		itx.Memo = (*[]byte)(dec.Memo)
 		if dec.Input == nil {
 			return errors.New("missing required field 'input' in transaction")
 		}

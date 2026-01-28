@@ -78,11 +78,15 @@ type Receipt struct {
 
 	// Morph rollup
 	L1Fee *big.Int `json:"l1Fee,omitempty"`
-	// Alt Fee
-	FeeTokenID *uint16  `json:"feeTokenID,omitempty"`
-	FeeRate    *big.Int `json:"feeRate,omitempty"`
-	TokenScale *big.Int `json:"tokenScale,omitempty"`
-	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
+
+	// MorphTx fields
+	FeeTokenID *uint16           `json:"feeTokenID,omitempty"`
+	FeeRate    *big.Int          `json:"feeRate,omitempty"`
+	TokenScale *big.Int          `json:"tokenScale,omitempty"`
+	FeeLimit   *big.Int          `json:"feeLimit,omitempty"`
+	Version    uint8             `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *[]byte           `json:"memo,omitempty"`
 }
 
 type receiptMarshaling struct {
@@ -101,6 +105,9 @@ type receiptMarshaling struct {
 	FeeRate           *hexutil.Big
 	TokenScale        *hexutil.Big
 	FeeLimit          *hexutil.Big
+	Version           hexutil.Uint64
+	Reference         *common.Reference
+	Memo              *hexutil.Bytes
 }
 
 // receiptRLP is the consensus encoding of a receipt.
@@ -121,6 +128,26 @@ type storedReceiptRLP struct {
 	FeeRate           *big.Int
 	TokenScale        *big.Int
 	FeeLimit          *big.Int
+	Version           uint8
+	Reference         *common.Reference
+	Memo              *[]byte
+}
+
+// v8StoredReceiptRLP is the storage encoding of a receipt used in database version 8.
+// This version was introduced when MorphTx feature was added.
+// It includes L1Fee and all MorphTx fields (FeeTokenID, FeeRate, TokenScale, FeeLimit, Version, Reference, Memo).
+type v8StoredReceiptRLP struct {
+	PostStateOrStatus []byte
+	CumulativeGasUsed uint64
+	Logs              []*LogForStorage
+	L1Fee             *big.Int
+	FeeTokenID        *uint16
+	FeeRate           *big.Int
+	TokenScale        *big.Int
+	FeeLimit          *big.Int
+	Version           uint8
+	Reference         *common.Reference
+	Memo              *[]byte
 }
 
 // v7StoredReceiptRLP is the storage encoding of a receipt used in database version 7.
@@ -277,7 +304,7 @@ func (r *Receipt) decodeTyped(b []byte) error {
 		return errShortTypedReceipt
 	}
 	switch b[0] {
-	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, AltFeeTxType:
+	case DynamicFeeTxType, AccessListTxType, BlobTxType, L1MessageTxType, SetCodeTxType, MorphTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -346,6 +373,9 @@ func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
 		FeeRate:           r.FeeRate,
 		TokenScale:        r.TokenScale,
 		FeeLimit:          r.FeeLimit,
+		Version:           r.Version,
+		Reference:         r.Reference,
+		Memo:              r.Memo,
 	}
 	for i, log := range r.Logs {
 		enc.Logs[i] = (*LogForStorage)(log)
@@ -365,6 +395,9 @@ func (r *ReceiptForStorage) DecodeRLP(s *rlp.Stream) error {
 	// for old nodes that just upgraded. V4 was an intermediate unreleased format so
 	// we do need to decode it, but it's not common (try last).
 	if err := decodeStoredReceiptRLP(r, blob); err == nil {
+		return nil
+	}
+	if err := decodeV8StoredReceiptRLP(r, blob); err == nil {
 		return nil
 	}
 	if err := decodeV7StoredReceiptRLP(r, blob); err == nil {
@@ -401,6 +434,35 @@ func decodeStoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
 	r.FeeRate = stored.FeeRate
 	r.TokenScale = stored.TokenScale
 	r.FeeLimit = stored.FeeLimit
+	r.Version = stored.Version
+	r.Reference = stored.Reference
+	r.Memo = stored.Memo
+
+	return nil
+}
+
+func decodeV8StoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
+	var stored v8StoredReceiptRLP
+	if err := rlp.DecodeBytes(blob, &stored); err != nil {
+		return err
+	}
+	if err := (*Receipt)(r).setStatus(stored.PostStateOrStatus); err != nil {
+		return err
+	}
+	r.CumulativeGasUsed = stored.CumulativeGasUsed
+	r.Logs = make([]*Log, len(stored.Logs))
+	for i, log := range stored.Logs {
+		r.Logs[i] = (*Log)(log)
+	}
+	r.Bloom = CreateBloom(Receipts{(*Receipt)(r)})
+	r.L1Fee = stored.L1Fee
+	r.FeeTokenID = stored.FeeTokenID
+	r.FeeRate = stored.FeeRate
+	r.TokenScale = stored.TokenScale
+	r.FeeLimit = stored.FeeLimit
+	r.Version = stored.Version
+	r.Reference = stored.Reference
+	r.Memo = stored.Memo
 
 	return nil
 }
@@ -531,8 +593,8 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 	case L1MessageTxType:
 		w.WriteByte(L1MessageTxType)
 		rlp.Encode(w, data)
-	case AltFeeTxType:
-		w.WriteByte(AltFeeTxType)
+	case MorphTxType:
+		w.WriteByte(MorphTxType)
 		rlp.Encode(w, data)
 	case SetCodeTxType:
 		w.WriteByte(SetCodeTxType)

@@ -36,9 +36,10 @@ var (
 	ErrInvalidSig           = errors.New("invalid transaction v, r, s values")
 	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
 	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
-	ErrCostNotSupported     = errors.New("cost function alt fee transaction not support or use gasFee()")
+	ErrCostNotSupported     = errors.New("cost function morph transaction not support or use gasFee()")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
+	ErrMemoTooLong          = errors.New("memo exceeds maximum length of 64 bytes")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
 	errShortTypedTx         = errors.New("typed transaction too short")
 	errInvalidYParity       = errors.New("'yParity' field must be 0 or 1")
@@ -55,7 +56,7 @@ const (
 	SetCodeTxType    = 0x04
 
 	L1MessageTxType = 0x7E
-	AltFeeTxType    = 0x7F
+	MorphTxType     = 0x7F
 )
 
 // Transaction is an Ethereum transaction.
@@ -220,8 +221,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		inner = new(L1MessageTx)
 	case SetCodeTxType:
 		inner = new(SetCodeTx)
-	case AltFeeTxType:
-		inner = new(AltFeeTx)
+	case MorphTxType:
+		inner = new(MorphTx)
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -331,9 +332,15 @@ func (tx *Transaction) IsL1MessageTx() bool {
 	return tx.Type() == L1MessageTxType
 }
 
-// IsAltFeeTx returns true if the transaction is erc20 fee tx.
-func (tx *Transaction) IsAltFeeTx() bool {
-	return tx.Type() == AltFeeTxType
+// IsMorphTx returns true if the transaction is morph tx.
+func (tx *Transaction) IsMorphTx() bool {
+	// TODO: check if altfee used
+	return tx.Type() == MorphTxType
+}
+
+// IsMorphTxWithAltFee returns true if the transaction is morph tx with alt fee.
+func (tx *Transaction) IsMorphTxWithAltFee() bool {
+	return tx.IsMorphTx() && tx.FeeTokenID() != 0
 }
 
 // AsL1MessageTx casts the tx into an L1 cross-domain tx.
@@ -353,31 +360,68 @@ func (tx *Transaction) L1MessageQueueIndex() uint64 {
 	return tx.AsL1MessageTx().QueueIndex
 }
 
-// AsAltFeeTx casts the tx into an erc20 fee tx.
-func (tx *Transaction) AsAltFeeTx() *AltFeeTx {
-	if !tx.IsAltFeeTx() {
+// AsMorphTx casts the tx into an morph tx.
+func (tx *Transaction) AsMorphTx() *MorphTx {
+	if !tx.IsMorphTx() {
 		return nil
 	}
-	return tx.inner.(*AltFeeTx)
+	return tx.inner.(*MorphTx)
 }
 
 func (tx *Transaction) FeeTokenID() uint16 {
-	if !tx.IsAltFeeTx() {
+	if !tx.IsMorphTx() {
 		return 0
 	}
-	return tx.AsAltFeeTx().FeeTokenID
+	return tx.AsMorphTx().FeeTokenID
 }
 
 func (tx *Transaction) FeeLimit() *big.Int {
-	if !tx.IsAltFeeTx() {
+	if !tx.IsMorphTx() {
 		return big.NewInt(0)
 	}
-	return tx.AsAltFeeTx().FeeLimit
+	return tx.AsMorphTx().FeeLimit
+}
+
+// Version returns the version of the MorphTx, or 0 if not a MorphTx.
+func (tx *Transaction) Version() uint8 {
+	if !tx.IsMorphTx() {
+		return 0
+	}
+	return tx.AsMorphTx().Version
+}
+
+// Reference returns the reference of the MorphTx, or nil if not a MorphTx.
+func (tx *Transaction) Reference() *common.Reference {
+	if !tx.IsMorphTx() {
+		return nil
+	}
+	return tx.AsMorphTx().Reference
+}
+
+// Memo returns the memo of the MorphTx, or nil if not a MorphTx.
+func (tx *Transaction) Memo() *[]byte {
+	if !tx.IsMorphTx() {
+		return nil
+	}
+	return tx.AsMorphTx().Memo
+}
+
+// ValidateMemo validates that the memo length does not exceed the maximum limit.
+// Returns nil if the transaction is not a MorphTx or if the memo length is valid.
+func (tx *Transaction) ValidateMemo() error {
+	if !tx.IsMorphTx() {
+		return nil
+	}
+	if tx.AsMorphTx().Memo != nil && len(*tx.AsMorphTx().Memo) > common.MaxMemoLength {
+		return ErrMemoTooLong
+	}
+	return nil
 }
 
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
-	if tx.IsAltFeeTx() {
+	// TODO: morph tx without fee token
+	if tx.IsMorphTx() {
 		panic(ErrCostNotSupported)
 	}
 	total := tx.GasFee()
@@ -791,9 +835,30 @@ type Message struct {
 	setCodeAuthorizations []SetCodeAuthorization
 	feeTokenID            uint16
 	feeLimit              *big.Int
+	version               uint8
+	reference             *common.Reference
+	memo                  *[]byte
 }
 
-func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, feeTokenID uint16, feeLimit *big.Int, data []byte, accessList AccessList, authList []SetCodeAuthorization, isFake bool) Message {
+func NewMessage(
+	from common.Address,
+	to *common.Address,
+	nonce uint64,
+	amount *big.Int,
+	gasLimit uint64,
+	gasPrice *big.Int,
+	gasFeeCap *big.Int,
+	gasTipCap *big.Int,
+	feeTokenID uint16,
+	feeLimit *big.Int,
+	version uint8,
+	reference *common.Reference,
+	memo *[]byte,
+	data []byte,
+	accessList AccessList,
+	authList []SetCodeAuthorization,
+	isFake bool,
+) Message {
 	return Message{
 		from:                  from,
 		to:                    to,
@@ -810,6 +875,9 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 		isL1MessageTx:         false,
 		feeTokenID:            feeTokenID,
 		feeLimit:              feeLimit,
+		version:               version,
+		reference:             reference,
+		memo:                  memo,
 	}
 }
 
@@ -829,17 +897,18 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		isL1MessageTx:         tx.IsL1MessageTx(),
 		setCodeAuthorizations: tx.SetCodeAuthorizations(),
 		feeTokenID:            tx.FeeTokenID(),
+		version:               tx.Version(),
+		reference:             tx.Reference(),
+		memo:                  tx.Memo(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
 		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
 	}
-	if tx.IsAltFeeTx() && tx.FeeTokenID() == 0 {
-		return msg, errors.New("token id 0 not support")
-	}
 	if tx.FeeLimit() != nil {
 		msg.feeLimit = tx.FeeLimit()
 	}
+
 	var err error
 	msg.from, err = Sender(s, tx)
 	return msg, err
@@ -860,6 +929,9 @@ func (m Message) IsL1MessageTx() bool                           { return m.isL1M
 func (m Message) SetCodeAuthorizations() []SetCodeAuthorization { return m.setCodeAuthorizations }
 func (m Message) FeeTokenID() uint16                            { return m.feeTokenID }
 func (m Message) FeeLimit() *big.Int                            { return m.feeLimit }
+func (m Message) Version() uint8                                { return m.version }
+func (m Message) Reference() *common.Reference                  { return m.reference }
+func (m Message) Memo() *[]byte                                 { return m.memo }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {
@@ -867,6 +939,25 @@ func copyAddressPtr(a *common.Address) *common.Address {
 		return nil
 	}
 	cpy := *a
+	return &cpy
+}
+
+// copyAddressPtr copies an address.
+func copyReferencePtr(h *common.Reference) *common.Reference {
+	if h == nil {
+		return nil
+	}
+	cpy := *h
+	return &cpy
+}
+
+// copyBytesPtr creates a deep copy of a byte slice pointer.
+func copyBytesPtr(b *[]byte) *[]byte {
+	if b == nil {
+		return nil
+	}
+	cpy := make([]byte, len(*b))
+	copy(cpy, *b)
 	return &cpy
 }
 

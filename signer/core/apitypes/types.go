@@ -121,10 +121,22 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 	var data types.TxData
 	switch {
 	// must take precedence over MaxFeePerGas.
-	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil && *args.Version > 0) ||
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0):
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
+		}
+		// Default to Version 1 for new MorphTx transactions
+		version := uint8(types.MorphTxVersion1)
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
+		var feeTokenID uint16
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
 		}
 		data = &types.MorphTx{
 			To:         to,
@@ -133,9 +145,9 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			Gas:        uint64(args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-			FeeTokenID: uint16(*args.FeeTokenID),
+			FeeTokenID: feeTokenID,
 			FeeLimit:   (*big.Int)(args.FeeLimit),
-			Version:    uint8(*args.Version),
+			Version:    version,
 			Reference:  args.Reference,
 			Memo:       (*[]byte)(args.Memo),
 			Value:      (*big.Int)(&args.Value),

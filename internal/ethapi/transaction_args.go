@@ -325,10 +325,11 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.FeeLimit != nil {
 		feeLimit = args.FeeLimit.ToInt()
 	}
-	if args.Version == nil {
-		return types.Message{}, errors.New("version is not set")
+	// Default to Version 1 for new MorphTx transactions
+	version := byte(types.MorphTxVersion1)
+	if args.Version != nil {
+		version = *args.Version
 	}
-	version := *args.Version
 	reference := new(common.Reference)
 	if args.Reference != nil {
 		reference = args.Reference
@@ -415,6 +416,15 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
+		// Default to Version 1 for new MorphTx transactions
+		version := uint8(types.MorphTxVersion1)
+		if args.Version != nil {
+			version = *args.Version
+		}
+		var feeTokenID uint16
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
 		data = &types.MorphTx{
 			To:         args.To,
 			ChainID:    (*big.Int)(args.ChainID),
@@ -422,8 +432,8 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			Gas:        uint64(*args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-			Version:    *args.Version,
-			FeeTokenID: uint16(*args.FeeTokenID),
+			Version:    version,
+			FeeTokenID: feeTokenID,
 			FeeLimit:   (*big.Int)(args.FeeLimit),
 			Reference:  args.Reference,
 			Memo:       (*[]byte)(args.Memo),

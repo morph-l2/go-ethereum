@@ -951,6 +951,16 @@ func copyReferencePtr(h *common.Reference) *common.Reference {
 	return &cpy
 }
 
+// copyBytesPtr creates a deep copy of a byte slice pointer.
+func copyBytesPtr(b *[]byte) *[]byte {
+	if b == nil {
+		return nil
+	}
+	cpy := make([]byte, len(*b))
+	copy(cpy, *b)
+	return &cpy
+}
+
 type SkippedTransaction struct {
 	Tx     *Transaction
 	Reason string

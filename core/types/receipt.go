@@ -434,6 +434,9 @@ func decodeStoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
 	r.FeeRate = stored.FeeRate
 	r.TokenScale = stored.TokenScale
 	r.FeeLimit = stored.FeeLimit
+	r.Version = stored.Version
+	r.Reference = stored.Reference
+	r.Memo = stored.Memo
 
 	return nil
 }

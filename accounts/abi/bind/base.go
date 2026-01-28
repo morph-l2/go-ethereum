@@ -337,6 +337,11 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 	if err != nil {
 		return nil, err
 	}
+	// Default to Version 1 for new MorphTx transactions
+	version := opts.Version
+	if version == 0 {
+		version = types.MorphTxVersion1
+	}
 	baseTx := &types.MorphTx{
 		To:         contract,
 		Nonce:      nonce,
@@ -345,7 +350,7 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 		FeeTokenID: opts.FeeTokenID,
 		FeeLimit:   opts.FeeLimit,
 		Gas:        gasLimit,
-		Version:    opts.Version,
+		Version:    version,
 		Reference:  opts.Reference,
 		Memo:       opts.Memo,
 		Value:      value,

@@ -61,9 +61,9 @@ type ExecutionResult struct {
 	FeeRate     *hexutil.Big      `json:"feeRate,omitempty"`
 	TokenScale  *hexutil.Big      `json:"tokenScale,omitempty"`
 	FeeLimit    *hexutil.Big      `json:"feeLimit,omitempty"`
-	Version     uint8             `json:"version,omitempty"`
+	Version     *uint8            `json:"version,omitempty"`
 	Reference   *common.Reference `json:"reference,omitempty"`
-	Memo        []byte            `json:"memo,omitempty"`
+	Memo        *hexutil.Bytes    `json:"memo,omitempty"`
 	Gas         uint64            `json:"gas"`
 	Failed      bool              `json:"failed"`
 	ReturnValue string            `json:"returnValue"`
@@ -145,7 +145,7 @@ type TransactionData struct {
 	FeeLimit          *hexutil.Big               `json:"feeLimit,omitempty"`
 	Version           uint8                      `json:"version,omitempty"`
 	Reference         *common.Reference          `json:"reference,omitempty"`
-	Memo              []byte                     `json:"memo,omitempty"`
+	Memo              *hexutil.Bytes             `json:"memo,omitempty"`
 	From              common.Address             `json:"from"`
 	To                *common.Address            `json:"to"`
 	ChainId           *hexutil.Big               `json:"chainId"`
@@ -211,8 +211,9 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 			result.FeeLimit = (*hexutil.Big)(feeLimit)
 		}
 		result.Version = tx.Version()
-		result.Reference = (*common.Reference)(tx.Reference())
-		result.Memo = []byte(hexutil.Encode(tx.Memo()))
+		result.Reference = tx.Reference()
+		memo := hexutil.Bytes(*tx.Memo())
+		result.Memo = &memo
 	}
 
 	return result

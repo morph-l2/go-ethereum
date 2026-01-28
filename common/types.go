@@ -41,6 +41,8 @@ const (
 	AddressLength = 20
 	// ReferenceLength is the expected length of the reference
 	ReferenceLength = 32
+	// MaxMemoLength is the maximum length of the memo in MorphTx
+	MaxMemoLength = 64
 )
 
 var (

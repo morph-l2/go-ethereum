@@ -206,7 +206,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.FeeLimit = (*hexutil.Big)(itx.FeeLimit)
 		enc.Version = (*uint8)(&itx.Version)
 		enc.Reference = (*common.Reference)(itx.Reference)
-		enc.Memo = (*hexutil.Bytes)(&itx.Memo)
+		enc.Memo = (*hexutil.Bytes)(itx.Memo)
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
 		enc.S = (*hexutil.Big)(itx.S)
@@ -607,7 +607,7 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.Value = (*big.Int)(dec.Value)
 		itx.Version = *dec.Version
 		itx.Reference = (*common.Reference)(dec.Reference)
-		itx.Memo = *dec.Memo
+		itx.Memo = (*[]byte)(dec.Memo)
 		if dec.Input == nil {
 			return errors.New("missing required field 'input' in transaction")
 		}

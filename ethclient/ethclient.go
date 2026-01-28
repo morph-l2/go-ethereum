@@ -30,6 +30,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/eth"
 	"github.com/morph-l2/go-ethereum/eth/tracers"
+	"github.com/morph-l2/go-ethereum/internal/ethapi"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
@@ -369,6 +370,17 @@ func (ec *Client) GetSkippedTransactionHashes(ctx context.Context, from uint64, 
 func (ec *Client) GetSkippedTransaction(ctx context.Context, txHash common.Hash) (*eth.RPCTransaction, error) {
 	tx := &eth.RPCTransaction{}
 	return tx, ec.c.CallContext(ctx, &tx, "morph_getSkippedTransaction", txHash)
+}
+
+// GetTransactionHashesByReference returns transactions for the given reference with pagination.
+// Results are sorted by blockTimestamp and txIndex (ascending order).
+// Parameters:
+//   - reference: the reference key to query
+//   - offset: pagination offset (default: 0)
+//   - limit: pagination limit (default: 100, max: 100)
+func (ec *Client) GetTransactionHashesByReference(ctx context.Context, reference common.Reference, offset *hexutil.Uint64, limit *hexutil.Uint64) ([]ethapi.ReferenceTransactionResult, error) {
+	var result []ethapi.ReferenceTransactionResult
+	return result, ec.c.CallContext(ctx, &result, "morph_getTransactionHashesByReference", reference, offset, limit)
 }
 
 // GetBlockByNumberOrHash returns the requested block

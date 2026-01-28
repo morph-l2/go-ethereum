@@ -39,7 +39,7 @@ type MorphTx struct {
 	FeeTokenID uint16            // ERC20 token ID for fee payment (0 = ETH)
 	FeeLimit   *big.Int          // maximum fee in token units (optional)
 	Reference  *common.Reference // reference key for the transaction (optional)
-	Memo       []byte            // memo for the transaction (optional)
+	Memo       *[]byte           // memo for the transaction (optional)
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -55,7 +55,7 @@ func (tx *MorphTx) copy() TxData {
 		To:         copyAddressPtr(tx.To),
 		Data:       common.CopyBytes(tx.Data),
 		Reference:  copyReferencePtr(tx.Reference),
-		Memo:       common.CopyBytes(tx.Memo),
+		Memo:       tx.Memo,
 		Version:    tx.Version,
 		FeeTokenID: tx.FeeTokenID,
 		// These are copied below.

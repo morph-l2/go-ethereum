@@ -1454,9 +1454,9 @@ type RPCTransaction struct {
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 
 	// MorphTx fields:
-	FeeTokenID hexutil.Uint64    `json:"feeTokenID,omitempty"`
+	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
-	Version    uint8             `json:"version,omitempty"`
+	Version    *hexutil.Uint64   `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
 	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 }
@@ -1523,12 +1523,13 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		} else {
 			result.GasPrice = (*hexutil.Big)(tx.GasFeeCap())
 		}
-		result.FeeTokenID = (hexutil.Uint64)(tx.FeeTokenID())
+		feeTokenID := hexutil.Uint16(tx.FeeTokenID())
+		result.FeeTokenID = &feeTokenID
 		result.FeeLimit = (*hexutil.Big)(tx.FeeLimit())
-		result.Version = tx.Version()
-		result.Reference = tx.Reference()
-		memo := hexutil.Bytes(tx.Memo())
-		result.Memo = &memo
+		version := hexutil.Uint64(tx.Version())
+		result.Version = &version
+		result.Reference = (*common.Reference)(tx.Reference())
+		result.Memo = (*hexutil.Bytes)(tx.Memo())
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())
@@ -1804,27 +1805,74 @@ func (s *PublicTransactionPoolAPI) GetTransactionCount(ctx context.Context, addr
 	return (*hexutil.Uint64)(&nonce), state.Error()
 }
 
-// GetTransactionsByReference returns all transactions for the given reference.
+// ReferenceTransactionResult represents a simplified transaction result for reference queries.
+type ReferenceTransactionResult struct {
+	TransactionHash  common.Hash    `json:"transactionHash"`
+	BlockNumber      hexutil.Uint64 `json:"blockNumber"`
+	BlockTimestamp   hexutil.Uint64 `json:"blockTimestamp"`
+	TransactionIndex hexutil.Uint64 `json:"transactionIndex"`
+}
+
+// GetTransactionHashesByReference returns transactions for the given reference with pagination.
 // Results are sorted by blockTimestamp and txIndex (ascending order).
-func (s *PublicTransactionPoolAPI) GetTransactionsByReference(ctx context.Context, reference common.Reference) ([]*RPCTransaction, error) {
+// Parameters:
+//   - reference: the reference key to query
+//   - offset: pagination offset (default: 0)
+//   - limit: pagination limit (default: 100, max: 100)
+func (s *PublicTransactionPoolAPI) GetTransactionHashesByReference(
+	ctx context.Context,
+	reference common.Reference,
+	offset *hexutil.Uint64,
+	limit *hexutil.Uint64,
+) (
+	[]ReferenceTransactionResult,
+	error,
+) {
+	// Set default values
+	offsetVal := uint64(0)
+	if offset != nil {
+		offsetVal = uint64(*offset)
+	}
+	limitVal := uint64(100)
+	if limit != nil {
+		limitVal = uint64(*limit)
+	}
+
+	// Validate limit (max 100)
+	if limitVal > 100 {
+		return nil, errors.New("limit exceeds maximum value of 100")
+	}
+
 	entries := rawdb.ReadReferenceIndexEntries(s.b.ChainDb(), reference)
 	if len(entries) == 0 {
 		return nil, nil
 	}
 
-	var result []*RPCTransaction
-	for _, entry := range entries {
-		tx, blockHash, blockNumber, index, err := s.b.GetTransaction(ctx, entry.TxHash)
-		if err != nil {
+	// Validate offset
+	if offsetVal >= uint64(len(entries)) {
+		return nil, fmt.Errorf("offset %d exceeds total results %d", offsetVal, len(entries))
+	}
+
+	// Apply pagination
+	end := offsetVal + limitVal
+	if end > uint64(len(entries)) {
+		end = uint64(len(entries))
+	}
+	paginatedEntries := entries[offsetVal:end]
+
+	// Build result
+	result := make([]ReferenceTransactionResult, 0, len(paginatedEntries))
+	for _, entry := range paginatedEntries {
+		blockNumber := rawdb.ReadTxLookupEntry(s.b.ChainDb(), entry.TxHash)
+		if blockNumber == nil {
 			continue
 		}
-		if tx != nil {
-			header, err := s.b.HeaderByHash(ctx, blockHash)
-			if err != nil {
-				continue
-			}
-			result = append(result, NewRPCTransaction(tx, blockHash, blockNumber, header.Time, index, header.BaseFee, s.b.ChainConfig()))
-		}
+		result = append(result, ReferenceTransactionResult{
+			TransactionHash:  entry.TxHash,
+			BlockNumber:      hexutil.Uint64(*blockNumber),
+			BlockTimestamp:   hexutil.Uint64(entry.BlockTimestamp),
+			TransactionIndex: hexutil.Uint64(entry.TxIndex),
+		})
 	}
 	return result, nil
 }
@@ -1923,16 +1971,13 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
 		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
 		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
+		"feeTokenID":        (*hexutil.Uint16)(receipt.FeeTokenID),
 		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
-		// TODO
-		"version":   hexutil.Uint64(receipt.Version),
-		"reference": (*common.Reference)(receipt.Reference),
-		"memo":      hexutil.Bytes(receipt.Memo),
+		"version":           hexutil.Uint(receipt.Version),
+		"reference":         (*common.Reference)(receipt.Reference),
+		"memo":              (*hexutil.Bytes)(receipt.Memo),
 	}
-	// TODO
-	if receipt.FeeTokenID != nil {
-		fields["feeTokenID"] = hexutil.Uint16(*receipt.FeeTokenID)
-	}
+
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())

@@ -102,7 +102,7 @@ type Message interface {
 	FeeLimit() *big.Int
 	Version() uint8
 	Reference() *common.Reference
-	Memo() []byte
+	Memo() *[]byte
 }
 
 // ExecutionResult includes all output after executing given evm

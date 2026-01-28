@@ -922,7 +922,7 @@ func (m callMsg) FeeTokenID() uint16           { return m.CallMsg.FeeTokenID }
 func (m callMsg) FeeLimit() *big.Int           { return m.CallMsg.FeeLimit }
 func (m callMsg) Version() byte                { return m.CallMsg.Version }
 func (m callMsg) Reference() *common.Reference { return m.CallMsg.Reference }
-func (m callMsg) Memo() []byte                 { return m.CallMsg.Memo }
+func (m callMsg) Memo() *[]byte                { return m.CallMsg.Memo }
 
 // filterBackend implements filters.Backend to support filtering for logs without
 // taking bloom-bits acceleration structures into account.

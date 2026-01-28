@@ -161,6 +161,10 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if args.To == nil && len(args.data()) == 0 {
 		return errors.New(`contract creation without any data provided`)
 	}
+	// Validate memo length for MorphTx
+	if args.Memo != nil && len(*args.Memo) > common.MaxMemoLength {
+		return errors.New("memo exceeds maximum length of 64 bytes")
+	}
 	// Estimate the gas usage if necessary.
 	if args.Gas == nil {
 		// These fields are immutable during the estimation, safe to
@@ -329,9 +333,9 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.Reference != nil {
 		reference = args.Reference
 	}
-	memo := []byte{}
+	memo := new([]byte)
 	if args.Memo != nil {
-		memo = *args.Memo
+		memo = (*[]byte)(args.Memo)
 	}
 
 	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.AuthorizationList, true)
@@ -422,7 +426,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			FeeTokenID: uint16(*args.FeeTokenID),
 			FeeLimit:   (*big.Int)(args.FeeLimit),
 			Reference:  args.Reference,
-			Memo:       *args.Memo,
+			Memo:       (*[]byte)(args.Memo),
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: al,

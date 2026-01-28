@@ -39,6 +39,7 @@ var (
 	ErrCostNotSupported     = errors.New("cost function morph transaction not support or use gasFee()")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
+	ErrMemoTooLong          = errors.New("memo exceeds maximum length of 64 bytes")
 	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
 	errShortTypedTx         = errors.New("typed transaction too short")
 	errInvalidYParity       = errors.New("'yParity' field must be 0 or 1")
@@ -398,11 +399,23 @@ func (tx *Transaction) Reference() *common.Reference {
 }
 
 // Memo returns the memo of the MorphTx, or nil if not a MorphTx.
-func (tx *Transaction) Memo() []byte {
+func (tx *Transaction) Memo() *[]byte {
 	if !tx.IsMorphTx() {
-		return []byte{}
+		return nil
 	}
 	return tx.AsMorphTx().Memo
+}
+
+// ValidateMemo validates that the memo length does not exceed the maximum limit.
+// Returns nil if the transaction is not a MorphTx or if the memo length is valid.
+func (tx *Transaction) ValidateMemo() error {
+	if !tx.IsMorphTx() {
+		return nil
+	}
+	if tx.AsMorphTx().Memo != nil && len(*tx.AsMorphTx().Memo) > common.MaxMemoLength {
+		return ErrMemoTooLong
+	}
+	return nil
 }
 
 // Cost returns gas * gasPrice + value.
@@ -824,7 +837,7 @@ type Message struct {
 	feeLimit              *big.Int
 	version               uint8
 	reference             *common.Reference
-	memo                  []byte
+	memo                  *[]byte
 }
 
 func NewMessage(
@@ -840,7 +853,7 @@ func NewMessage(
 	feeLimit *big.Int,
 	version uint8,
 	reference *common.Reference,
-	memo []byte,
+	memo *[]byte,
 	data []byte,
 	accessList AccessList,
 	authList []SetCodeAuthorization,
@@ -918,7 +931,7 @@ func (m Message) FeeTokenID() uint16                            { return m.feeTo
 func (m Message) FeeLimit() *big.Int                            { return m.feeLimit }
 func (m Message) Version() uint8                                { return m.version }
 func (m Message) Reference() *common.Reference                  { return m.reference }
-func (m Message) Memo() []byte                                  { return m.memo }
+func (m Message) Memo() *[]byte                                 { return m.memo }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

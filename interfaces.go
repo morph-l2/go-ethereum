@@ -147,7 +147,7 @@ type CallMsg struct {
 	FeeLimit   *big.Int
 	Version    byte
 	Reference  *common.Reference
-	Memo       []byte
+	Memo       *[]byte
 
 	// For SetCodeTxType
 	AuthorizationList []types.SetCodeAuthorization

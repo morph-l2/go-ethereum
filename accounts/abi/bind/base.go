@@ -59,9 +59,9 @@ type TransactOpts struct {
 
 	FeeTokenID uint16            // alt fee token id of transaction execution
 	FeeLimit   *big.Int          // alt fee token limit of transaction execution
-	Version    byte              // version of morph tx
+	Version    uint8             // version of morph tx
 	Reference  *common.Reference // reference key for the transaction (optional)
-	Memo       []byte            // memo for the transaction (optional)
+	Memo       *[]byte           // memo for the transaction (optional)
 
 	Context context.Context // Network context to support cancellation and timeouts (nil = no timeout)
 
@@ -444,7 +444,10 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 		if head, errHead := c.transactor.HeaderByNumber(ensureContext(opts.Context), nil); errHead != nil {
 			return nil, errHead
 		} else if head.BaseFee != nil {
-			if opts.FeeTokenID != 0 || opts.Version != 0 || opts.Reference != nil || len(opts.Memo) > 0 {
+			if opts.FeeTokenID != 0 ||
+				opts.Version != 0 ||
+				(opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
+				(opts.Memo != nil && len(*opts.Memo) > 0) {
 				rawTx, err = c.createMorphTx(opts, contract, input, head)
 			} else {
 				rawTx, err = c.createDynamicTx(opts, contract, input, head)

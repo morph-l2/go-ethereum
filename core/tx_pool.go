@@ -673,6 +673,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if !pool.eip1559 && tx.Type() == types.MorphTxType {
 		return ErrTxTypeNotSupported
 	}
+	// Validate MorphTx memo length
+	if err := tx.ValidateMemo(); err != nil {
+		return err
+	}
 	if !pool.eip7702 && tx.Type() == types.SetCodeTxType {
 		return ErrTxTypeNotSupported
 	}

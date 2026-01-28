@@ -59,6 +59,12 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	if !v.config.Morph.IsValidBlockSize(block.PayloadSize()) {
 		return ErrInvalidBlockPayloadSize
 	}
+	// Validate MorphTx memo length for all transactions
+	for _, tx := range block.Transactions() {
+		if err := tx.ValidateMemo(); err != nil {
+			return err
+		}
+	}
 	// Header validity is known at this point, check the uncles and transactions
 	header := block.Header()
 	if err := v.engine.VerifyUncles(v.bc, block); err != nil {

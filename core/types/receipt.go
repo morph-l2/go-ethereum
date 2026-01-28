@@ -86,7 +86,7 @@ type Receipt struct {
 	FeeLimit   *big.Int          `json:"feeLimit,omitempty"`
 	Version    uint8             `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
-	Memo       []byte            `json:"memo,omitempty"`
+	Memo       *[]byte           `json:"memo,omitempty"`
 }
 
 type receiptMarshaling struct {
@@ -105,10 +105,9 @@ type receiptMarshaling struct {
 	FeeRate           *hexutil.Big
 	TokenScale        *hexutil.Big
 	FeeLimit          *hexutil.Big
-	// TODO
-	Version   hexutil.Uint64
-	Reference *common.Reference
-	Memo      hexutil.Bytes
+	Version           hexutil.Uint64
+	Reference         *common.Reference
+	Memo              *hexutil.Bytes
 }
 
 // receiptRLP is the consensus encoding of a receipt.
@@ -131,7 +130,7 @@ type storedReceiptRLP struct {
 	FeeLimit          *big.Int
 	Version           uint8
 	Reference         *common.Reference
-	Memo              []byte
+	Memo              *[]byte
 }
 
 // v8StoredReceiptRLP is the storage encoding of a receipt used in database version 8.
@@ -148,7 +147,7 @@ type v8StoredReceiptRLP struct {
 	FeeLimit          *big.Int
 	Version           uint8
 	Reference         *common.Reference
-	Memo              []byte
+	Memo              *[]byte
 }
 
 // v7StoredReceiptRLP is the storage encoding of a receipt used in database version 7.

@@ -117,7 +117,7 @@ type stTransaction struct {
 	FeeLimit   *big.Int          `json:"feeLimit,omitempty"`
 	Version    byte              `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
-	Memo       []byte            `json:"memo,omitempty"`
+	Memo       *[]byte           `json:"memo,omitempty"`
 }
 
 type stTransactionMarshaling struct {

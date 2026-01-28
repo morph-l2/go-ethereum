@@ -200,7 +200,8 @@ func ApplyTransactionWithEVM(msg Message, config *params.ChainConfig, gp *GasPoo
 		receipt.TokenScale = result.TokenScale
 		receipt.Version = tx.Version()
 		receipt.Reference = tx.Reference()
-		receipt.Memo = tx.Memo()
+		memo := tx.Memo()
+		receipt.Memo = memo
 	}
 
 	return receipt, err

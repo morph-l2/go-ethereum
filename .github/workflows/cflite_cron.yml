@@ -55,7 +55,7 @@ jobs:
         uses: google/clusterfuzzlite/actions/run_fuzzers@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          fuzz-seconds: 7200
+          fuzz-seconds: 10800
           mode: 'prune'
           sanitizer: address
           storage-repo: ${{ env.STORAGE_REPO_URL }}

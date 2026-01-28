@@ -57,7 +57,7 @@ jobs:
           mode: 'batch'
           sanitizer: address
           output-sarif: true
-          parallel-fuzzing: true
+          parallel-fuzzing: false
           storage-repo: ${{ env.STORAGE_REPO_URL }}
           storage-repo-branch: ${{ env.STORAGE_REPO_BRANCH }}
 

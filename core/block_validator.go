@@ -59,9 +59,14 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	if !v.config.Morph.IsValidBlockSize(block.PayloadSize()) {
 		return ErrInvalidBlockPayloadSize
 	}
-	// Validate MorphTx memo length for all transactions
+	// Validate MorphTx for all transactions
 	for _, tx := range block.Transactions() {
+		// Validate memo length
 		if err := tx.ValidateMemo(); err != nil {
+			return err
+		}
+		// Validate version and associated field requirements
+		if err := tx.ValidateMorphTxVersion(); err != nil {
 			return err
 		}
 	}

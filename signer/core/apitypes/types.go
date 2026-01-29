@@ -122,7 +122,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 	switch {
 	// must take precedence over MaxFeePerGas.
 	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
-		(args.Version != nil && *args.Version > 0) ||
+		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
 		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
 		(args.Memo != nil && len(*args.Memo) > 0):
 		al := types.AccessList{}

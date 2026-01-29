@@ -33,18 +33,20 @@ import (
 )
 
 var (
-	ErrInvalidSig           = errors.New("invalid transaction v, r, s values")
-	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
-	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
-	ErrCostNotSupported     = errors.New("cost function morph transaction not support or use gasFee()")
-	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
-	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
-	ErrMemoTooLong          = errors.New("memo exceeds maximum length of 64 bytes")
-	errEmptyTypedTx         = errors.New("empty typed transaction bytes")
-	errShortTypedTx         = errors.New("typed transaction too short")
-	errInvalidYParity       = errors.New("'yParity' field must be 0 or 1")
-	errVYParityMismatch     = errors.New("'v' and 'yParity' fields do not match")
-	errVYParityMissing      = errors.New("missing 'yParity' or 'v' field in transaction")
+	ErrInvalidSig                = errors.New("invalid transaction v, r, s values")
+	ErrUnexpectedProtection      = errors.New("transaction type does not supported EIP-155 protected signatures")
+	ErrInvalidTxType             = errors.New("transaction type not valid in this context")
+	ErrCostNotSupported          = errors.New("cost function morph transaction not support or use gasFee()")
+	ErrTxTypeNotSupported        = errors.New("transaction type not supported")
+	ErrGasFeeCapTooLow           = errors.New("fee cap less than base fee")
+	ErrMemoTooLong               = errors.New("memo exceeds maximum length of 64 bytes")
+	ErrMorphTxV0RequiresFeeToken = errors.New("version 0 MorphTx requires FeeTokenID > 0")
+	ErrMorphTxUnsupportedVersion = errors.New("unsupported MorphTx version")
+	errEmptyTypedTx              = errors.New("empty typed transaction bytes")
+	errShortTypedTx              = errors.New("typed transaction too short")
+	errInvalidYParity            = errors.New("'yParity' field must be 0 or 1")
+	errVYParityMismatch          = errors.New("'v' and 'yParity' fields do not match")
+	errVYParityMissing           = errors.New("missing 'yParity' or 'v' field in transaction")
 )
 
 // Transaction types.
@@ -414,6 +416,33 @@ func (tx *Transaction) ValidateMemo() error {
 	}
 	if tx.AsMorphTx().Memo != nil && len(*tx.AsMorphTx().Memo) > common.MaxMemoLength {
 		return ErrMemoTooLong
+	}
+	return nil
+}
+
+// ValidateMorphTxVersion validates the MorphTx version and its associated field requirements.
+// Rules:
+//   - Version 0 (legacy format): FeeTokenID must be > 0
+//   - Version 1 (with Reference/Memo): FeeTokenID, FeeLimit, Reference, Memo are all optional
+//   - Other versions: not supported
+//
+// Returns nil if the transaction is not a MorphTx or if the version is valid.
+func (tx *Transaction) ValidateMorphTxVersion() error {
+	if !tx.IsMorphTx() {
+		return nil
+	}
+	morphTx := tx.AsMorphTx()
+	switch morphTx.Version {
+	case MorphTxVersion0:
+		// Version 0 requires FeeTokenID > 0 (legacy format used for alt-fee transactions)
+		if morphTx.FeeTokenID == 0 {
+			return ErrMorphTxV0RequiresFeeToken
+		}
+	case MorphTxVersion1:
+		// Version 1: FeeTokenID, FeeLimit, Reference, Memo are all optional
+		// No additional validation needed
+	default:
+		return ErrMorphTxUnsupportedVersion
 	}
 	return nil
 }

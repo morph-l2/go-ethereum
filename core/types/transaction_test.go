@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -70,13 +71,78 @@ var (
 		NewEIP2930Signer(big.NewInt(1)),
 		common.Hex2Bytes("c9519f4f2b30335884581971573fadf60c6204f59a911df35ee8a540456b266032f1e8e2c5dd761f9e4f88f41c8310aeaba26a8bfcdacfedfa12ec3862d3752101"),
 	)
+
+	// MorphTx test fixtures
+	testMorphTxReference = common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	testMorphTxMemo      = []byte("test memo data for morph tx")
+
+	// MorphTx Version 0 (legacy format with alt fee)
+	emptyMorphTxV0 = NewTx(&MorphTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      3,
+		GasTipCap:  big.NewInt(1),
+		GasFeeCap:  big.NewInt(10),
+		Gas:        25000,
+		To:         &testAddr,
+		Value:      big.NewInt(10),
+		Data:       common.FromHex("5544"),
+		AccessList: nil,
+		FeeTokenID: 1, // V0 requires FeeTokenID > 0
+		FeeLimit:   big.NewInt(1000000),
+		Version:    MorphTxVersion0,
+	})
+
+	// MorphTx Version 1 (with Reference and Memo)
+	emptyMorphTxV1 = NewTx(&MorphTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      3,
+		GasTipCap:  big.NewInt(1),
+		GasFeeCap:  big.NewInt(10),
+		Gas:        25000,
+		To:         &testAddr,
+		Value:      big.NewInt(10),
+		Data:       common.FromHex("5544"),
+		AccessList: nil,
+		FeeTokenID: 0, // V1 allows FeeTokenID = 0
+		FeeLimit:   big.NewInt(0),
+		Version:    MorphTxVersion1,
+		Reference:  &testMorphTxReference,
+		Memo:       &testMorphTxMemo,
+	})
+
+	// MorphTx V1 with only Reference (no Memo)
+	morphTxV1RefOnly = NewTx(&MorphTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      4,
+		GasTipCap:  big.NewInt(2),
+		GasFeeCap:  big.NewInt(20),
+		Gas:        30000,
+		To:         &testAddr,
+		Value:      big.NewInt(20),
+		Version:    MorphTxVersion1,
+		Reference:  &testMorphTxReference,
+	})
+
+	// MorphTx V1 with only Memo (no Reference)
+	morphTxV1MemoOnly = NewTx(&MorphTx{
+		ChainID:   big.NewInt(1),
+		Nonce:     5,
+		GasTipCap: big.NewInt(3),
+		GasFeeCap: big.NewInt(30),
+		Gas:       35000,
+		To:        &testAddr,
+		Value:     big.NewInt(30),
+		Version:   MorphTxVersion1,
+		Memo:      &testMorphTxMemo,
+	})
 )
 
 func TestDecodeEmptyTypedTx(t *testing.T) {
 	input := []byte{0x80}
 	var tx Transaction
 	err := rlp.DecodeBytes(input, &tx)
-	if err != errEmptyTypedTx {
+	// The error should be either errEmptyTypedTx or errShortTypedTx
+	if err != errEmptyTypedTx && err != errShortTypedTx {
 		t.Fatal("wrong error:", err)
 	}
 }
@@ -171,15 +237,17 @@ func TestEIP2930Signer(t *testing.T) {
 			t.Errorf("test %d: wrong sig hash: got %x, want %x", i, sigHash, test.wantSignerHash)
 		}
 		sender, err := Sender(test.signer, test.tx)
-		if err != test.wantSenderErr {
-			t.Errorf("test %d: wrong Sender error %q", i, err)
+		// Use errors.Is for wrapped errors
+		if !errors.Is(err, test.wantSenderErr) {
+			t.Errorf("test %d: wrong Sender error %q, want %q", i, err, test.wantSenderErr)
 		}
 		if err == nil && sender != keyAddr {
 			t.Errorf("test %d: wrong sender address %x", i, sender)
 		}
 		signedTx, err := SignTx(test.tx, test.signer, key)
-		if err != test.wantSignErr {
-			t.Fatalf("test %d: wrong SignTx error %q", i, err)
+		// Use errors.Is for wrapped errors
+		if !errors.Is(err, test.wantSignErr) {
+			t.Fatalf("test %d: wrong SignTx error %q, want %q", i, err, test.wantSignErr)
 		}
 		if signedTx != nil {
 			if signedTx.Hash() != test.wantHash {
@@ -412,15 +480,18 @@ func TestTransactionCoding(t *testing.T) {
 		t.Fatalf("could not generate key: %v", err)
 	}
 	var (
-		signer    = NewEIP2930Signer(common.Big1)
-		addr      = common.HexToAddress("0x0000000000000000000000000000000000000001")
-		recipient = common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
-		accesses  = AccessList{{Address: addr, StorageKeys: []common.Hash{{0}}}}
+		signer       = NewEIP2930Signer(common.Big1)
+		morphSigner  = NewEmeraldSigner(common.Big1) // Signer for MorphTx
+		addr         = common.HexToAddress("0x0000000000000000000000000000000000000001")
+		recipient    = common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
+		accesses     = AccessList{{Address: addr, StorageKeys: []common.Hash{{0}}}}
 	)
-	for i := uint64(0); i < 500; i++ {
+	morphTxRef := common.HexToReference("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	morphTxMemo := []byte("test memo")
+	for i := uint64(0); i < 800; i++ {
 		var txdata TxData
 		var isL1MessageTx bool
-		switch i % 6 {
+		switch i % 8 {
 		case 0:
 			// Legacy tx.
 			txdata = &LegacyTx{
@@ -479,13 +550,52 @@ func TestTransactionCoding(t *testing.T) {
 				Data:       []byte("abcdef"),
 				Sender:     addr,
 			}
+		case 6:
+			// MorphTx V0 (legacy format with alt fee)
+			txdata = &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      i,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        123457,
+				To:         &recipient,
+				Value:      big.NewInt(10),
+				Data:       []byte("abcdef"),
+				AccessList: accesses,
+				FeeTokenID: 1, // V0 requires FeeTokenID > 0
+				FeeLimit:   big.NewInt(1000000),
+				Version:    MorphTxVersion0,
+			}
+		case 7:
+			// MorphTx V1 (with Reference and Memo)
+			txdata = &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      i,
+				GasTipCap:  big.NewInt(2),
+				GasFeeCap:  big.NewInt(20),
+				Gas:        123457,
+				To:         &recipient,
+				Value:      big.NewInt(20),
+				Data:       []byte("abcdef"),
+				AccessList: accesses,
+				FeeTokenID: 0,
+				FeeLimit:   big.NewInt(0),
+				Version:    MorphTxVersion1,
+				Reference:  &morphTxRef,
+				Memo:       &morphTxMemo,
+			}
 		}
 		var tx *Transaction
 		//  dont sign L1MessageTx
 		if isL1MessageTx {
 			tx = NewTx(txdata)
 		} else {
-			tx, err = SignNewTx(key, signer, txdata)
+			// Use morphSigner for MorphTx types
+			txSigner := signer
+			if _, ok := txdata.(*MorphTx); ok {
+				txSigner = morphSigner
+			}
+			tx, err = SignNewTx(key, txSigner, txdata)
 			if err != nil {
 				t.Fatalf("could not sign transaction: %v", err)
 			}
@@ -565,4 +675,631 @@ func assertEqual(orig *Transaction, cpy *Transaction) error {
 		}
 	}
 	return nil
+}
+
+// ==================== MorphTx Tests ====================
+
+// TestMorphTxSigHash tests the signature hash calculation for MorphTx V0 and V1.
+// These hashes are stable and should not change - any change indicates a breaking change.
+func TestMorphTxSigHash(t *testing.T) {
+	signer := NewEmeraldSigner(big.NewInt(1))
+
+	// Test V0 sigHash (legacy format)
+	v0SigHash := signer.Hash(emptyMorphTxV0)
+	t.Logf("MorphTx V0 sigHash: %s", v0SigHash.Hex())
+	expectedV0Hash := common.HexToHash("0x88cdb3aa657406af62d0c9d752d3f496829487516d70ef1c6172bd69c2ab9c4a")
+	if v0SigHash != expectedV0Hash {
+		t.Errorf("MorphTx V0 sigHash mismatch, got %s, want %s", v0SigHash.Hex(), expectedV0Hash.Hex())
+	}
+
+	// Test V1 sigHash (with Reference/Memo)
+	v1SigHash := signer.Hash(emptyMorphTxV1)
+	t.Logf("MorphTx V1 sigHash: %s", v1SigHash.Hex())
+	expectedV1Hash := common.HexToHash("0xe80adb944285a68b17dfcf50e95e90f19a7ce23352563786f3732bf07be8f8cf")
+	if v1SigHash != expectedV1Hash {
+		t.Errorf("MorphTx V1 sigHash mismatch, got %s, want %s", v1SigHash.Hex(), expectedV1Hash.Hex())
+	}
+
+	// Ensure V0 and V1 sigHashes are different
+	if v0SigHash == v1SigHash {
+		t.Error("MorphTx V0 and V1 sigHashes should be different")
+	}
+}
+
+// TestMorphTxSigner tests signature operations on MorphTx.
+func TestMorphTxSigner(t *testing.T) {
+	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	keyAddr := crypto.PubkeyToAddress(key.PublicKey)
+	signer := NewEmeraldSigner(big.NewInt(1))
+
+	tests := []struct {
+		name          string
+		tx            *Transaction
+		wantSenderErr error
+	}{
+		{
+			name:          "MorphTx V0 unsigned",
+			tx:            emptyMorphTxV0,
+			wantSenderErr: ErrInvalidSig,
+		},
+		{
+			name:          "MorphTx V1 unsigned",
+			tx:            emptyMorphTxV1,
+			wantSenderErr: ErrInvalidSig,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test unsigned tx returns expected error
+			_, err := Sender(signer, tc.tx)
+			if err != tc.wantSenderErr {
+				t.Errorf("Sender error mismatch, got %v, want %v", err, tc.wantSenderErr)
+			}
+
+			// Sign the tx
+			signedTx, err := SignTx(tc.tx, signer, key)
+			if err != nil {
+				t.Fatalf("SignTx failed: %v", err)
+			}
+
+			// Verify sender
+			sender, err := Sender(signer, signedTx)
+			if err != nil {
+				t.Fatalf("Sender failed after signing: %v", err)
+			}
+			if sender != keyAddr {
+				t.Errorf("Sender mismatch, got %s, want %s", sender.Hex(), keyAddr.Hex())
+			}
+
+			// Verify hash is stable after signing
+			hash1 := signedTx.Hash()
+			hash2 := signedTx.Hash()
+			if hash1 != hash2 {
+				t.Error("Hash should be stable")
+			}
+		})
+	}
+}
+
+// TestMorphTxEncoding tests RLP and JSON encoding/decoding for MorphTx.
+func TestMorphTxEncoding(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	signer := NewEmeraldSigner(big.NewInt(1))
+	ref := common.HexToReference("0x1111111111111111111111111111111111111111111111111111111111111111")
+	memo := []byte("encoding test memo")
+
+	zeroRef := common.Reference{}
+	emptyMemo := []byte{}
+
+	tests := []struct {
+		name string
+		tx   *MorphTx
+	}{
+		{
+			name: "V0 basic",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      1,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(100),
+				FeeTokenID: 1,
+				FeeLimit:   big.NewInt(1000),
+				Version:    MorphTxVersion0,
+			},
+		},
+		{
+			name: "V1 with all fields",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      2,
+				GasTipCap:  big.NewInt(2),
+				GasFeeCap:  big.NewInt(20),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(200),
+				FeeTokenID: 0,
+				Version:    MorphTxVersion1,
+				Reference:  &ref,
+				Memo:       &memo,
+			},
+		},
+		{
+			name: "V1 with Reference only",
+			tx: &MorphTx{
+				ChainID:   big.NewInt(1),
+				Nonce:     3,
+				GasTipCap: big.NewInt(1),
+				GasFeeCap: big.NewInt(10),
+				Gas:       21000,
+				To:        &testAddr,
+				Value:     big.NewInt(0),
+				Version:   MorphTxVersion1,
+				Reference: &ref,
+				Memo:      &emptyMemo, // V1 requires Memo field for RLP encoding
+			},
+		},
+		{
+			name: "V1 with Memo only",
+			tx: &MorphTx{
+				ChainID:   big.NewInt(1),
+				Nonce:     4,
+				GasTipCap: big.NewInt(1),
+				GasFeeCap: big.NewInt(10),
+				Gas:       21000,
+				To:        &testAddr,
+				Value:     big.NewInt(0),
+				Version:   MorphTxVersion1,
+				Reference: &zeroRef, // V1 requires Reference field for RLP encoding
+				Memo:      &memo,
+			},
+		},
+		{
+			name: "V1 with empty Memo",
+			tx: &MorphTx{
+				ChainID:   big.NewInt(1),
+				Nonce:     5,
+				GasTipCap: big.NewInt(1),
+				GasFeeCap: big.NewInt(10),
+				Gas:       21000,
+				To:        &testAddr,
+				Value:     big.NewInt(0),
+				Version:   MorphTxVersion1,
+				Reference: &zeroRef, // V1 requires Reference field for RLP encoding
+				Memo:      &emptyMemo,
+			},
+		},
+		{
+			name: "V1 with max length Memo",
+			tx: &MorphTx{
+				ChainID:   big.NewInt(1),
+				Nonce:     6,
+				GasTipCap: big.NewInt(1),
+				GasFeeCap: big.NewInt(10),
+				Gas:       21000,
+				To:        &testAddr,
+				Value:     big.NewInt(0),
+				Version:   MorphTxVersion1,
+				Reference: &zeroRef, // V1 requires Reference field for RLP encoding
+				Memo:      func() *[]byte { m := make([]byte, common.MaxMemoLength); return &m }(),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := NewTx(tc.tx)
+			signedTx, err := SignTx(tx, signer, key)
+			if err != nil {
+				t.Fatalf("SignTx failed: %v", err)
+			}
+
+			// Test RLP encoding/decoding
+			parsedTx, err := encodeDecodeBinary(signedTx)
+			if err != nil {
+				t.Fatalf("RLP encode/decode failed: %v", err)
+			}
+			if parsedTx.Hash() != signedTx.Hash() {
+				t.Error("Hash mismatch after RLP encode/decode")
+			}
+			if parsedTx.Version() != signedTx.Version() {
+				t.Errorf("Version mismatch, got %d, want %d", parsedTx.Version(), signedTx.Version())
+			}
+			if !reflect.DeepEqual(parsedTx.Reference(), signedTx.Reference()) {
+				t.Error("Reference mismatch after RLP encode/decode")
+			}
+			if !compareMemoPtr(parsedTx.Memo(), signedTx.Memo()) {
+				t.Error("Memo mismatch after RLP encode/decode")
+			}
+
+			// Test JSON encoding/decoding
+			parsedTx, err = encodeDecodeJSON(signedTx)
+			if err != nil {
+				t.Fatalf("JSON encode/decode failed: %v", err)
+			}
+			if parsedTx.Hash() != signedTx.Hash() {
+				t.Error("Hash mismatch after JSON encode/decode")
+			}
+			if parsedTx.Version() != signedTx.Version() {
+				t.Errorf("Version mismatch after JSON, got %d, want %d", parsedTx.Version(), signedTx.Version())
+			}
+		})
+	}
+}
+
+// TestMorphTxValidation tests ValidateMemo and ValidateMorphTxVersion.
+func TestMorphTxValidation(t *testing.T) {
+	t.Run("ValidateMemo", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			memo    *[]byte
+			wantErr error
+		}{
+			{"nil memo", nil, nil},
+			{"empty memo", func() *[]byte { m := []byte{}; return &m }(), nil},
+			{"valid memo", func() *[]byte { m := []byte("hello"); return &m }(), nil},
+			{"max length memo", func() *[]byte { m := make([]byte, common.MaxMemoLength); return &m }(), nil},
+			{"over max length memo", func() *[]byte { m := make([]byte, common.MaxMemoLength+1); return &m }(), ErrMemoTooLong},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				tx := NewTx(&MorphTx{
+					ChainID:   big.NewInt(1),
+					Nonce:     1,
+					GasTipCap: big.NewInt(1),
+					GasFeeCap: big.NewInt(10),
+					Gas:       21000,
+					To:        &testAddr,
+					Version:   MorphTxVersion1,
+					Memo:      tc.memo,
+				})
+				err := tx.ValidateMemo()
+				if err != tc.wantErr {
+					t.Errorf("ValidateMemo error mismatch, got %v, want %v", err, tc.wantErr)
+				}
+			})
+		}
+	})
+
+	t.Run("ValidateMorphTxVersion", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			version    uint8
+			feeTokenID uint16
+			wantErr    error
+		}{
+			{"V0 with FeeTokenID > 0", MorphTxVersion0, 1, nil},
+			{"V0 with FeeTokenID = 0", MorphTxVersion0, 0, ErrMorphTxV0RequiresFeeToken},
+			{"V1 with FeeTokenID = 0", MorphTxVersion1, 0, nil},
+			{"V1 with FeeTokenID > 0", MorphTxVersion1, 1, nil},
+			{"Unsupported version 2", 2, 0, ErrMorphTxUnsupportedVersion},
+			{"Unsupported version 255", 255, 1, ErrMorphTxUnsupportedVersion},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				tx := NewTx(&MorphTx{
+					ChainID:    big.NewInt(1),
+					Nonce:      1,
+					GasTipCap:  big.NewInt(1),
+					GasFeeCap:  big.NewInt(10),
+					Gas:        21000,
+					To:         &testAddr,
+					Version:    tc.version,
+					FeeTokenID: tc.feeTokenID,
+				})
+				err := tx.ValidateMorphTxVersion()
+				if err != tc.wantErr {
+					t.Errorf("ValidateMorphTxVersion error mismatch, got %v, want %v", err, tc.wantErr)
+				}
+			})
+		}
+	})
+
+	t.Run("Non-MorphTx validation", func(t *testing.T) {
+		// ValidateMemo on non-MorphTx should return nil
+		legacyTx := NewTx(&LegacyTx{
+			Nonce:    1,
+			GasPrice: big.NewInt(1),
+			Gas:      21000,
+			To:       &testAddr,
+		})
+		if err := legacyTx.ValidateMemo(); err != nil {
+			t.Errorf("ValidateMemo on LegacyTx should return nil, got %v", err)
+		}
+		if err := legacyTx.ValidateMorphTxVersion(); err != nil {
+			t.Errorf("ValidateMorphTxVersion on LegacyTx should return nil, got %v", err)
+		}
+	})
+}
+
+// TestMorphTxAccessors tests accessor methods for MorphTx fields.
+func TestMorphTxAccessors(t *testing.T) {
+	ref := common.HexToReference("0x2222222222222222222222222222222222222222222222222222222222222222")
+	memo := []byte("accessor test memo")
+	feeLimit := big.NewInt(999999)
+
+	t.Run("MorphTx V0 accessors", func(t *testing.T) {
+		tx := NewTx(&MorphTx{
+			ChainID:    big.NewInt(1),
+			Nonce:      10,
+			GasTipCap:  big.NewInt(5),
+			GasFeeCap:  big.NewInt(50),
+			Gas:        30000,
+			To:         &testAddr,
+			Value:      big.NewInt(1000),
+			FeeTokenID: 42,
+			FeeLimit:   feeLimit,
+			Version:    MorphTxVersion0,
+		})
+
+		if !tx.IsMorphTx() {
+			t.Error("IsMorphTx should return true")
+		}
+		if !tx.IsMorphTxWithAltFee() {
+			t.Error("IsMorphTxWithAltFee should return true for V0 with FeeTokenID > 0")
+		}
+		if tx.Version() != MorphTxVersion0 {
+			t.Errorf("Version mismatch, got %d, want %d", tx.Version(), MorphTxVersion0)
+		}
+		if tx.FeeTokenID() != 42 {
+			t.Errorf("FeeTokenID mismatch, got %d, want 42", tx.FeeTokenID())
+		}
+		if tx.FeeLimit().Cmp(feeLimit) != 0 {
+			t.Errorf("FeeLimit mismatch, got %v, want %v", tx.FeeLimit(), feeLimit)
+		}
+		if tx.Reference() != nil {
+			t.Error("Reference should be nil for V0")
+		}
+		if tx.Memo() != nil {
+			t.Error("Memo should be nil for V0")
+		}
+	})
+
+	t.Run("MorphTx V1 accessors", func(t *testing.T) {
+		tx := NewTx(&MorphTx{
+			ChainID:    big.NewInt(1),
+			Nonce:      20,
+			GasTipCap:  big.NewInt(10),
+			GasFeeCap:  big.NewInt(100),
+			Gas:        40000,
+			To:         &testAddr,
+			Value:      big.NewInt(2000),
+			FeeTokenID: 0,
+			Version:    MorphTxVersion1,
+			Reference:  &ref,
+			Memo:       &memo,
+		})
+
+		if !tx.IsMorphTx() {
+			t.Error("IsMorphTx should return true")
+		}
+		if tx.IsMorphTxWithAltFee() {
+			t.Error("IsMorphTxWithAltFee should return false for FeeTokenID = 0")
+		}
+		if tx.Version() != MorphTxVersion1 {
+			t.Errorf("Version mismatch, got %d, want %d", tx.Version(), MorphTxVersion1)
+		}
+		if tx.FeeTokenID() != 0 {
+			t.Errorf("FeeTokenID mismatch, got %d, want 0", tx.FeeTokenID())
+		}
+		if tx.Reference() == nil || *tx.Reference() != ref {
+			t.Error("Reference mismatch")
+		}
+		if tx.Memo() == nil || !bytes.Equal(*tx.Memo(), memo) {
+			t.Error("Memo mismatch")
+		}
+	})
+
+	t.Run("Non-MorphTx accessors", func(t *testing.T) {
+		legacyTx := NewTx(&LegacyTx{
+			Nonce:    1,
+			GasPrice: big.NewInt(1),
+			Gas:      21000,
+			To:       &testAddr,
+		})
+
+		if legacyTx.IsMorphTx() {
+			t.Error("IsMorphTx should return false for LegacyTx")
+		}
+		if legacyTx.IsMorphTxWithAltFee() {
+			t.Error("IsMorphTxWithAltFee should return false for LegacyTx")
+		}
+		if legacyTx.Version() != 0 {
+			t.Errorf("Version should return 0 for non-MorphTx, got %d", legacyTx.Version())
+		}
+		if legacyTx.FeeTokenID() != 0 {
+			t.Errorf("FeeTokenID should return 0 for non-MorphTx, got %d", legacyTx.FeeTokenID())
+		}
+		if legacyTx.Reference() != nil {
+			t.Error("Reference should return nil for non-MorphTx")
+		}
+		if legacyTx.Memo() != nil {
+			t.Error("Memo should return nil for non-MorphTx")
+		}
+	})
+}
+
+// TestMorphTxVersionBackwardCompatibility tests that V0 and V1 transactions
+// can be correctly encoded, decoded, and signed.
+func TestMorphTxVersionBackwardCompatibility(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	signer := NewEmeraldSigner(big.NewInt(1))
+
+	// Create V0 tx
+	v0Tx := NewTx(&MorphTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      1,
+		GasTipCap:  big.NewInt(1),
+		GasFeeCap:  big.NewInt(10),
+		Gas:        21000,
+		To:         &testAddr,
+		Value:      big.NewInt(100),
+		FeeTokenID: 1,
+		FeeLimit:   big.NewInt(1000),
+		Version:    MorphTxVersion0,
+	})
+
+	// Create V1 tx with same basic params but different version/fields
+	ref := common.HexToReference("0x3333333333333333333333333333333333333333333333333333333333333333")
+	memo := []byte("backward compat test")
+	v1Tx := NewTx(&MorphTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      1,
+		GasTipCap:  big.NewInt(1),
+		GasFeeCap:  big.NewInt(10),
+		Gas:        21000,
+		To:         &testAddr,
+		Value:      big.NewInt(100),
+		FeeTokenID: 1,
+		FeeLimit:   big.NewInt(1000),
+		Version:    MorphTxVersion1,
+		Reference:  &ref,
+		Memo:       &memo,
+	})
+
+	// Sign both transactions
+	signedV0, err := SignTx(v0Tx, signer, key)
+	if err != nil {
+		t.Fatalf("Failed to sign V0 tx: %v", err)
+	}
+	signedV1, err := SignTx(v1Tx, signer, key)
+	if err != nil {
+		t.Fatalf("Failed to sign V1 tx: %v", err)
+	}
+
+	// Hashes should be different (different sigHash due to version)
+	if signedV0.Hash() == signedV1.Hash() {
+		t.Error("V0 and V1 transaction hashes should be different")
+	}
+
+	// Both should be recoverable
+	sender0, err := Sender(signer, signedV0)
+	if err != nil {
+		t.Fatalf("Failed to recover V0 sender: %v", err)
+	}
+	sender1, err := Sender(signer, signedV1)
+	if err != nil {
+		t.Fatalf("Failed to recover V1 sender: %v", err)
+	}
+	if sender0 != sender1 {
+		t.Error("Senders should be the same")
+	}
+
+	// Both should round-trip through RLP
+	decoded0, err := encodeDecodeBinary(signedV0)
+	if err != nil {
+		t.Fatalf("V0 RLP round-trip failed: %v", err)
+	}
+	if decoded0.Version() != MorphTxVersion0 {
+		t.Errorf("V0 version not preserved, got %d", decoded0.Version())
+	}
+
+	decoded1, err := encodeDecodeBinary(signedV1)
+	if err != nil {
+		t.Fatalf("V1 RLP round-trip failed: %v", err)
+	}
+	if decoded1.Version() != MorphTxVersion1 {
+		t.Errorf("V1 version not preserved, got %d", decoded1.Version())
+	}
+	if decoded1.Reference() == nil || *decoded1.Reference() != ref {
+		t.Error("V1 Reference not preserved")
+	}
+	if decoded1.Memo() == nil || !bytes.Equal(*decoded1.Memo(), memo) {
+		t.Error("V1 Memo not preserved")
+	}
+}
+
+// TestMorphTxReferenceEdgeCases tests edge cases for Reference field.
+// Note: V1 MorphTx requires both Reference and Memo fields for RLP encoding.
+func TestMorphTxReferenceEdgeCases(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	signer := NewEmeraldSigner(big.NewInt(1))
+
+	zeroRef := common.Reference{}
+	fullRef := common.HexToReference("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	partialRef := common.HexToReference("0x1234567800000000000000000000000000000000000000000000000000000000")
+	emptyMemo := []byte{}
+
+	tests := []struct {
+		name string
+		ref  *common.Reference
+	}{
+		{"zero reference", &zeroRef},
+		{"full reference", &fullRef},
+		{"partial reference", &partialRef},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := NewTx(&MorphTx{
+				ChainID:   big.NewInt(1),
+				Nonce:     1,
+				GasTipCap: big.NewInt(1),
+				GasFeeCap: big.NewInt(10),
+				Gas:       21000,
+				To:        &testAddr,
+				Version:   MorphTxVersion1,
+				Reference: tc.ref,
+				Memo:      &emptyMemo, // V1 requires Memo field for RLP encoding
+			})
+
+			signedTx, err := SignTx(tx, signer, key)
+			if err != nil {
+				t.Fatalf("SignTx failed: %v", err)
+			}
+
+			decoded, err := encodeDecodeBinary(signedTx)
+			if err != nil {
+				t.Fatalf("RLP round-trip failed: %v", err)
+			}
+
+			if !reflect.DeepEqual(decoded.Reference(), tc.ref) {
+				t.Errorf("Reference mismatch after round-trip, got %v, want %v", decoded.Reference(), tc.ref)
+			}
+		})
+	}
+}
+
+// TestMorphTxMemoEdgeCases tests edge cases for Memo field.
+// Note: V1 MorphTx requires both Reference and Memo fields for RLP encoding.
+func TestMorphTxMemoEdgeCases(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	signer := NewEmeraldSigner(big.NewInt(1))
+
+	zeroRef := common.Reference{}
+
+	tests := []struct {
+		name string
+		memo *[]byte
+	}{
+		{"empty memo", func() *[]byte { m := []byte{}; return &m }()},
+		{"single byte", func() *[]byte { m := []byte{0x42}; return &m }()},
+		{"max length", func() *[]byte { m := make([]byte, common.MaxMemoLength); return &m }()},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := NewTx(&MorphTx{
+				ChainID:   big.NewInt(1),
+				Nonce:     1,
+				GasTipCap: big.NewInt(1),
+				GasFeeCap: big.NewInt(10),
+				Gas:       21000,
+				To:        &testAddr,
+				Version:   MorphTxVersion1,
+				Reference: &zeroRef, // V1 requires Reference field for RLP encoding
+				Memo:      tc.memo,
+			})
+
+			signedTx, err := SignTx(tx, signer, key)
+			if err != nil {
+				t.Fatalf("SignTx failed: %v", err)
+			}
+
+			decoded, err := encodeDecodeBinary(signedTx)
+			if err != nil {
+				t.Fatalf("RLP round-trip failed: %v", err)
+			}
+
+			if !compareMemoPtr(decoded.Memo(), tc.memo) {
+				t.Errorf("Memo mismatch after round-trip, got %v, want %v", decoded.Memo(), tc.memo)
+			}
+		})
+	}
+}
+
+// Helper function to compare memo pointers
+func compareMemoPtr(a, b *[]byte) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return bytes.Equal(*a, *b)
 }

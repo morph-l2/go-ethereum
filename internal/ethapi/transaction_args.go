@@ -84,6 +84,47 @@ func (arg *TransactionArgs) data() []byte {
 	return nil
 }
 
+// isMorphTxArgs returns true if the transaction args indicate a MorphTx type.
+func (args *TransactionArgs) isMorphTxArgs() bool {
+	// Check if any MorphTx-specific field is set
+	// Note: Version=0 with FeeTokenID=0 is invalid, but we still want to validate it
+	return (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0)
+}
+
+// validateMorphTxVersion validates the MorphTx version and its associated field requirements.
+// Rules:
+//   - Version 0 (legacy format): FeeTokenID must be > 0
+//   - Version 1 (with Reference/Memo): FeeTokenID, FeeLimit, Reference, Memo are all optional
+//   - Other versions: not supported
+func (args *TransactionArgs) validateMorphTxVersion() error {
+	if !args.isMorphTxArgs() {
+		return nil
+	}
+
+	// Default to Version 1 if not specified
+	version := byte(types.MorphTxVersion1)
+	if args.Version != nil {
+		version = *args.Version
+	}
+
+	switch version {
+	case types.MorphTxVersion0:
+		// Version 0 requires FeeTokenID > 0 (legacy format used for alt-fee transactions)
+		if args.FeeTokenID == nil || *args.FeeTokenID == 0 {
+			return types.ErrMorphTxV0RequiresFeeToken
+		}
+	case types.MorphTxVersion1:
+		// Version 1: FeeTokenID, FeeLimit, Reference, Memo are all optional
+		// No additional validation needed
+	default:
+		return types.ErrMorphTxUnsupportedVersion
+	}
+	return nil
+}
+
 // setDefaults fills in default values for unspecified tx fields.
 func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if args.GasPrice != nil && (args.MaxFeePerGas != nil || args.MaxPriorityFeePerGas != nil) {
@@ -164,6 +205,10 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	// Validate memo length for MorphTx
 	if args.Memo != nil && len(*args.Memo) > common.MaxMemoLength {
 		return errors.New("memo exceeds maximum length of 64 bytes")
+	}
+	// Validate MorphTx version and associated field requirements
+	if err := args.validateMorphTxVersion(); err != nil {
+		return err
 	}
 	// Estimate the gas usage if necessary.
 	if args.Gas == nil {
@@ -350,7 +395,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 	switch {
 	//	must take precedence over MaxFeePerGas.
 	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
-		(args.Version != nil && *args.Version > 0) ||
+		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
 		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
 		(args.Memo != nil && len(*args.Memo) > 0):
 		usedType = types.MorphTxType

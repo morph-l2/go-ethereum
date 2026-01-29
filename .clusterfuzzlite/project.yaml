@@ -1,0 +1,6 @@
+language: go
+fuzzing_engines:
+  - libfuzzer
+sanitizers:
+  - address
+main_repo: 'https://github.com/morph-l2/go-ethereum.git'

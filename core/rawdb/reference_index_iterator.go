@@ -125,19 +125,19 @@ func iterateReferences(db ethdb.Database, from uint64, to uint64, reverse bool, 
 				}
 			}
 
-			if len(refs) > 0 {
-				result := &blockReferenceInfo{
-					number:         data.number,
-					blockTimestamp: data.header.Time,
-					references:     refs,
-				}
-				// Feed the block to the aggregator, or abort on interrupt
-				select {
-				case resultCh <- result:
-				case <-interrupt:
-					return
-				}
-			}
+		// Always send result for every block (even if no references) to maintain
+		// contiguous block numbers for gap-filling logic in indexReferences
+		result := &blockReferenceInfo{
+			number:         data.number,
+			blockTimestamp: data.header.Time,
+			references:     refs,
+		}
+		// Feed the block to the aggregator, or abort on interrupt
+		select {
+		case resultCh <- result:
+		case <-interrupt:
+			return
+		}
 		}
 	}
 

@@ -400,16 +400,14 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	bc.wg.Add(1)
 	go bc.futureBlocksLoop()
 
-	// Start tx indexer/unindexer.
 	if txLookupLimit != nil {
 		bc.txLookupLimit = *txLookupLimit
 
+		// Start tx indexer/unindexer.
 		bc.wg.Add(1)
 		go bc.maintainTxIndex(txIndexBlock)
-	}
 
-	// Start reference indexer/unindexer (using same lookup limit as tx index).
-	if txLookupLimit != nil {
+		// Start reference indexer/unindexer (using same lookup limit as tx index).
 		bc.wg.Add(1)
 		go bc.maintainReferenceIndex(txIndexBlock)
 	}
@@ -767,6 +765,7 @@ func (bc *BlockChain) writeHeadBlock(block *types.Block) {
 	rawdb.WriteHeadFastBlockHash(batch, block.Hash())
 	rawdb.WriteCanonicalHash(batch, block.Hash(), block.NumberU64())
 	rawdb.WriteTxLookupEntriesByBlock(batch, block)
+	rawdb.WriteReferenceIndexEntriesForBlock(batch, block)
 	rawdb.WriteHeadBlockHash(batch, block.Hash())
 
 	// Flush the whole batch into the disk, exit the node if failed
@@ -1009,13 +1008,15 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 		for _, block := range blockChain {
 			if bc.txLookupLimit == 0 || ancientLimit <= bc.txLookupLimit || block.NumberU64() >= ancientLimit-bc.txLookupLimit {
 				rawdb.WriteTxLookupEntriesByBlock(batch, block)
+				rawdb.WriteReferenceIndexEntriesForBlock(batch, block)
 			} else if rawdb.ReadTxIndexTail(bc.db) != nil {
 				rawdb.WriteTxLookupEntriesByBlock(batch, block)
+				rawdb.WriteReferenceIndexEntriesForBlock(batch, block)
 			}
 			stats.processed++
 		}
 
-		// Flush all tx-lookup index data.
+		// Flush all tx-lookup and reference index data.
 		size += int64(batch.ValueSize())
 		if err := batch.Write(); err != nil {
 			// The tx index data could not be written.
@@ -1094,11 +1095,12 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			// Write all the data out into the database
 			rawdb.WriteBody(batch, block.Hash(), block.NumberU64(), block.Body())
 			rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receiptChain[i])
-			rawdb.WriteTxLookupEntriesByBlock(batch, block) // Always write tx indices for live blocks, we assume they are needed
+			rawdb.WriteTxLookupEntriesByBlock(batch, block)       // Always write tx indices for live blocks, we assume they are needed
+			rawdb.WriteReferenceIndexEntriesForBlock(batch, block) // Always write reference indices for live blocks
 
 			// Write everything belongs to the blocks into the database. So that
 			// we can ensure all components of body is completed(body, receipts,
-			// tx indexes)
+			// tx indexes, reference indexes)
 			if batch.ValueSize() >= ethdb.IdealBatchSize {
 				if err := batch.Write(); err != nil {
 					return 0, err

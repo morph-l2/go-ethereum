@@ -54,6 +54,12 @@ var (
 
 	// eip1559NoL1feeConfig is a chain config with EIP-1559 enabled at block 0 but not enabling L1fee.
 	eip1559NoL1feeConfig *params.ChainConfig
+
+	// morphTxConfig is a chain config with Emerald fork enabled (supports MorphTx).
+	morphTxConfig *params.ChainConfig
+
+	// noEmeraldConfig is a chain config without Emerald fork (MorphTx not supported).
+	noEmeraldConfig *params.ChainConfig
 )
 
 func init() {
@@ -72,6 +78,20 @@ func init() {
 	eip1559NoL1feeConfig = &cpy2
 	eip1559NoL1feeConfig.BerlinBlock = common.Big0
 	eip1559NoL1feeConfig.LondonBlock = common.Big0
+
+	// MorphTx config with Emerald fork enabled
+	cpy3 := *params.TestChainConfig
+	morphTxConfig = &cpy3
+	morphTxConfig.BerlinBlock = common.Big0
+	morphTxConfig.LondonBlock = common.Big0
+	morphTxConfig.EmeraldTime = new(uint64) // Enable Emerald fork at time 0
+
+	// Config without Emerald fork (for testing MorphTx rejection)
+	cpy4 := *params.TestChainConfig
+	noEmeraldConfig = &cpy4
+	noEmeraldConfig.BerlinBlock = common.Big0
+	noEmeraldConfig.LondonBlock = common.Big0
+	noEmeraldConfig.EmeraldTime = nil // Disable Emerald fork
 }
 
 type testBlockChain struct {
@@ -126,6 +146,94 @@ func dynamicFeeTx(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, 
 		Value:      big.NewInt(100),
 		Data:       nil,
 		AccessList: nil,
+	})
+	return tx
+}
+
+// morphTxV0 creates a MorphTx Version 0 (legacy format with alt fee).
+// V0 requires FeeTokenID > 0.
+func morphTxV0(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, feeTokenID uint16, key *ecdsa.PrivateKey) *types.Transaction {
+	tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		GasTipCap:  tip,
+		GasFeeCap:  gasFee,
+		Gas:        gaslimit,
+		To:         &common.Address{},
+		Value:      big.NewInt(100),
+		Data:       nil,
+		AccessList: nil,
+		FeeTokenID: feeTokenID,
+		FeeLimit:   big.NewInt(1000000),
+		Version:    types.MorphTxVersion0,
+	})
+	return tx
+}
+
+// morphTxV1 creates a MorphTx Version 1 (with Reference and Memo).
+// V1 allows FeeTokenID = 0.
+func morphTxV1(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, key *ecdsa.PrivateKey) *types.Transaction {
+	ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	memo := []byte("test memo")
+	tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		GasTipCap:  tip,
+		GasFeeCap:  gasFee,
+		Gas:        gaslimit,
+		To:         &common.Address{},
+		Value:      big.NewInt(100),
+		Data:       nil,
+		AccessList: nil,
+		FeeTokenID: 0,
+		FeeLimit:   big.NewInt(0),
+		Version:    types.MorphTxVersion1,
+		Reference:  &ref,
+		Memo:       &memo,
+	})
+	return tx
+}
+
+// morphTxV1WithMemo creates a MorphTx Version 1 with custom memo.
+func morphTxV1WithMemo(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, memo []byte, key *ecdsa.PrivateKey) *types.Transaction {
+	ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		GasTipCap:  tip,
+		GasFeeCap:  gasFee,
+		Gas:        gaslimit,
+		To:         &common.Address{},
+		Value:      big.NewInt(100),
+		Data:       nil,
+		AccessList: nil,
+		FeeTokenID: 0,
+		Version:    types.MorphTxVersion1,
+		Reference:  &ref,
+		Memo:       &memo,
+	})
+	return tx
+}
+
+// morphTxV1WithAltFee creates a MorphTx V1 with alt fee (FeeTokenID > 0).
+func morphTxV1WithAltFee(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, feeTokenID uint16, key *ecdsa.PrivateKey) *types.Transaction {
+	ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	memo := []byte("test memo")
+	tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		GasTipCap:  tip,
+		GasFeeCap:  gasFee,
+		Gas:        gaslimit,
+		To:         &common.Address{},
+		Value:      big.NewInt(100),
+		Data:       nil,
+		AccessList: nil,
+		FeeTokenID: feeTokenID,
+		FeeLimit:   big.NewInt(1000000),
+		Version:    types.MorphTxVersion1,
+		Reference:  &ref,
+		Memo:       &memo,
 	})
 	return tx
 }
@@ -2601,4 +2709,313 @@ func TestPoolPending(t *testing.T) {
 
 	maxAccounts := 10
 	assert.Len(t, pool.PendingWithMax(nil, nil, maxAccounts), maxAccounts)
+}
+
+// ==================== MorphTx Tests ====================
+
+// TestMorphTxValidation tests MorphTx validation in the transaction pool.
+func TestMorphTxValidation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("MemoTooLong", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// Memo exceeds max length (64 bytes)
+		longMemo := make([]byte, common.MaxMemoLength+1)
+		tx := morphTxV1WithMemo(0, 100000, big.NewInt(10), big.NewInt(1), longMemo, key)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMemoTooLong) {
+			t.Errorf("expected ErrMemoTooLong, got %v", err)
+		}
+	})
+
+	t.Run("MemoMaxLength", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// Memo at max length (64 bytes) should be accepted
+		maxMemo := make([]byte, common.MaxMemoLength)
+		tx := morphTxV1WithMemo(0, 100000, big.NewInt(10), big.NewInt(1), maxMemo, key)
+		if err := pool.AddRemote(tx); err != nil {
+			t.Errorf("expected no error for max memo length, got %v", err)
+		}
+	})
+
+	t.Run("V0RequiresFeeTokenID", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// V0 with FeeTokenID = 0 should be rejected
+		tx := morphTxV0(0, 100000, big.NewInt(10), big.NewInt(1), 0, key)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0RequiresFeeToken) {
+			t.Errorf("expected ErrMorphTxV0RequiresFeeToken, got %v", err)
+		}
+	})
+
+	t.Run("V0WithFeeTokenID", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// V0 with FeeTokenID > 0 - this will fail due to token not being active,
+		// but it should pass version validation
+		tx := morphTxV0(0, 100000, big.NewInt(10), big.NewInt(1), 1, key)
+		err := pool.AddRemote(tx)
+		// Should not be version error (but may be token error)
+		if errors.Is(err, types.ErrMorphTxV0RequiresFeeToken) {
+			t.Errorf("V0 with FeeTokenID > 0 should pass version validation, got %v", err)
+		}
+	})
+
+	t.Run("UnsupportedVersion", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// Create a MorphTx with unsupported version
+		ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+		memo := []byte("test")
+		tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+			ChainID:    params.TestChainConfig.ChainID,
+			Nonce:      0,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  big.NewInt(10),
+			Gas:        100000,
+			To:         &common.Address{},
+			Value:      big.NewInt(100),
+			FeeTokenID: 0,
+			Version:    2, // Unsupported version
+			Reference:  &ref,
+			Memo:       &memo,
+		})
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxUnsupportedVersion) {
+			t.Errorf("expected ErrMorphTxUnsupportedVersion, got %v", err)
+		}
+	})
+}
+
+// TestMorphTxEIP1559Activation tests that MorphTx is rejected before Emerald fork.
+func TestMorphTxEIP1559Activation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("RejectBeforeEmerald", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(noEmeraldConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		tx := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		err := pool.AddRemote(tx)
+		// Before Emerald, the signer doesn't support MorphTx, so we get either
+		// ErrTxTypeNotSupported or invalid sender error (signer check happens first)
+		if err == nil {
+			t.Error("expected MorphTx to be rejected before Emerald")
+		}
+	})
+
+	t.Run("AcceptAfterEmerald", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		tx := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.AddRemote(tx); err != nil {
+			t.Errorf("expected MorphTx to be accepted after Emerald, got %v", err)
+		}
+	})
+}
+
+// TestMorphTxPoolManagement tests MorphTx behavior in transaction pool.
+func TestMorphTxPoolManagement(t *testing.T) {
+	t.Parallel()
+
+	t.Run("PendingAndQueued", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// Add executable MorphTx (nonce 0)
+		tx0 := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.addRemoteSync(tx0); err != nil {
+			t.Fatalf("failed to add tx0: %v", err)
+		}
+
+		// Add queued MorphTx (nonce 2, gap at nonce 1)
+		tx2 := morphTxV1(2, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.addRemoteSync(tx2); err != nil {
+			t.Fatalf("failed to add tx2: %v", err)
+		}
+
+		pending, queued := pool.Stats()
+		if pending != 1 {
+			t.Errorf("pending mismatch: have %d, want 1", pending)
+		}
+		if queued != 1 {
+			t.Errorf("queued mismatch: have %d, want 1", queued)
+		}
+
+		// Fill the gap
+		tx1 := morphTxV1(1, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.addRemoteSync(tx1); err != nil {
+			t.Fatalf("failed to add tx1: %v", err)
+		}
+
+		pending, queued = pool.Stats()
+		if pending != 3 {
+			t.Errorf("after gap fill pending mismatch: have %d, want 3", pending)
+		}
+		if queued != 0 {
+			t.Errorf("after gap fill queued mismatch: have %d, want 0", queued)
+		}
+	})
+
+	t.Run("Replacement", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// Add initial MorphTx
+		tx1 := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.addRemoteSync(tx1); err != nil {
+			t.Fatalf("failed to add tx1: %v", err)
+		}
+
+		// Try to replace with same gas price (should fail)
+		tx2 := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.addRemoteSync(tx2); err == nil {
+			t.Error("expected rejection for same-price replacement")
+		}
+
+		// Replace with higher gas price (10% bump required)
+		tx3 := morphTxV1(0, 100000, big.NewInt(12), big.NewInt(2), key)
+		if err := pool.addRemoteSync(tx3); err != nil {
+			t.Errorf("expected acceptance for higher-price replacement, got %v", err)
+		}
+
+		pending, _ := pool.Stats()
+		if pending != 1 {
+			t.Errorf("pending mismatch after replacement: have %d, want 1", pending)
+		}
+	})
+}
+
+// TestMorphTxMixedTransactions tests pool with mixed transaction types.
+func TestMorphTxMixedTransactions(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPoolWithConfig(morphTxConfig)
+	defer pool.Stop()
+
+	account := crypto.PubkeyToAddress(key.PublicKey)
+	testAddBalance(pool, account, big.NewInt(10000000000))
+
+	// Add legacy transaction
+	tx0 := transaction(0, 100000, key)
+	if err := pool.addRemoteSync(tx0); err != nil {
+		t.Fatalf("failed to add legacy tx: %v", err)
+	}
+
+	// Add dynamic fee transaction
+	tx1 := dynamicFeeTx(1, 100000, big.NewInt(10), big.NewInt(1), key)
+	if err := pool.addRemoteSync(tx1); err != nil {
+		t.Fatalf("failed to add dynamic fee tx: %v", err)
+	}
+
+	// Add MorphTx V1
+	tx2 := morphTxV1(2, 100000, big.NewInt(10), big.NewInt(1), key)
+	if err := pool.addRemoteSync(tx2); err != nil {
+		t.Fatalf("failed to add MorphTx V1: %v", err)
+	}
+
+	pending, queued := pool.Stats()
+	if pending != 3 {
+		t.Errorf("pending mismatch: have %d, want 3", pending)
+	}
+	if queued != 0 {
+		t.Errorf("queued mismatch: have %d, want 0", queued)
+	}
+
+	if err := validateTxPoolInternals(pool); err != nil {
+		t.Fatalf("pool internal state corrupted: %v", err)
+	}
+}
+
+// TestMorphTxAccessors tests MorphTx accessor methods.
+func TestMorphTxAccessors(t *testing.T) {
+	t.Parallel()
+
+	key, _ := crypto.GenerateKey()
+
+	t.Run("V0Accessors", func(t *testing.T) {
+		tx := morphTxV0(0, 100000, big.NewInt(10), big.NewInt(1), 1, key)
+		if !tx.IsMorphTx() {
+			t.Error("IsMorphTx should return true")
+		}
+		if !tx.IsMorphTxWithAltFee() {
+			t.Error("IsMorphTxWithAltFee should return true for FeeTokenID > 0")
+		}
+		if tx.Version() != types.MorphTxVersion0 {
+			t.Errorf("Version mismatch: have %d, want %d", tx.Version(), types.MorphTxVersion0)
+		}
+		if tx.FeeTokenID() != 1 {
+			t.Errorf("FeeTokenID mismatch: have %d, want 1", tx.FeeTokenID())
+		}
+	})
+
+	t.Run("V1Accessors", func(t *testing.T) {
+		tx := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if !tx.IsMorphTx() {
+			t.Error("IsMorphTx should return true")
+		}
+		if tx.IsMorphTxWithAltFee() {
+			t.Error("IsMorphTxWithAltFee should return false for FeeTokenID = 0")
+		}
+		if tx.Version() != types.MorphTxVersion1 {
+			t.Errorf("Version mismatch: have %d, want %d", tx.Version(), types.MorphTxVersion1)
+		}
+		if tx.Reference() == nil {
+			t.Error("Reference should not be nil")
+		}
+		if tx.Memo() == nil {
+			t.Error("Memo should not be nil")
+		}
+	})
 }

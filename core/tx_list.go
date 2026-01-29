@@ -353,6 +353,10 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		if l.costcap.Alt(tx.FeeTokenID()).Cmp(altCost) < 0 {
 			l.costcap.SetAltAmount(tx.FeeTokenID(), altCost)
 		}
+	} else if tx.IsMorphTx() {
+		// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+		cost := new(big.Int).Add(tx.GasFee(), tx.Value())
+		ethCost = new(big.Int).Add(cost, l1DataFee)
 	} else {
 		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee)
 	}
@@ -404,7 +408,15 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, altCostLimit map[ui
 			}
 			return tx.Gas() > gasLimit || tx.Value().Cmp(costLimit) > 0
 		}
-		return !allLower || tx.Gas() > gasLimit || tx.Cost().Cmp(costLimit) > 0
+		// Calculate cost based on transaction type
+		var txCost *big.Int
+		if tx.IsMorphTx() {
+			// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+			txCost = new(big.Int).Add(tx.GasFee(), tx.Value())
+		} else {
+			txCost = tx.Cost()
+		}
+		return !allLower || tx.Gas() > gasLimit || txCost.Cmp(costLimit) > 0
 	})
 
 	if len(removed) == 0 {

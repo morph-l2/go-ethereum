@@ -758,6 +758,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
 			return ErrInsufficientFunds
 		}
+	} else if tx.IsMorphTx() {
+		// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+		cost := new(big.Int).Add(tx.GasFee(), tx.Value())
+		if pool.currentState.GetBalance(from).Cmp(cost) < 0 {
+			return ErrInsufficientFunds
+		}
 	} else {
 		if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 			return ErrInsufficientFunds
@@ -789,6 +795,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			}
 			if limit.Cmp(erc20Amount) < 0 {
 				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price or fee limit too small")
+			}
+		} else if tx.IsMorphTx() {
+			// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+			cost := new(big.Int).Add(tx.GasFee(), tx.Value())
+			if b := pool.currentState.GetBalance(from); b.Cmp(new(big.Int).Add(cost, l1DataFee)) < 0 {
+				return errors.New("invalid transaction: insufficient funds for l1fee + gas * price + value")
 			}
 		} else {
 			// cost == L1 data fee + V + GP * GL
@@ -1625,7 +1637,19 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 
 func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, altCostLimit map[uint16]*big.Int) func(tx *types.Transaction) bool {
 	return func(tx *types.Transaction) bool {
-		if !tx.IsMorphTxWithAltFee() && (tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0) {
+		// Calculate cost based on transaction type
+		var txCost *big.Int
+		if tx.IsMorphTxWithAltFee() {
+			// MorphTx with alt fee is handled separately
+			txCost = nil
+		} else if tx.IsMorphTx() {
+			// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+			txCost = new(big.Int).Add(tx.GasFee(), tx.Value())
+		} else {
+			txCost = tx.Cost()
+		}
+
+		if txCost != nil && (tx.Gas() > pool.currentMaxGas || txCost.Cmp(costLimit) > 0) {
 			return true
 		}
 		if pool.chainconfig.Morph.FeeVaultEnabled() {
@@ -1655,6 +1679,10 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 					limit = cmath.BigMin(altCostLimit[tx.FeeTokenID()], tx.FeeLimit())
 				}
 				return costLimit.Cmp(tx.Value()) < 0 || limit.Cmp(altAmount) < 0
+			} else if tx.IsMorphTx() {
+				// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+				cost := new(big.Int).Add(tx.GasFee(), tx.Value())
+				return costLimit.Cmp(new(big.Int).Add(cost, l1DataFee)) < 0
 			} else {
 				return costLimit.Cmp(new(big.Int).Add(tx.Cost(), l1DataFee)) < 0
 			}

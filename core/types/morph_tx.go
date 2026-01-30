@@ -45,17 +45,16 @@ type MorphTx struct {
 	Data       []byte
 	AccessList AccessList
 
-	FeeTokenID uint16   // ERC20 token ID for fee payment (0 = ETH)
-	FeeLimit   *big.Int // maximum fee in token units (optional)
+	Version    uint8             // version of morph tx (0 = legacy, 1 = with reference/memo)
+	FeeTokenID uint16            // ERC20 token ID for fee payment (0 = ETH)
+	FeeLimit   *big.Int          // maximum fee in token units (optional)
+	Reference  *common.Reference // reference key for the transaction (optional, v1 only)
+	Memo       *[]byte           // memo for the transaction (optional, v1 only)
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
 	R *big.Int `json:"r" gencodec:"required"`
 	S *big.Int `json:"s" gencodec:"required"`
-
-	Version   uint8             // version of morph tx (0 = legacy, 1 = with reference/memo)
-	Reference *common.Reference // reference key for the transaction (optional, v1 only)
-	Memo      *[]byte           // memo for the transaction (optional, v1 only)
 }
 
 // morphTxV0RLP is the RLP encoding structure for MorphTx version 0 (legacy format)
@@ -77,6 +76,7 @@ type v0MorphTxRLP struct {
 }
 
 // morphTxV1RLP is the RLP encoding structure for MorphTx version 1 (with Reference/Memo)
+// Note: Version is NOT included here - it's encoded as a prefix byte before the RLP data
 type v1MorphTxRLP struct {
 	ChainID    *big.Int
 	Nonce      uint64
@@ -89,12 +89,11 @@ type v1MorphTxRLP struct {
 	AccessList AccessList
 	FeeTokenID uint16
 	FeeLimit   *big.Int
+	Reference  *common.Reference
+	Memo       *[]byte
 	V          *big.Int
 	R          *big.Int
 	S          *big.Int
-	Version    uint8
-	Reference  *common.Reference
-	Memo       *[]byte
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
@@ -180,8 +179,10 @@ func (tx *MorphTx) setSignatureValues(chainID, v, r, s *big.Int) {
 }
 
 func (tx *MorphTx) encode(b *bytes.Buffer) error {
-	if tx.Version == MorphTxVersion0 {
-		// Encode as v0 format (legacy)
+	switch tx.Version {
+	case MorphTxVersion0:
+		// Encode as v0 format (legacy AltFeeTx compatible)
+		// Format: RLP([chainID, nonce, ..., feeLimit, v, r, s])
 		return rlp.Encode(b, &v0MorphTxRLP{
 			ChainID:    tx.ChainID,
 			Nonce:      tx.Nonce,
@@ -198,47 +199,58 @@ func (tx *MorphTx) encode(b *bytes.Buffer) error {
 			R:          tx.R,
 			S:          tx.S,
 		})
+	case MorphTxVersion1:
+		// Encode as v1 format: [version byte] + RLP([...fields..., reference, memo])
+		// Version is encoded as a prefix byte (similar to txType), not inside RLP
+		b.WriteByte(tx.Version)
+		return rlp.Encode(b, &v1MorphTxRLP{
+			ChainID:    tx.ChainID,
+			Nonce:      tx.Nonce,
+			GasTipCap:  tx.GasTipCap,
+			GasFeeCap:  tx.GasFeeCap,
+			Gas:        tx.Gas,
+			To:         tx.To,
+			Value:      tx.Value,
+			Data:       tx.Data,
+			AccessList: tx.AccessList,
+			FeeTokenID: tx.FeeTokenID,
+			FeeLimit:   tx.FeeLimit,
+			Reference:  tx.Reference,
+			Memo:       tx.Memo,
+			V:          tx.V,
+			R:          tx.R,
+			S:          tx.S,
+		})
+	default:
+		return errors.New("unsupported morph tx version: " + strconv.Itoa(int(tx.Version)))
 	}
-	// Encode as v1 format (with Version, Reference, Memo)
-	return rlp.Encode(b, &v1MorphTxRLP{
-		ChainID:    tx.ChainID,
-		Nonce:      tx.Nonce,
-		GasTipCap:  tx.GasTipCap,
-		GasFeeCap:  tx.GasFeeCap,
-		Gas:        tx.Gas,
-		To:         tx.To,
-		Value:      tx.Value,
-		Data:       tx.Data,
-		AccessList: tx.AccessList,
-		FeeTokenID: tx.FeeTokenID,
-		FeeLimit:   tx.FeeLimit,
-		V:          tx.V,
-		R:          tx.R,
-		S:          tx.S,
-		Version:    tx.Version,
-		Reference:  tx.Reference,
-		Memo:       tx.Memo,
-	})
 }
 
 func (tx *MorphTx) decode(input []byte) error {
-	if err := decodeV1MorphTxRLP(tx, input); err == nil {
-		return nil
+	if len(input) == 0 {
+		return errors.New("empty morph tx input")
 	}
-	if err := decodeV0MorphTxRLP(tx, input); err == nil {
-		return nil
+
+	// Check first byte to determine version:
+	// - V0 format (legacy AltFeeTx): first byte is 0 or RLP list prefix (0xC0-0xFF)
+	// - V1+ format: first byte is version (0x01, 0x02, ...) followed by RLP
+	firstByte := input[0]
+	if firstByte == 0 || firstByte >= 0xC0 {
+		// V0 format: direct RLP decode (legacy compatible)
+		return decodeV0MorphTxRLP(tx, input)
 	}
-	return errors.New("failed to decode morph tx")
+
+	// V1+ format: first byte is version, rest is RLP
+	if firstByte != MorphTxVersion1 {
+		return errors.New("unsupported morph tx version: " + strconv.Itoa(int(firstByte)))
+	}
+	return decodeV1MorphTxRLP(tx, input[1:])
 }
 
 func decodeV1MorphTxRLP(tx *MorphTx, blob []byte) error {
 	var v1 v1MorphTxRLP
 	if err := rlp.DecodeBytes(blob, &v1); err != nil {
 		return err
-	}
-
-	if v1.Version != MorphTxVersion1 {
-		return errors.New("invalid morph tx version, expected 1, got " + strconv.Itoa(int(v1.Version)))
 	}
 
 	tx.ChainID = v1.ChainID
@@ -250,7 +262,7 @@ func decodeV1MorphTxRLP(tx *MorphTx, blob []byte) error {
 	tx.Value = v1.Value
 	tx.Data = v1.Data
 	tx.AccessList = v1.AccessList
-	tx.Version = v1.Version
+	tx.Version = MorphTxVersion1
 	tx.FeeTokenID = v1.FeeTokenID
 	tx.FeeLimit = v1.FeeLimit
 	tx.Reference = v1.Reference

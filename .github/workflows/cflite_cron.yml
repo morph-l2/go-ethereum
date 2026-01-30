@@ -1,5 +1,8 @@
 name: ClusterFuzzLite cron tasks
 on:
+  push:
+    branches:
+      - feat/clusterfuzzlite
   schedule:
     # Run daily at midnight UTC
     - cron: '0 0 * * *'
@@ -676,58 +679,93 @@ jobs:
           # Save coverage rows to file (too long for env var)
           echo "$coverage_rows" > /tmp/coverage_rows.html
 
-      - name: Send daily coverage report email
+      - name: Send daily coverage report to Feishu
         if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "📊 [Daily Report] Fuzzer Coverage - ${{ steps.coverage_data.outputs.avg_coverage }}% avg (${{ steps.coverage_data.outputs.date }})"
-          to: ${{ vars.FUZZ_REPORT_EMAIL }}
-          from: "Fuzzing Bot <${{ secrets.SMTP_USERNAME }}>"
-          html_body: |
-            <html>
-            <body style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto;">
-              <div style="background: #4CAF50; color: white; padding: 20px; text-align: center;">
-                <h1 style="margin: 0;">📊 Daily Coverage Report</h1>
-              </div>
+        run: |
+          # Read coverage rows from file
+          COVERAGE_TABLE=""
+          if [ -f /tmp/coverage_rows.html ]; then
+            # Convert HTML table rows to Feishu markdown format
+            for coverage_file in coverage-reports/*.out; do
+              if [ -f "$coverage_file" ] && [ -s "$coverage_file" ]; then
+                name=$(basename "$coverage_file" .out)
+                cov=$(go tool cover -func="$coverage_file" 2>/dev/null | grep total | awk '{print $3}' || echo "0")
 
-              <div style="padding: 20px;">
-                <table style="width: 100%; margin-bottom: 20px;">
-                  <tr>
-                    <td style="width: 33%; background: #e8f5e9; padding: 15px; border-radius: 8px; text-align: center;">
-                      <div style="font-size: 2em; font-weight: bold; color: #2e7d32;">${{ steps.coverage_data.outputs.avg_coverage }}%</div>
-                      <div style="color: #666;">Average Coverage</div>
-                    </td>
-                    <td style="width: 33%; background: #e3f2fd; padding: 15px; border-radius: 8px; text-align: center;">
-                      <div style="font-size: 2em; font-weight: bold; color: #1565c0;">${{ steps.coverage_data.outputs.total_packages }}</div>
-                      <div style="color: #666;">Packages</div>
-                    </td>
-                    <td style="width: 33%; background: #fff3e0; padding: 15px; border-radius: 8px; text-align: center;">
-                      <div style="font-size: 2em; font-weight: bold; color: #e65100;">${{ steps.coverage_data.outputs.date }}</div>
-                      <div style="color: #666;">Report Date</div>
-                    </td>
-                  </tr>
-                </table>
+                corpus_count=0
+                if [ "$name" = "blake2b" ]; then
+                  pkg_dir="crypto/blake2b"
+                else
+                  pkg_dir="tests/fuzzers/${name}"
+                fi
+                if [ -d "${pkg_dir}/testdata/fuzz" ]; then
+                  corpus_count=$(find "${pkg_dir}/testdata/fuzz" -type f ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+                fi
 
-                <div style="margin-top: 20px; text-align: center;">
-                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                     style="display: inline-block; background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">
-                    View Full Report →
-                  </a>
-                </div>
+                COVERAGE_TABLE="${COVERAGE_TABLE}\n**${name}**: ${cov} (${corpus_count} files)"
+              fi
+            done
+          fi
 
-                <p style="margin-top: 20px; color: #666; font-size: 0.9em;">
-                  Coverage is calculated by running corpus data through each fuzzer package.
-                  <br>Color coding: <span style="color:#2e7d32;">■ ≥70%</span> | <span style="color:#f57c00;">■ 40-70%</span> | <span style="color:#c62828;">■ &lt;40%</span>
-                </p>
-              </div>
-
-              <div style="padding: 15px; background: #f5f5f5; text-align: center; font-size: 0.8em; color: #666;">
-                Sent by ClusterFuzzLite • ${{ github.repository }}
-              </div>
-            </body>
-            </html>
+          # Send to Feishu
+          curl -X POST "${{ secrets.FEISHU_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d @- << EOF
+          {
+            "msg_type": "interactive",
+            "card": {
+              "config": {
+                "wide_screen_mode": true
+              },
+              "header": {
+                "title": {
+                  "tag": "plain_text",
+                  "content": "📊 Daily Fuzzer Coverage Report"
+                },
+                "template": "blue"
+              },
+              "elements": [
+                {
+                  "tag": "div",
+                  "text": {
+                    "tag": "lark_md",
+                    "content": "**Average Coverage:** ${{ steps.coverage_data.outputs.avg_coverage }}%\n**Packages Tested:** ${{ steps.coverage_data.outputs.total_packages }}\n**Report Date:** ${{ steps.coverage_data.outputs.date }}"
+                  }
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "div",
+                  "text": {
+                    "tag": "lark_md",
+                    "content": "**Repository:** ${{ github.repository }}\n**Branch:** ${{ github.ref_name }}"
+                  }
+                },
+                {
+                  "tag": "action",
+                  "actions": [
+                    {
+                      "tag": "button",
+                      "text": {
+                        "tag": "plain_text",
+                        "content": "View Full Report"
+                      },
+                      "type": "primary",
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                },
+                {
+                  "tag": "note",
+                  "elements": [
+                    {
+                      "tag": "plain_text",
+                      "content": "Coverage calculated by running corpus data through each fuzzer package. Color coding: ≥70% (high) | 40-70% (medium) | <40% (low)"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+          EOF
         continue-on-error: true

@@ -291,7 +291,7 @@ jobs:
       # Feishu Notification - Crash Alert (only when crashes found)
       # ========================================================================
       - name: Send crash alert to Feishu
-        if: failure() && steps.run.outcome == 'failure'
+        if: failure() && steps.run.outcome == 'failure' && env.STORAGE_REPO_URL != ''
         run: |
           # Count crash files
           CRASH_COUNT=0
@@ -306,6 +306,12 @@ jobs:
               CRASH_DETAILS="${CRASH_DETAILS}\n- ${fuzzer_dir}/${filename}"
             done
           fi
+
+          # Generate corpus repository URL for the crash report
+          DATE=$(date +%Y-%m-%d)
+          RUN_ID="${{ github.run_id }}"
+          STORAGE_REPO="${{ vars.CLUSTERFUZZLITE_STORAGE_REPO }}"
+          CRASH_REPORT_URL="https://github.com/${STORAGE_REPO}/blob/main/crashes/${DATE}_run${RUN_ID}/REPORT.md"
 
           # Send to Feishu
           curl -X POST "${{ secrets.FEISHU_WEBHOOK_URL }}" \
@@ -349,10 +355,10 @@ jobs:
                       "tag": "button",
                       "text": {
                         "tag": "plain_text",
-                        "content": "View Crash Details"
+                        "content": "View Crash Report"
                       },
                       "type": "danger",
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                      "url": "${CRASH_REPORT_URL}"
                     }
                   ]
                 },
@@ -361,7 +367,7 @@ jobs:
                   "elements": [
                     {
                       "tag": "plain_text",
-                      "content": "Please investigate and fix the crashes as soon as possible. Crash artifacts are available in the workflow run."
+                      "content": "Please investigate and fix the crashes as soon as possible. Detailed crash report is available in the corpus repository."
                     }
                   ]
                 }

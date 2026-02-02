@@ -680,7 +680,7 @@ jobs:
           echo "$coverage_rows" > /tmp/coverage_rows.html
 
       - name: Send daily coverage report to Feishu
-        if: always()
+        if: always() && env.STORAGE_REPO_URL != ''
         run: |
           # Read coverage rows from file
           COVERAGE_TABLE=""
@@ -705,6 +705,11 @@ jobs:
               fi
             done
           fi
+
+          # Generate corpus repository URL for the coverage report
+          DATE=$(date +%Y-%m-%d)
+          STORAGE_REPO="${{ vars.CLUSTERFUZZLITE_STORAGE_REPO }}"
+          COVERAGE_REPORT_URL="https://github.com/${STORAGE_REPO}/blob/main/coverage/SUMMARY.md"
 
           # Send to Feishu
           curl -X POST "${{ secrets.FEISHU_WEBHOOK_URL }}" \
@@ -748,10 +753,10 @@ jobs:
                       "tag": "button",
                       "text": {
                         "tag": "plain_text",
-                        "content": "View Full Report"
+                        "content": "View Coverage Report"
                       },
                       "type": "primary",
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                      "url": "${COVERAGE_REPORT_URL}"
                     }
                   ]
                 },
@@ -760,7 +765,7 @@ jobs:
                   "elements": [
                     {
                       "tag": "plain_text",
-                      "content": "Coverage calculated by running corpus data through each fuzzer package. Color coding: ≥70% (high) | 40-70% (medium) | <40% (low)"
+                      "content": "Coverage calculated by running corpus data through each fuzzer package. Detailed reports available in corpus repository."
                     }
                   ]
                 }

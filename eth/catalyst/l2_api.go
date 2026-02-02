@@ -86,6 +86,9 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	if params.Timestamp != nil {
 		timestamp = time.Unix(int64(*params.Timestamp), 0)
 	}
+	if api.eth.BlockChain().Config().IsMPTFork(uint64(timestamp.Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
+		return nil, errors.New("cannot assemble block with mph for fork")
+	}
 	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), timestamp, transactions)
 	if err != nil {
 		return nil, err

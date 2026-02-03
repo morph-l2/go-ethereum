@@ -380,7 +380,12 @@ func (ec *Client) GetSkippedTransaction(ctx context.Context, txHash common.Hash)
 //   - limit: pagination limit (default: 100, max: 100)
 func (ec *Client) GetTransactionHashesByReference(ctx context.Context, reference common.Reference, offset *hexutil.Uint64, limit *hexutil.Uint64) ([]ethapi.ReferenceTransactionResult, error) {
 	var result []ethapi.ReferenceTransactionResult
-	return result, ec.c.CallContext(ctx, &result, "morph_getTransactionHashesByReference", reference, offset, limit)
+	args := ethapi.ReferenceQueryArgs{
+		Reference: reference,
+		Offset:    offset,
+		Limit:     limit,
+	}
+	return result, ec.c.CallContext(ctx, &result, "morph_getTransactionHashesByReference", args)
 }
 
 // GetBlockByNumberOrHash returns the requested block

@@ -2448,29 +2448,34 @@ func NewPublicMorphAPI(b Backend) *PublicMorphAPI {
 	return &PublicMorphAPI{b}
 }
 
+// ReferenceQueryArgs represents the arguments for querying transactions by reference.
+type ReferenceQueryArgs struct {
+	Reference common.Reference `json:"reference"`
+	Offset    *hexutil.Uint64  `json:"offset,omitempty"`
+	Limit     *hexutil.Uint64  `json:"limit,omitempty"`
+}
+
 // GetTransactionHashesByReference returns transactions for the given reference with pagination.
 // Results are sorted by blockTimestamp and txIndex (ascending order).
 // Parameters:
-//   - reference: the reference key to query
-//   - offset: pagination offset (default: 0)
-//   - limit: pagination limit (default: 100, max: 100)
+//   - args.reference: the reference key to query
+//   - args.offset: pagination offset (default: 0)
+//   - args.limit: pagination limit (default: 100, max: 100)
 func (s *PublicMorphAPI) GetTransactionHashesByReference(
 	ctx context.Context,
-	reference common.Reference,
-	offset *hexutil.Uint64,
-	limit *hexutil.Uint64,
+	args ReferenceQueryArgs,
 ) (
 	[]ReferenceTransactionResult,
 	error,
 ) {
 	// Set default values
 	offsetVal := uint64(0)
-	if offset != nil {
-		offsetVal = uint64(*offset)
+	if args.Offset != nil {
+		offsetVal = uint64(*args.Offset)
 	}
 	limitVal := uint64(100)
-	if limit != nil {
-		limitVal = uint64(*limit)
+	if args.Limit != nil {
+		limitVal = uint64(*args.Limit)
 	}
 
 	// Validate limit (max 100)
@@ -2478,7 +2483,7 @@ func (s *PublicMorphAPI) GetTransactionHashesByReference(
 		return nil, errors.New("limit exceeds maximum value of 100")
 	}
 
-	entries := rawdb.ReadReferenceIndexEntries(s.b.ChainDb(), reference)
+	entries := rawdb.ReadReferenceIndexEntries(s.b.ChainDb(), args.Reference)
 	if len(entries) == 0 {
 		return nil, nil
 	}

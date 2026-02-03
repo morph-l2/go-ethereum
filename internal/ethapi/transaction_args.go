@@ -53,7 +53,7 @@ type TransactionArgs struct {
 	// MorphTxType
 	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
-	Version    *byte             `json:"version,omitempty"`
+	Version    *hexutil.Uint16   `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
 	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 
@@ -105,9 +105,9 @@ func (args *TransactionArgs) validateMorphTxVersion() error {
 	}
 
 	// Default to Version 1 if not specified
-	version := byte(types.MorphTxVersion1)
+	version := types.MorphTxVersion1
 	if args.Version != nil {
-		version = *args.Version
+		version = uint8(*args.Version)
 	}
 
 	switch version {
@@ -371,9 +371,9 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		feeLimit = args.FeeLimit.ToInt()
 	}
 	// Default to Version 1 for new MorphTx transactions
-	version := byte(types.MorphTxVersion1)
+	version := types.MorphTxVersion1
 	if args.Version != nil {
-		version = *args.Version
+		version = uint8(*args.Version)
 	}
 	reference := new(common.Reference)
 	if args.Reference != nil {
@@ -462,9 +462,9 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			al = *args.AccessList
 		}
 		// Default to Version 1 for new MorphTx transactions
-		version := uint8(types.MorphTxVersion1)
+		version := types.MorphTxVersion1
 		if args.Version != nil {
-			version = *args.Version
+			version = uint8(*args.Version)
 		}
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {

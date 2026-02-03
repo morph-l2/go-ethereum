@@ -29,9 +29,9 @@ import (
 // MorphTx version constants
 const (
 	// MorphTxVersion0 is the original format without Version, Reference, Memo fields
-	MorphTxVersion0 = byte(0)
+	MorphTxVersion0 = uint8(0)
 	// MorphTxVersion1 includes Version, Reference, Memo fields
-	MorphTxVersion1 = byte(1)
+	MorphTxVersion1 = uint8(1)
 )
 
 type MorphTx struct {

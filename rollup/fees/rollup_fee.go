@@ -98,7 +98,7 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 		return asUnsignedAccessListTx(msg, chainID)
 	}
 	if msg.FeeTokenID() != 0 ||
-		msg.Version() != 0 ||
+		msg.Version() != types.MorphTxVersion0 ||
 		(msg.Reference() != nil && *msg.Reference() != (common.Reference{})) ||
 		(msg.Memo() != nil && len(*msg.Memo()) > 0) {
 		return asUnsignedMorphTx(msg, chainID)

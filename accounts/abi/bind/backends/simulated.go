@@ -920,7 +920,7 @@ func (m callMsg) SetCodeAuthorizations() []types.SetCodeAuthorization {
 }
 func (m callMsg) FeeTokenID() uint16           { return m.CallMsg.FeeTokenID }
 func (m callMsg) FeeLimit() *big.Int           { return m.CallMsg.FeeLimit }
-func (m callMsg) Version() byte                { return m.CallMsg.Version }
+func (m callMsg) Version() uint8               { return m.CallMsg.Version }
 func (m callMsg) Reference() *common.Reference { return m.CallMsg.Reference }
 func (m callMsg) Memo() *[]byte                { return m.CallMsg.Memo }
 

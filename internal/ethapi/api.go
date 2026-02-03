@@ -2437,3 +2437,77 @@ func toHexSlice(b [][]byte) []string {
 	}
 	return r
 }
+
+// PublicMorphAPI provides morph-specific RPC methods.
+type PublicMorphAPI struct {
+	b Backend
+}
+
+// NewPublicMorphAPI creates a new RPC service for morph-specific methods.
+func NewPublicMorphAPI(b Backend) *PublicMorphAPI {
+	return &PublicMorphAPI{b}
+}
+
+// GetTransactionHashesByReference returns transactions for the given reference with pagination.
+// Results are sorted by blockTimestamp and txIndex (ascending order).
+// Parameters:
+//   - reference: the reference key to query
+//   - offset: pagination offset (default: 0)
+//   - limit: pagination limit (default: 100, max: 100)
+func (s *PublicMorphAPI) GetTransactionHashesByReference(
+	ctx context.Context,
+	reference common.Reference,
+	offset *hexutil.Uint64,
+	limit *hexutil.Uint64,
+) (
+	[]ReferenceTransactionResult,
+	error,
+) {
+	// Set default values
+	offsetVal := uint64(0)
+	if offset != nil {
+		offsetVal = uint64(*offset)
+	}
+	limitVal := uint64(100)
+	if limit != nil {
+		limitVal = uint64(*limit)
+	}
+
+	// Validate limit (max 100)
+	if limitVal > 100 {
+		return nil, errors.New("limit exceeds maximum value of 100")
+	}
+
+	entries := rawdb.ReadReferenceIndexEntries(s.b.ChainDb(), reference)
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	// Validate offset
+	if offsetVal >= uint64(len(entries)) {
+		return nil, fmt.Errorf("offset %d exceeds total results %d", offsetVal, len(entries))
+	}
+
+	// Apply pagination
+	end := offsetVal + limitVal
+	if end > uint64(len(entries)) {
+		end = uint64(len(entries))
+	}
+	paginatedEntries := entries[offsetVal:end]
+
+	// Build result
+	result := make([]ReferenceTransactionResult, 0, len(paginatedEntries))
+	for _, entry := range paginatedEntries {
+		blockNumber := rawdb.ReadTxLookupEntry(s.b.ChainDb(), entry.TxHash)
+		if blockNumber == nil {
+			continue
+		}
+		result = append(result, ReferenceTransactionResult{
+			TransactionHash:  entry.TxHash,
+			BlockNumber:      hexutil.Uint64(*blockNumber),
+			BlockTimestamp:   hexutil.Uint64(entry.BlockTimestamp),
+			TransactionIndex: hexutil.Uint64(entry.TxIndex),
+		})
+	}
+	return result, nil
+}

@@ -145,7 +145,7 @@ type CallMsg struct {
 	// For MorphTxType
 	FeeTokenID uint16
 	FeeLimit   *big.Int
-	Version    byte
+	Version    uint8
 	Reference  *common.Reference
 	Memo       *[]byte
 

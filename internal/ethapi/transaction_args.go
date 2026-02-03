@@ -96,7 +96,7 @@ func (args *TransactionArgs) isMorphTxArgs() bool {
 
 // validateMorphTxVersion validates the MorphTx version and its associated field requirements.
 // Rules:
-//   - Version 0 (legacy format): FeeTokenID must be > 0
+//   - Version 0 (legacy format): FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1 (with Reference/Memo): FeeTokenID, FeeLimit, Reference, Memo are all optional
 //   - Other versions: not supported
 func (args *TransactionArgs) validateMorphTxVersion() error {
@@ -115,6 +115,13 @@ func (args *TransactionArgs) validateMorphTxVersion() error {
 		// Version 0 requires FeeTokenID > 0 (legacy format used for alt-fee transactions)
 		if args.FeeTokenID == nil || *args.FeeTokenID == 0 {
 			return types.ErrMorphTxV0RequiresFeeToken
+		}
+		// Version 0 does not support Reference and Memo fields
+		if args.Reference != nil && *args.Reference != (common.Reference{}) {
+			return errors.New("version 0 does not support reference field")
+		}
+		if args.Memo != nil && len(*args.Memo) > 0 {
+			return errors.New("version 0 does not support memo field")
 		}
 	case types.MorphTxVersion1:
 		// Version 1: FeeTokenID, FeeLimit, Reference, Memo are all optional

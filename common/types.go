@@ -131,12 +131,28 @@ func (r *Reference) SetBytes(b []byte) {
 }
 
 // UnmarshalText parses a reference in hex syntax.
+// Empty strings are treated as zero reference.
 func (r *Reference) UnmarshalText(input []byte) error {
+	// Handle empty string case
+	if len(input) == 0 || string(input) == "0x" {
+		*r = Reference{}
+		return nil
+	}
 	return hexutil.UnmarshalFixedText("Reference", input, r[:])
 }
 
 // UnmarshalJSON parses a reference in hex syntax.
+// Empty strings are treated as zero reference.
 func (r *Reference) UnmarshalJSON(input []byte) error {
+	// Handle empty string case: "" or "0x"
+	if len(input) == 2 && input[0] == '"' && input[1] == '"' {
+		*r = Reference{}
+		return nil
+	}
+	if len(input) == 4 && string(input) == `"0x"` {
+		*r = Reference{}
+		return nil
+	}
 	return hexutil.UnmarshalFixedJSON(referenceT, input, r[:])
 }
 

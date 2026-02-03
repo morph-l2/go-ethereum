@@ -1294,12 +1294,16 @@ func TestMorphTxMemoEdgeCases(t *testing.T) {
 }
 
 // Helper function to compare memo pointers
+// Treats nil and empty as equivalent since RLP encodes both as 0x80
 func compareMemoPtr(a, b *[]byte) bool {
 	if a == nil && b == nil {
 		return true
 	}
-	if a == nil || b == nil {
-		return false
+	if a == nil {
+		return len(*b) == 0
+	}
+	if b == nil {
+		return len(*a) == 0
 	}
 	return bytes.Equal(*a, *b)
 }

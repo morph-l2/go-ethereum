@@ -129,8 +129,8 @@ type storedReceiptRLP struct {
 	TokenScale        *big.Int
 	FeeLimit          *big.Int
 	Version           uint8
-	Reference         *common.Reference
-	Memo              *[]byte
+	Reference         []byte // Note: use []byte for RLP compatibility (common.Reference is [32]byte, can't decode empty)
+	Memo              []byte // Note: use []byte for RLP compatibility, convert to *[]byte when needed
 }
 
 // v8StoredReceiptRLP is the storage encoding of a receipt used in database version 8.
@@ -146,8 +146,8 @@ type v8StoredReceiptRLP struct {
 	TokenScale        *big.Int
 	FeeLimit          *big.Int
 	Version           uint8
-	Reference         *common.Reference
-	Memo              *[]byte
+	Reference         []byte // Note: use []byte for RLP compatibility (common.Reference is [32]byte, can't decode empty)
+	Memo              []byte // Note: use []byte for RLP compatibility
 }
 
 // v7StoredReceiptRLP is the storage encoding of a receipt used in database version 7.
@@ -364,6 +364,15 @@ type ReceiptForStorage Receipt
 // EncodeRLP implements rlp.Encoder, and flattens all content fields of a receipt
 // into an RLP stream.
 func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
+	// Convert pointer types to []byte for RLP encoding
+	var memo []byte
+	if r.Memo != nil {
+		memo = *r.Memo
+	}
+	var reference []byte
+	if r.Reference != nil {
+		reference = r.Reference[:]
+	}
 	enc := &storedReceiptRLP{
 		PostStateOrStatus: (*Receipt)(r).statusEncoding(),
 		CumulativeGasUsed: r.CumulativeGasUsed,
@@ -374,8 +383,8 @@ func (r *ReceiptForStorage) EncodeRLP(w io.Writer) error {
 		TokenScale:        r.TokenScale,
 		FeeLimit:          r.FeeLimit,
 		Version:           r.Version,
-		Reference:         r.Reference,
-		Memo:              r.Memo,
+		Reference:         reference,
+		Memo:              memo,
 	}
 	for i, log := range r.Logs {
 		enc.Logs[i] = (*LogForStorage)(log)
@@ -435,8 +444,15 @@ func decodeStoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
 	r.TokenScale = stored.TokenScale
 	r.FeeLimit = stored.FeeLimit
 	r.Version = stored.Version
-	r.Reference = stored.Reference
-	r.Memo = stored.Memo
+	// Convert []byte to *common.Reference
+	if len(stored.Reference) == common.ReferenceLength {
+		ref := common.BytesToReference(stored.Reference)
+		r.Reference = &ref
+	}
+	// Convert []byte to *[]byte
+	if len(stored.Memo) > 0 {
+		r.Memo = &stored.Memo
+	}
 
 	return nil
 }
@@ -461,8 +477,15 @@ func decodeV8StoredReceiptRLP(r *ReceiptForStorage, blob []byte) error {
 	r.TokenScale = stored.TokenScale
 	r.FeeLimit = stored.FeeLimit
 	r.Version = stored.Version
-	r.Reference = stored.Reference
-	r.Memo = stored.Memo
+	// Convert []byte to *common.Reference
+	if len(stored.Reference) == common.ReferenceLength {
+		ref := common.BytesToReference(stored.Reference)
+		r.Reference = &ref
+	}
+	// Convert []byte to *[]byte
+	if len(stored.Memo) > 0 {
+		r.Memo = &stored.Memo
+	}
 
 	return nil
 }

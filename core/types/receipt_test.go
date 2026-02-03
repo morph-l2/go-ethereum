@@ -327,13 +327,29 @@ func encodeAsStoredReceiptRLP(want *Receipt) ([]byte, error) {
 		TokenScale:        want.TokenScale,
 		FeeLimit:          want.FeeLimit,
 		Version:           want.Version,
-		Reference:         want.Reference,
-		Memo:              want.Memo,
+		Reference:         derefReference(want.Reference),
+		Memo:              derefMemo(want.Memo),
 	}
 	for i, log := range want.Logs {
 		stored.Logs[i] = (*LogForStorage)(log)
 	}
 	return rlp.EncodeToBytes(stored)
+}
+
+// derefMemo converts *[]byte to []byte for test encoding
+func derefMemo(m *[]byte) []byte {
+	if m == nil {
+		return nil
+	}
+	return *m
+}
+
+// derefReference converts *common.Reference to []byte for test encoding
+func derefReference(r *common.Reference) []byte {
+	if r == nil {
+		return nil
+	}
+	return r[:]
 }
 
 func encodeAsV8StoredReceiptRLP(want *Receipt) ([]byte, error) {
@@ -347,8 +363,8 @@ func encodeAsV8StoredReceiptRLP(want *Receipt) ([]byte, error) {
 		TokenScale:        want.TokenScale,
 		FeeLimit:          want.FeeLimit,
 		Version:           want.Version,
-		Reference:         want.Reference,
-		Memo:              want.Memo,
+		Reference:         derefReference(want.Reference),
+		Memo:              derefMemo(want.Memo),
 	}
 	for i, log := range want.Logs {
 		stored.Logs[i] = (*LogForStorage)(log)
@@ -905,10 +921,10 @@ func TestMorphTxReceiptV8StorageEncoding(t *testing.T) {
 			if dec.Version != tc.receipt.Version {
 				t.Errorf("Version mismatch, want %v, have %v", tc.receipt.Version, dec.Version)
 			}
-			if !reflect.DeepEqual(dec.Reference, tc.receipt.Reference) {
+			if !compareReference(dec.Reference, tc.receipt.Reference) {
 				t.Errorf("Reference mismatch, want %v, have %v", tc.receipt.Reference, dec.Reference)
 			}
-			if !reflect.DeepEqual(dec.Memo, tc.receipt.Memo) {
+			if !compareMemo(dec.Memo, tc.receipt.Memo) {
 				t.Errorf("Memo mismatch, want %v, have %v", tc.receipt.Memo, dec.Memo)
 			}
 		})

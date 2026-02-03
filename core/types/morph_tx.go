@@ -89,8 +89,8 @@ type v1MorphTxRLP struct {
 	AccessList AccessList
 	FeeTokenID uint16
 	FeeLimit   *big.Int
-	Reference  *common.Reference
-	Memo       *[]byte
+	Reference  []byte // Use []byte for RLP compatibility (common.Reference is [32]byte, can't decode empty)
+	Memo       []byte // Use []byte for RLP compatibility
 	V          *big.Int
 	R          *big.Int
 	S          *big.Int
@@ -203,6 +203,15 @@ func (tx *MorphTx) encode(b *bytes.Buffer) error {
 		// Encode as v1 format: [version byte] + RLP([...fields..., reference, memo])
 		// Version is encoded as a prefix byte (similar to txType), not inside RLP
 		b.WriteByte(tx.Version)
+		// Convert pointer types to []byte for RLP encoding
+		var reference []byte
+		if tx.Reference != nil {
+			reference = tx.Reference[:]
+		}
+		var memo []byte
+		if tx.Memo != nil {
+			memo = *tx.Memo
+		}
 		return rlp.Encode(b, &v1MorphTxRLP{
 			ChainID:    tx.ChainID,
 			Nonce:      tx.Nonce,
@@ -215,8 +224,8 @@ func (tx *MorphTx) encode(b *bytes.Buffer) error {
 			AccessList: tx.AccessList,
 			FeeTokenID: tx.FeeTokenID,
 			FeeLimit:   tx.FeeLimit,
-			Reference:  tx.Reference,
-			Memo:       tx.Memo,
+			Reference:  reference,
+			Memo:       memo,
 			V:          tx.V,
 			R:          tx.R,
 			S:          tx.S,
@@ -265,8 +274,15 @@ func decodeV1MorphTxRLP(tx *MorphTx, blob []byte) error {
 	tx.Version = MorphTxVersion1
 	tx.FeeTokenID = v1.FeeTokenID
 	tx.FeeLimit = v1.FeeLimit
-	tx.Reference = v1.Reference
-	tx.Memo = v1.Memo
+	// Convert []byte to *common.Reference
+	if len(v1.Reference) == common.ReferenceLength {
+		ref := common.BytesToReference(v1.Reference)
+		tx.Reference = &ref
+	}
+	// Convert []byte to *[]byte
+	if len(v1.Memo) > 0 {
+		tx.Memo = &v1.Memo
+	}
 	tx.V = v1.V
 	tx.R = v1.R
 	tx.S = v1.S

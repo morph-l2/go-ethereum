@@ -733,8 +733,8 @@ func TestMorphTxSigner(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Test unsigned tx returns expected error
 			_, err := Sender(signer, tc.tx)
-			if err != tc.wantSenderErr {
-				t.Errorf("Sender error mismatch, got %v, want %v", err, tc.wantSenderErr)
+			if !errors.Is(err, tc.wantSenderErr) {
+				t.Errorf("Sender error mismatch, got %v, want %v (using errors.Is)", err, tc.wantSenderErr)
 			}
 
 			// Sign the tx

@@ -230,8 +230,10 @@ func (api *ExternalSigner) SignTx(account accounts.Account, tx *types.Transactio
 		version := hexutil.Uint64(tx.Version())
 		args.Version = &version
 		args.Reference = tx.Reference()
-		memo := hexutil.Bytes(*tx.Memo())
-		args.Memo = &memo
+		if tx.Memo() != nil {
+			memo := hexutil.Bytes(*tx.Memo())
+			args.Memo = &memo
+		}
 	default:
 		return nil, fmt.Errorf("unsupported tx type %d", tx.Type())
 	}

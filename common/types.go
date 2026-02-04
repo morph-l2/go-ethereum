@@ -123,11 +123,14 @@ func (r Reference) Format(s fmt.State, c rune) {
 
 // SetBytes sets the reference to the value of b.
 // If b is larger than len(r), b will be cropped from the left.
+// The input is right-aligned: leading bytes are zeroed and b is
+// copied into the trailing bytes of r.
 func (r *Reference) SetBytes(b []byte) {
 	if len(b) > len(r) {
 		b = b[len(b)-ReferenceLength:]
 	}
-	copy(r[:], b)
+	*r = Reference{}
+	copy(r[len(r)-len(b):], b)
 }
 
 // UnmarshalText parses a reference in hex syntax.

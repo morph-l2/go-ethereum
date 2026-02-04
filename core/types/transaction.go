@@ -987,7 +987,7 @@ func copyAddressPtr(a *common.Address) *common.Address {
 	return &cpy
 }
 
-// copyAddressPtr copies an address.
+// copyReferencePtr copies a common.Reference and returns a pointer to the copy.
 func copyReferencePtr(h *common.Reference) *common.Reference {
 	if h == nil {
 		return nil

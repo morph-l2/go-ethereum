@@ -181,6 +181,10 @@ func (tx *MorphTx) setSignatureValues(chainID, v, r, s *big.Int) {
 func (tx *MorphTx) encode(b *bytes.Buffer) error {
 	switch tx.Version {
 	case MorphTxVersion0:
+		// Validate FeeTokenID for v0 (must match decodeV0MorphTxRLP behavior)
+		if tx.FeeTokenID == 0 {
+			return errors.New("invalid FeeTokenID for v0 morph tx")
+		}
 		// Encode as v0 format (legacy AltFeeTx compatible)
 		// Format: RLP([chainID, nonce, ..., feeLimit, v, r, s])
 		return rlp.Encode(b, &v0MorphTxRLP{

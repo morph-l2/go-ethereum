@@ -212,8 +212,10 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 		}
 		result.Version = tx.Version()
 		result.Reference = tx.Reference()
-		memo := hexutil.Bytes(*tx.Memo())
-		result.Memo = &memo
+		if tx.Memo() != nil {
+			memo := hexutil.Bytes(*tx.Memo())
+			result.Memo = &memo
+		}
 	}
 
 	return result

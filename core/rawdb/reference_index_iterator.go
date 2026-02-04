@@ -104,11 +104,23 @@ func iterateReferences(db ethdb.Database, from uint64, to uint64, reverse bool, 
 		for data := range rlpCh {
 			if data.header == nil {
 				log.Warn("Failed to read header for reference indexing", "block", data.number)
+				// Emit placeholder result to maintain contiguous block numbers
+				select {
+				case resultCh <- &blockReferenceInfo{number: data.number}:
+				case <-interrupt:
+					return
+				}
 				continue
 			}
 			var body types.Body
 			if err := rlp.DecodeBytes(data.rlp, &body); err != nil {
 				log.Warn("Failed to decode block body", "block", data.number, "error", err)
+				// Emit placeholder result to maintain contiguous block numbers
+				select {
+				case resultCh <- &blockReferenceInfo{number: data.number, blockTimestamp: data.header.Time}:
+				case <-interrupt:
+					return
+				}
 				continue
 			}
 
@@ -125,19 +137,19 @@ func iterateReferences(db ethdb.Database, from uint64, to uint64, reverse bool, 
 				}
 			}
 
-		// Always send result for every block (even if no references) to maintain
-		// contiguous block numbers for gap-filling logic in indexReferences
-		result := &blockReferenceInfo{
-			number:         data.number,
-			blockTimestamp: data.header.Time,
-			references:     refs,
-		}
-		// Feed the block to the aggregator, or abort on interrupt
-		select {
-		case resultCh <- result:
-		case <-interrupt:
-			return
-		}
+			// Always send result for every block (even if no references) to maintain
+			// contiguous block numbers for gap-filling logic in indexReferences
+			result := &blockReferenceInfo{
+				number:         data.number,
+				blockTimestamp: data.header.Time,
+				references:     refs,
+			}
+			// Feed the block to the aggregator, or abort on interrupt
+			select {
+			case resultCh <- result:
+			case <-interrupt:
+				return
+			}
 		}
 	}
 
@@ -323,4 +335,3 @@ func unindexReferences(db ethdb.Database, from uint64, to uint64, interrupt chan
 func UnindexReferences(db ethdb.Database, from uint64, to uint64, interrupt chan struct{}) {
 	unindexReferences(db, from, to, interrupt, nil)
 }
-

@@ -89,6 +89,9 @@ type SendTxArgs struct {
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    *hexutil.Uint64   `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -97,6 +100,35 @@ func (args SendTxArgs) String() string {
 		return string(s)
 	}
 	return err.Error()
+}
+
+// determineMorphTxVersion determines the MorphTx version based on explicit setting or auto-detection.
+// Rules when version is explicitly specified:
+//   - Use the specified version directly
+//
+// Rules when version is not explicitly specified (auto-detection):
+//   - (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
+//   - (valid Reference) || (valid Memo) -> Version 1
+//   - Otherwise -> Version 1
+func (args *SendTxArgs) determineMorphTxVersion() uint8 {
+	// If version is explicitly specified, use it
+	if args.Version != nil {
+		return uint8(*args.Version)
+	}
+
+	// Auto-detect version based on fields
+	hasFeeToken := args.FeeTokenID != nil && *args.FeeTokenID > 0
+	hasReference := args.Reference != nil && *args.Reference != (common.Reference{})
+	hasMemo := args.Memo != nil && len(*args.Memo) > 0
+
+	// (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
+	if hasFeeToken && !hasReference && !hasMemo {
+		return types.MorphTxVersion0
+	}
+
+	// (valid Reference) || (valid Memo) -> Version 1
+	// Also fallback to Version 1 for other cases
+	return types.MorphTxVersion1
 }
 
 // ToTransaction converts the arguments to a transaction.
@@ -118,20 +150,32 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 	var data types.TxData
 	switch {
 	// must take precedence over MaxFeePerGas.
-	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0):
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		data = &types.AltFeeTx{
+		// Determine version based on explicit setting or auto-detection
+		version := args.determineMorphTxVersion()
+		var feeTokenID uint16
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		data = &types.MorphTx{
 			To:         to,
 			ChainID:    (*big.Int)(args.ChainID),
 			Nonce:      uint64(args.Nonce),
 			Gas:        uint64(args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-			FeeTokenID: uint16(*args.FeeTokenID),
+			FeeTokenID: feeTokenID,
 			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Version:    version,
+			Reference:  args.Reference,
+			Memo:       (*[]byte)(args.Memo),
 			Value:      (*big.Int)(&args.Value),
 			Data:       input,
 			AccessList: al,

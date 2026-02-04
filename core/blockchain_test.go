@@ -3587,3 +3587,477 @@ func TestCurieTransition(t *testing.T) {
 		}
 	}
 }
+
+// TestReferenceIndices tests that reference indices are correctly created
+// for MorphTx transactions with Reference field when blocks are inserted.
+func TestReferenceIndices(t *testing.T) {
+	// Configure and generate a sample block chain
+	var (
+		gendb   = rawdb.NewMemoryDatabase()
+		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		address = crypto.PubkeyToAddress(key.PublicKey)
+		funds   = big.NewInt(100000000000000000)
+		gspec   = &Genesis{
+			Config:  params.TestChainConfig,
+			Alloc:   GenesisAlloc{address: {Balance: funds}},
+			BaseFee: big.NewInt(params.InitialBaseFee),
+		}
+		genesis = gspec.MustCommit(gendb)
+		signer  = types.LatestSigner(gspec.Config)
+	)
+
+	// Create references for testing
+	ref1 := common.BytesToReference([]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x01})
+	ref2 := common.BytesToReference([]byte{0x02, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x02})
+	ref3 := common.BytesToReference([]byte{0x03, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x03}) // shared reference
+
+	var morphTxHashes []common.Hash
+	var morphTxReferences []common.Reference
+
+	height := uint64(20)
+	blocks, receipts := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), gendb, int(height), func(i int, block *BlockGen) {
+		nonce := block.TxNonce(address)
+
+		// Add a regular transaction (no Reference)
+		regularTx, err := types.SignTx(types.NewTransaction(nonce, common.Address{0x00}, big.NewInt(1000), params.TxGas, block.header.BaseFee, nil), signer, key)
+		if err != nil {
+			panic(err)
+		}
+		block.AddTx(regularTx)
+
+		// Add MorphTx with different References
+		var ref common.Reference
+		if i%3 == 0 {
+			ref = ref3 // shared reference
+		} else if i%2 == 0 {
+			ref = ref2
+		} else {
+			ref = ref1
+		}
+
+		morphTx := types.NewTx(&types.MorphTx{
+			ChainID:    gspec.Config.ChainID,
+			Nonce:      nonce + 1,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  block.header.BaseFee,
+			Gas:        params.TxGas,
+			To:         &common.Address{0x01},
+			Value:      big.NewInt(100),
+			Data:       nil,
+			AccessList: nil,
+			Version:    types.MorphTxVersion1,
+			FeeTokenID: 0,
+			FeeLimit:   nil,
+			Reference:  &ref,
+			Memo:       nil,
+		})
+		signedMorphTx, err := types.SignTx(morphTx, signer, key)
+		if err != nil {
+			panic(err)
+		}
+		block.AddTx(signedMorphTx)
+
+		morphTxHashes = append(morphTxHashes, signedMorphTx.Hash())
+		morphTxReferences = append(morphTxReferences, ref)
+	})
+
+	frdir, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("failed to create temp freezer dir: %v", err)
+	}
+	defer os.Remove(frdir)
+	ancientDb, err := rawdb.NewDatabaseWithFreezer(rawdb.NewMemoryDatabase(), frdir, "", false)
+	if err != nil {
+		t.Fatalf("failed to create temp freezer db: %v", err)
+	}
+	gspec.MustCommit(ancientDb)
+
+	// Create blockchain with txLookupLimit = 0 (no limit, index all)
+	l := uint64(0)
+	chain, err := NewBlockChain(ancientDb, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, &l)
+	if err != nil {
+		t.Fatalf("failed to create tester chain: %v", err)
+	}
+
+	// Insert headers and receipts
+	headers := make([]*types.Header, len(blocks))
+	for i, block := range blocks {
+		headers[i] = block.Header()
+	}
+	if n, err := chain.InsertHeaderChain(headers, 0); err != nil {
+		t.Fatalf("failed to insert header %d: %v", n, err)
+	}
+	if n, err := chain.InsertReceiptChain(blocks, receipts, 0); err != nil {
+		t.Fatalf("block %d: failed to insert into chain: %v", n, err)
+	}
+
+	// Test 1: All MorphTx reference indices should be created
+	for i, txHash := range morphTxHashes {
+		ref := morphTxReferences[i]
+		entries := rawdb.ReadReferenceIndexEntries(chain.db, ref)
+		found := false
+		for _, entry := range entries {
+			if entry.TxHash == txHash {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("Missing reference index for txHash %s with reference %s", txHash.Hex(), ref.Hex())
+		}
+	}
+
+	// Test 2: Query by reference returns correct results
+	entries1 := rawdb.ReadReferenceIndexEntries(chain.db, ref1)
+	entries2 := rawdb.ReadReferenceIndexEntries(chain.db, ref2)
+	entries3 := rawdb.ReadReferenceIndexEntries(chain.db, ref3)
+	t.Logf("ref1 entries: %d, ref2 entries: %d, ref3 entries: %d", len(entries1), len(entries2), len(entries3))
+
+	// Test 3: Entries are sorted by timestamp then txIndex
+	if len(entries3) >= 2 {
+		for i := 1; i < len(entries3); i++ {
+			prev := entries3[i-1]
+			curr := entries3[i]
+			if prev.BlockTimestamp > curr.BlockTimestamp {
+				t.Fatalf("Entries not sorted by timestamp: prev=%d, curr=%d", prev.BlockTimestamp, curr.BlockTimestamp)
+			}
+			if prev.BlockTimestamp == curr.BlockTimestamp && prev.TxIndex > curr.TxIndex {
+				t.Fatalf("Entries not sorted by txIndex: prev=%d, curr=%d", prev.TxIndex, curr.TxIndex)
+			}
+		}
+	}
+
+	chain.Stop()
+	ancientDb.Close()
+}
+
+// TestReferenceIndexBasicOperations tests the basic CRUD operations for reference indices.
+// This test directly tests the index functions without relying on background goroutines.
+func TestReferenceIndexBasicOperations(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+
+	ref1 := common.BytesToReference([]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x01})
+	ref2 := common.BytesToReference([]byte{0x02, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x02})
+
+	txHash1 := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+	txHash2 := common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")
+	txHash3 := common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333")
+
+	// Test 1: Write and read a single entry
+	rawdb.WriteReferenceIndexEntry(db, ref1, 100, 0, txHash1)
+	entries := rawdb.ReadReferenceIndexEntries(db, ref1)
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].TxHash != txHash1 || entries[0].BlockTimestamp != 100 || entries[0].TxIndex != 0 {
+		t.Fatalf("Entry mismatch: got %+v", entries[0])
+	}
+
+	// Test 2: Multiple entries for the same reference (sorted by timestamp)
+	rawdb.WriteReferenceIndexEntry(db, ref1, 200, 0, txHash2)
+	rawdb.WriteReferenceIndexEntry(db, ref1, 150, 1, txHash3)
+	entries = rawdb.ReadReferenceIndexEntries(db, ref1)
+	if len(entries) != 3 {
+		t.Fatalf("Expected 3 entries, got %d", len(entries))
+	}
+	// Verify sorting by timestamp
+	if entries[0].BlockTimestamp != 100 || entries[1].BlockTimestamp != 150 || entries[2].BlockTimestamp != 200 {
+		t.Fatalf("Entries not sorted by timestamp: %v", entries)
+	}
+
+	// Test 3: Different references don't interfere
+	rawdb.WriteReferenceIndexEntry(db, ref2, 300, 0, txHash1)
+	entries1 := rawdb.ReadReferenceIndexEntries(db, ref1)
+	entries2 := rawdb.ReadReferenceIndexEntries(db, ref2)
+	if len(entries1) != 3 || len(entries2) != 1 {
+		t.Fatalf("Reference entries interference: ref1=%d, ref2=%d", len(entries1), len(entries2))
+	}
+
+	// Test 4: Delete an entry
+	rawdb.DeleteReferenceIndexEntry(db, ref1, 100, 0, txHash1)
+	entries = rawdb.ReadReferenceIndexEntries(db, ref1)
+	if len(entries) != 2 {
+		t.Fatalf("Expected 2 entries after delete, got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.TxHash == txHash1 {
+			t.Fatal("Deleted entry still present")
+		}
+	}
+
+	// Test 5: Tail operations
+	if tail := rawdb.ReadReferenceIndexTail(db); tail != nil {
+		t.Fatalf("Expected nil tail initially, got %d", *tail)
+	}
+	rawdb.WriteReferenceIndexTail(db, 100)
+	if tail := rawdb.ReadReferenceIndexTail(db); tail == nil || *tail != 100 {
+		t.Fatalf("Expected tail 100, got %v", tail)
+	}
+}
+
+// TestReferenceIndicesWithMixedTransactions tests that only MorphTx transactions
+// with Reference field are indexed, while regular transactions are not.
+func TestReferenceIndicesWithMixedTransactions(t *testing.T) {
+	var (
+		gendb   = rawdb.NewMemoryDatabase()
+		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		address = crypto.PubkeyToAddress(key.PublicKey)
+		funds   = big.NewInt(100000000000000000)
+		gspec   = &Genesis{
+			Config:  params.TestChainConfig,
+			Alloc:   GenesisAlloc{address: {Balance: funds}},
+			BaseFee: big.NewInt(params.InitialBaseFee),
+		}
+		genesis = gspec.MustCommit(gendb)
+		signer  = types.LatestSigner(gspec.Config)
+	)
+
+	ref1 := common.BytesToReference([]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x01})
+
+	var morphTxWithRef *types.Transaction
+	var morphTxWithoutRef *types.Transaction
+	var regularTx *types.Transaction
+
+	height := uint64(10)
+	blocks, receipts := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), gendb, int(height), func(i int, block *BlockGen) {
+		nonce := block.TxNonce(address)
+
+		// Regular legacy transaction
+		tx1, err := types.SignTx(types.NewTransaction(nonce, common.Address{0x00}, big.NewInt(1000), params.TxGas, block.header.BaseFee, nil), signer, key)
+		if err != nil {
+			panic(err)
+		}
+		block.AddTx(tx1)
+		if i == 5 {
+			regularTx = tx1
+		}
+
+		// MorphTx WITH Reference
+		tx2 := types.NewTx(&types.MorphTx{
+			ChainID:    gspec.Config.ChainID,
+			Nonce:      nonce + 1,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  block.header.BaseFee,
+			Gas:        params.TxGas,
+			To:         &common.Address{0x01},
+			Value:      big.NewInt(100),
+			Data:       nil,
+			AccessList: nil,
+			Version:    types.MorphTxVersion1,
+			FeeTokenID: 0,
+			FeeLimit:   nil,
+			Reference:  &ref1,
+			Memo:       nil,
+		})
+		signedTx2, err := types.SignTx(tx2, signer, key)
+		if err != nil {
+			panic(err)
+		}
+		block.AddTx(signedTx2)
+		if i == 5 {
+			morphTxWithRef = signedTx2
+		}
+
+		// MorphTx WITHOUT Reference
+		tx3 := types.NewTx(&types.MorphTx{
+			ChainID:    gspec.Config.ChainID,
+			Nonce:      nonce + 2,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  block.header.BaseFee,
+			Gas:        params.TxGas,
+			To:         &common.Address{0x02},
+			Value:      big.NewInt(200),
+			Data:       nil,
+			AccessList: nil,
+			Version:    types.MorphTxVersion1,
+			FeeTokenID: 0,
+			FeeLimit:   nil,
+			Reference:  nil, // No reference
+			Memo:       nil,
+		})
+		signedTx3, err := types.SignTx(tx3, signer, key)
+		if err != nil {
+			panic(err)
+		}
+		block.AddTx(signedTx3)
+		if i == 5 {
+			morphTxWithoutRef = signedTx3
+		}
+	})
+
+	frdir, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("failed to create temp freezer dir: %v", err)
+	}
+	defer os.Remove(frdir)
+
+	ancientDb, err := rawdb.NewDatabaseWithFreezer(rawdb.NewMemoryDatabase(), frdir, "", false)
+	if err != nil {
+		t.Fatalf("failed to create temp freezer db: %v", err)
+	}
+	gspec.MustCommit(ancientDb)
+
+	l := uint64(0)
+	chain, err := NewBlockChain(ancientDb, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, &l)
+	if err != nil {
+		t.Fatalf("failed to create tester chain: %v", err)
+	}
+
+	headers := make([]*types.Header, len(blocks))
+	for i, block := range blocks {
+		headers[i] = block.Header()
+	}
+	if n, err := chain.InsertHeaderChain(headers, 0); err != nil {
+		t.Fatalf("failed to insert header %d: %v", n, err)
+	}
+	if n, err := chain.InsertReceiptChain(blocks, receipts, 0); err != nil {
+		t.Fatalf("block %d: failed to insert into chain: %v", n, err)
+	}
+	time.Sleep(50 * time.Millisecond) // Wait for indices initialisation
+
+	// Verify: MorphTx with Reference should be indexed
+	entries := rawdb.ReadReferenceIndexEntries(chain.db, ref1)
+	foundMorphTxWithRef := false
+	for _, entry := range entries {
+		if entry.TxHash == morphTxWithRef.Hash() {
+			foundMorphTxWithRef = true
+		}
+		// Regular tx and MorphTx without ref should not appear
+		if entry.TxHash == regularTx.Hash() {
+			t.Fatal("Regular transaction should not be in reference index")
+		}
+		if entry.TxHash == morphTxWithoutRef.Hash() {
+			t.Fatal("MorphTx without reference should not be in reference index")
+		}
+	}
+	if !foundMorphTxWithRef {
+		t.Fatal("MorphTx with reference should be in reference index")
+	}
+
+	// Verify: All MorphTx with ref1 should be indexed (10 blocks * 1 tx per block = 10 entries)
+	if len(entries) != int(height) {
+		t.Fatalf("Expected %d reference index entries, got %d", height, len(entries))
+	}
+
+	chain.Stop()
+	ancientDb.Close()
+}
+
+// TestReferenceIndicesMultipleTxsSameReference tests that multiple transactions
+// with the same Reference are correctly indexed and queried.
+func TestReferenceIndicesMultipleTxsSameReference(t *testing.T) {
+	var (
+		gendb   = rawdb.NewMemoryDatabase()
+		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		address = crypto.PubkeyToAddress(key.PublicKey)
+		funds   = big.NewInt(100000000000000000)
+		gspec   = &Genesis{
+			Config:  params.TestChainConfig,
+			Alloc:   GenesisAlloc{address: {Balance: funds}},
+			BaseFee: big.NewInt(params.InitialBaseFee),
+		}
+		genesis = gspec.MustCommit(gendb)
+		signer  = types.LatestSigner(gspec.Config)
+	)
+
+	// All transactions share the same reference
+	sharedRef := common.BytesToReference([]byte{0xaa, 0xbb, 0xcc, 0xdd, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xee})
+
+	var txHashes []common.Hash
+
+	height := uint64(20)
+	blocks, receipts := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), gendb, int(height), func(i int, block *BlockGen) {
+		nonce := block.TxNonce(address)
+
+		// Add 2 MorphTx with same reference per block
+		for j := 0; j < 2; j++ {
+			morphTx := types.NewTx(&types.MorphTx{
+				ChainID:    gspec.Config.ChainID,
+				Nonce:      nonce + uint64(j),
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  block.header.BaseFee,
+				Gas:        params.TxGas,
+				To:         &common.Address{0x01},
+				Value:      big.NewInt(100),
+				Data:       nil,
+				AccessList: nil,
+				Version:    types.MorphTxVersion1,
+				FeeTokenID: 0,
+				FeeLimit:   nil,
+				Reference:  &sharedRef,
+				Memo:       nil,
+			})
+			signedMorphTx, err := types.SignTx(morphTx, signer, key)
+			if err != nil {
+				panic(err)
+			}
+			block.AddTx(signedMorphTx)
+			txHashes = append(txHashes, signedMorphTx.Hash())
+		}
+	})
+
+	frdir, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("failed to create temp freezer dir: %v", err)
+	}
+	defer os.Remove(frdir)
+
+	ancientDb, err := rawdb.NewDatabaseWithFreezer(rawdb.NewMemoryDatabase(), frdir, "", false)
+	if err != nil {
+		t.Fatalf("failed to create temp freezer db: %v", err)
+	}
+	gspec.MustCommit(ancientDb)
+
+	l := uint64(0)
+	chain, err := NewBlockChain(ancientDb, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, &l)
+	if err != nil {
+		t.Fatalf("failed to create tester chain: %v", err)
+	}
+
+	headers := make([]*types.Header, len(blocks))
+	for i, block := range blocks {
+		headers[i] = block.Header()
+	}
+	if n, err := chain.InsertHeaderChain(headers, 0); err != nil {
+		t.Fatalf("failed to insert header %d: %v", n, err)
+	}
+	if n, err := chain.InsertReceiptChain(blocks, receipts, 0); err != nil {
+		t.Fatalf("block %d: failed to insert into chain: %v", n, err)
+	}
+	time.Sleep(50 * time.Millisecond) // Wait for indices initialisation
+
+	// Query all entries for the shared reference
+	entries := rawdb.ReadReferenceIndexEntries(chain.db, sharedRef)
+
+	// Should have 20 blocks * 2 txs = 40 entries
+	expectedCount := int(height) * 2
+	if len(entries) != expectedCount {
+		t.Fatalf("Expected %d entries for shared reference, got %d", expectedCount, len(entries))
+	}
+
+	// Verify all tx hashes are found
+	entryHashes := make(map[common.Hash]bool)
+	for _, entry := range entries {
+		entryHashes[entry.TxHash] = true
+	}
+	for _, txHash := range txHashes {
+		if !entryHashes[txHash] {
+			t.Fatalf("Missing tx hash in reference index: %s", txHash.Hex())
+		}
+	}
+
+	// Verify sorting by blockTimestamp and txIndex
+	for i := 1; i < len(entries); i++ {
+		prev := entries[i-1]
+		curr := entries[i]
+		if prev.BlockTimestamp > curr.BlockTimestamp {
+			t.Fatalf("Entries not sorted by timestamp: prev=%d, curr=%d", prev.BlockTimestamp, curr.BlockTimestamp)
+		}
+		if prev.BlockTimestamp == curr.BlockTimestamp && prev.TxIndex > curr.TxIndex {
+			t.Fatalf("Entries not sorted by txIndex within same block: prev=%d, curr=%d", prev.TxIndex, curr.TxIndex)
+		}
+	}
+
+	chain.Stop()
+	ancientDb.Close()
+}

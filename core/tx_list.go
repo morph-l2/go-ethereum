@@ -343,7 +343,7 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	}
 	l.txs.Put(tx)
 	ethCost := big.NewInt(0)
-	if tx.IsAltFeeTx() {
+	if tx.IsMorphTxWithAltFee() {
 		ethCost = new(big.Int).Set(tx.Value())
 		altCost, err := fees.EthToAlt(state, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 		if err != nil {
@@ -353,6 +353,10 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		if l.costcap.Alt(tx.FeeTokenID()).Cmp(altCost) < 0 {
 			l.costcap.SetAltAmount(tx.FeeTokenID(), altCost)
 		}
+	} else if tx.IsMorphTx() {
+		// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+		cost := new(big.Int).Add(tx.GasFee(), tx.Value())
+		ethCost = new(big.Int).Add(cost, l1DataFee)
 	} else {
 		ethCost = new(big.Int).Add(tx.Cost(), l1DataFee)
 	}
@@ -394,7 +398,7 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, altCostLimit map[ui
 	// Filter out all the transactions above the account's funds
 	removed := l.txs.Filter(func(tx *types.Transaction) bool {
 		allLower := true
-		if tx.IsAltFeeTx() {
+		if tx.IsMorphTxWithAltFee() {
 			for id, limit := range altCostLimit {
 				lower := l.costcap.Alt(id).Cmp(limit) <= 0
 				if !lower {
@@ -404,7 +408,15 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, altCostLimit map[ui
 			}
 			return tx.Gas() > gasLimit || tx.Value().Cmp(costLimit) > 0
 		}
-		return !allLower || tx.Gas() > gasLimit || tx.Cost().Cmp(costLimit) > 0
+		// Calculate cost based on transaction type
+		var txCost *big.Int
+		if tx.IsMorphTx() {
+			// MorphTx V1 with FeeTokenID=0 uses GasFee() instead of Cost()
+			txCost = new(big.Int).Add(tx.GasFee(), tx.Value())
+		} else {
+			txCost = tx.Cost()
+		}
+		return !allLower || tx.Gas() > gasLimit || txCost.Cmp(costLimit) > 0
 	})
 
 	if len(removed) == 0 {

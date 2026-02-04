@@ -38,6 +38,21 @@ type Client struct {
 	c *rpc.Client
 }
 
+// ReferenceTransactionResult contains transaction information for a reference query result.
+type ReferenceTransactionResult struct {
+	TransactionHash  common.Hash    `json:"transactionHash"`
+	BlockNumber      hexutil.Uint64 `json:"blockNumber"`
+	BlockTimestamp   hexutil.Uint64 `json:"blockTimestamp"`
+	TransactionIndex hexutil.Uint64 `json:"transactionIndex"`
+}
+
+// ReferenceQueryArgs contains arguments for querying transactions by reference.
+type ReferenceQueryArgs struct {
+	Reference common.Reference `json:"reference"`
+	Offset    *hexutil.Uint64  `json:"offset,omitempty"`
+	Limit     *hexutil.Uint64  `json:"limit,omitempty"`
+}
+
 // Dial connects a client to the given URL.
 func Dial(rawurl string) (*Client, error) {
 	return DialContext(context.Background(), rawurl)
@@ -369,6 +384,25 @@ func (ec *Client) GetSkippedTransactionHashes(ctx context.Context, from uint64, 
 func (ec *Client) GetSkippedTransaction(ctx context.Context, txHash common.Hash) (*eth.RPCTransaction, error) {
 	tx := &eth.RPCTransaction{}
 	return tx, ec.c.CallContext(ctx, &tx, "morph_getSkippedTransaction", txHash)
+}
+
+// GetTransactionHashesByReference returns transactions for the given reference with pagination.
+// Results are sorted by blockTimestamp and txIndex (ascending order).
+// Parameters:
+//   - reference: the reference key to query
+//   - offset: pagination offset (default: 0)
+//   - limit: pagination limit (default: 100, max: 100)
+func (ec *Client) GetTransactionHashesByReference(ctx context.Context, reference common.Reference, offset *hexutil.Uint64, limit *hexutil.Uint64) ([]ReferenceTransactionResult, error) {
+	var result []ReferenceTransactionResult
+	args := ReferenceQueryArgs{
+		Reference: reference,
+		Offset:    offset,
+		Limit:     limit,
+	}
+	if err := ec.c.CallContext(ctx, &result, "morph_getTransactionHashesByReference", args); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // GetBlockByNumberOrHash returns the requested block

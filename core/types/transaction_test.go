@@ -946,18 +946,41 @@ func TestMorphTxValidation(t *testing.T) {
 	})
 
 	t.Run("ValidateMorphTxVersion", func(t *testing.T) {
+		ref := common.HexToReference("0x1111111111111111111111111111111111111111111111111111111111111111")
+		emptyRef := common.Reference{}
+		memo := []byte("test memo")
+		emptyMemo := []byte{}
+		feeLimit := big.NewInt(1000)
+
 		tests := []struct {
 			name       string
 			version    uint8
 			feeTokenID uint16
+			feeLimit   *big.Int
+			reference  *common.Reference
+			memo       *[]byte
 			wantErr    error
 		}{
-			{"V0 with FeeTokenID > 0", MorphTxVersion0, 1, nil},
-			{"V0 with FeeTokenID = 0", MorphTxVersion0, 0, ErrMorphTxV0RequiresFeeToken},
-			{"V1 with FeeTokenID = 0", MorphTxVersion1, 0, nil},
-			{"V1 with FeeTokenID > 0", MorphTxVersion1, 1, nil},
-			{"Unsupported version 2", 2, 0, ErrMorphTxUnsupportedVersion},
-			{"Unsupported version 255", 255, 1, ErrMorphTxUnsupportedVersion},
+			// Version 0 tests
+			{"V0 with FeeTokenID > 0", MorphTxVersion0, 1, nil, nil, nil, nil},
+			{"V0 with FeeTokenID = 0", MorphTxVersion0, 0, nil, nil, nil, ErrMorphTxV0RequiresFeeToken},
+			{"V0 with Reference", MorphTxVersion0, 1, nil, &ref, nil, ErrMorphTxV0HasReference},
+			{"V0 with empty Reference", MorphTxVersion0, 1, nil, &emptyRef, nil, nil},
+			{"V0 with Memo", MorphTxVersion0, 1, nil, nil, &memo, ErrMorphTxV0HasMemo},
+			{"V0 with empty Memo", MorphTxVersion0, 1, nil, nil, &emptyMemo, nil},
+			{"V0 with Reference and Memo", MorphTxVersion0, 1, nil, &ref, &memo, ErrMorphTxV0HasReference},
+			// Version 1 tests
+			{"V1 with FeeTokenID = 0", MorphTxVersion1, 0, nil, nil, nil, nil},
+			{"V1 with FeeTokenID > 0", MorphTxVersion1, 1, nil, nil, nil, nil},
+			{"V1 with Reference", MorphTxVersion1, 0, nil, &ref, nil, nil},
+			{"V1 with Memo", MorphTxVersion1, 0, nil, nil, &memo, nil},
+			{"V1 with Reference and Memo", MorphTxVersion1, 1, nil, &ref, &memo, nil},
+			{"V1 FeeTokenID=0 with FeeLimit", MorphTxVersion1, 0, feeLimit, nil, nil, ErrMorphTxV1FeeLimitWithoutFeeToken},
+			{"V1 FeeTokenID>0 with FeeLimit", MorphTxVersion1, 1, feeLimit, nil, nil, nil},
+			{"V1 FeeTokenID=0 with zero FeeLimit", MorphTxVersion1, 0, big.NewInt(0), nil, nil, nil},
+			// Unsupported versions
+			{"Unsupported version 2", 2, 0, nil, nil, nil, ErrMorphTxUnsupportedVersion},
+			{"Unsupported version 255", 255, 1, nil, nil, nil, ErrMorphTxUnsupportedVersion},
 		}
 
 		for _, tc := range tests {
@@ -971,6 +994,9 @@ func TestMorphTxValidation(t *testing.T) {
 					To:         &testAddr,
 					Version:    tc.version,
 					FeeTokenID: tc.feeTokenID,
+					FeeLimit:   tc.feeLimit,
+					Reference:  tc.reference,
+					Memo:       tc.memo,
 				})
 				err := tx.ValidateMorphTxVersion()
 				if err != tc.wantErr {

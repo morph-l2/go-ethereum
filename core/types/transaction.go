@@ -39,9 +39,13 @@ var (
 	ErrCostNotSupported          = errors.New("cost function morph transaction not support or use gasFee()")
 	ErrTxTypeNotSupported        = errors.New("transaction type not supported")
 	ErrGasFeeCapTooLow           = errors.New("fee cap less than base fee")
-	ErrMemoTooLong               = errors.New("memo exceeds maximum length of 64 bytes")
-	ErrMorphTxV0RequiresFeeToken = errors.New("version 0 MorphTx requires FeeTokenID > 0")
-	ErrMorphTxUnsupportedVersion = errors.New("unsupported MorphTx version")
+	ErrMemoTooLong                      = errors.New("memo exceeds maximum length of 64 bytes")
+	ErrMorphTxV0RequiresFeeToken        = errors.New("version 0 MorphTx requires FeeTokenID > 0")
+	ErrMorphTxV0HasReference            = errors.New("version 0 MorphTx does not support Reference field")
+	ErrMorphTxV0HasMemo                 = errors.New("version 0 MorphTx does not support Memo field")
+	ErrMorphTxV1FeeLimitWithoutFeeToken = errors.New("version 1 MorphTx cannot have FeeLimit when FeeTokenID is 0")
+	ErrMorphTxCannotDetermineVersion    = errors.New("cannot determine MorphTx version: FeeTokenID=0 without Reference or Memo")
+	ErrMorphTxUnsupportedVersion        = errors.New("unsupported MorphTx version")
 	errEmptyTypedTx              = errors.New("empty typed transaction bytes")
 	errShortTypedTx              = errors.New("typed transaction too short")
 	errInvalidYParity            = errors.New("'yParity' field must be 0 or 1")
@@ -422,8 +426,9 @@ func (tx *Transaction) ValidateMemo() error {
 
 // ValidateMorphTxVersion validates the MorphTx version and its associated field requirements.
 // Rules:
-//   - Version 0 (legacy format): FeeTokenID must be > 0
-//   - Version 1 (with Reference/Memo): FeeTokenID, FeeLimit, Reference, Memo are all optional
+//   - Version 0 (legacy format): FeeTokenID must be > 0, Reference and Memo must not be set
+//   - Version 1 (with Reference/Memo): FeeTokenID, Reference, Memo are all optional;
+//     if FeeTokenID is 0, FeeLimit must not be set
 //   - Other versions: not supported
 //
 // Returns nil if the transaction is not a MorphTx or if the version is valid.
@@ -438,9 +443,20 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		if morphTx.FeeTokenID == 0 {
 			return ErrMorphTxV0RequiresFeeToken
 		}
+		// Version 0 does not support Reference field
+		if morphTx.Reference != nil && *morphTx.Reference != (common.Reference{}) {
+			return ErrMorphTxV0HasReference
+		}
+		// Version 0 does not support Memo field
+		if morphTx.Memo != nil && len(*morphTx.Memo) > 0 {
+			return ErrMorphTxV0HasMemo
+		}
 	case MorphTxVersion1:
-		// Version 1: FeeTokenID, FeeLimit, Reference, Memo are all optional
-		// No additional validation needed
+		// Version 1: FeeTokenID, Reference, Memo are all optional
+		// If FeeTokenID is 0, FeeLimit must not be set
+		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() > 0 {
+			return ErrMorphTxV1FeeLimitWithoutFeeToken
+		}
 	default:
 		return ErrMorphTxUnsupportedVersion
 	}

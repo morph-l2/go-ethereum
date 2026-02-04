@@ -2815,6 +2815,93 @@ func TestMorphTxValidation(t *testing.T) {
 			t.Errorf("expected ErrMorphTxUnsupportedVersion, got %v", err)
 		}
 	})
+
+	t.Run("V0WithReference", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// V0 with Reference should be rejected
+		ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+		tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+			ChainID:    params.TestChainConfig.ChainID,
+			Nonce:      0,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  big.NewInt(10),
+			Gas:        100000,
+			To:         &common.Address{},
+			Value:      big.NewInt(100),
+			FeeTokenID: 1,
+			Version:    types.MorphTxVersion0,
+			Reference:  &ref,
+		})
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0HasReference) {
+			t.Errorf("expected ErrMorphTxV0HasReference, got %v", err)
+		}
+	})
+
+	t.Run("V0WithMemo", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// V0 with Memo should be rejected
+		memo := []byte("test memo")
+		tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+			ChainID:    params.TestChainConfig.ChainID,
+			Nonce:      0,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  big.NewInt(10),
+			Gas:        100000,
+			To:         &common.Address{},
+			Value:      big.NewInt(100),
+			FeeTokenID: 1,
+			Version:    types.MorphTxVersion0,
+			Memo:       &memo,
+		})
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0HasMemo) {
+			t.Errorf("expected ErrMorphTxV0HasMemo, got %v", err)
+		}
+	})
+
+	t.Run("V1WithFeeLimitButNoFeeToken", func(t *testing.T) {
+		t.Parallel()
+
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// V1 with FeeLimit but FeeTokenID=0 should be rejected
+		ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+		memo := []byte("test memo")
+		tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+			ChainID:    params.TestChainConfig.ChainID,
+			Nonce:      0,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  big.NewInt(10),
+			Gas:        100000,
+			To:         &common.Address{},
+			Value:      big.NewInt(100),
+			FeeTokenID: 0,
+			FeeLimit:   big.NewInt(1000000), // FeeLimit set but no FeeToken
+			Version:    types.MorphTxVersion1,
+			Reference:  &ref,
+			Memo:       &memo,
+		})
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV1FeeLimitWithoutFeeToken) {
+			t.Errorf("expected ErrMorphTxV1FeeLimitWithoutFeeToken, got %v", err)
+		}
+	})
 }
 
 // TestMorphTxEIP1559Activation tests that MorphTx is rejected before Emerald fork.

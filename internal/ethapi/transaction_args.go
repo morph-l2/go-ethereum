@@ -425,23 +425,30 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.AccessList != nil {
 		accessList = *args.AccessList
 	}
-	var feeTokenID uint16
-	if args.FeeTokenID != nil {
-		feeTokenID = uint16(*args.FeeTokenID)
-	}
-	feeLimit := new(big.Int)
-	if args.FeeLimit != nil {
-		feeLimit = args.FeeLimit.ToInt()
-	}
-	// Determine version based on explicit setting or auto-detection
-	version := args.determineMorphTxVersion()
-	reference := new(common.Reference)
-	if args.Reference != nil {
-		reference = args.Reference
-	}
-	memo := new([]byte)
-	if args.Memo != nil {
-		memo = (*[]byte)(args.Memo)
+
+	// Only set MorphTx-specific fields when this is a MorphTx call
+	var (
+		feeTokenID uint16
+		feeLimit   *big.Int
+		version    uint8
+		reference  *common.Reference
+		memo       *[]byte
+	)
+	if args.isMorphTxArgs() {
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		if args.FeeLimit != nil {
+			feeLimit = args.FeeLimit.ToInt()
+		}
+		// Determine version based on explicit setting or auto-detection
+		version = args.determineMorphTxVersion()
+		if args.Reference != nil {
+			reference = args.Reference
+		}
+		if args.Memo != nil {
+			memo = (*[]byte)(args.Memo)
+		}
 	}
 
 	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.AuthorizationList, true)

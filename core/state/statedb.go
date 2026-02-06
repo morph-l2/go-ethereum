@@ -298,7 +298,7 @@ func (s *StateDB) GetCode(addr common.Address) []byte {
 func (s *StateDB) GetCodeSize(addr common.Address) uint64 {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
-		return stateObject.CodeSize()
+		return stateObject.CodeSize(s.db)
 	}
 	return 0
 }

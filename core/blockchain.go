@@ -1264,6 +1264,13 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	}
 	triedb := bc.stateCache.TrieDB()
 
+	// If the block header root differs from the local computed root,
+	// write the mapping for cross-format state access (MPT ↔ zkTrie).
+	// This happens when a zkTrie node processes an MPT block or vice versa.
+	if block.Root() != root {
+		rawdb.WriteDiskStateRoot(bc.db, block.Root(), root)
+	}
+
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.TrieDirtyDisabled {
 		if err := triedb.Commit(root, false, nil); err != nil {

@@ -16,7 +16,6 @@ import (
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
-	"github.com/morph-l2/go-ethereum/crypto/codehash"
 	"github.com/morph-l2/go-ethereum/eth/tracers"
 	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	_ "github.com/morph-l2/go-ethereum/eth/tracers/native"
@@ -26,8 +25,6 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"github.com/morph-l2/go-ethereum/rollup/rcfg"
-	"github.com/morph-l2/go-ethereum/rollup/sequencer"
-	"github.com/morph-l2/go-ethereum/rollup/withdrawtrie"
 )
 
 var (
@@ -58,7 +55,6 @@ func (tw *TracerWrapper) CreateTraceEnvAndGetBlockTrace(chainConfig *params.Chai
 }
 
 type TraceEnv struct {
-	//logConfig        *vm.LogConfig
 	logConfig        *logger.Config
 	commitAfterApply bool
 	chainConfig      *params.ChainConfig
@@ -77,10 +73,11 @@ type TraceEnv struct {
 
 	*types.StorageTrace
 
-	Codes           map[common.Hash]logger.CodeInfo
-	TxStorageTraces []*types.StorageTrace
+	Codes map[common.Hash]logger.CodeInfo
 	// zktrie tracer is used for zktrie storage to build additional deletion proof
-	ZkTrieTracer     map[string]state.ZktrieProofTracer
+	ZkTrieTracer map[string]state.ZktrieProofTracer
+
+	// ExecutionResults stores the execution result for each transaction
 	ExecutionResults []*types.ExecutionResult
 
 	// StartL1QueueIndex is the next L1 message queue index that this block can process.
@@ -91,9 +88,8 @@ type TraceEnv struct {
 
 // Context is the same as Context in eth/tracers/tracers.go
 type Context struct {
-	BlockHash common.Hash
-	TxIndex   int
-	TxHash    common.Hash
+	TxIndex int
+	TxHash  common.Hash
 }
 
 // txTraceTask is the same as txTraceTask in eth/tracers/api.go
@@ -102,7 +98,7 @@ type txTraceTask struct {
 	index   int
 }
 
-func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Config, blockCtx vm.BlockContext, startL1QueueIndex uint64, coinbase common.Address, statedb *state.StateDB, rootBefore common.Hash, block *types.Block, commitAfterApply bool) *TraceEnv {
+func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Config, blockCtx vm.BlockContext, startL1QueueIndex uint64, coinbase common.Address, statedb *state.StateDB, rootBefore common.Hash, rootAfter common.Hash, block *types.Block, commitAfterApply bool) *TraceEnv {
 	return &TraceEnv{
 		logConfig:        logConfig,
 		commitAfterApply: commitAfterApply,
@@ -113,14 +109,13 @@ func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Con
 		blockCtx:         blockCtx,
 		StorageTrace: &types.StorageTrace{
 			RootBefore:    rootBefore,
-			RootAfter:     block.Root(),
+			RootAfter:     rootAfter,
 			Proofs:        make(map[string][]hexutil.Bytes),
 			StorageProofs: make(map[string]map[string][]hexutil.Bytes),
 		},
 		Codes:             make(map[common.Hash]logger.CodeInfo),
 		ZkTrieTracer:      make(map[string]state.ZktrieProofTracer),
 		ExecutionResults:  make([]*types.ExecutionResult, block.Transactions().Len()),
-		TxStorageTraces:   make([]*types.StorageTrace, block.Transactions().Len()),
 		StartL1QueueIndex: startL1QueueIndex,
 	}
 }
@@ -145,6 +140,20 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 		log.Error("missing FirstQueueIndexNotInL2Block for block during trace call", "number", parent.NumberU64(), "hash", parent.Hash())
 		return nil, fmt.Errorf("missing FirstQueueIndexNotInL2Block for block during trace call: hash=%v, parentHash=%vv", block.Hash(), parent.Hash())
 	}
+
+	// Get diskRoot for cross-format state access (MPT ↔ zkTrie).
+	// When node's trie format differs from block's format, use diskRoot instead of headerRoot.
+	rootBefore := parent.Root()
+	if diskRoot, err := rawdb.ReadDiskStateRoot(chaindb, parent.Root()); err == nil && diskRoot != (common.Hash{}) {
+		rootBefore = diskRoot
+		log.Debug("Using diskRoot for rootBefore", "headerRoot", parent.Root(), "diskRoot", diskRoot)
+	}
+	rootAfter := block.Root()
+	if diskRoot, err := rawdb.ReadDiskStateRoot(chaindb, block.Root()); err == nil && diskRoot != (common.Hash{}) {
+		rootAfter = diskRoot
+		log.Debug("Using diskRoot for rootAfter", "headerRoot", block.Root(), "diskRoot", diskRoot)
+	}
+
 	env := CreateTraceEnvHelper(
 		chainConfig,
 		&logger.Config{
@@ -157,7 +166,8 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 		*startL1QueueIndex,
 		coinbase,
 		statedb,
-		parent.Root(),
+		rootBefore,
+		rootAfter,
 		block,
 		commitAfterApply,
 	)
@@ -242,25 +252,6 @@ func (env *TraceEnv) GetBlockTrace(block *types.Block) (*types.BlockTrace, error
 	close(jobs)
 	pend.Wait()
 
-	// after all tx has been traced, collect "deletion proof" for zktrie
-	for _, tracer := range env.ZkTrieTracer {
-		delProofs, err := tracer.GetDeletionProofs()
-		if err != nil {
-			log.Error("deletion proof failure", "error", err)
-		} else {
-			for _, proof := range delProofs {
-				env.DeletionProofs = append(env.DeletionProofs, proof)
-			}
-		}
-	}
-
-	// build dummy per-tx deletion proof
-	for _, txStorageTrace := range env.TxStorageTraces {
-		if txStorageTrace != nil {
-			txStorageTrace.DeletionProofs = env.DeletionProofs
-		}
-	}
-
 	// If execution failed in between, abort
 	select {
 	case err := <-errCh:
@@ -281,9 +272,8 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	to := tx.To()
 
 	txctx := &Context{
-		BlockHash: block.TxHash(),
-		TxIndex:   index,
-		TxHash:    tx.Hash(),
+		TxIndex: index,
+		TxHash:  tx.Hash(),
 	}
 
 	sender := &types.AccountWrapper{
@@ -312,7 +302,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		TxIndex:   index,
 		TxHash:    tx.Hash(),
 	}
-	callTracer, err := tracers.DefaultDirectory.New("callTracer", &tracerContext, nil, env.chainConfig) // warm up the tracer
+	callTracer, err := tracers.DefaultDirectory.New("callTracer", &tracerContext, nil, env.chainConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create callTracer: %w", err)
 	}
@@ -356,18 +346,6 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		})
 	}
 
-	txStorageTrace := &types.StorageTrace{
-		Proofs:        make(map[string][]hexutil.Bytes),
-		StorageProofs: make(map[string]map[string][]hexutil.Bytes),
-	}
-	// still we have no state root for per tx, only set the head and tail
-	if index == 0 {
-		txStorageTrace.RootBefore = statedb.GetRootHash()
-	}
-	if index == len(block.Transactions())-1 {
-		txStorageTrace.RootAfter = block.Root()
-	}
-
 	proofStorages := structLogger.UpdatedStorages()
 	// merge bytecodes
 	env.cMu.Lock()
@@ -388,9 +366,16 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 				poseidonCodeHash := statedb.GetPoseidonCodeHash(addr)
 				codeSize := statedb.GetCodeSize(addr)
 
+				// Determine the code key based on trie mode:
+				// zkTrie mode uses poseidon hash, MPT mode uses keccak hash
+				codeKey := keccakCodeHash
 				if poseidonCodeHash != (common.Hash{}) {
-					if _, exists := env.Codes[poseidonCodeHash]; !exists {
-						env.Codes[poseidonCodeHash] = logger.CodeInfo{
+					codeKey = poseidonCodeHash
+				}
+
+				if codeKey != (common.Hash{}) {
+					if _, exists := env.Codes[codeKey]; !exists {
+						env.Codes[codeKey] = logger.CodeInfo{
 							CodeSize:         codeSize,
 							KeccakCodeHash:   keccakCodeHash,
 							PoseidonCodeHash: poseidonCodeHash,
@@ -444,10 +429,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		addrStr := addr.String()
 
 		env.pMu.Lock()
-		checkedProof, existed := env.Proofs[addrStr]
-		if existed {
-			txStorageTrace.Proofs[addrStr] = checkedProof
-		}
+		_, existed := env.Proofs[addrStr]
 		env.pMu.Unlock()
 		if existed {
 			continue
@@ -460,17 +442,12 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		wrappedProof := types.WrapProof(proof)
 		env.pMu.Lock()
 		env.Proofs[addrStr] = wrappedProof
-		txStorageTrace.Proofs[addrStr] = wrappedProof
 		env.pMu.Unlock()
 	}
 
 	zkTrieBuildStart := time.Now()
 
 	for addr, keys := range proofStorages {
-		if _, existed := txStorageTrace.StorageProofs[addr.String()]; !existed {
-			txStorageTrace.StorageProofs[addr.String()] = make(map[string][]hexutil.Bytes)
-		}
-
 		env.sMu.Lock()
 		trie, err := statedb.GetStorageTrieForProof(addr)
 		if err != nil {
@@ -488,7 +465,6 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			value := statedb.GetState(addr, key)
 			isDelete := bytes.Equal(value.Bytes(), common.Hash{}.Bytes())
 
-			txm := txStorageTrace.StorageProofs[addrStr]
 			env.sMu.Lock()
 			m, existed := env.StorageProofs[addrStr]
 			if !existed {
@@ -499,8 +475,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 				env.ZkTrieTracer[addrStr] = statedb.NewProofTracer(trie)
 			}
 
-			if proof, existed := m[keyStr]; existed {
-				txm[keyStr] = proof
+			if _, existed := m[keyStr]; existed {
 				// still need to touch tracer for deletion
 				if isDelete && zktrieTracer.Available() {
 					env.ZkTrieTracer[addrStr].MarkDeletion(key)
@@ -511,7 +486,6 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			env.sMu.Unlock()
 
 			var proof [][]byte
-			var err error
 			if zktrieTracer.Available() {
 				proof, err = statedb.GetSecureTrieProof(zktrieTracer, key)
 			} else {
@@ -523,7 +497,6 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			}
 			wrappedProof := types.WrapProof(proof)
 			env.sMu.Lock()
-			txm[keyStr] = wrappedProof
 			m[keyStr] = wrappedProof
 			if zktrieTracer.Available() {
 				if isDelete {
@@ -556,10 +529,8 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		Gas:            receipt.GasUsed,
 		Failed:         receipt.Status == types.ReceiptStatusFailed,
 		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),
-		StructLogs:     logger.FormatLogs(structLogger.StructLogs()),
 		CallTrace:      callTrace,
 	}
-	env.TxStorageTraces[index] = txStorageTrace
 
 	return nil
 }
@@ -620,47 +591,35 @@ func (env *TraceEnv) fillBlockTrace(block *types.Block) (*types.BlockTrace, erro
 		}
 	}
 
+	// Get WithdrawTrieRoot
+	withdrawTrieRoot := statedb.GetState(rcfg.L2MessageQueueAddress, rcfg.WithdrawTrieRootSlot)
+
 	var chainID uint64
 	if env.chainConfig.ChainID != nil {
 		chainID = env.chainConfig.ChainID.Uint64()
 	}
 	blockTrace := &types.BlockTrace{
 		ChainID: chainID,
-		Version: params.ArchiveVersion(params.CommitHash),
 		Coinbase: &types.AccountWrapper{
-			Address:          env.coinbase,
-			Nonce:            statedb.GetNonce(env.coinbase),
-			Balance:          (*hexutil.Big)(statedb.GetBalance(env.coinbase)),
-			KeccakCodeHash:   statedb.GetKeccakCodeHash(env.coinbase),
-			PoseidonCodeHash: statedb.GetPoseidonCodeHash(env.coinbase),
-			CodeSize:         statedb.GetCodeSize(env.coinbase),
+			Address: env.coinbase,
 		},
 		Header:            block.Header(),
 		Bytecodes:         make([]*types.BytecodeTrace, 0, len(env.Codes)),
 		StorageTrace:      env.StorageTrace,
 		ExecutionResults:  env.ExecutionResults,
-		TxStorageTraces:   env.TxStorageTraces,
+		WithdrawTrieRoot:  withdrawTrieRoot,
 		Transactions:      txs,
 		StartL1QueueIndex: env.StartL1QueueIndex,
 	}
 
 	blockTrace.Bytecodes = append(blockTrace.Bytecodes, &types.BytecodeTrace{
-		CodeSize:         0,
-		KeccakCodeHash:   codehash.EmptyKeccakCodeHash,
-		PoseidonCodeHash: codehash.EmptyPoseidonCodeHash,
-		Code:             hexutil.Bytes{},
+		Code: hexutil.Bytes{},
 	})
 	for _, codeInfo := range env.Codes {
 		blockTrace.Bytecodes = append(blockTrace.Bytecodes, &types.BytecodeTrace{
-			CodeSize:         codeInfo.CodeSize,
-			KeccakCodeHash:   codeInfo.KeccakCodeHash,
-			PoseidonCodeHash: codeInfo.PoseidonCodeHash,
-			Code:             codeInfo.Code,
+			Code: codeInfo.Code,
 		})
 	}
-
-	blockTrace.WithdrawTrieRoot = withdrawtrie.ReadWTRSlot(rcfg.L2MessageQueueAddress, env.state)
-	blockTrace.SequencerSetVerifyHash = sequencer.ReadVerifyHashSlot(rcfg.SequencerAddress, env.state)
 
 	return blockTrace, nil
 }

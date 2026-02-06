@@ -256,7 +256,7 @@ func GenerateChainWithGenesis(genesis *Genesis, engine consensus.Engine, db ethd
 // a similar non-validating proof of work implementation.
 func GenerateChain(config *params.ChainConfig, parent *types.Block, engine consensus.Engine, db ethdb.Database, n int, gen func(int, *BlockGen)) ([]*types.Block, []types.Receipts) {
 	if config == nil {
-		config = params.TestChainConfig
+		config = params.TestChainConfig.Clone()
 	}
 	blocks, receipts := make(types.Blocks, n), make([]types.Receipts, n)
 	chainreader := &fakeChainReader{config: config}

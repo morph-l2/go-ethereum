@@ -12,18 +12,15 @@ import (
 
 // BlockTrace contains block execution traces and results required for rollers.
 type BlockTrace struct {
-	ChainID                uint64             `json:"chainID"`
-	Version                string             `json:"version"`
-	Coinbase               *AccountWrapper    `json:"coinbase"`
-	Header                 *Header            `json:"header"`
-	Transactions           []*TransactionData `json:"transactions"`
-	StorageTrace           *StorageTrace      `json:"storageTrace"`
-	Bytecodes              []*BytecodeTrace   `json:"codes"`
-	TxStorageTraces        []*StorageTrace    `json:"txStorageTraces,omitempty"`
-	ExecutionResults       []*ExecutionResult `json:"executionResults"`
-	WithdrawTrieRoot       common.Hash        `json:"withdraw_trie_root,omitempty"`
-	SequencerSetVerifyHash common.Hash        `json:"sequencer_set_verify_hash,omitempty"`
-	StartL1QueueIndex      uint64             `json:"startL1QueueIndex"`
+	ChainID           uint64             `json:"chainID"`
+	Coinbase          *AccountWrapper    `json:"coinbase"`
+	Header            *Header            `json:"header"`
+	Transactions      []*TransactionData `json:"transactions"`
+	StorageTrace      *StorageTrace      `json:"storageTrace"`
+	ExecutionResults  []*ExecutionResult `json:"executionResults"`
+	WithdrawTrieRoot  common.Hash        `json:"withdraw_trie_root,omitempty"`
+	Bytecodes         []*BytecodeTrace   `json:"codes"`
+	StartL1QueueIndex uint64             `json:"startL1QueueIndex"`
 }
 
 // BytecodeTrace stores all accessed bytecodes
@@ -46,10 +43,6 @@ type StorageTrace struct {
 
 	// All storage proofs BEFORE execution
 	StorageProofs map[string]map[string][]hexutil.Bytes `json:"storageProofs,omitempty"`
-
-	// Node entries for deletion, no need to distinguish what it is from, just read them
-	// into the partial db
-	DeletionProofs []hexutil.Bytes `json:"deletionProofs,omitempty"`
 }
 
 // ExecutionResult groups all structured logs emitted by the EVM

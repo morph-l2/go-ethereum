@@ -122,21 +122,55 @@ func (f *Filter) Logs(ctx context.Context) ([]*types.Log, error) {
 		return f.pendingLogs()
 	}
 	// Figure out the limits of the filter range
-	header, _ := f.sys.backend.HeaderByNumber(ctx, rpc.LatestBlockNumber)
-	if header == nil {
+	resolveSpecial := func(number int64) (uint64, error) {
+		switch number {
+		case rpc.PendingBlockNumber.Int64(), // inheriting the current logic, pending logs will be disabled in the future
+			rpc.LatestBlockNumber.Int64():
+			hdr, _ := f.sys.backend.HeaderByNumber(ctx, rpc.LatestBlockNumber)
+			if hdr == nil {
+				return 0, errors.New("latest header not found")
+			}
+			return hdr.Number.Uint64(), nil
+		case rpc.SafeBlockNumber.Int64():
+			hdr, _ := f.sys.backend.HeaderByNumber(ctx, rpc.SafeBlockNumber)
+			if hdr == nil {
+				return 0, errors.New("safe header not found")
+			}
+			return hdr.Number.Uint64(), nil
+		case rpc.FinalizedBlockNumber.Int64():
+			hdr, _ := f.sys.backend.HeaderByNumber(ctx, rpc.FinalizedBlockNumber)
+			if hdr == nil {
+				return 0, errors.New("finalized header not found")
+			}
+			return hdr.Number.Uint64(), nil
+		default:
+			if number < 0 {
+				return 0, errors.New("negative block number")
+			}
+			return uint64(number), nil
+		}
+	}
+
+	var (
+		begin, end uint64
+		pending    = f.end == rpc.PendingBlockNumber.Int64()
+		err        error
+	)
+
+	begin, err = resolveSpecial(f.begin)
+	if err != nil {
+		return nil, err
+	}
+	end, err = resolveSpecial(f.end)
+	if err != nil {
+		return nil, err
+	}
+
+	if begin > end {
 		return nil, nil
 	}
-	var (
-		head    = header.Number.Uint64()
-		end     = uint64(f.end)
-		pending = f.end == rpc.PendingBlockNumber.Int64()
-	)
-	if f.begin == rpc.LatestBlockNumber.Int64() {
-		f.begin = int64(head)
-	}
-	if f.end == rpc.LatestBlockNumber.Int64() || f.end == rpc.PendingBlockNumber.Int64() {
-		end = head
-	}
+	f.begin = int64(begin)
+	f.end = int64(end)
 
 	// if maxBlockRange configured then check for
 	if f.maxBlockRange != -1 && int64(end)-f.begin+1 > f.maxBlockRange {
@@ -145,7 +179,6 @@ func (f *Filter) Logs(ctx context.Context) ([]*types.Log, error) {
 	// Gather all indexed logs, and finish with non indexed ones
 	var (
 		logs           []*types.Log
-		err            error
 		size, sections = f.sys.backend.BloomStatus()
 	)
 	if indexed := sections * size; indexed > uint64(f.begin) {

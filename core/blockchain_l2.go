@@ -254,3 +254,22 @@ func (bc *BlockChain) collectLogs(b *types.Block, removed bool) []*types.Log {
 	}
 	return logs
 }
+
+// SetSafe sets the safe block header. The safe block is derived from
+// L1 batch committed status. It represents the block that has been
+// submitted to L1 and is considered safe.
+func (bc *BlockChain) SetSafe(header *types.Header) {
+	bc.currentSafeBlock.Store(header)
+	log.Debug("Set safe block", "number", header.Number, "hash", header.Hash())
+}
+
+// SetFinalized sets the finalized block header. The finalized block is
+// derived from L1 batch finalized status. It represents the block that
+// has been finalized on L1 and is considered irreversible.
+// Also persists to rawdb for recovery on restart.
+func (bc *BlockChain) SetFinalized(header *types.Header) {
+	bc.currentFinalizedBlock.Store(header)
+	// Persist to rawdb for recovery on restart
+	rawdb.WriteFinalizedBlockHash(bc.db, header.Hash())
+	log.Debug("Set finalized block", "number", header.Number, "hash", header.Hash())
+}

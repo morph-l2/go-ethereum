@@ -31,6 +31,10 @@ import (
 
 var magicHash []byte = []byte("THIS IS THE MAGIC INDEX FOR ZKTRIE")
 
+// maxZkTrieDepth is the maximum depth limit for zkTrie recursion to prevent stack overflow and DoS attacks.
+// The theoretical maximum depth of zkTrie is 256.
+const maxZkTrieDepth = 256
+
 // wrap zktrie for trie interface
 type ZkTrie struct {
 	*zktrie.ZkTrie
@@ -252,6 +256,11 @@ func (t *ZkTrie) CountLeaves(cb func(key, value []byte), parallel, verifyNodeHas
 func (t *ZkTrie) countLeaves(root *zkt.Hash, cb func(key, value []byte), depth int, parallel, verifyNodeHashes bool) uint64 {
 	if root == nil {
 		return 0
+	}
+
+	// Check recursion depth limit to prevent stack overflow and DoS attacks
+	if depth > maxZkTrieDepth {
+		panic(fmt.Sprintf("countLeaves: exceeded max depth limit, depth=%d, maxDepth=%d", depth, maxZkTrieDepth))
 	}
 
 	rootNode, err := t.ZkTrie.Tree().GetNode(root)

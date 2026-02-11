@@ -99,6 +99,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*LightEthereum, error) {
 	if config.OverrideEmeraldTime != nil {
 		overrides.EmeraldTime = config.OverrideEmeraldTime
 	}
+	if config.OverrideMPTForkTime != nil {
+		overrides.MPTForkTime = config.OverrideMPTForkTime
+	}
 	chainConfig, genesisHash, genesisErr := core.SetupGenesisBlockWithOverride(chainDb, config.Genesis, &overrides)
 	if _, isCompat := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !isCompat {
 		return nil, genesisErr

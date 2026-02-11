@@ -618,8 +618,8 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 			Balance          *big.Int
 			Root             common.Hash
 			KeccakCodeHash   []byte
-			PoseidonCodeHash []byte
-			CodeSize         uint64
+			PoseidonCodeHash []byte `rlp:"-"` // zkTrie specific, not serialized to disk
+			CodeSize         uint64 `rlp:"-"` // Can be derived from code, not serialized
 		}
 		if err := rlp.DecodeBytes(val, &acc); err != nil {
 			log.Crit("Invalid account encountered during snapshot creation", "err", err)

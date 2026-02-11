@@ -1,4 +1,7 @@
-**/*_test.go
+# Exclude test files except fuzzers
+*_test.go
+!tests/fuzzers/**/*_test.go
+!crypto/blake2b/*_test.go
 
 build/_workspace
 build/_bin

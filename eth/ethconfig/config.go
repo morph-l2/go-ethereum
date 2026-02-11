@@ -224,6 +224,9 @@ type Config struct {
 
 	// EmeraldTime override
 	OverrideEmeraldTime *uint64 `toml:",omitempty"`
+
+	// MPTForkTime override
+	OverrideMPTForkTime *uint64 `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

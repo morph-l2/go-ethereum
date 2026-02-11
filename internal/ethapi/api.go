@@ -39,6 +39,7 @@ import (
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/forkid"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -647,6 +648,100 @@ func (api *PublicBlockChainAPI) ChainId() (*hexutil.Big, error) {
 		return (*hexutil.Big)(config.ChainID), nil
 	}
 	return nil, fmt.Errorf("chain not synced beyond EIP-155 replay-protection fork block")
+}
+
+// morphExtension contains Morph-specific configuration fields (EIP-7910 extension)
+type morphExtension struct {
+	UseZktrie   bool    `json:"useZktrie"`
+	MPTForkTime *uint64 `json:"mptForkTime,omitempty"`
+}
+
+// config represents a single fork configuration (EIP-7910)
+type config struct {
+	ActivationTime  uint64                    `json:"activationTime"`
+	BlobSchedule    interface{}               `json:"blobSchedule"`
+	ChainId         *hexutil.Big              `json:"chainId"`
+	ForkId          hexutil.Bytes             `json:"forkId"`
+	Precompiles     map[string]common.Address `json:"precompiles"`
+	SystemContracts map[string]common.Address `json:"systemContracts"`
+	Morph           *morphExtension           `json:"morph,omitempty"`
+}
+
+// configResponse represents the eth_config RPC response (EIP-7910)
+type configResponse struct {
+	Current *config `json:"current"`
+	Next    *config `json:"next"`
+	Last    *config `json:"last"`
+}
+
+// Config implements the EIP-7910 eth_config method.
+// This method returns fork information including precompiles, system contracts,
+// and Morph-specific configuration.
+func (api *PublicBlockChainAPI) Config(ctx context.Context) (*configResponse, error) {
+	genesis, err := api.b.HeaderByNumber(ctx, 0)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load genesis: %w", err)
+	}
+
+	var (
+		c             = api.b.ChainConfig()
+		currentHeader = api.b.CurrentHeader()
+		currentBlock  = new(big.Int).SetUint64(currentHeader.Number.Uint64())
+		t             = currentHeader.Time
+	)
+
+	assemble := func(c *params.ChainConfig, ts *uint64) *config {
+		if ts == nil {
+			return nil
+		}
+		forkTime := *ts
+
+		var (
+			rules       = c.Rules(currentBlock, forkTime)
+			precompiles = make(map[string]common.Address)
+		)
+		for addr, contract := range vm.ActivePrecompiledContracts(rules) {
+			precompiles[contract.Name()] = addr
+		}
+
+		// Activation time: if fork is activated at genesis, use 0
+		activationTime := forkTime
+		if genesis.Time >= forkTime {
+			activationTime = 0
+		}
+
+		// Calculate ForkID
+		forkID := forkid.NewID(c, genesis.Hash(), ^uint64(0), forkTime).Hash
+
+		// Morph extension
+		morph := &morphExtension{
+			UseZktrie:   c.Morph.UseZktrie,
+			MPTForkTime: c.MPTForkTime,
+		}
+
+		return &config{
+			ActivationTime:  activationTime,
+			BlobSchedule:    nil, // Morph L2 does not use blobs
+			ChainId:         (*hexutil.Big)(c.ChainID),
+			ForkId:          forkID[:],
+			Precompiles:     precompiles,
+			SystemContracts: c.ActiveSystemContracts(forkTime),
+			Morph:           morph,
+		}
+	}
+
+	resp := configResponse{
+		Current: assemble(c, c.Timestamp(c.LatestFork(t))),
+		Next:    assemble(c, c.Timestamp(c.LatestFork(t)+1)),
+		Last:    assemble(c, c.Timestamp(c.LatestFork(^uint64(0)))),
+	}
+
+	// Nil out last if no future fork is configured
+	if resp.Next == nil {
+		resp.Last = nil
+	}
+
+	return &resp, nil
 }
 
 // BlockNumber returns the block number of the chain head.

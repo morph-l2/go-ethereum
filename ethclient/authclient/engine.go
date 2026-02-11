@@ -12,7 +12,7 @@ import (
 )
 
 // AssembleL2Block assembles L2 Block used for L2 sequencer to propose a block in L2 consensus progress
-func (ec *Client) AssembleL2Block(ctx context.Context, number *big.Int, transactions types.Transactions) (*catalyst.ExecutableL2Data, error) {
+func (ec *Client) AssembleL2Block(ctx context.Context, timeStamp *uint64, number *big.Int, transactions types.Transactions) (*catalyst.ExecutableL2Data, error) {
 	txs := make([][]byte, 0, len(transactions))
 	for i, tx := range transactions {
 		bz, err := tx.MarshalBinary()
@@ -25,6 +25,7 @@ func (ec *Client) AssembleL2Block(ctx context.Context, number *big.Int, transact
 	err := ec.c.CallContext(ctx, &result, "engine_assembleL2Block", &catalyst.AssembleL2BlockParams{
 		Number:       number.Uint64(),
 		Transactions: txs,
+		Timestamp:    timeStamp,
 	})
 	return &result, err
 }

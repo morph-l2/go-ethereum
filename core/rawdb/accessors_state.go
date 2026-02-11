@@ -94,3 +94,29 @@ func DeleteTrieNode(db ethdb.KeyValueWriter, hash common.Hash) {
 		log.Crit("Failed to delete trie node", "err", err)
 	}
 }
+
+// WriteDiskStateRoot writes the mapping from header state root to disk state root.
+// This is used for MPT migration: when a node's trie format differs from the block's format,
+// the block header root (remote format) needs to be mapped to the actual disk root (local format).
+func WriteDiskStateRoot(db ethdb.KeyValueWriter, headerRoot, diskRoot common.Hash) {
+	if err := db.Put(diskStateRootKey(headerRoot), diskRoot.Bytes()); err != nil {
+		log.Crit("Failed to store disk state root mapping", "err", err)
+	}
+}
+
+// ReadDiskStateRoot retrieves the disk state root for a given header state root.
+// Returns error if the mapping doesn't exist (which is normal for same-format blocks).
+func ReadDiskStateRoot(db ethdb.KeyValueReader, headerRoot common.Hash) (common.Hash, error) {
+	data, err := db.Get(diskStateRootKey(headerRoot))
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return common.BytesToHash(data), nil
+}
+
+// DeleteDiskStateRoot deletes the disk state root mapping for a given header root.
+func DeleteDiskStateRoot(db ethdb.KeyValueWriter, headerRoot common.Hash) {
+	if err := db.Delete(diskStateRootKey(headerRoot)); err != nil {
+		log.Crit("Failed to delete disk state root mapping", "err", err)
+	}
+}

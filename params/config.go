@@ -18,12 +18,14 @@ package params
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/big"
 
 	"golang.org/x/crypto/sha3"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/params/forks"
 	"github.com/morph-l2/go-ethereum/rollup/rcfg"
 )
 
@@ -31,14 +33,16 @@ func NewUint64(val uint64) *uint64 { return &val }
 
 // Genesis hashes to enforce below configs on.
 var (
-	MainnetGenesisHash      = common.HexToHash("0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
-	RopstenGenesisHash      = common.HexToHash("0x41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d")
-	SepoliaGenesisHash      = common.HexToHash("0x25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9")
-	RinkebyGenesisHash      = common.HexToHash("0x6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177")
-	GoerliGenesisHash       = common.HexToHash("0xbf7e331f7f7c1dd2e05159666b3bf8bc7a8a3a9eb1d518969eab529dd9b88c1a")
-	MorphHoleskyGenesisHash = common.HexToHash("0x74c3b27ba96d1f17f35849f51f5d786767bae9b1b63c338069a8cbd0e1d0b0b7")
-	MorphMainnetGenesisHash = common.HexToHash("0x649c9b1f9f831771529dbf286a63dd071530d73c8fa410997eebaf449acfa7a9")
-	MorphHoodiGenesisHash   = common.HexToHash("0x2cbcff7ec8d68255cb130d5274217cded0c83c417b9ed5e045e1ffcc3ebfc35c")
+	MainnetGenesisHash           = common.HexToHash("0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+	RopstenGenesisHash           = common.HexToHash("0x41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d")
+	SepoliaGenesisHash           = common.HexToHash("0x25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9")
+	RinkebyGenesisHash           = common.HexToHash("0x6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177")
+	GoerliGenesisHash            = common.HexToHash("0xbf7e331f7f7c1dd2e05159666b3bf8bc7a8a3a9eb1d518969eab529dd9b88c1a")
+	MorphHoleskyGenesisHash      = common.HexToHash("0x74c3b27ba96d1f17f35849f51f5d786767bae9b1b63c338069a8cbd0e1d0b0b7")
+	MorphMainnetGenesisHash      = common.HexToHash("0x649c9b1f9f831771529dbf286a63dd071530d73c8fa410997eebaf449acfa7a9")
+	MorphHoodiGenesisHash        = common.HexToHash("0x2cbcff7ec8d68255cb130d5274217cded0c83c417b9ed5e045e1ffcc3ebfc35c")
+	MorphMainnetGenesisStateRoot = common.HexToHash("0x09688bec5d876538664e62247c2f64fc7a02c54a3f898b42020730c7dd4933aa")
+	MorphHoodiGenesisStateRoot   = common.HexToHash("0x0a31941eb1853862c0c38f378eb0c519e9e66f0942e39b47dca38c0437ab6b3e")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -322,6 +326,7 @@ var (
 			UseZktrie:                 true,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphHoodiFeeVaultAddress,
+			GenesisStateRoot:          &MorphHoodiGenesisStateRoot,
 		},
 	}
 
@@ -353,6 +358,7 @@ var (
 			UseZktrie:                 true,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &rcfg.MorphFeeVaultAddress,
+			GenesisStateRoot:          &MorphMainnetGenesisStateRoot,
 		},
 	}
 
@@ -583,6 +589,7 @@ type ChainConfig struct {
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
 	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
 	EmeraldTime         *uint64  `json:"emeraldTime,omitempty"`         // EmeraldTime switch time (nil = no fork, 0 = already on emerald)
+	MPTForkTime         *uint64  `json:"mptForkTime,omitempty"`         // MPTForkTime switch time (nil = no fork, blocks use zkTrie format)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -600,6 +607,11 @@ type ChainConfig struct {
 type MorphConfig struct {
 	// Use zktrie [optional]
 	UseZktrie bool `json:"useZktrie,omitempty"`
+
+	// Genesis state root for MPT mode [optional]
+	// When UseZktrie=false (MPT mode), this specifies the zkTrie genesis root
+	// to maintain compatibility. The actual MPT root will be computed and mapped.
+	GenesisStateRoot *common.Hash `json:"genesisStateRoot,omitempty"`
 
 	// Maximum number of transactions per block [optional]
 	MaxTxPerBlock *int `json:"maxTxPerBlock,omitempty"`
@@ -664,6 +676,20 @@ func (c *CliqueConfig) String() string {
 	return "clique"
 }
 
+// Clone creates a deep copy of ChainConfig.
+// This is safe for concurrent use in tests.
+func (c *ChainConfig) Clone() *ChainConfig {
+	var clone ChainConfig
+	j, err := json.Marshal(c)
+	if err != nil {
+		panic(err)
+	}
+	if err = json.Unmarshal(j, &clone); err != nil {
+		panic(err)
+	}
+	return &clone
+}
+
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {
 	var engine interface{}
@@ -675,7 +701,7 @@ func (c *ChainConfig) String() string {
 	default:
 		engine = "unknown"
 	}
-	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Emerald: %v, Engine: %v, Morph config: %v}",
+	return fmt.Sprintf("{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Emerald: %v, MPTFork: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -698,6 +724,7 @@ func (c *ChainConfig) String() string {
 		c.Morph203Time,
 		c.ViridianTime,
 		c.EmeraldTime,
+		c.MPTForkTime,
 		engine,
 		c.Morph,
 	)
@@ -803,6 +830,12 @@ func (c *ChainConfig) IsEmerald(num *big.Int, time uint64) bool {
 	return isTimestampForked(c.EmeraldTime, time)
 }
 
+// IsMPTFork returns whether the given time is at or after the MPT fork time.
+// After this fork, blocks use MPT (Merkle Patricia Trie) format instead of zkTrie.
+func (c *ChainConfig) IsMPTFork(time uint64) bool {
+	return isTimestampForked(c.MPTForkTime, time)
+}
+
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
 func (c *ChainConfig) IsTerminalPoWBlock(parentTotalDiff *big.Int, totalDiff *big.Int) bool {
 	if c.TerminalTotalDifficulty == nil {
@@ -867,6 +900,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "morph203Time", timestamp: c.Morph203Time, optional: true},
 		{name: "viridianTime", timestamp: c.ViridianTime, optional: true},
 		{name: "emeraldTime", timestamp: c.EmeraldTime, optional: true},
+		{name: "mptForkTime", timestamp: c.MPTForkTime, optional: true},
 	} {
 		if lastFork.name != "" {
 			switch {
@@ -975,6 +1009,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTi
 	}
 	if isForkTimestampIncompatible(c.EmeraldTime, newcfg.EmeraldTime, headTimestamp) {
 		return newTimestampCompatError("EmeraldTime fork timestamp", c.EmeraldTime, newcfg.EmeraldTime)
+	}
+	if isForkTimestampIncompatible(c.MPTForkTime, newcfg.MPTForkTime, headTimestamp) {
+		return newTimestampCompatError("MPTForkTime fork timestamp", c.MPTForkTime, newcfg.MPTForkTime)
 	}
 	return nil
 }
@@ -1118,11 +1155,11 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                 *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
-	IsBerlin, IsLondon, IsArchimedes, IsShanghai            bool
-	IsBernoulli, IsCurie, IsMorph203, IsViridian, IsEmerald bool
+	ChainID                                                            *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                          bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul            bool
+	IsBerlin, IsLondon, IsArchimedes, IsShanghai                       bool
+	IsBernoulli, IsCurie, IsMorph203, IsViridian, IsEmerald, IsMPTFork bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1150,5 +1187,52 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsMorph203:       c.IsMorph203(time),
 		IsViridian:       c.IsViridian(num, time),
 		IsEmerald:        c.IsEmerald(num, time),
+		IsMPTFork:        c.IsMPTFork(time),
+	}
+}
+
+// LatestFork returns the latest time-based fork that would be active for the given time.
+// This follows the EIP-7910 pattern for determining the current fork.
+// Note: All block-based forks (Archimedes, Shanghai, Bernoulli, Curie) are assumed to have passed.
+// We only check timestamp-based conditions here.
+func (c *ChainConfig) LatestFork(time uint64) forks.Fork {
+	switch {
+	case isTimestampForked(c.EmeraldTime, time):
+		return forks.Emerald
+	case isTimestampForked(c.ViridianTime, time):
+		return forks.Viridian
+	case isTimestampForked(c.Morph203Time, time):
+		return forks.Morph203
+	default:
+		// All block-based forks are assumed to have passed
+		// Return Curie as the last block-based fork
+		return forks.Curie
+	}
+}
+
+// Timestamp returns the timestamp associated with the fork or returns nil if
+// the fork isn't defined or isn't a time-based fork.
+func (c *ChainConfig) Timestamp(fork forks.Fork) *uint64 {
+	switch fork {
+	case forks.Emerald:
+		return c.EmeraldTime
+	case forks.Viridian:
+		return c.ViridianTime
+	case forks.Morph203:
+		return c.Morph203Time
+	default:
+		return nil
+	}
+}
+
+// ActiveSystemContracts returns the currently active system contracts at the given timestamp.
+// Morph system contracts exist from genesis, so they are always returned.
+func (c *ChainConfig) ActiveSystemContracts(time uint64) map[string]common.Address {
+	return map[string]common.Address{
+		"L2_MESSAGE_QUEUE":    common.HexToAddress("0x5300000000000000000000000000000000000001"),
+		"SEQUENCER":           common.HexToAddress("0x5300000000000000000000000000000000000017"),
+		"FEE_VAULT":           common.HexToAddress("0x530000000000000000000000000000000000000a"),
+		"L1_GAS_PRICE_ORACLE": common.HexToAddress("0x530000000000000000000000000000000000000F"),
+		"L2_TOKEN_REGISTRY":   common.HexToAddress("0x5300000000000000000000000000000000000021"),
 	}
 }

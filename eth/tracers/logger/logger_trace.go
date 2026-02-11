@@ -49,10 +49,19 @@ func traceLastNAddressCode(n int) traceFunc {
 
 func traceCodeWithAddress(l *StructLogger, address common.Address) {
 	code := l.env.StateDB.GetCode(address)
+
 	keccakCodeHash := l.env.StateDB.GetKeccakCodeHash(address)
+	codeHash := keccakCodeHash
+
+	// Try to get poseidon code hash - if it's non-zero, we're in zkTrie mode
 	poseidonCodeHash := l.env.StateDB.GetPoseidonCodeHash(address)
+	if poseidonCodeHash != (common.Hash{}) {
+		// In zkTrie mode, use poseidon hash as key
+		codeHash = poseidonCodeHash
+	}
+
 	codeSize := l.env.StateDB.GetCodeSize(address)
-	l.bytecodes[poseidonCodeHash] = CodeInfo{
+	l.bytecodes[codeHash] = CodeInfo{
 		codeSize,
 		keccakCodeHash,
 		poseidonCodeHash,

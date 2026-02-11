@@ -170,6 +170,10 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 		v := ctx.Uint64(utils.OverrideEmeraldTimeFlag.Name)
 		cfg.Eth.OverrideEmeraldTime = &v
 	}
+	if ctx.GlobalIsSet(utils.OverrideMPTForkTimeFlag.Name) {
+		v := ctx.Uint64(utils.OverrideMPTForkTimeFlag.Name)
+		cfg.Eth.OverrideMPTForkTime = &v
+	}
 
 	backend, _ := utils.RegisterEthService(stack, &cfg.Eth)
 

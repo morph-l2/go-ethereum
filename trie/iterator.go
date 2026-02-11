@@ -151,8 +151,11 @@ func (e seekError) Error() string {
 }
 
 func newNodeIterator(trie *Trie, start []byte) NodeIterator {
-	if trie.Hash() == emptyState {
-		return new(nodeIterator)
+	if trie.Hash() == emptyRoot {
+		return &nodeIterator{
+			trie: trie,
+			err:  errIteratorEnd,
+		}
 	}
 	it := &nodeIterator{trie: trie}
 	it.err = it.seek(start)
@@ -480,8 +483,9 @@ func (it *nodeIterator) push(state *nodeIteratorState, parentIndex *int, path []
 }
 
 func (it *nodeIterator) pop() {
-	parent := it.stack[len(it.stack)-1]
-	it.path = it.path[:parent.pathlen]
+	last := it.stack[len(it.stack)-1]
+	it.path = it.path[:last.pathlen]
+	it.stack[len(it.stack)-1] = nil
 	it.stack = it.stack[:len(it.stack)-1]
 }
 

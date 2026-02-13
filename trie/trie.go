@@ -25,18 +25,12 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/types"
-	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rlp"
 )
 
-var (
-	// emptyRoot is the known root hash of an empty trie.
-	emptyRoot = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
-
-	// emptyState is the known hash of an empty state trie entry.
-	emptyState = crypto.Keccak256Hash(nil)
-)
+// emptyRoot is the known root hash of an empty trie.
+var emptyRoot = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
 // LeafCallback is a callback type invoked when a trie operation reaches a leaf
 // node.

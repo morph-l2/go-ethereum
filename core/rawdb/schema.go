@@ -130,6 +130,9 @@ var (
 	referenceIndexPrefix = []byte("ref")
 	// Track the oldest block whose reference indices have been indexed
 	referenceIndexTailKey = []byte("ReferenceIndexTail")
+
+	// diskStateRoot mapping
+	diskStateRootPrefix = []byte("dsr") // diskStateRootPrefix + headerRoot -> diskRoot
 )
 
 const (
@@ -339,4 +342,9 @@ func referenceIndexKey(reference common.Reference, blockTimestamp uint64, txInde
 // Used for range queries by reference
 func referenceIndexKeyPrefix(reference common.Reference) []byte {
 	return append(referenceIndexPrefix, reference[:]...)
+}
+
+// diskStateRootKey = diskStateRootPrefix + headerRoot
+func diskStateRootKey(headerRoot common.Hash) []byte {
+	return append(diskStateRootPrefix, headerRoot.Bytes()...)
 }

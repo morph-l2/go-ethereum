@@ -404,14 +404,7 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, altCostLimit map[ui
 			}
 			return tx.Gas() > gasLimit || tx.Value().Cmp(costLimit) > 0
 		}
-		// Calculate cost based on transaction type
-		var txCost *big.Int
-		if tx.IsMorphTx() {
-			// TODO
-		} else {
-			txCost = tx.Cost()
-		}
-		return !allLower || tx.Gas() > gasLimit || txCost.Cmp(costLimit) > 0
+		return !allLower || tx.Gas() > gasLimit || tx.Cost().Cmp(costLimit) > 0
 	})
 
 	if len(removed) == 0 {

@@ -3005,8 +3005,8 @@ func TestMorphTxPoolManagement(t *testing.T) {
 			t.Fatalf("failed to add tx1: %v", err)
 		}
 
-		// Try to replace with same gas price (should fail)
-		tx2 := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		// Try to replace with same gas price but different gas limit (should fail)
+		tx2 := morphTxV1(0, 200000, big.NewInt(10), big.NewInt(1), key)
 		if err := pool.addRemoteSync(tx2); err == nil {
 			t.Error("expected rejection for same-price replacement")
 		}

@@ -1900,78 +1900,6 @@ func (s *PublicTransactionPoolAPI) GetTransactionCount(ctx context.Context, addr
 	return (*hexutil.Uint64)(&nonce), state.Error()
 }
 
-// ReferenceTransactionResult represents a simplified transaction result for reference queries.
-type ReferenceTransactionResult struct {
-	TransactionHash  common.Hash    `json:"transactionHash"`
-	BlockNumber      hexutil.Uint64 `json:"blockNumber"`
-	BlockTimestamp   hexutil.Uint64 `json:"blockTimestamp"`
-	TransactionIndex hexutil.Uint64 `json:"transactionIndex"`
-}
-
-// GetTransactionHashesByReference returns transactions for the given reference with pagination.
-// Results are sorted by blockTimestamp and txIndex (ascending order).
-// Parameters:
-//   - reference: the reference key to query
-//   - offset: pagination offset (default: 0)
-//   - limit: pagination limit (default: 100, max: 100)
-func (s *PublicTransactionPoolAPI) GetTransactionHashesByReference(
-	ctx context.Context,
-	reference common.Reference,
-	offset *hexutil.Uint64,
-	limit *hexutil.Uint64,
-) (
-	[]ReferenceTransactionResult,
-	error,
-) {
-	// Set default values
-	offsetVal := uint64(0)
-	if offset != nil {
-		offsetVal = uint64(*offset)
-	}
-	limitVal := uint64(100)
-	if limit != nil {
-		limitVal = uint64(*limit)
-	}
-
-	// Validate limit (max 100)
-	if limitVal > 100 {
-		return nil, errors.New("limit exceeds maximum value of 100")
-	}
-
-	entries := rawdb.ReadReferenceIndexEntries(s.b.ChainDb(), reference)
-	if len(entries) == 0 {
-		return nil, nil
-	}
-
-	// Validate offset
-	if offsetVal >= uint64(len(entries)) {
-		return nil, fmt.Errorf("offset %d exceeds total results %d", offsetVal, len(entries))
-	}
-
-	// Apply pagination
-	end := offsetVal + limitVal
-	if end > uint64(len(entries)) {
-		end = uint64(len(entries))
-	}
-	paginatedEntries := entries[offsetVal:end]
-
-	// Build result
-	result := make([]ReferenceTransactionResult, 0, len(paginatedEntries))
-	for _, entry := range paginatedEntries {
-		blockNumber := rawdb.ReadTxLookupEntry(s.b.ChainDb(), entry.TxHash)
-		if blockNumber == nil {
-			continue
-		}
-		result = append(result, ReferenceTransactionResult{
-			TransactionHash:  entry.TxHash,
-			BlockNumber:      hexutil.Uint64(*blockNumber),
-			BlockTimestamp:   hexutil.Uint64(entry.BlockTimestamp),
-			TransactionIndex: hexutil.Uint64(entry.TxIndex),
-		})
-	}
-	return result, nil
-}
-
 // GetTransactionByHash returns the transaction for the given hash
 func (s *PublicTransactionPoolAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
 	// Try to return an already finalized transaction
@@ -2543,13 +2471,6 @@ func NewPublicMorphAPI(b Backend) *PublicMorphAPI {
 	return &PublicMorphAPI{b}
 }
 
-// ReferenceQueryArgs represents the arguments for querying transactions by reference.
-type ReferenceQueryArgs struct {
-	Reference common.Reference `json:"reference"`
-	Offset    *hexutil.Uint64  `json:"offset,omitempty"`
-	Limit     *hexutil.Uint64  `json:"limit,omitempty"`
-}
-
 // GetTransactionHashesByReference returns transactions for the given reference with pagination.
 // Results are sorted by blockTimestamp and txIndex (ascending order).
 // Parameters:
@@ -2558,9 +2479,9 @@ type ReferenceQueryArgs struct {
 //   - args.limit: pagination limit (default: 100, max: 100)
 func (s *PublicMorphAPI) GetTransactionHashesByReference(
 	ctx context.Context,
-	args ReferenceQueryArgs,
+	args rpc.ReferenceQueryArgs,
 ) (
-	[]ReferenceTransactionResult,
+	[]rpc.ReferenceTransactionResult,
 	error,
 ) {
 	// Set default values
@@ -2596,13 +2517,13 @@ func (s *PublicMorphAPI) GetTransactionHashesByReference(
 	paginatedEntries := entries[offsetVal:end]
 
 	// Build result
-	result := make([]ReferenceTransactionResult, 0, len(paginatedEntries))
+	result := make([]rpc.ReferenceTransactionResult, 0, len(paginatedEntries))
 	for _, entry := range paginatedEntries {
 		blockNumber := rawdb.ReadTxLookupEntry(s.b.ChainDb(), entry.TxHash)
 		if blockNumber == nil {
 			continue
 		}
-		result = append(result, ReferenceTransactionResult{
+		result = append(result, rpc.ReferenceTransactionResult{
 			TransactionHash:  entry.TxHash,
 			BlockNumber:      hexutil.Uint64(*blockNumber),
 			BlockTimestamp:   hexutil.Uint64(entry.BlockTimestamp),

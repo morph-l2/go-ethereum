@@ -376,6 +376,9 @@ func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
 
 	// If version is not explicitly specified, use the highest version
 	if opts.Version == nil {
+		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
+			return 0, types.ErrMorphTxV1IllegalExtraParams
+		}
 		return types.MorphTxVersion1, nil
 	}
 

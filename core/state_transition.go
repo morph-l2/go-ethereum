@@ -100,6 +100,9 @@ type Message interface {
 	SetCodeAuthorizations() []types.SetCodeAuthorization
 	FeeTokenID() uint16
 	FeeLimit() *big.Int
+	Version() uint8
+	Reference() *common.Reference
+	Memo() *[]byte
 }
 
 // ExecutionResult includes all output after executing given evm

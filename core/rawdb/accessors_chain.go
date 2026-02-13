@@ -639,6 +639,9 @@ type storedReceiptRLP struct {
 	FeeRate           *big.Int
 	TokenScale        *big.Int
 	FeeLimit          *big.Int
+	Version           byte
+	Reference         *common.Reference
+	Memo              []byte
 }
 
 // ReceiptLogs is a barebone version of ReceiptForStorage which only keeps

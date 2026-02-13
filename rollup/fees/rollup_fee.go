@@ -37,6 +37,9 @@ type Message interface {
 	IsL1MessageTx() bool
 	FeeTokenID() uint16
 	FeeLimit() *big.Int
+	Version() uint8
+	Reference() *common.Reference
+	Memo() *[]byte
 }
 
 // StateDB represents the StateDB interface
@@ -94,8 +97,11 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 
 		return asUnsignedAccessListTx(msg, chainID)
 	}
-	if msg.FeeTokenID() != 0 {
-		return asUnsignedAltFeeTx(msg, chainID)
+	if msg.FeeTokenID() != 0 ||
+		msg.Version() != types.MorphTxVersion0 ||
+		(msg.Reference() != nil && *msg.Reference() != (common.Reference{})) ||
+		(msg.Memo() != nil && len(*msg.Memo()) > 0) {
+		return asUnsignedMorphTx(msg, chainID)
 	}
 
 	return asUnsignedDynamicTx(msg, chainID)
@@ -139,8 +145,8 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 	})
 }
 
-func asUnsignedAltFeeTx(msg Message, chainID *big.Int) *types.Transaction {
-	return types.NewTx(&types.AltFeeTx{
+func asUnsignedMorphTx(msg Message, chainID *big.Int) *types.Transaction {
+	return types.NewTx(&types.MorphTx{
 		Nonce:      msg.Nonce(),
 		To:         msg.To(),
 		Value:      msg.Value(),
@@ -149,6 +155,9 @@ func asUnsignedAltFeeTx(msg Message, chainID *big.Int) *types.Transaction {
 		GasTipCap:  msg.GasTipCap(),
 		FeeTokenID: msg.FeeTokenID(),
 		FeeLimit:   msg.FeeLimit(),
+		Version:    msg.Version(),
+		Reference:  msg.Reference(),
+		Memo:       msg.Memo(),
 		Data:       msg.Data(),
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,

@@ -670,8 +670,16 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 
 	// Reject erc20 fee transactions until EIP-1559 activates.
-	if !pool.eip1559 && tx.Type() == types.AltFeeTxType {
+	if !pool.eip1559 && tx.Type() == types.MorphTxType {
 		return ErrTxTypeNotSupported
+	}
+	// Validate MorphTx memo length
+	if err := tx.ValidateMemo(); err != nil {
+		return err
+	}
+	// Validate MorphTx version and associated field requirements
+	if err := tx.ValidateMorphTxVersion(); err != nil {
+		return err
 	}
 	if !pool.eip7702 && tx.Type() == types.SetCodeTxType {
 		return ErrTxTypeNotSupported
@@ -724,7 +732,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if tx.IsAltFeeTx() {
+	if tx.IsMorphTxWithAltFee() {
 		active, err := fees.IsTokenActive(pool.currentState, tx.FeeTokenID())
 		if err != nil {
 			return fmt.Errorf("get token status failed %v", err)
@@ -763,7 +771,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return fmt.Errorf("failed to calculate L1 data fee, err: %w", err)
 		}
 		// Transactor should have enough funds to cover the costs
-		if tx.IsAltFeeTx() {
+		if tx.IsMorphTxWithAltFee() {
 			if b := pool.currentState.GetBalance(from); b.Cmp(tx.Value()) < 0 {
 				return ErrInsufficientValue
 			}
@@ -1617,7 +1625,16 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 
 func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, altCostLimit map[uint16]*big.Int) func(tx *types.Transaction) bool {
 	return func(tx *types.Transaction) bool {
-		if !tx.IsAltFeeTx() && (tx.Gas() > pool.currentMaxGas || tx.Cost().Cmp(costLimit) > 0) {
+		// Calculate cost based on transaction type
+		var txCost *big.Int
+		if tx.IsMorphTxWithAltFee() {
+			// MorphTx with alt fee is handled separately
+			txCost = nil
+		} else {
+			txCost = tx.Cost()
+		}
+
+		if txCost != nil && (tx.Gas() > pool.currentMaxGas || txCost.Cmp(costLimit) > 0) {
 			return true
 		}
 		if pool.chainconfig.Morph.FeeVaultEnabled() {
@@ -1627,7 +1644,7 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 				log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
 				return false
 			}
-			if tx.IsAltFeeTx() {
+			if tx.IsMorphTxWithAltFee() {
 				if altCostLimit[tx.FeeTokenID()] == nil {
 					balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), addr)
 					if err != nil || balance == nil {

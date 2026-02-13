@@ -343,7 +343,7 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	}
 	l.txs.Put(tx)
 	ethCost := big.NewInt(0)
-	if tx.IsAltFeeTx() {
+	if tx.IsMorphTxWithAltFee() {
 		ethCost = new(big.Int).Set(tx.Value())
 		altCost, err := fees.EthToAlt(state, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 		if err != nil {
@@ -394,7 +394,7 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64, altCostLimit map[ui
 	// Filter out all the transactions above the account's funds
 	removed := l.txs.Filter(func(tx *types.Transaction) bool {
 		allLower := true
-		if tx.IsAltFeeTx() {
+		if tx.IsMorphTxWithAltFee() {
 			for id, limit := range altCostLimit {
 				lower := l.costcap.Alt(id).Cmp(limit) <= 0
 				if !lower {

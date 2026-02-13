@@ -49,14 +49,17 @@ type StorageTrace struct {
 // while replaying a transaction in debug mode as well as transaction
 // execution status, the amount of gas used and the return value
 type ExecutionResult struct {
-	L1DataFee   *hexutil.Big `json:"l1DataFee,omitempty"`
-	FeeTokenID  *uint16      `json:"feeTokenID,omitempty"`
-	FeeRate     *hexutil.Big `json:"feeRate,omitempty"`
-	TokenScale  *hexutil.Big `json:"tokenScale,omitempty"`
-	FeeLimit    *hexutil.Big `json:"feeLimit,omitempty"`
-	Gas         uint64       `json:"gas"`
-	Failed      bool         `json:"failed"`
-	ReturnValue string       `json:"returnValue"`
+	L1DataFee   *hexutil.Big      `json:"l1DataFee,omitempty"`
+	FeeTokenID  *uint16           `json:"feeTokenID,omitempty"`
+	FeeRate     *hexutil.Big      `json:"feeRate,omitempty"`
+	TokenScale  *hexutil.Big      `json:"tokenScale,omitempty"`
+	FeeLimit    *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version     *uint8            `json:"version,omitempty"`
+	Reference   *common.Reference `json:"reference,omitempty"`
+	Memo        *hexutil.Bytes    `json:"memo,omitempty"`
+	Gas         uint64            `json:"gas"`
+	Failed      bool              `json:"failed"`
+	ReturnValue string            `json:"returnValue"`
 	// Sender's account state (before Tx)
 	From *AccountWrapper `json:"from,omitempty"`
 	// Receiver's account state (before Tx)
@@ -133,6 +136,9 @@ type TransactionData struct {
 	GasFeeCap         *hexutil.Big               `json:"gasFeeCap"`
 	FeeTokenID        *uint16                    `json:"feeTokenID,omitempty"`
 	FeeLimit          *hexutil.Big               `json:"feeLimit,omitempty"`
+	Version           uint8                      `json:"version,omitempty"`
+	Reference         *common.Reference          `json:"reference,omitempty"`
+	Memo              *hexutil.Bytes             `json:"memo,omitempty"`
 	From              common.Address             `json:"from"`
 	To                *common.Address            `json:"to"`
 	ChainId           *hexutil.Big               `json:"chainId"`
@@ -188,14 +194,20 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 		S:                 (*hexutil.Big)(s),
 	}
 
-	// Set FeeTokenID and FeeLimit for AltFeeTx
-	if tx.Type() == AltFeeTxType {
+	// Set FeeTokenID and FeeLimit for MorphTx
+	if tx.Type() == MorphTxType {
 		feeTokenID := tx.FeeTokenID()
 		if feeTokenID != 0 {
 			result.FeeTokenID = &feeTokenID
 		}
 		if feeLimit := tx.FeeLimit(); feeLimit != nil && feeLimit.Sign() > 0 {
 			result.FeeLimit = (*hexutil.Big)(feeLimit)
+		}
+		result.Version = tx.Version()
+		result.Reference = tx.Reference()
+		if tx.Memo() != nil {
+			memo := hexutil.Bytes(*tx.Memo())
+			result.Memo = &memo
 		}
 	}
 

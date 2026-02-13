@@ -50,9 +50,12 @@ type TransactionArgs struct {
 	Data  *hexutil.Bytes `json:"data"`
 	Input *hexutil.Bytes `json:"input"`
 
-	// AltFeeTxType
-	FeeTokenID *hexutil.Uint16 `json:"feeTokenID,omitempty"`
-	FeeLimit   *hexutil.Big    `json:"feeLimit,omitempty"`
+	// MorphTxType
+	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    *hexutil.Uint16   `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 
 	// Introduced by AccessListTxType transaction.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
@@ -77,6 +80,59 @@ func (arg *TransactionArgs) data() []byte {
 	}
 	if arg.Data != nil {
 		return *arg.Data
+	}
+	return nil
+}
+
+// isMorphTxArgs returns true if the transaction args indicate a MorphTx type.
+func (args *TransactionArgs) isMorphTxArgs() bool {
+	// Check if any MorphTx-specific field is set
+	// Note: Version=0 with FeeTokenID=0 is invalid, but we still want to validate it
+	return (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0)
+}
+
+// validateMorphTxVersion validates the MorphTx version and its associated field requirements.
+// If version is explicitly specified, validate that parameters match:
+//   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
+//   - Version 1: FeeTokenID, Reference, Memo are all optional;
+//     if FeeTokenID is not set or is 0, FeeLimit must not be set
+//
+// If version is not explicitly specified, no version-specific validation is needed
+// because determineMorphTxVersion will assign the highest version.
+func (args *TransactionArgs) validateMorphTxVersion() error {
+	if !args.isMorphTxArgs() {
+		return nil
+	}
+
+	// Only validate when version is explicitly specified
+	if args.Version == nil {
+		return nil
+	}
+
+	version := uint8(*args.Version)
+	switch version {
+	case types.MorphTxVersion0:
+		// Version 0 requires FeeTokenID > 0
+		if args.FeeTokenID == nil || *args.FeeTokenID == 0 ||
+			args.Reference != nil && *args.Reference != (common.Reference{}) ||
+			args.Memo != nil && len(*args.Memo) > 0 {
+			return types.ErrMorphTxV0IllegalExtraParams
+		}
+	case types.MorphTxVersion1:
+		// Version 1: FeeTokenID, Reference, Memo are all optional
+		// If FeeTokenID is not set or is 0, FeeLimit must not be set
+		feeTokenID := uint16(0)
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
+			return types.ErrMorphTxV1IllegalExtraParams
+		}
+	default:
+		return types.ErrMorphTxUnsupportedVersion
 	}
 	return nil
 }
@@ -158,6 +214,14 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if args.To == nil && len(args.data()) == 0 {
 		return errors.New(`contract creation without any data provided`)
 	}
+	// Validate memo length for MorphTx
+	if args.Memo != nil && len(*args.Memo) > common.MaxMemoLength {
+		return errors.New("memo exceeds maximum length of 64 bytes")
+	}
+	// Validate MorphTx version and associated field requirements
+	if err := args.validateMorphTxVersion(); err != nil {
+		return err
+	}
 	// Estimate the gas usage if necessary.
 	if args.Gas == nil {
 		// These fields are immutable during the estimation, safe to
@@ -171,6 +235,9 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
 			FeeTokenID:           args.FeeTokenID,
 			FeeLimit:             args.FeeLimit,
+			Version:              args.Version,
+			Reference:            args.Reference,
+			Memo:                 args.Memo,
 			Value:                args.Value,
 			Data:                 (*hexutil.Bytes)(&data),
 			AccessList:           args.AccessList,
@@ -307,16 +374,36 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.AccessList != nil {
 		accessList = *args.AccessList
 	}
-	var feeTokenID uint16
-	if args.FeeTokenID != nil {
-		feeTokenID = uint16(*args.FeeTokenID)
-	}
-	feeLimit := new(big.Int)
-	if args.FeeLimit != nil {
-		feeLimit = args.FeeLimit.ToInt()
+
+	// Only set MorphTx-specific fields when this is a MorphTx call
+	var (
+		feeTokenID uint16
+		feeLimit   *big.Int
+		version    uint8
+		reference  *common.Reference
+		memo       *[]byte
+	)
+	if args.isMorphTxArgs() {
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		if args.FeeLimit != nil {
+			feeLimit = args.FeeLimit.ToInt()
+		}
+		// Default to version 1 if version is not explicitly specified
+		version = types.MorphTxVersion1
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
+		if args.Reference != nil {
+			reference = args.Reference
+		}
+		if args.Memo != nil {
+			memo = (*[]byte)(args.Memo)
+		}
 	}
 
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, data, accessList, args.AuthorizationList, true)
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.AuthorizationList, true)
 	return msg, nil
 }
 
@@ -326,8 +413,11 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 	usedType := types.LegacyTxType
 	switch {
 	//	must take precedence over MaxFeePerGas.
-	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
-		usedType = types.AltFeeTxType
+	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0):
+		usedType = types.MorphTxType
 	case args.AuthorizationList != nil:
 		usedType = types.SetCodeTxType
 	case args.MaxFeePerGas != nil:
@@ -385,20 +475,32 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			AccessList: al,
 		}
 
-	case types.AltFeeTxType:
+	case types.MorphTxType:
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		data = &types.AltFeeTx{
+		// Default to version 1 if version is not explicitly specified
+		version := types.MorphTxVersion1
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
+		var feeTokenID uint16
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		data = &types.MorphTx{
 			To:         args.To,
 			ChainID:    (*big.Int)(args.ChainID),
 			Nonce:      uint64(*args.Nonce),
 			Gas:        uint64(*args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-			FeeTokenID: uint16(*args.FeeTokenID),
+			Version:    version,
+			FeeTokenID: feeTokenID,
 			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Reference:  args.Reference,
+			Memo:       (*[]byte)(args.Memo),
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: al,

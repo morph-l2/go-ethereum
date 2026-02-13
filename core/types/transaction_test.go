@@ -112,15 +112,15 @@ var (
 
 	// MorphTx V1 with only Reference (no Memo)
 	morphTxV1RefOnly = NewTx(&MorphTx{
-		ChainID:    big.NewInt(1),
-		Nonce:      4,
-		GasTipCap:  big.NewInt(2),
-		GasFeeCap:  big.NewInt(20),
-		Gas:        30000,
-		To:         &testAddr,
-		Value:      big.NewInt(20),
-		Version:    MorphTxVersion1,
-		Reference:  &testMorphTxReference,
+		ChainID:   big.NewInt(1),
+		Nonce:     4,
+		GasTipCap: big.NewInt(2),
+		GasFeeCap: big.NewInt(20),
+		Gas:       30000,
+		To:        &testAddr,
+		Value:     big.NewInt(20),
+		Version:   MorphTxVersion1,
+		Reference: &testMorphTxReference,
 	})
 
 	// MorphTx V1 with only Memo (no Reference)
@@ -480,11 +480,11 @@ func TestTransactionCoding(t *testing.T) {
 		t.Fatalf("could not generate key: %v", err)
 	}
 	var (
-		signer       = NewEIP2930Signer(common.Big1)
-		morphSigner  = NewEmeraldSigner(common.Big1) // Signer for MorphTx
-		addr         = common.HexToAddress("0x0000000000000000000000000000000000000001")
-		recipient    = common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
-		accesses     = AccessList{{Address: addr, StorageKeys: []common.Hash{{0}}}}
+		signer      = NewEIP2930Signer(common.Big1)
+		morphSigner = NewEmeraldSigner(common.Big1) // Signer for MorphTx
+		addr        = common.HexToAddress("0x0000000000000000000000000000000000000001")
+		recipient   = common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
+		accesses    = AccessList{{Address: addr, StorageKeys: []common.Hash{{0}}}}
 	)
 	morphTxRef := common.HexToReference("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
 	morphTxMemo := []byte("test memo")
@@ -963,19 +963,19 @@ func TestMorphTxValidation(t *testing.T) {
 		}{
 			// Version 0 tests
 			{"V0 with FeeTokenID > 0", MorphTxVersion0, 1, nil, nil, nil, nil},
-			{"V0 with FeeTokenID = 0", MorphTxVersion0, 0, nil, nil, nil, ErrMorphTxV0RequiresFeeToken},
-			{"V0 with Reference", MorphTxVersion0, 1, nil, &ref, nil, ErrMorphTxV0HasReference},
+			{"V0 with FeeTokenID = 0", MorphTxVersion0, 0, nil, nil, nil, ErrMorphTxV0IllegalExtraParams},
+			{"V0 with Reference", MorphTxVersion0, 1, nil, &ref, nil, ErrMorphTxV0IllegalExtraParams},
 			{"V0 with empty Reference", MorphTxVersion0, 1, nil, &emptyRef, nil, nil},
-			{"V0 with Memo", MorphTxVersion0, 1, nil, nil, &memo, ErrMorphTxV0HasMemo},
+			{"V0 with Memo", MorphTxVersion0, 1, nil, nil, &memo, ErrMorphTxV0IllegalExtraParams},
 			{"V0 with empty Memo", MorphTxVersion0, 1, nil, nil, &emptyMemo, nil},
-			{"V0 with Reference and Memo", MorphTxVersion0, 1, nil, &ref, &memo, ErrMorphTxV0HasReference},
+			{"V0 with Reference and Memo", MorphTxVersion0, 1, nil, &ref, &memo, ErrMorphTxV0IllegalExtraParams},
 			// Version 1 tests
 			{"V1 with FeeTokenID = 0", MorphTxVersion1, 0, nil, nil, nil, nil},
 			{"V1 with FeeTokenID > 0", MorphTxVersion1, 1, nil, nil, nil, nil},
 			{"V1 with Reference", MorphTxVersion1, 0, nil, &ref, nil, nil},
 			{"V1 with Memo", MorphTxVersion1, 0, nil, nil, &memo, nil},
 			{"V1 with Reference and Memo", MorphTxVersion1, 1, nil, &ref, &memo, nil},
-			{"V1 FeeTokenID=0 with FeeLimit", MorphTxVersion1, 0, feeLimit, nil, nil, ErrMorphTxV1FeeLimitWithoutFeeToken},
+			{"V1 FeeTokenID=0 with FeeLimit", MorphTxVersion1, 0, feeLimit, nil, nil, ErrMorphTxV1IllegalExtraParams},
 			{"V1 FeeTokenID>0 with FeeLimit", MorphTxVersion1, 1, feeLimit, nil, nil, nil},
 			{"V1 FeeTokenID=0 with zero FeeLimit", MorphTxVersion1, 0, big.NewInt(0), nil, nil, nil},
 			// Unsupported versions

@@ -301,7 +301,7 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 	}
 
 	// Determine version and validate fields
-	version, err := c.determineMorphTxVersion(opts)
+	version, err := c.morphTxVersion(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -361,74 +361,42 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 	return types.NewTx(baseTx), nil
 }
 
-// determineMorphTxVersion determines the MorphTx version and validates field requirements.
-// Rules when version is explicitly specified:
+// morphTxVersion determines the MorphTx version and validates field requirements.
+// If version is explicitly specified, validate that parameters match:
 //   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1: FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is 0, FeeLimit must not be set
 //
-// Rules when version is not explicitly specified (auto-detection):
-//   - (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
-//   - (valid Reference) || (valid Memo with 0 < len < 64) -> Version 1
-//   - (FeeTokenID == 0) && (empty Reference) && (empty Memo) -> Error
-func (c *BoundContract) determineMorphTxVersion(opts *TransactOpts) (uint8, error) {
-	hasReference := opts.Reference != nil && *opts.Reference != (common.Reference{})
-	hasMemo := opts.Memo != nil && len(*opts.Memo) > 0
-	hasFeeToken := opts.FeeTokenID > 0
-	hasFeeLimit := opts.FeeLimit != nil && opts.FeeLimit.Sign() > 0
-
+// If version is not explicitly specified, default to the highest version.
+func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
 	// Validate memo length
 	if opts.Memo != nil && len(*opts.Memo) > common.MaxMemoLength {
 		return 0, types.ErrMemoTooLong
 	}
 
-	// Check if version is explicitly specified
-	if opts.Version != nil {
-		version := *opts.Version
-		switch version {
-		case types.MorphTxVersion0:
-			// Version 0 requires FeeTokenID > 0
-			if !hasFeeToken {
-				return 0, types.ErrMorphTxV0RequiresFeeToken
-			}
-			// Version 0 does not support Reference field
-			if hasReference {
-				return 0, types.ErrMorphTxV0HasReference
-			}
-			// Version 0 does not support Memo field
-			if hasMemo {
-				return 0, types.ErrMorphTxV0HasMemo
-			}
-			return types.MorphTxVersion0, nil
-		case types.MorphTxVersion1:
-			// Version 1: FeeTokenID, Reference, Memo are all optional
-			// If FeeTokenID is 0, FeeLimit must not be set
-			if !hasFeeToken && hasFeeLimit {
-				return 0, types.ErrMorphTxV1FeeLimitWithoutFeeToken
-			}
-			return types.MorphTxVersion1, nil
-		default:
-			return 0, types.ErrMorphTxUnsupportedVersion
-		}
-	}
-
-	// Version not explicitly specified - auto-detect version
-	// (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
-	if hasFeeToken && !hasReference && !hasMemo {
-		return types.MorphTxVersion0, nil
-	}
-
-	// (valid Reference) || (valid Memo) -> Version 1
-	if hasReference || hasMemo {
-		// For Version 1, if FeeTokenID is 0, FeeLimit must not be set
-		if !hasFeeToken && hasFeeLimit {
-			return 0, types.ErrMorphTxV1FeeLimitWithoutFeeToken
-		}
+	// If version is not explicitly specified, use the highest version
+	if opts.Version == nil {
 		return types.MorphTxVersion1, nil
 	}
 
-	// (FeeTokenID == 0) && (empty Reference) && (empty Memo) -> Error
-	return 0, types.ErrMorphTxCannotDetermineVersion
+	// Version explicitly specified - validate parameters match
+	version := *opts.Version
+	switch version {
+	case types.MorphTxVersion0:
+		if opts.FeeTokenID == 0 ||
+			opts.Reference != nil && *opts.Reference != (common.Reference{}) ||
+			opts.Memo != nil && len(*opts.Memo) > 0 {
+			return 0, types.ErrMorphTxV0IllegalExtraParams
+		}
+	case types.MorphTxVersion1:
+		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
+			return 0, types.ErrMorphTxV1IllegalExtraParams
+		}
+	default:
+		return 0, types.ErrMorphTxUnsupportedVersion
+	}
+
+	return version, nil
 }
 
 func (c *BoundContract) createLegacyTx(opts *TransactOpts, contract *common.Address, input []byte) (*types.Transaction, error) {

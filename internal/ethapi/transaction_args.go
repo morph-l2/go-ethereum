@@ -95,97 +95,46 @@ func (args *TransactionArgs) isMorphTxArgs() bool {
 }
 
 // validateMorphTxVersion validates the MorphTx version and its associated field requirements.
-// Rules when version is explicitly specified:
+// If version is explicitly specified, validate that parameters match:
 //   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1: FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is not set or is 0, FeeLimit must not be set
 //
-// Rules when version is not explicitly specified (auto-detection):
-//   - (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
-//   - (valid Reference) || (valid Memo with 0 < len < 64) -> Version 1
-//   - (FeeTokenID == 0) && (empty Reference) && (empty Memo) -> Error
+// If version is not explicitly specified, no version-specific validation is needed
+// because determineMorphTxVersion will assign the highest version.
 func (args *TransactionArgs) validateMorphTxVersion() error {
 	if !args.isMorphTxArgs() {
 		return nil
 	}
 
-	// Check if version is explicitly specified
-	if args.Version != nil {
-		// Version explicitly specified - validate according to version
-		version := uint8(*args.Version)
-		switch version {
-		case types.MorphTxVersion0:
-			// Version 0 requires FeeTokenID > 0
-			if args.FeeTokenID == nil || *args.FeeTokenID == 0 {
-				return types.ErrMorphTxV0RequiresFeeToken
-			}
-			// Version 0 does not support Reference field
-			if args.Reference != nil && *args.Reference != (common.Reference{}) {
-				return types.ErrMorphTxV0HasReference
-			}
-			// Version 0 does not support Memo field
-			if args.Memo != nil && len(*args.Memo) > 0 {
-				return types.ErrMorphTxV0HasMemo
-			}
-		case types.MorphTxVersion1:
-			// Version 1: FeeTokenID, Reference, Memo are all optional
-			// If FeeTokenID is not set or is 0, FeeLimit must not be set
-			feeTokenID := uint16(0)
-			if args.FeeTokenID != nil {
-				feeTokenID = uint16(*args.FeeTokenID)
-			}
-			if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() > 0 {
-				return types.ErrMorphTxV1FeeLimitWithoutFeeToken
-			}
-		default:
-			return types.ErrMorphTxUnsupportedVersion
+	// Only validate when version is explicitly specified
+	if args.Version == nil {
+		return nil
+	}
+
+	version := uint8(*args.Version)
+	switch version {
+	case types.MorphTxVersion0:
+		// Version 0 requires FeeTokenID > 0
+		if args.FeeTokenID == nil || *args.FeeTokenID == 0 ||
+			args.Reference != nil && *args.Reference != (common.Reference{}) ||
+			args.Memo != nil && len(*args.Memo) > 0 {
+			return types.ErrMorphTxV0IllegalExtraParams
 		}
-		return nil
-	}
-
-	// Version not explicitly specified - auto-detect version
-	hasFeeToken := args.FeeTokenID != nil && *args.FeeTokenID > 0
-	hasReference := args.Reference != nil && *args.Reference != (common.Reference{})
-	hasMemo := args.Memo != nil && len(*args.Memo) > 0
-
-	// Auto-detect version based on fields
-	if hasFeeToken && !hasReference && !hasMemo {
-		// (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
-		return nil
-	}
-	if hasReference || hasMemo {
-		// (valid Reference) || (valid Memo) -> Version 1
-		// For Version 1, if FeeTokenID is 0, FeeLimit must not be set
-		if !hasFeeToken && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() > 0 {
-			return types.ErrMorphTxV1FeeLimitWithoutFeeToken
+	case types.MorphTxVersion1:
+		// Version 1: FeeTokenID, Reference, Memo are all optional
+		// If FeeTokenID is not set or is 0, FeeLimit must not be set
+		feeTokenID := uint16(0)
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
 		}
-		return nil
+		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
+			return types.ErrMorphTxV1IllegalExtraParams
+		}
+	default:
+		return types.ErrMorphTxUnsupportedVersion
 	}
-	// (FeeTokenID == 0) && (empty Reference) && (empty Memo) -> Error
-	return types.ErrMorphTxCannotDetermineVersion
-}
-
-// determineMorphTxVersion determines the MorphTx version based on explicit setting or auto-detection.
-// This function should be called after validateMorphTxVersion() has passed.
-func (args *TransactionArgs) determineMorphTxVersion() uint8 {
-	// If version is explicitly specified, use it
-	if args.Version != nil {
-		return uint8(*args.Version)
-	}
-
-	// Auto-detect version based on fields
-	hasFeeToken := args.FeeTokenID != nil && *args.FeeTokenID > 0
-	hasReference := args.Reference != nil && *args.Reference != (common.Reference{})
-	hasMemo := args.Memo != nil && len(*args.Memo) > 0
-
-	// (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
-	if hasFeeToken && !hasReference && !hasMemo {
-		return types.MorphTxVersion0
-	}
-
-	// (valid Reference) || (valid Memo) -> Version 1
-	// Also fallback to Version 1 for other cases
-	return types.MorphTxVersion1
+	return nil
 }
 
 // setDefaults fills in default values for unspecified tx fields.
@@ -441,8 +390,11 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		if args.FeeLimit != nil {
 			feeLimit = args.FeeLimit.ToInt()
 		}
-		// Determine version based on explicit setting or auto-detection
-		version = args.determineMorphTxVersion()
+		// Default to version 1 if version is not explicitly specified
+		version = types.MorphTxVersion1
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
 		if args.Reference != nil {
 			reference = args.Reference
 		}
@@ -528,8 +480,11 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Determine version based on explicit setting or auto-detection
-		version := args.determineMorphTxVersion()
+		// Default to version 1 if version is not explicitly specified
+		version := types.MorphTxVersion1
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)

@@ -33,24 +33,21 @@ import (
 )
 
 var (
-	ErrInvalidSig                = errors.New("invalid transaction v, r, s values")
-	ErrUnexpectedProtection      = errors.New("transaction type does not supported EIP-155 protected signatures")
-	ErrInvalidTxType             = errors.New("transaction type not valid in this context")
-	ErrCostNotSupported          = errors.New("cost function morph transaction not support or use gasFee()")
-	ErrTxTypeNotSupported        = errors.New("transaction type not supported")
-	ErrGasFeeCapTooLow           = errors.New("fee cap less than base fee")
-	ErrMemoTooLong                      = errors.New("memo exceeds maximum length of 64 bytes")
-	ErrMorphTxV0RequiresFeeToken        = errors.New("version 0 MorphTx requires FeeTokenID > 0")
-	ErrMorphTxV0HasReference            = errors.New("version 0 MorphTx does not support Reference field")
-	ErrMorphTxV0HasMemo                 = errors.New("version 0 MorphTx does not support Memo field")
-	ErrMorphTxV1FeeLimitWithoutFeeToken = errors.New("version 1 MorphTx cannot have FeeLimit when FeeTokenID is 0")
-	ErrMorphTxCannotDetermineVersion    = errors.New("cannot determine MorphTx version: FeeTokenID=0 without Reference or Memo")
-	ErrMorphTxUnsupportedVersion        = errors.New("unsupported MorphTx version")
-	errEmptyTypedTx              = errors.New("empty typed transaction bytes")
-	errShortTypedTx              = errors.New("typed transaction too short")
-	errInvalidYParity            = errors.New("'yParity' field must be 0 or 1")
-	errVYParityMismatch          = errors.New("'v' and 'yParity' fields do not match")
-	errVYParityMissing           = errors.New("missing 'yParity' or 'v' field in transaction")
+	ErrInvalidSig                  = errors.New("invalid transaction v, r, s values")
+	ErrUnexpectedProtection        = errors.New("transaction type does not supported EIP-155 protected signatures")
+	ErrInvalidTxType               = errors.New("transaction type not valid in this context")
+	ErrCostNotSupported            = errors.New("cost function morph transaction not support or use gasFee()")
+	ErrTxTypeNotSupported          = errors.New("transaction type not supported")
+	ErrGasFeeCapTooLow             = errors.New("fee cap less than base fee")
+	ErrMemoTooLong                 = errors.New("memo exceeds maximum length of 64 bytes")
+	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
+	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
+	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
+	errEmptyTypedTx                = errors.New("empty typed transaction bytes")
+	errShortTypedTx                = errors.New("typed transaction too short")
+	errInvalidYParity              = errors.New("'yParity' field must be 0 or 1")
+	errVYParityMismatch            = errors.New("'v' and 'yParity' fields do not match")
+	errVYParityMissing             = errors.New("missing 'yParity' or 'v' field in transaction")
 )
 
 // Transaction types.
@@ -440,22 +437,16 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 	switch morphTx.Version {
 	case MorphTxVersion0:
 		// Version 0 requires FeeTokenID > 0 (legacy format used for alt-fee transactions)
-		if morphTx.FeeTokenID == 0 {
-			return ErrMorphTxV0RequiresFeeToken
-		}
-		// Version 0 does not support Reference field
-		if morphTx.Reference != nil && *morphTx.Reference != (common.Reference{}) {
-			return ErrMorphTxV0HasReference
-		}
-		// Version 0 does not support Memo field
-		if morphTx.Memo != nil && len(*morphTx.Memo) > 0 {
-			return ErrMorphTxV0HasMemo
+		if morphTx.FeeTokenID == 0 ||
+			morphTx.Reference != nil && *morphTx.Reference != (common.Reference{}) ||
+			morphTx.Memo != nil && len(*morphTx.Memo) > 0 {
+			return ErrMorphTxV0IllegalExtraParams
 		}
 	case MorphTxVersion1:
 		// Version 1: FeeTokenID, Reference, Memo are all optional
 		// If FeeTokenID is 0, FeeLimit must not be set
-		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() > 0 {
-			return ErrMorphTxV1FeeLimitWithoutFeeToken
+		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
+			return ErrMorphTxV1IllegalExtraParams
 		}
 	default:
 		return ErrMorphTxUnsupportedVersion
@@ -465,10 +456,6 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
-	// TODO: morph tx without fee token
-	if tx.IsMorphTx() {
-		panic(ErrCostNotSupported)
-	}
 	total := tx.GasFee()
 	total.Add(total, tx.Value())
 	return total

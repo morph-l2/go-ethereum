@@ -2762,8 +2762,8 @@ func TestMorphTxValidation(t *testing.T) {
 
 		// V0 with FeeTokenID = 0 should be rejected
 		tx := morphTxV0(0, 100000, big.NewInt(10), big.NewInt(1), 0, key)
-		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0RequiresFeeToken) {
-			t.Errorf("expected ErrMorphTxV0RequiresFeeToken, got %v", err)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0IllegalExtraParams) {
+			t.Errorf("expected ErrMorphTxV0IllegalExtraParams, got %v", err)
 		}
 	})
 
@@ -2781,7 +2781,7 @@ func TestMorphTxValidation(t *testing.T) {
 		tx := morphTxV0(0, 100000, big.NewInt(10), big.NewInt(1), 1, key)
 		err := pool.AddRemote(tx)
 		// Should not be version error (but may be token error)
-		if errors.Is(err, types.ErrMorphTxV0RequiresFeeToken) {
+		if errors.Is(err, types.ErrMorphTxV0IllegalExtraParams) {
 			t.Errorf("V0 with FeeTokenID > 0 should pass version validation, got %v", err)
 		}
 	})
@@ -2839,8 +2839,8 @@ func TestMorphTxValidation(t *testing.T) {
 			Version:    types.MorphTxVersion0,
 			Reference:  &ref,
 		})
-		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0HasReference) {
-			t.Errorf("expected ErrMorphTxV0HasReference, got %v", err)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0IllegalExtraParams) {
+			t.Errorf("expected ErrMorphTxV0IllegalExtraParams, got %v", err)
 		}
 	})
 
@@ -2867,8 +2867,8 @@ func TestMorphTxValidation(t *testing.T) {
 			Version:    types.MorphTxVersion0,
 			Memo:       &memo,
 		})
-		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0HasMemo) {
-			t.Errorf("expected ErrMorphTxV0HasMemo, got %v", err)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV0IllegalExtraParams) {
+			t.Errorf("expected ErrMorphTxV0IllegalExtraParams, got %v", err)
 		}
 	})
 
@@ -2898,8 +2898,8 @@ func TestMorphTxValidation(t *testing.T) {
 			Reference:  &ref,
 			Memo:       &memo,
 		})
-		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV1FeeLimitWithoutFeeToken) {
-			t.Errorf("expected ErrMorphTxV1FeeLimitWithoutFeeToken, got %v", err)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV1IllegalExtraParams) {
+			t.Errorf("expected ErrMorphTxV1IllegalExtraParams, got %v", err)
 		}
 	})
 }

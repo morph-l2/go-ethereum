@@ -102,35 +102,6 @@ func (args SendTxArgs) String() string {
 	return err.Error()
 }
 
-// determineMorphTxVersion determines the MorphTx version based on explicit setting or auto-detection.
-// Rules when version is explicitly specified:
-//   - Use the specified version directly
-//
-// Rules when version is not explicitly specified (auto-detection):
-//   - (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
-//   - (valid Reference) || (valid Memo) -> Version 1
-//   - Otherwise -> Version 1
-func (args *SendTxArgs) determineMorphTxVersion() uint8 {
-	// If version is explicitly specified, use it
-	if args.Version != nil {
-		return uint8(*args.Version)
-	}
-
-	// Auto-detect version based on fields
-	hasFeeToken := args.FeeTokenID != nil && *args.FeeTokenID > 0
-	hasReference := args.Reference != nil && *args.Reference != (common.Reference{})
-	hasMemo := args.Memo != nil && len(*args.Memo) > 0
-
-	// (FeeTokenID > 0) && (no Reference) && (no Memo) -> Version 0
-	if hasFeeToken && !hasReference && !hasMemo {
-		return types.MorphTxVersion0
-	}
-
-	// (valid Reference) || (valid Memo) -> Version 1
-	// Also fallback to Version 1 for other cases
-	return types.MorphTxVersion1
-}
-
 // ToTransaction converts the arguments to a transaction.
 func (args *SendTxArgs) ToTransaction() *types.Transaction {
 	// Add the To-field, if specified
@@ -158,8 +129,11 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Determine version based on explicit setting or auto-detection
-		version := args.determineMorphTxVersion()
+		// Default to version 1 if version is not explicitly specified
+		version := uint8(types.MorphTxVersion1)
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)

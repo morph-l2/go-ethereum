@@ -28,11 +28,14 @@ import (
 	"github.com/naoina/toml"
 	"gopkg.in/urfave/cli.v1"
 
+	"time"
+
 	"github.com/morph-l2/go-ethereum/accounts/external"
 	"github.com/morph-l2/go-ethereum/accounts/keystore"
 	"github.com/morph-l2/go-ethereum/accounts/scwallet"
 	"github.com/morph-l2/go-ethereum/accounts/usbwallet"
 	"github.com/morph-l2/go-ethereum/cmd/utils"
+	"github.com/morph-l2/go-ethereum/eth/catalyst"
 	"github.com/morph-l2/go-ethereum/eth/ethconfig"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
 	"github.com/morph-l2/go-ethereum/log"
@@ -175,7 +178,7 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 		cfg.Eth.OverrideJadeForkTime = &v
 	}
 
-	backend, _ := utils.RegisterEthService(stack, &cfg.Eth)
+	backend, ethBackend := utils.RegisterEthService(stack, &cfg.Eth)
 
 	// Configure log filter RPC API.
 	filterSystem := utils.RegisterFilterAPI(stack, backend, &cfg.Eth)
@@ -189,6 +192,16 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 	if cfg.Ethstats.URL != "" {
 		utils.RegisterEthStatsService(stack, backend, cfg.Ethstats.URL)
 	}
+
+	// Register standalone block producer if enabled (for execution layer performance testing)
+	if ctx.GlobalBool(utils.StandaloneProducerFlag.Name) && ethBackend != nil {
+		producerConfig := catalyst.StandaloneProducerConfig{
+			Enabled:       true,
+			BlockInterval: time.Duration(ctx.GlobalUint64(utils.StandaloneBlockIntervalFlag.Name)) * time.Millisecond,
+		}
+		catalyst.RegisterStandaloneProducer(stack, ethBackend, producerConfig)
+	}
+
 	return stack, backend
 }
 

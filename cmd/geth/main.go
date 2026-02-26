@@ -164,6 +164,8 @@ var (
 		utils.GpoIgnoreGasPriceFlag,
 		configFileFlag,
 		utils.CatalystFlag,
+		utils.StandaloneProducerFlag,
+		utils.StandaloneBlockIntervalFlag,
 	}
 
 	rpcFlags = []cli.Flag{

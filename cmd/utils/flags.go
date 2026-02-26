@@ -870,6 +870,17 @@ var (
 		Usage: "Catalyst mode (eth2 integration testing)",
 	}
 
+	// Standalone block producer flags (for execution layer performance testing)
+	StandaloneProducerFlag = cli.BoolFlag{
+		Name:  "standalone.producer",
+		Usage: "Enable standalone block producer mode (simulates consensus client for performance testing)",
+	}
+	StandaloneBlockIntervalFlag = cli.Uint64Flag{
+		Name:  "standalone.blockinterval",
+		Usage: "Block production interval in milliseconds for standalone producer mode",
+		Value: 1000,
+	}
+
 	// Max block range for `eth_getLogs` method
 	MaxBlockRangeFlag = cli.Int64Flag{
 		Name:  "rpc.getlogs.maxrange",

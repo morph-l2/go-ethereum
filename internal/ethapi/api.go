@@ -653,8 +653,8 @@ func (api *PublicBlockChainAPI) ChainId() (*hexutil.Big, error) {
 
 // morphExtension contains Morph-specific configuration fields (EIP-7910 extension)
 type morphExtension struct {
-	UseZktrie   bool    `json:"useZktrie"`
-	MPTForkTime *uint64 `json:"mptForkTime,omitempty"`
+	UseZktrie    bool    `json:"useZktrie"`
+	JadeForkTime *uint64 `json:"jadeForkTime,omitempty"`
 }
 
 // config represents a single fork configuration (EIP-7910)
@@ -716,8 +716,8 @@ func (api *PublicBlockChainAPI) Config(ctx context.Context) (*configResponse, er
 
 		// Morph extension
 		morph := &morphExtension{
-			UseZktrie:   c.Morph.UseZktrie,
-			MPTForkTime: c.MPTForkTime,
+			UseZktrie:    c.Morph.UseZktrie,
+			JadeForkTime: c.JadeForkTime,
 		}
 
 		return &config{

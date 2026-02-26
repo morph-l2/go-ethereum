@@ -86,7 +86,7 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	if params.Timestamp != nil {
 		timestamp = time.Unix(int64(*params.Timestamp), 0)
 	}
-	if api.eth.BlockChain().Config().IsMPTFork(uint64(timestamp.Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
+	if api.eth.BlockChain().Config().IsJadeFork(uint64(timestamp.Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
 		return nil, fmt.Errorf("cannot assemble block for fork, useZKtrie: %v, please switch geth", api.eth.BlockChain().Config().Morph.UseZktrie)
 	}
 	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), timestamp, transactions)

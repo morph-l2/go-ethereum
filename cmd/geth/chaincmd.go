@@ -53,7 +53,7 @@ var (
 			utils.OverrideMorph203TimeFlag,
 			utils.OverrideViridianTimeFlag,
 			utils.OverrideEmeraldTimeFlag,
-			utils.OverrideMPTForkTimeFlag,
+			utils.OverrideJadeForkTimeFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `
@@ -226,9 +226,9 @@ func initGenesis(ctx *cli.Context) error {
 		v := ctx.Uint64(utils.OverrideEmeraldTimeFlag.Name)
 		overrides.EmeraldTime = &v
 	}
-	if ctx.IsSet(utils.OverrideMPTForkTimeFlag.Name) {
-		v := ctx.Uint64(utils.OverrideMPTForkTimeFlag.Name)
-		overrides.MPTForkTime = &v
+	if ctx.IsSet(utils.OverrideJadeForkTimeFlag.Name) {
+		v := ctx.Uint64(utils.OverrideJadeForkTimeFlag.Name)
+		overrides.JadeForkTime = &v
 	}
 
 	for _, name := range []string{"chaindata", "lightchaindata"} {

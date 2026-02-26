@@ -89,6 +89,9 @@ type SendTxArgs struct {
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    *hexutil.Uint64   `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -118,20 +121,35 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 	var data types.TxData
 	switch {
 	// must take precedence over MaxFeePerGas.
-	case args.FeeTokenID != nil && *args.FeeTokenID > 0:
+	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
+		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
+		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
+		(args.Memo != nil && len(*args.Memo) > 0):
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		data = &types.AltFeeTx{
+		// Default to version 1 if version is not explicitly specified
+		version := uint8(types.MorphTxVersion1)
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
+		var feeTokenID uint16
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		data = &types.MorphTx{
 			To:         to,
 			ChainID:    (*big.Int)(args.ChainID),
 			Nonce:      uint64(args.Nonce),
 			Gas:        uint64(args.Gas),
 			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
 			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-			FeeTokenID: uint16(*args.FeeTokenID),
+			FeeTokenID: feeTokenID,
 			FeeLimit:   (*big.Int)(args.FeeLimit),
+			Version:    version,
+			Reference:  args.Reference,
+			Memo:       (*[]byte)(args.Memo),
 			Value:      (*big.Int)(&args.Value),
 			Data:       input,
 			AccessList: al,

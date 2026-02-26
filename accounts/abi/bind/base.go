@@ -57,8 +57,11 @@ type TransactOpts struct {
 	GasTipCap *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
 	GasLimit  uint64   // Gas limit to set for the transaction execution (0 = estimate)
 
-	FeeTokenID uint16   // alt fee token id of transaction execution
-	FeeLimit   *big.Int // alt fee token limit of transaction execution
+	FeeTokenID uint16            // alt fee token id of transaction execution
+	FeeLimit   *big.Int          // alt fee token limit of transaction execution
+	Version    *uint8            // version of morph tx (nil = auto-detect)
+	Reference  *common.Reference // reference key for the transaction (optional)
+	Memo       *[]byte           // memo for the transaction (optional)
 
 	Context context.Context // Network context to support cancellation and timeouts (nil = no timeout)
 
@@ -290,12 +293,19 @@ func (c *BoundContract) createDynamicTx(opts *TransactOpts, contract *common.Add
 	return types.NewTx(baseTx), nil
 }
 
-func (c *BoundContract) createAltFeeTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
+func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
 	// Normalize value
 	value := opts.Value
 	if value == nil {
 		value = new(big.Int)
 	}
+
+	// Determine version and validate fields
+	version, err := c.morphTxVersion(opts)
+	if err != nil {
+		return nil, err
+	}
+
 	// Estimate TipCap
 	gasTipCap := opts.GasTipCap
 	if gasTipCap == nil {
@@ -334,7 +344,7 @@ func (c *BoundContract) createAltFeeTx(opts *TransactOpts, contract *common.Addr
 	if err != nil {
 		return nil, err
 	}
-	baseTx := &types.AltFeeTx{
+	baseTx := &types.MorphTx{
 		To:         contract,
 		Nonce:      nonce,
 		GasFeeCap:  gasFeeCap,
@@ -342,10 +352,54 @@ func (c *BoundContract) createAltFeeTx(opts *TransactOpts, contract *common.Addr
 		FeeTokenID: opts.FeeTokenID,
 		FeeLimit:   opts.FeeLimit,
 		Gas:        gasLimit,
+		Version:    version,
+		Reference:  opts.Reference,
+		Memo:       opts.Memo,
 		Value:      value,
 		Data:       input,
 	}
 	return types.NewTx(baseTx), nil
+}
+
+// morphTxVersion determines the MorphTx version and validates field requirements.
+// If version is explicitly specified, validate that parameters match:
+//   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
+//   - Version 1: FeeTokenID, Reference, Memo are all optional;
+//     if FeeTokenID is 0, FeeLimit must not be set
+//
+// If version is not explicitly specified, default to the highest version.
+func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
+	// Validate memo length
+	if opts.Memo != nil && len(*opts.Memo) > common.MaxMemoLength {
+		return 0, types.ErrMemoTooLong
+	}
+
+	// If version is not explicitly specified, use the highest version
+	if opts.Version == nil {
+		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
+			return 0, types.ErrMorphTxV1IllegalExtraParams
+		}
+		return types.MorphTxVersion1, nil
+	}
+
+	// Version explicitly specified - validate parameters match
+	version := *opts.Version
+	switch version {
+	case types.MorphTxVersion0:
+		if opts.FeeTokenID == 0 ||
+			opts.Reference != nil && *opts.Reference != (common.Reference{}) ||
+			opts.Memo != nil && len(*opts.Memo) > 0 {
+			return 0, types.ErrMorphTxV0IllegalExtraParams
+		}
+	case types.MorphTxVersion1:
+		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
+			return 0, types.ErrMorphTxV1IllegalExtraParams
+		}
+	default:
+		return 0, types.ErrMorphTxUnsupportedVersion
+	}
+
+	return version, nil
 }
 
 func (c *BoundContract) createLegacyTx(opts *TransactOpts, contract *common.Address, input []byte) (*types.Transaction, error) {
@@ -438,8 +492,11 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 		if head, errHead := c.transactor.HeaderByNumber(ensureContext(opts.Context), nil); errHead != nil {
 			return nil, errHead
 		} else if head.BaseFee != nil {
-			if opts.FeeTokenID != 0 {
-				rawTx, err = c.createAltFeeTx(opts, contract, input, head)
+			if opts.FeeTokenID != 0 ||
+				opts.Version != nil ||
+				(opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
+				(opts.Memo != nil && len(*opts.Memo) > 0) {
+				rawTx, err = c.createMorphTx(opts, contract, input, head)
 			} else {
 				rawTx, err = c.createDynamicTx(opts, contract, input, head)
 			}

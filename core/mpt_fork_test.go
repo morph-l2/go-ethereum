@@ -29,58 +29,58 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 )
 
-// TestMPTForkTransition tests the behavior around MPT fork time
-func TestMPTForkTransition(t *testing.T) {
+// TestJadeForkTransition tests the behavior around Jade fork time
+func TestJadeForkTransition(t *testing.T) {
 	forkTime := uint64(1000)
 
 	tests := []struct {
-		name        string
-		blockTime   uint64
-		mptForkTime *uint64
-		expectFork  bool
-		description string
+		name         string
+		blockTime    uint64
+		jadeForkTime *uint64
+		expectFork   bool
+		description  string
 	}{
 		{
-			name:        "Before fork time",
-			blockTime:   500,
-			mptForkTime: &forkTime,
-			expectFork:  false,
-			description: "Block before MPT fork should not be in fork period",
+			name:         "Before fork time",
+			blockTime:    500,
+			jadeForkTime: &forkTime,
+			expectFork:   false,
+			description:  "Block before Jade fork should not be in fork period",
 		},
 		{
-			name:        "At fork time",
-			blockTime:   1000,
-			mptForkTime: &forkTime,
-			expectFork:  true,
-			description: "Block at exact fork time should be in fork period",
+			name:         "At fork time",
+			blockTime:    1000,
+			jadeForkTime: &forkTime,
+			expectFork:   true,
+			description:  "Block at exact fork time should be in fork period",
 		},
 		{
-			name:        "After fork time",
-			blockTime:   1500,
-			mptForkTime: &forkTime,
-			expectFork:  true,
-			description: "Block after fork time should be in fork period",
+			name:         "After fork time",
+			blockTime:    1500,
+			jadeForkTime: &forkTime,
+			expectFork:   true,
+			description:  "Block after fork time should be in fork period",
 		},
 		{
-			name:        "No fork configured",
-			blockTime:   1500,
-			mptForkTime: nil,
-			expectFork:  false,
-			description: "Without fork config, should never be in fork period",
+			name:         "No fork configured",
+			blockTime:    1500,
+			jadeForkTime: nil,
+			expectFork:   false,
+			description:  "Without fork config, should never be in fork period",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &params.ChainConfig{
-				MPTForkTime: tt.mptForkTime,
+				JadeForkTime: tt.jadeForkTime,
 			}
 
-			isFork := config.IsMPTFork(tt.blockTime)
+			isFork := config.IsJadeFork(tt.blockTime)
 			if isFork != tt.expectFork {
-				t.Errorf("%s: Expected IsMPTFork=%v, got %v", tt.description, tt.expectFork, isFork)
+				t.Errorf("%s: Expected IsJadeFork=%v, got %v", tt.description, tt.expectFork, isFork)
 			} else {
-				t.Logf("✓ %s: IsMPTFork=%v (correct)", tt.description, isFork)
+				t.Logf("✓ %s: IsJadeFork=%v (correct)", tt.description, isFork)
 			}
 		})
 	}
@@ -356,7 +356,7 @@ func TestZkTrieNodeSyncsMPTBlocks(t *testing.T) {
 	forkTime := uint64(10)
 	zkTrieConfig := params.TestChainConfig.Clone()
 	zkTrieConfig.Morph.UseZktrie = true
-	zkTrieConfig.MPTForkTime = &forkTime // Enable cross-format validation skipping
+	zkTrieConfig.JadeForkTime = &forkTime // Enable cross-format validation skipping
 
 	// zkTrie node uses same zkTrie genesis (no GenesisStateRoot override)
 	zkGspec2 := &Genesis{

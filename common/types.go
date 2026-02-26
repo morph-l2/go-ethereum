@@ -39,12 +39,192 @@ const (
 	HashLength = 32
 	// AddressLength is the expected length of the address
 	AddressLength = 20
+	// ReferenceLength is the expected length of the reference
+	ReferenceLength = 32
+	// MaxMemoLength is the maximum length of the memo in MorphTx
+	MaxMemoLength = 64
 )
 
 var (
-	hashT    = reflect.TypeOf(Hash{})
-	addressT = reflect.TypeOf(Address{})
+	hashT      = reflect.TypeOf(Hash{})
+	addressT   = reflect.TypeOf(Address{})
+	referenceT = reflect.TypeOf(Reference{})
 )
+
+// Reference represents the 32 byte reference of a transaction.
+type Reference [ReferenceLength]byte
+
+// BytesToReference sets b to reference.
+// If b is larger than len(r), b will be cropped from the left.
+func BytesToReference(b []byte) Reference {
+	var r Reference
+	r.SetBytes(b)
+	return r
+}
+
+// BigToReference sets byte representation of b to reference.
+// If b is larger than len(r), b will be cropped from the left.
+func BigToReference(b *big.Int) Reference { return BytesToReference(b.Bytes()) }
+
+// HexToReference sets byte representation of s to reference.
+// If b is larger than len(r), b will be cropped from the left.
+func HexToReference(s string) Reference { return BytesToReference(FromHex(s)) }
+
+// Bytes gets the byte representation of the underlying reference.
+func (r Reference) Bytes() []byte { return r[:] }
+
+// Big converts a reference to a big integer.
+func (r Reference) Big() *big.Int { return new(big.Int).SetBytes(r[:]) }
+
+// Hex converts a reference to a hex string.
+func (r Reference) Hex() string { return hexutil.Encode(r[:]) }
+
+// TerminalString implements log.TerminalStringer, formatting a string for console
+// output during logging.
+func (r Reference) TerminalString() string {
+	return fmt.Sprintf("%x..%x", r[:3], r[29:])
+}
+
+// String implements the stringer interface and is used also by the logger when
+// doing full logging into a file.
+func (r Reference) String() string {
+	return r.Hex()
+}
+
+// Format implements fmt.Formatter.
+// Reference supports the %v, %s, %q, %x, %X and %d format verbs.
+func (r Reference) Format(s fmt.State, c rune) {
+	hexb := make([]byte, 2+len(r)*2)
+	copy(hexb, "0x")
+	hex.Encode(hexb[2:], r[:])
+
+	switch c {
+	case 'x', 'X':
+		if !s.Flag('#') {
+			hexb = hexb[2:]
+		}
+		if c == 'X' {
+			hexb = bytes.ToUpper(hexb)
+		}
+		fallthrough
+	case 'v', 's':
+		s.Write(hexb)
+	case 'q':
+		q := []byte{'"'}
+		s.Write(q)
+		s.Write(hexb)
+		s.Write(q)
+	case 'd':
+		fmt.Fprint(s, ([len(r)]byte)(r))
+	default:
+		fmt.Fprintf(s, "%%!%c(reference=%x)", c, r)
+	}
+}
+
+// SetBytes sets the reference to the value of b.
+// If b is larger than len(r), b will be cropped from the left.
+// The input is right-aligned: leading bytes are zeroed and b is
+// copied into the trailing bytes of r.
+func (r *Reference) SetBytes(b []byte) {
+	if len(b) > len(r) {
+		b = b[len(b)-ReferenceLength:]
+	}
+	*r = Reference{}
+	copy(r[len(r)-len(b):], b)
+}
+
+// UnmarshalText parses a reference in hex syntax.
+// Empty strings are treated as zero reference.
+func (r *Reference) UnmarshalText(input []byte) error {
+	// Handle empty string case
+	if len(input) == 0 || string(input) == "0x" {
+		*r = Reference{}
+		return nil
+	}
+	return hexutil.UnmarshalFixedText("Reference", input, r[:])
+}
+
+// UnmarshalJSON parses a reference in hex syntax.
+// Empty strings are treated as zero reference.
+func (r *Reference) UnmarshalJSON(input []byte) error {
+	// Handle empty string case: "" or "0x"
+	if len(input) == 2 && input[0] == '"' && input[1] == '"' {
+		*r = Reference{}
+		return nil
+	}
+	if len(input) == 4 && string(input) == `"0x"` {
+		*r = Reference{}
+		return nil
+	}
+	return hexutil.UnmarshalFixedJSON(referenceT, input, r[:])
+}
+
+// MarshalText returns the hex representation of r.
+func (r Reference) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(r[:]).MarshalText()
+}
+
+// MarshalJSON marshals the original value
+
+// MarshalJSON marshals the original value
+func (r Reference) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.Hex())
+}
+
+// Generate implements testing/quick.Generator.
+func (r Reference) Generate(rand *rand.Rand, size int) reflect.Value {
+	m := rand.Intn(len(r))
+	for i := len(r) - 1; i > m; i-- {
+		r[i] = byte(rand.Uint32())
+	}
+	return reflect.ValueOf(r)
+}
+
+// Scan implements Scanner for database/sql.
+func (r *Reference) Scan(src interface{}) error {
+	srcB, ok := src.([]byte)
+	if !ok {
+		return fmt.Errorf("can't scan %T into Reference", src)
+	}
+	if len(srcB) != ReferenceLength {
+		return fmt.Errorf("can't scan []byte of len %d into Reference, want %d", len(srcB), ReferenceLength)
+	}
+	copy(r[:], srcB)
+	return nil
+}
+
+// Value implements valuer for database/sql.
+func (r Reference) Value() (driver.Value, error) {
+	return r[:], nil
+}
+
+// ImplementsGraphQLType returns true if Reference implements the specified GraphQL type.
+func (Reference) ImplementsGraphQLType(name string) bool { return name == "Bytes32" }
+
+// UnmarshalGraphQL unmarshals the provided GraphQL query data.
+func (r *Reference) UnmarshalGraphQL(input interface{}) error {
+	var err error
+	switch input := input.(type) {
+	case string:
+		err = r.UnmarshalText([]byte(input))
+	default:
+		err = fmt.Errorf("unexpected type %T for Reference", input)
+	}
+	return err
+}
+
+// UnprefixedReference allows marshaling a Reference without 0x prefix.
+type UnprefixedReference Reference
+
+// UnmarshalText decodes the reference from hex. The 0x prefix is optional.
+func (r *UnprefixedReference) UnmarshalText(input []byte) error {
+	return hexutil.UnmarshalFixedUnprefixedText("UnprefixedReference", input, r[:])
+}
+
+// MarshalText encodes the reference as hex.
+func (r UnprefixedReference) MarshalText() ([]byte, error) {
+	return []byte(hex.EncodeToString(r[:])), nil
+}
 
 // Hash represents the 32 byte Keccak256 hash of arbitrary data.
 type Hash [HashLength]byte

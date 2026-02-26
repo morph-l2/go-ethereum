@@ -60,12 +60,13 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 		return ErrInvalidBlockPayloadSize
 	}
 	// Validate MorphTx for all transactions
+	isJadeFork := v.config.IsJadeFork(block.Time())
 	for _, tx := range block.Transactions() {
-		// Validate memo length
-		if err := tx.ValidateMemo(); err != nil {
-			return err
+		// Reject MorphTx V1 before jade fork is active
+		if !isJadeFork && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion1 {
+			return types.ErrMorphTxV1NotYetActive
 		}
-		// Validate version and associated field requirements
+		// Validate version, memo, and associated field requirements
 		if err := tx.ValidateMorphTxVersion(); err != nil {
 			return err
 		}

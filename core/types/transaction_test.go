@@ -910,41 +910,8 @@ func TestMorphTxEncoding(t *testing.T) {
 	}
 }
 
-// TestMorphTxValidation tests ValidateMemo and ValidateMorphTxVersion.
+// TestMorphTxValidation tests ValidateMorphTxVersion (which includes memo validation).
 func TestMorphTxValidation(t *testing.T) {
-	t.Run("ValidateMemo", func(t *testing.T) {
-		tests := []struct {
-			name    string
-			memo    *[]byte
-			wantErr error
-		}{
-			{"nil memo", nil, nil},
-			{"empty memo", func() *[]byte { m := []byte{}; return &m }(), nil},
-			{"valid memo", func() *[]byte { m := []byte("hello"); return &m }(), nil},
-			{"max length memo", func() *[]byte { m := make([]byte, common.MaxMemoLength); return &m }(), nil},
-			{"over max length memo", func() *[]byte { m := make([]byte, common.MaxMemoLength+1); return &m }(), ErrMemoTooLong},
-		}
-
-		for _, tc := range tests {
-			t.Run(tc.name, func(t *testing.T) {
-				tx := NewTx(&MorphTx{
-					ChainID:   big.NewInt(1),
-					Nonce:     1,
-					GasTipCap: big.NewInt(1),
-					GasFeeCap: big.NewInt(10),
-					Gas:       21000,
-					To:        &testAddr,
-					Version:   MorphTxVersion1,
-					Memo:      tc.memo,
-				})
-				err := tx.ValidateMemo()
-				if err != tc.wantErr {
-					t.Errorf("ValidateMemo error mismatch, got %v, want %v", err, tc.wantErr)
-				}
-			})
-		}
-	})
-
 	t.Run("ValidateMorphTxVersion", func(t *testing.T) {
 		ref := common.HexToReference("0x1111111111111111111111111111111111111111111111111111111111111111")
 		emptyRef := common.Reference{}
@@ -961,6 +928,12 @@ func TestMorphTxValidation(t *testing.T) {
 			memo       *[]byte
 			wantErr    error
 		}{
+			// Memo validation tests
+			{"nil memo", MorphTxVersion1, 0, nil, nil, nil, nil},
+			{"empty memo", MorphTxVersion1, 0, nil, nil, func() *[]byte { m := []byte{}; return &m }(), nil},
+			{"valid memo", MorphTxVersion1, 0, nil, nil, func() *[]byte { m := []byte("hello"); return &m }(), nil},
+			{"max length memo", MorphTxVersion1, 0, nil, nil, func() *[]byte { m := make([]byte, common.MaxMemoLength); return &m }(), nil},
+			{"over max length memo", MorphTxVersion1, 0, nil, nil, func() *[]byte { m := make([]byte, common.MaxMemoLength+1); return &m }(), ErrMemoTooLong},
 			// Version 0 tests
 			{"V0 with FeeTokenID > 0", MorphTxVersion0, 1, nil, nil, nil, nil},
 			{"V0 with FeeTokenID = 0", MorphTxVersion0, 0, nil, nil, nil, ErrMorphTxV0IllegalExtraParams},
@@ -1007,16 +980,13 @@ func TestMorphTxValidation(t *testing.T) {
 	})
 
 	t.Run("Non-MorphTx validation", func(t *testing.T) {
-		// ValidateMemo on non-MorphTx should return nil
+		// ValidateMorphTxVersion on non-MorphTx should return nil
 		legacyTx := NewTx(&LegacyTx{
 			Nonce:    1,
 			GasPrice: big.NewInt(1),
 			Gas:      21000,
 			To:       &testAddr,
 		})
-		if err := legacyTx.ValidateMemo(); err != nil {
-			t.Errorf("ValidateMemo on LegacyTx should return nil, got %v", err)
-		}
 		if err := legacyTx.ValidateMorphTxVersion(); err != nil {
 			t.Errorf("ValidateMorphTxVersion on LegacyTx should return nil, got %v", err)
 		}

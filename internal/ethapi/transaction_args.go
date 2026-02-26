@@ -222,6 +222,17 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if err := args.validateMorphTxVersion(); err != nil {
 		return err
 	}
+	// Reject MorphTx V1 before jade fork is active
+	if args.isMorphTxArgs() && !b.ChainConfig().IsJadeFork(head.Time) {
+		// Determine the effective version (default to V1 if not specified)
+		version := types.MorphTxVersion1
+		if args.Version != nil {
+			version = uint8(*args.Version)
+		}
+		if version == types.MorphTxVersion1 {
+			return types.ErrMorphTxV1NotYetActive
+		}
+	}
 	// Estimate the gas usage if necessary.
 	if args.Gas == nil {
 		// These fields are immutable during the estimation, safe to

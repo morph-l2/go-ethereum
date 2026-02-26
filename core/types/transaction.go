@@ -43,6 +43,7 @@ var (
 	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
 	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
 	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
+	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
 	errEmptyTypedTx                = errors.New("empty typed transaction bytes")
 	errShortTypedTx                = errors.New("typed transaction too short")
 	errInvalidYParity              = errors.New("'yParity' field must be 0 or 1")
@@ -409,31 +410,21 @@ func (tx *Transaction) Memo() *[]byte {
 	return tx.AsMorphTx().Memo
 }
 
-// ValidateMemo validates that the memo length does not exceed the maximum limit.
-// Returns nil if the transaction is not a MorphTx or if the memo length is valid.
-func (tx *Transaction) ValidateMemo() error {
-	if !tx.IsMorphTx() {
-		return nil
-	}
-	if tx.AsMorphTx().Memo != nil && len(*tx.AsMorphTx().Memo) > common.MaxMemoLength {
-		return ErrMemoTooLong
-	}
-	return nil
-}
-
-// ValidateMorphTxVersion validates the MorphTx version and its associated field requirements.
+// ValidateMorphTxVersion validates the MorphTx version, memo length, and associated field requirements.
 // Rules:
+//   - Memo must not exceed MaxMemoLength bytes
 //   - Version 0 (legacy format): FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1 (with Reference/Memo): FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is 0, FeeLimit must not be set
 //   - Other versions: not supported
 //
-// Returns nil if the transaction is not a MorphTx or if the version is valid.
+// Returns nil if the transaction is not a MorphTx or if all checks pass.
 func (tx *Transaction) ValidateMorphTxVersion() error {
 	if !tx.IsMorphTx() {
 		return nil
 	}
 	morphTx := tx.AsMorphTx()
+
 	switch morphTx.Version {
 	case MorphTxVersion0:
 		// Version 0 requires FeeTokenID > 0 (legacy format used for alt-fee transactions)
@@ -447,6 +438,10 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		// If FeeTokenID is 0, FeeLimit must not be set
 		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
 			return ErrMorphTxV1IllegalExtraParams
+		}
+		// Validate memo length
+		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
+			return ErrMemoTooLong
 		}
 	default:
 		return ErrMorphTxUnsupportedVersion

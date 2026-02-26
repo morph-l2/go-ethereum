@@ -79,12 +79,13 @@ func init() {
 	eip1559NoL1feeConfig.BerlinBlock = common.Big0
 	eip1559NoL1feeConfig.LondonBlock = common.Big0
 
-	// MorphTx config with Emerald fork enabled
+	// MorphTx config with Emerald and Jade fork enabled (supports MorphTx V0 and V1)
 	cpy3 := *params.TestChainConfig
 	morphTxConfig = &cpy3
 	morphTxConfig.BerlinBlock = common.Big0
 	morphTxConfig.LondonBlock = common.Big0
-	morphTxConfig.EmeraldTime = new(uint64) // Enable Emerald fork at time 0
+	morphTxConfig.EmeraldTime = new(uint64)  // Enable Emerald fork at time 0
+	morphTxConfig.JadeForkTime = new(uint64) // Enable Jade fork at time 0
 
 	// Config without Emerald fork (for testing MorphTx rejection)
 	cpy4 := *params.TestChainConfig
@@ -208,29 +209,6 @@ func morphTxV1WithMemo(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.
 		Data:       nil,
 		AccessList: nil,
 		FeeTokenID: 0,
-		Version:    types.MorphTxVersion1,
-		Reference:  &ref,
-		Memo:       &memo,
-	})
-	return tx
-}
-
-// morphTxV1WithAltFee creates a MorphTx V1 with alt fee (FeeTokenID > 0).
-func morphTxV1WithAltFee(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, feeTokenID uint16, key *ecdsa.PrivateKey) *types.Transaction {
-	ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-	memo := []byte("test memo")
-	tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
-		ChainID:    params.TestChainConfig.ChainID,
-		Nonce:      nonce,
-		GasTipCap:  tip,
-		GasFeeCap:  gasFee,
-		Gas:        gaslimit,
-		To:         &common.Address{},
-		Value:      big.NewInt(100),
-		Data:       nil,
-		AccessList: nil,
-		FeeTokenID: feeTokenID,
-		FeeLimit:   big.NewInt(1000000),
 		Version:    types.MorphTxVersion1,
 		Reference:  &ref,
 		Memo:       &memo,
@@ -3103,6 +3081,95 @@ func TestMorphTxAccessors(t *testing.T) {
 		}
 		if tx.Memo() == nil {
 			t.Error("Memo should not be nil")
+		}
+	})
+}
+
+// TestMorphTxV1JadeForkGating tests that MorphTx V1 is rejected before the jade
+// fork and accepted after the jade fork, while V0 is always accepted when Emerald
+// is active.
+func TestMorphTxV1JadeForkGating(t *testing.T) {
+	t.Parallel()
+
+	// Config with Emerald enabled but Jade NOT enabled (no JadeForkTime).
+	preJadeConfig := func() *params.ChainConfig {
+		cpy := *params.TestChainConfig
+		cfg := &cpy
+		cfg.BerlinBlock = common.Big0
+		cfg.LondonBlock = common.Big0
+		cfg.EmeraldTime = new(uint64) // Emerald at time 0
+		cfg.JadeForkTime = nil        // Jade not active
+		return cfg
+	}()
+
+	t.Run("V1RejectedBeforeJadeFork", func(t *testing.T) {
+		t.Parallel()
+		pool, key := setupTxPoolWithConfig(preJadeConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		tx := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV1NotYetActive) {
+			t.Errorf("expected ErrMorphTxV1NotYetActive, got %v", err)
+		}
+	})
+
+	t.Run("V0AcceptedBeforeJadeFork", func(t *testing.T) {
+		t.Parallel()
+		pool, key := setupTxPoolWithConfig(preJadeConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// V0 with FeeTokenID > 0 should still pass version validation
+		tx := morphTxV0(0, 100000, big.NewInt(10), big.NewInt(1), 1, key)
+		err := pool.AddRemote(tx)
+		// Should NOT be the jade fork error or version error
+		if errors.Is(err, types.ErrMorphTxV1NotYetActive) {
+			t.Errorf("V0 should not be rejected by jade fork check, got %v", err)
+		}
+		if errors.Is(err, types.ErrMorphTxV0IllegalExtraParams) {
+			t.Errorf("V0 with FeeTokenID > 0 should pass version validation, got %v", err)
+		}
+	})
+
+	t.Run("V1AcceptedAfterJadeFork", func(t *testing.T) {
+		t.Parallel()
+		// Use morphTxConfig which has JadeForkTime enabled at time 0
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		tx := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.AddRemote(tx); err != nil {
+			t.Errorf("V1 should be accepted after jade fork, got %v", err)
+		}
+	})
+
+	t.Run("V0AndV1BothAcceptedAfterJadeFork", func(t *testing.T) {
+		t.Parallel()
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		// V1 should be accepted
+		txV1 := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.AddRemote(txV1); err != nil {
+			t.Errorf("V1 should be accepted after jade fork, got %v", err)
+		}
+
+		// V0 with FeeTokenID > 0 should also pass version validation
+		txV0 := morphTxV0(1, 100000, big.NewInt(10), big.NewInt(1), 1, key)
+		err := pool.AddRemote(txV0)
+		if errors.Is(err, types.ErrMorphTxV1NotYetActive) || errors.Is(err, types.ErrMorphTxV0IllegalExtraParams) {
+			t.Errorf("V0 should be accepted after jade fork, got %v", err)
 		}
 	})
 }

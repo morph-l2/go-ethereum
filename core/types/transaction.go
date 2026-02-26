@@ -338,7 +338,6 @@ func (tx *Transaction) IsL1MessageTx() bool {
 
 // IsMorphTx returns true if the transaction is morph tx.
 func (tx *Transaction) IsMorphTx() bool {
-	// TODO: check if altfee used
 	return tx.Type() == MorphTxType
 }
 

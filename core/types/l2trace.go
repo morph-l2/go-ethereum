@@ -203,11 +203,14 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 		if feeLimit := tx.FeeLimit(); feeLimit != nil && feeLimit.Sign() > 0 {
 			result.FeeLimit = (*hexutil.Big)(feeLimit)
 		}
-		result.Version = tx.Version()
-		result.Reference = tx.Reference()
-		if tx.Memo() != nil {
-			memo := hexutil.Bytes(*tx.Memo())
-			result.Memo = &memo
+		// Only include V1 fields (version, reference, memo) for V1+ transactions
+		if tx.Version() >= MorphTxVersion1 {
+			result.Version = tx.Version()
+			result.Reference = tx.Reference()
+			if tx.Memo() != nil {
+				memo := hexutil.Bytes(*tx.Memo())
+				result.Memo = &memo
+			}
 		}
 	}
 

@@ -1621,10 +1621,13 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		feeTokenID := hexutil.Uint16(tx.FeeTokenID())
 		result.FeeTokenID = &feeTokenID
 		result.FeeLimit = (*hexutil.Big)(tx.FeeLimit())
-		version := hexutil.Uint64(tx.Version())
-		result.Version = &version
-		result.Reference = (*common.Reference)(tx.Reference())
-		result.Memo = (*hexutil.Bytes)(tx.Memo())
+		// Only include V1 fields (version, reference, memo) for V1+ transactions
+		if tx.Version() >= types.MorphTxVersion1 {
+			version := hexutil.Uint64(tx.Version())
+			result.Version = &version
+			result.Reference = (*common.Reference)(tx.Reference())
+			result.Memo = (*hexutil.Bytes)(tx.Memo())
+		}
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())

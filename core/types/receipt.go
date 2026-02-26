@@ -119,6 +119,10 @@ type receiptRLP struct {
 }
 
 // storedReceiptRLP is the storage encoding of a receipt.
+// Note: Version, Reference, and Memo are marked as rlp:"optional" for backward compatibility.
+// When these fields are zero-valued (V0 receipts), they are omitted from the RLP encoding,
+// producing an 8-element list identical to v7StoredReceiptRLP format. This allows older nodes
+// (without V1 logic) to decode receipts stored by newer nodes before the Jade fork activates.
 type storedReceiptRLP struct {
 	PostStateOrStatus []byte
 	CumulativeGasUsed uint64
@@ -128,9 +132,9 @@ type storedReceiptRLP struct {
 	FeeRate           *big.Int
 	TokenScale        *big.Int
 	FeeLimit          *big.Int
-	Version           uint8
-	Reference         []byte // Note: use []byte for RLP compatibility (common.Reference is [32]byte, can't decode empty)
-	Memo              []byte // Note: use []byte for RLP compatibility, convert to *[]byte when needed
+	Version           uint8  `rlp:"optional"`
+	Reference         []byte `rlp:"optional"` // Note: use []byte for RLP compatibility (common.Reference is [32]byte, can't decode empty)
+	Memo              []byte `rlp:"optional"` // Note: use []byte for RLP compatibility, convert to *[]byte when needed
 }
 
 // v8StoredReceiptRLP is the storage encoding of a receipt used in database version 8.

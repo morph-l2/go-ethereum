@@ -214,6 +214,31 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if args.To == nil && len(args.data()) == 0 {
 		return errors.New(`contract creation without any data provided`)
 	}
+	// Handle MorphTx version defaults and jade fork validation
+	if args.isMorphTxArgs() {
+		isJadeFork := b.ChainConfig().IsJadeFork(head.Time)
+		if !isJadeFork {
+			// Reject explicit V1 before jade fork
+			if args.Version != nil && uint8(*args.Version) == types.MorphTxVersion1 {
+				return types.ErrMorphTxV1NotYetActive
+			}
+			// Reject V1-only fields (reference/memo) before jade fork
+			if (args.Reference != nil && *args.Reference != (common.Reference{})) ||
+				(args.Memo != nil && len(*args.Memo) > 0) {
+				return types.ErrMorphTxV1NotYetActive
+			}
+		}
+		// Set default version based on fork status when not explicitly specified
+		if args.Version == nil {
+			if isJadeFork {
+				v := hexutil.Uint16(types.MorphTxVersion1)
+				args.Version = &v
+			} else {
+				v := hexutil.Uint16(types.MorphTxVersion0)
+				args.Version = &v
+			}
+		}
+	}
 	// Validate memo length for MorphTx
 	if args.Memo != nil && len(*args.Memo) > common.MaxMemoLength {
 		return errors.New("memo exceeds maximum length of 64 bytes")
@@ -222,17 +247,7 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if err := args.validateMorphTxVersion(); err != nil {
 		return err
 	}
-	// Reject MorphTx V1 before jade fork is active
-	if args.isMorphTxArgs() && !b.ChainConfig().IsJadeFork(head.Time) {
-		// Determine the effective version (default to V1 if not specified)
-		version := types.MorphTxVersion1
-		if args.Version != nil {
-			version = uint8(*args.Version)
-		}
-		if version == types.MorphTxVersion1 {
-			return types.ErrMorphTxV1NotYetActive
-		}
-	}
+
 	// Estimate the gas usage if necessary.
 	if args.Gas == nil {
 		// These fields are immutable during the estimation, safe to
@@ -401,8 +416,7 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		if args.FeeLimit != nil {
 			feeLimit = args.FeeLimit.ToInt()
 		}
-		// Default to version 1 if version is not explicitly specified
-		version = types.MorphTxVersion1
+		// Use version from args (set by setDefaults or explicitly by caller)
 		if args.Version != nil {
 			version = uint8(*args.Version)
 		}
@@ -491,8 +505,8 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Default to version 1 if version is not explicitly specified
-		version := types.MorphTxVersion1
+		// Use version from args (set by setDefaults or explicitly by caller)
+		var version uint8
 		if args.Version != nil {
 			version = uint8(*args.Version)
 		}

@@ -219,10 +219,12 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig, 
 					receipt.FeeRate = msgResult.FeeRate
 					receipt.TokenScale = msgResult.TokenScale
 				}
-				version := msg.Version()
-				receipt.Version = version
-				receipt.Reference = msg.Reference()
-				receipt.Memo = msg.Memo()
+				// Only include V1 fields (version, reference, memo) for V1+ transactions
+				if msg.Version() >= types.MorphTxVersion1 {
+					receipt.Version = msg.Version()
+					receipt.Reference = msg.Reference()
+					receipt.Memo = msg.Memo()
+				}
 			}
 
 			// If the transaction created a contract, store the creation address in the receipt.

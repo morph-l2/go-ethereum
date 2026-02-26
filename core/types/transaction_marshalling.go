@@ -204,9 +204,12 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.AccessList = &itx.AccessList
 		enc.FeeTokenID = hexutil.Uint16(itx.FeeTokenID)
 		enc.FeeLimit = (*hexutil.Big)(itx.FeeLimit)
-		enc.Version = (*uint8)(&itx.Version)
-		enc.Reference = (*common.Reference)(itx.Reference)
-		enc.Memo = (*hexutil.Bytes)(itx.Memo)
+		// Only include V1 fields (version, reference, memo) for V1+ transactions
+		if itx.Version >= MorphTxVersion1 {
+			enc.Version = (*uint8)(&itx.Version)
+			enc.Reference = (*common.Reference)(itx.Reference)
+			enc.Memo = (*hexutil.Bytes)(itx.Memo)
+		}
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
 		enc.S = (*hexutil.Big)(itx.S)
@@ -605,7 +608,9 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.FeeTokenID = uint16(dec.FeeTokenID)
 		itx.FeeLimit = (*big.Int)(dec.FeeLimit)
 		itx.Value = (*big.Int)(dec.Value)
-		itx.Version = *dec.Version
+		if dec.Version != nil {
+			itx.Version = *dec.Version
+		}
 		itx.Reference = (*common.Reference)(dec.Reference)
 		itx.Memo = (*[]byte)(dec.Memo)
 		if dec.Input == nil {

@@ -1985,8 +1985,27 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	// Delete useless indexes right now which includes the non-canonical
 	// transaction indexes, canonical chain indexes which above the head.
 	indexesBatch := bc.db.NewBatch()
-	for _, tx := range types.TxDifference(deletedTxs, addedTxs) {
+	trulyDeletedTxs := types.TxDifference(deletedTxs, addedTxs)
+	for _, tx := range trulyDeletedTxs {
 		rawdb.DeleteTxLookupEntry(indexesBatch, tx.Hash())
+	}
+	// Clean up reference index entries for truly deleted MorphTx transactions.
+	// We need the block context (timestamp, tx index) so we iterate oldChain.
+	if len(trulyDeletedTxs) > 0 {
+		trulyDeletedSet := make(map[common.Hash]struct{}, len(trulyDeletedTxs))
+		for _, tx := range trulyDeletedTxs {
+			trulyDeletedSet[tx.Hash()] = struct{}{}
+		}
+		for _, block := range oldChain {
+			for txIdx, tx := range block.Transactions() {
+				if _, ok := trulyDeletedSet[tx.Hash()]; !ok {
+					continue
+				}
+				if tx.IsMorphTx() && tx.Reference() != nil {
+					rawdb.DeleteReferenceIndexEntry(indexesBatch, *tx.Reference(), block.Time(), uint64(txIdx), tx.Hash())
+				}
+			}
+		}
 	}
 	// Delete any canonical number assignments above the new head
 	number := bc.CurrentBlock().NumberU64()

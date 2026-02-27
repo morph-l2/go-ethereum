@@ -109,7 +109,6 @@ func (tx *MorphTx) copy() TxData {
 		Memo:       copyBytesPtr(tx.Memo),
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
-		FeeLimit:   new(big.Int),
 		Value:      new(big.Int),
 		ChainID:    new(big.Int),
 		GasTipCap:  new(big.Int),
@@ -132,7 +131,7 @@ func (tx *MorphTx) copy() TxData {
 		cpy.GasFeeCap.Set(tx.GasFeeCap)
 	}
 	if tx.FeeLimit != nil {
-		cpy.FeeLimit.Set(tx.FeeLimit)
+		cpy.FeeLimit = new(big.Int).Set(tx.FeeLimit)
 	}
 	if tx.V != nil {
 		cpy.V.Set(tx.V)

@@ -1667,14 +1667,14 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 			l1DataFee, err := fees.CalculateL1DataFee(tx, pool.currentState, pool.chainconfig, pool.currentHead)
 			if err != nil {
 				log.Error("Failed to calculate L1 data fee", "err", err, "tx", tx)
-				return false
+				return true
 			}
 			if tx.IsMorphTxWithAltFee() {
 				if altCostLimit[tx.FeeTokenID()] == nil {
 					balance, err := pool.getBalanceFunc(pool.chain.CurrentBlock().Header(), pool.currentState, tx.FeeTokenID(), addr)
 					if err != nil || balance == nil {
 						log.Error("Failed to query balance", "err", err, "tx", tx)
-						return false
+						return true
 					}
 					// account cost limit
 					altCostLimit[tx.FeeTokenID()] = balance
@@ -1682,7 +1682,7 @@ func (pool *TxPool) executableTxFilter(addr common.Address, costLimit *big.Int, 
 				altAmount, err := fees.EthToAlt(pool.currentState, tx.FeeTokenID(), new(big.Int).Add(tx.GasFee(), l1DataFee))
 				if err != nil {
 					log.Error("Failed to swap to erc20", "err", err, "tx", tx)
-					return false
+					return true
 				}
 				limit := altCostLimit[tx.FeeTokenID()]
 				if tx.FeeLimit() != nil && tx.FeeLimit().Sign() > 0 {

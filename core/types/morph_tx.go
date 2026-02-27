@@ -285,7 +285,10 @@ func decodeV1MorphTxRLP(tx *MorphTx, blob []byte) error {
 		ref := common.BytesToReference(v1.Reference)
 		tx.Reference = &ref
 	}
-	// Convert []byte to *[]byte
+	// Convert []byte to *[]byte and validate memo length
+	if len(v1.Memo) > common.MaxMemoLength {
+		return errors.New("memo exceeds maximum length of " + strconv.Itoa(common.MaxMemoLength) + " bytes, got " + strconv.Itoa(len(v1.Memo)))
+	}
 	if len(v1.Memo) > 0 {
 		tx.Memo = &v1.Memo
 	}

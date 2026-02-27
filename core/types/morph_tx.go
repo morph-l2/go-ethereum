@@ -278,6 +278,9 @@ func decodeV1MorphTxRLP(tx *MorphTx, blob []byte) error {
 	tx.FeeTokenID = v1.FeeTokenID
 	tx.FeeLimit = v1.FeeLimit
 	// Convert []byte to *common.Reference
+	if len(v1.Reference) != 0 && len(v1.Reference) != common.ReferenceLength {
+		return errors.New("invalid reference length: expected 0 or " + strconv.Itoa(common.ReferenceLength) + ", got " + strconv.Itoa(len(v1.Reference)))
+	}
 	if len(v1.Reference) == common.ReferenceLength {
 		ref := common.BytesToReference(v1.Reference)
 		tx.Reference = &ref

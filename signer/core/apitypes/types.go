@@ -129,10 +129,13 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Default to version 1 if version is not explicitly specified
-		version := uint8(types.MorphTxVersion1)
+		// Determine version: explicit > V1 if V1-specific fields present > V0 (backward compatible)
+		version := uint8(types.MorphTxVersion0)
 		if args.Version != nil {
 			version = uint8(*args.Version)
+		} else if (args.Reference != nil && *args.Reference != (common.Reference{})) ||
+			(args.Memo != nil && len(*args.Memo) > 0) {
+			version = uint8(types.MorphTxVersion1)
 		}
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {

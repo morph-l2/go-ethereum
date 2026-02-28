@@ -228,9 +228,11 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 				return types.ErrMorphTxV1NotYetActive
 			}
 		}
-		// Set default version based on fork status when not explicitly specified
+		// Determine version: explicit > V1 if V1-specific fields present > V0 (backward compatible)
 		if args.Version == nil {
-			if isJadeFork {
+			hasV1Fields := (args.Reference != nil && *args.Reference != (common.Reference{})) ||
+				(args.Memo != nil && len(*args.Memo) > 0)
+			if hasV1Fields {
 				v := hexutil.Uint16(types.MorphTxVersion1)
 				args.Version = &v
 			} else {

@@ -367,19 +367,28 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 //   - Version 1: FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is 0, FeeLimit must not be set
 //
-// If version is not explicitly specified, default to the highest version.
+// If version is not explicitly specified, use heuristic detection:
+//   - V1 if V1-specific fields (Reference, Memo) are present
+//   - V0 otherwise (backward compatible with AltFeeTx behavior)
 func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
 	// Validate memo length
 	if opts.Memo != nil && len(*opts.Memo) > common.MaxMemoLength {
 		return 0, types.ErrMemoTooLong
 	}
 
-	// If version is not explicitly specified, use the highest version
+	// If version is not explicitly specified, determine based on fields:
+	// - V1 if V1-specific fields (Reference, Memo) are present
+	// - V0 otherwise (backward compatible with AltFeeTx behavior)
 	if opts.Version == nil {
-		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
-			return 0, types.ErrMorphTxV1IllegalExtraParams
+		hasV1Fields := (opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
+			(opts.Memo != nil && len(*opts.Memo) > 0)
+		if hasV1Fields {
+			if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
+				return 0, types.ErrMorphTxV1IllegalExtraParams
+			}
+			return types.MorphTxVersion1, nil
 		}
-		return types.MorphTxVersion1, nil
+		return types.MorphTxVersion0, nil
 	}
 
 	// Version explicitly specified - validate parameters match

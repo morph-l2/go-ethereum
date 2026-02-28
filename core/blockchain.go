@@ -623,6 +623,13 @@ func (bc *BlockChain) setHeadBeyondRoot(head uint64, root common.Hash, repair bo
 	}
 	// Rewind the header chain, deleting all block bodies until then
 	delFn := func(db ethdb.KeyValueWriter, hash common.Hash, num uint64) {
+		// Clean up reference index entries BEFORE deleting the block body,
+		// because DeleteReferenceIndexEntriesForBlock needs to read transactions
+		// from the block. Once the body is deleted, these entries become
+		// permanently stale.
+		if block := bc.GetBlock(hash, num); block != nil {
+			rawdb.DeleteReferenceIndexEntriesForBlock(db, block)
+		}
 		// Ignore the error here since light client won't hit this path
 		frozen, _ := bc.db.Ancients()
 		if num+1 <= frozen {
@@ -785,6 +792,9 @@ func (bc *BlockChain) writeHeadBlock(block *types.Block) {
 	if oldHash != (common.Hash{}) && oldHash != block.Hash() {
 		if oldBlock := bc.GetBlock(oldHash, block.NumberU64()); oldBlock != nil {
 			rawdb.DeleteReferenceIndexEntriesForBlock(batch, oldBlock)
+		} else {
+			log.Warn("Cannot clean reference index entries: old block unavailable",
+				"number", block.NumberU64(), "oldHash", oldHash)
 		}
 	}
 

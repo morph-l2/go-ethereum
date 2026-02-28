@@ -1995,13 +1995,21 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
-		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
-		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
-		"feeTokenID":        (*hexutil.Uint16)(receipt.FeeTokenID),
-		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
-		"version":           hexutil.Uint(receipt.Version),
-		"reference":         (*common.Reference)(receipt.Reference),
-		"memo":              (*hexutil.Bytes)(receipt.Memo),
+	}
+
+	// Include MorphTx-specific fields only for MorphTx transactions,
+	// consistent with NewRPCTransaction behavior.
+	if tx.Type() == types.MorphTxType {
+		fields["feeRate"] = (*hexutil.Big)(receipt.FeeRate)
+		fields["tokenScale"] = (*hexutil.Big)(receipt.TokenScale)
+		fields["feeTokenID"] = (*hexutil.Uint16)(receipt.FeeTokenID)
+		fields["feeLimit"] = (*hexutil.Big)(receipt.FeeLimit)
+		// Only include V1 fields (version, reference, memo) for V1+ transactions
+		if tx.Version() >= types.MorphTxVersion1 {
+			fields["version"] = hexutil.Uint(receipt.Version)
+			fields["reference"] = (*common.Reference)(receipt.Reference)
+			fields["memo"] = (*hexutil.Bytes)(receipt.Memo)
+		}
 	}
 
 	// Assign the effective gas price paid
@@ -2500,6 +2508,10 @@ func (s *PublicMorphAPI) GetTransactionHashesByReference(
 	// Validate limit (max 100)
 	if limitVal > 100 {
 		return nil, errors.New("limit exceeds maximum value of 100")
+	}
+	// Cap offset to prevent linear scan DoS
+	if offsetVal > 10000 {
+		return nil, errors.New("offset exceeds maximum value of 10000")
 	}
 
 	paginatedEntries, interrupted := rawdb.ReadReferenceIndexEntriesPaginatedWithInterrupt(s.b.ChainDb(), args.Reference, offsetVal, limitVal, ctx.Done())

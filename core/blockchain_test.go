@@ -4087,13 +4087,18 @@ func TestReferenceIndicesMultipleTxsSameReference(t *testing.T) {
 // TestReferenceIndicesReorgCleanup ensures reference indices from the old canonical
 // branch are removed during reorg, while entries on the new canonical branch remain.
 func TestReferenceIndicesReorgCleanup(t *testing.T) {
+	// Need a config with JadeForkTime enabled so MorphTx V1 is accepted.
+	jadeCfg := *params.TestChainConfig
+	jadeCfg.EmeraldTime = new(uint64)  // Emerald at time 0
+	jadeCfg.JadeForkTime = new(uint64) // Jade at time 0
+
 	var (
 		db      = rawdb.NewMemoryDatabase()
 		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		address = crypto.PubkeyToAddress(key.PublicKey)
 		funds   = big.NewInt(100000000000000000)
 		gspec   = &Genesis{
-			Config:  params.TestChainConfig,
+			Config:  &jadeCfg,
 			Alloc:   GenesisAlloc{address: {Balance: funds}},
 			BaseFee: big.NewInt(params.InitialBaseFee),
 		}
@@ -4135,7 +4140,7 @@ func TestReferenceIndicesReorgCleanup(t *testing.T) {
 	})
 
 	l := uint64(0)
-	chain, err := NewBlockChain(db, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, &l)
+	chain, err := NewBlockChain(db, nil, &jadeCfg, ethash.NewFaker(), vm.Config{}, nil, &l)
 	if err != nil {
 		t.Fatalf("failed to create tester chain: %v", err)
 	}
@@ -4157,9 +4162,12 @@ func TestReferenceIndicesReorgCleanup(t *testing.T) {
 		t.Fatalf("failed to insert chainB: %v", err)
 	}
 
+	// After reorg, there should be exactly 1 entry with the new chain's position.
+	// The original code (trulyDeletedTxs approach) would leave 2 entries (stale + new)
+	// because the same tx hash exists in both chains but at different positions.
 	entries = rawdb.ReadReferenceIndexEntries(chain.db, ref)
 	if len(entries) != 1 {
-		t.Fatalf("expected exactly 1 entry after reorg cleanup, got %d", len(entries))
+		t.Fatalf("expected exactly 1 entry after reorg cleanup, got %d (stale key leak!)", len(entries))
 	}
 	newTimestamp := chainB[1].Time()
 	if entries[0].BlockTimestamp != newTimestamp {

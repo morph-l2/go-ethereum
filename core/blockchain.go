@@ -775,6 +775,19 @@ func (bc *BlockChain) ExportN(w io.Writer, first uint64, last uint64) error {
 func (bc *BlockChain) writeHeadBlock(block *types.Block) {
 	// Add the block to the canonical chain number scheme and mark as the head
 	batch := bc.db.NewBatch()
+
+	// If the canonical block at this height is being replaced by a different block
+	// (implicit reorg / L2 sequential overwrite), clean up the old block's reference
+	// index entries to avoid stale keys. This is necessary because reference index
+	// keys embed (blockTimestamp, txIndex), so the same tx hash produces different
+	// keys in different blocks, and simply overwriting won't remove the old key.
+	oldHash := rawdb.ReadCanonicalHash(bc.db, block.NumberU64())
+	if oldHash != (common.Hash{}) && oldHash != block.Hash() {
+		if oldBlock := bc.GetBlock(oldHash, block.NumberU64()); oldBlock != nil {
+			rawdb.DeleteReferenceIndexEntriesForBlock(batch, oldBlock)
+		}
+	}
+
 	rawdb.WriteHeadHeaderHash(batch, block.Hash())
 	rawdb.WriteHeadFastBlockHash(batch, block.Hash())
 	rawdb.WriteCanonicalHash(batch, block.Hash(), block.NumberU64())

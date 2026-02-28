@@ -993,6 +993,216 @@ func TestMorphTxValidation(t *testing.T) {
 	})
 }
 
+// TestMorphTxAsMessage tests that AsMessage calls ValidateMorphTxVersion
+// and correctly rejects invalid MorphTx while accepting valid ones.
+func TestMorphTxAsMessage(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	signer := NewEmeraldSigner(big.NewInt(1))
+	ref := common.HexToReference("0x1111111111111111111111111111111111111111111111111111111111111111")
+	memo := []byte("test memo")
+	longMemo := make([]byte, common.MaxMemoLength+1)
+	baseFee := big.NewInt(7)
+
+	tests := []struct {
+		name    string
+		txdata  *MorphTx
+		wantErr error
+	}{
+		// --- Valid cases ---
+		{
+			name: "V0 with FeeTokenID > 0 → success",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      1,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion0,
+				FeeTokenID: 1,
+				FeeLimit:   big.NewInt(1000),
+			},
+			wantErr: nil,
+		},
+		{
+			name: "V1 with FeeTokenID == 0, Reference + Memo → success",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      3,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion1,
+				FeeTokenID: 0,
+				Reference:  &ref,
+				Memo:       &memo,
+			},
+			wantErr: nil,
+		},
+		{
+			name: "V1 with FeeTokenID > 0, Reference → success",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      4,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion1,
+				FeeTokenID: 1,
+				FeeLimit:   big.NewInt(500),
+				Reference:  &ref,
+			},
+			wantErr: nil,
+		},
+		// --- V0 rejection cases ---
+		{
+			name: "V0 with FeeTokenID == 0 → ErrMorphTxV0IllegalExtraParams",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      10,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion0,
+				FeeTokenID: 0,
+			},
+			wantErr: ErrMorphTxV0IllegalExtraParams,
+		},
+		{
+			name: "V0 with Reference → ErrMorphTxV0IllegalExtraParams",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      11,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion0,
+				FeeTokenID: 1,
+				FeeLimit:   big.NewInt(100),
+				Reference:  &ref,
+			},
+			wantErr: ErrMorphTxV0IllegalExtraParams,
+		},
+		{
+			name: "V0 with Memo → ErrMorphTxV0IllegalExtraParams",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      12,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion0,
+				FeeTokenID: 1,
+				FeeLimit:   big.NewInt(100),
+				Memo:       &memo,
+			},
+			wantErr: ErrMorphTxV0IllegalExtraParams,
+		},
+		// --- V1 rejection cases ---
+		{
+			name: "V1 FeeTokenID=0 + FeeLimit>0 → ErrMorphTxV1IllegalExtraParams",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      20,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion1,
+				FeeTokenID: 0,
+				FeeLimit:   big.NewInt(999),
+			},
+			wantErr: ErrMorphTxV1IllegalExtraParams,
+		},
+		{
+			name: "V1 memo too long → ErrMemoTooLong",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      21,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    MorphTxVersion1,
+				FeeTokenID: 0,
+				Memo:       &longMemo,
+			},
+			wantErr: ErrMemoTooLong,
+		},
+		// --- Unsupported version ---
+		{
+			name: "unsupported version 255 → ErrMorphTxUnsupportedVersion",
+			txdata: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      30,
+				GasTipCap:  big.NewInt(1),
+				GasFeeCap:  big.NewInt(10),
+				Gas:        21000,
+				To:         &testAddr,
+				Value:      big.NewInt(0),
+				Version:    255,
+				FeeTokenID: 1,
+			},
+			wantErr: ErrMorphTxUnsupportedVersion,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			signedTx, err := SignNewTx(key, signer, tc.txdata)
+			if err != nil {
+				t.Fatalf("SignNewTx failed: %v", err)
+			}
+
+			msg, err := signedTx.AsMessage(signer, baseFee)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("AsMessage error mismatch: got %v, want %v", err, tc.wantErr)
+			}
+			if err == nil {
+				// Verify message fields are correctly populated
+				if msg.FeeTokenID() != tc.txdata.FeeTokenID {
+					t.Errorf("FeeTokenID mismatch: got %d, want %d", msg.FeeTokenID(), tc.txdata.FeeTokenID)
+				}
+				if msg.Version() != tc.txdata.Version {
+					t.Errorf("Version mismatch: got %d, want %d", msg.Version(), tc.txdata.Version)
+				}
+			}
+		})
+	}
+
+	// Non-MorphTx should always pass (not affected by the check)
+	t.Run("DynamicFeeTx → success (not affected)", func(t *testing.T) {
+		dynTx, err := SignNewTx(key, NewLondonSigner(big.NewInt(1)), &DynamicFeeTx{
+			ChainID:   big.NewInt(1),
+			Nonce:     5,
+			GasTipCap: big.NewInt(1),
+			GasFeeCap: big.NewInt(10),
+			Gas:       21000,
+			To:        &testAddr,
+			Value:     big.NewInt(0),
+		})
+		if err != nil {
+			t.Fatalf("SignNewTx failed: %v", err)
+		}
+		if _, err := dynTx.AsMessage(NewLondonSigner(big.NewInt(1)), baseFee); err != nil {
+			t.Fatalf("AsMessage should succeed for DynamicFeeTx, got: %v", err)
+		}
+	})
+}
+
 // TestMorphTxAccessors tests accessor methods for MorphTx fields.
 func TestMorphTxAccessors(t *testing.T) {
 	ref := common.HexToReference("0x2222222222222222222222222222222222222222222222222222222222222222")

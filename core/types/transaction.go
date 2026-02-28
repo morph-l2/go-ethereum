@@ -931,6 +931,11 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	if baseFee != nil {
 		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
 	}
+
+	if err := tx.ValidateMorphTxVersion(); err != nil {
+		return Message{}, err
+	}
+
 	if tx.FeeLimit() != nil {
 		msg.feeLimit = tx.FeeLimit()
 	}

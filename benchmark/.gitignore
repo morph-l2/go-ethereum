@@ -1,0 +1,10 @@
+# Generated files
+genesis.json
+accounts.json
+data/
+geth.pid
+geth.log
+
+# Contract build artifacts
+contracts/build/
+

@@ -3,7 +3,6 @@ package catalyst
 import (
 	"time"
 
-	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/eth"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/node"
@@ -69,9 +68,8 @@ func (p *standaloneProducer) Stop() error {
 
 // loop is the main production loop. It runs on a timer and attempts to produce
 // a new block on each tick by:
-//   1. Collecting pending transactions from the txpool
-//   2. Calling AssembleL2Block to build the block
-//   3. Calling NewL2Block to commit the block to the chain
+//  1. Calling AssembleL2Block to build the block (pulls pending txs from txpool internally)
+//  2. Calling NewL2Block to commit the block to the chain
 func (p *standaloneProducer) loop() {
 	ticker := time.NewTicker(p.config.BlockInterval)
 	defer ticker.Stop()
@@ -90,37 +88,22 @@ func (p *standaloneProducer) loop() {
 }
 
 // produceBlock executes one cycle of block production:
-// collect txs → assemble → commit.
+// assemble → commit. AssembleL2Block internally pulls pending
+// transactions from the txpool, so we don't need to pass them in.
 func (p *standaloneProducer) produceBlock() {
 	start := time.Now()
 
 	currentBlock := p.eth.BlockChain().CurrentBlock()
 	nextBlockNumber := currentBlock.NumberU64() + 1
 
-	// Collect pending transactions from the txpool
-	txs := p.collectPendingTransactions()
-
-	// Encode transactions for the AssembleL2Block call
-	encodedTxs := make([][]byte, 0, len(txs))
-	for _, tx := range txs {
-		data, err := tx.MarshalBinary()
-		if err != nil {
-			log.Error("Failed to marshal transaction", "hash", tx.Hash(), "err", err)
-			continue
-		}
-		encodedTxs = append(encodedTxs, data)
-	}
-
-	log.Info("Producing block",
-		"number", nextBlockNumber,
-		"txCount", len(encodedTxs),
-	)
+	log.Info("Producing block", "number", nextBlockNumber)
 
 	// Step 1: Assemble the block
+	// AssembleL2Block will collect pending transactions from the txpool
+	// via miner.BuildBlock internally.
 	assembleStart := time.Now()
 	execData, err := p.api.AssembleL2Block(AssembleL2BlockParams{
-		Number:       nextBlockNumber,
-		Transactions: encodedTxs,
+		Number: nextBlockNumber,
 	})
 	assembleDuration := time.Since(assembleStart)
 
@@ -173,16 +156,3 @@ func (p *standaloneProducer) produceBlock() {
 		"totalTime", totalDuration,
 	)
 }
-
-// collectPendingTransactions retrieves pending transactions from the txpool,
-// flattened and sorted by nonce for each account.
-func (p *standaloneProducer) collectPendingTransactions() types.Transactions {
-	pending := p.eth.TxPool().Pending(nil, nil)
-
-	var txs types.Transactions
-	for _, accountTxs := range pending {
-		txs = append(txs, accountTxs...)
-	}
-	return txs
-}
-

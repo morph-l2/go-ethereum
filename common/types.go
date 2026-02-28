@@ -165,8 +165,6 @@ func (r Reference) MarshalText() ([]byte, error) {
 }
 
 // MarshalJSON marshals the original value
-
-// MarshalJSON marshals the original value
 func (r Reference) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.Hex())
 }

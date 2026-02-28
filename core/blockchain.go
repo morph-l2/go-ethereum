@@ -1109,7 +1109,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 			// Write all the data out into the database
 			rawdb.WriteBody(batch, block.Hash(), block.NumberU64(), block.Body())
 			rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receiptChain[i])
-			rawdb.WriteTxLookupEntriesByBlock(batch, block)       // Always write tx indices for live blocks, we assume they are needed
+			rawdb.WriteTxLookupEntriesByBlock(batch, block)        // Always write tx indices for live blocks, we assume they are needed
 			rawdb.WriteReferenceIndexEntriesForBlock(batch, block) // Always write reference indices for live blocks
 
 			// Write everything belongs to the blocks into the database. So that
@@ -1989,23 +1989,15 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	for _, tx := range trulyDeletedTxs {
 		rawdb.DeleteTxLookupEntry(indexesBatch, tx.Hash())
 	}
-	// Clean up reference index entries for truly deleted MorphTx transactions.
-	// We need the block context (timestamp, tx index) so we iterate oldChain.
-	if len(trulyDeletedTxs) > 0 {
-		trulyDeletedSet := make(map[common.Hash]struct{}, len(trulyDeletedTxs))
-		for _, tx := range trulyDeletedTxs {
-			trulyDeletedSet[tx.Hash()] = struct{}{}
-		}
-		for _, block := range oldChain {
-			for txIdx, tx := range block.Transactions() {
-				if _, ok := trulyDeletedSet[tx.Hash()]; !ok {
-					continue
-				}
-				if tx.IsMorphTx() && tx.Reference() != nil {
-					rawdb.DeleteReferenceIndexEntry(indexesBatch, *tx.Reference(), block.Time(), uint64(txIdx), tx.Hash())
-				}
-			}
-		}
+	// Reorg-safe reference index maintenance:
+	// 1) remove all reference index entries from the old canonical chain segment
+	// 2) reinsert entries for the newly canonical segment
+	// This avoids stale keys when the same tx hash moves to a different location.
+	for _, block := range oldChain {
+		rawdb.DeleteReferenceIndexEntriesForBlock(indexesBatch, block)
+	}
+	for i := len(newChain) - 1; i >= 1; i-- {
+		rawdb.WriteReferenceIndexEntriesForBlock(indexesBatch, newChain[i])
 	}
 	// Delete any canonical number assignments above the new head
 	number := bc.CurrentBlock().NumberU64()

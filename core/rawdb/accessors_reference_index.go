@@ -18,6 +18,7 @@ package rawdb
 
 import (
 	"encoding/binary"
+	"math"
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -73,40 +74,79 @@ func DeleteReferenceIndexEntriesForBlock(db ethdb.KeyValueWriter, block *types.B
 	}
 }
 
-// ReadReferenceIndexEntries returns all transaction entries for a given reference.
+func parseReferenceIndexEntry(key []byte) (ReferenceIndexEntry, bool) {
+	// Validate key length: prefix(3) + reference(32) + blockTimestamp(8) + txIndex(8) + txHash(32) = 83 bytes
+	if len(key) != len(referenceIndexPrefix)+common.ReferenceLength+8+8+common.HashLength {
+		return ReferenceIndexEntry{}, false
+	}
+	offset := len(referenceIndexPrefix) + common.ReferenceLength
+	blockTimestamp := binary.BigEndian.Uint64(key[offset:])
+	offset += 8
+	txIndex := binary.BigEndian.Uint64(key[offset:])
+	offset += 8
+	txHash := common.BytesToHash(key[offset:])
+
+	return ReferenceIndexEntry{
+		BlockTimestamp: blockTimestamp,
+		TxIndex:        txIndex,
+		TxHash:         txHash,
+	}, true
+}
+
+// ReadReferenceIndexEntriesPaginatedWithInterrupt returns a page of transaction entries for a given reference.
 // Results are sorted by blockTimestamp and txIndex (ascending order due to key structure).
-func ReadReferenceIndexEntries(db ethdb.Database, reference common.Reference) []ReferenceIndexEntry {
+// If interrupt is signaled, the call aborts and returns interrupted=true.
+func ReadReferenceIndexEntriesPaginatedWithInterrupt(db ethdb.Database, reference common.Reference, offset uint64, limit uint64, interrupt <-chan struct{}) ([]ReferenceIndexEntry, bool) {
+	if limit == 0 {
+		return nil, false
+	}
 	prefix := referenceIndexKeyPrefix(reference)
 	it := db.NewIterator(prefix, nil)
 	defer it.Release()
 
-	var entries []ReferenceIndexEntry
+	end := uint64(math.MaxUint64)
+	if offset <= math.MaxUint64-limit {
+		end = offset + limit
+	}
+	entries := make([]ReferenceIndexEntry, 0, limit)
+	index := uint64(0)
 	for it.Next() {
-		key := it.Key()
-		// Validate key length: prefix(3) + reference(32) + blockTimestamp(8) + txIndex(8) + txHash(32) = 83 bytes
-		if len(key) != len(referenceIndexPrefix)+common.ReferenceLength+8+8+common.HashLength {
+		select {
+		case <-interrupt:
+			return nil, true
+		default:
+		}
+		entry, ok := parseReferenceIndexEntry(it.Key())
+		if !ok {
 			continue
 		}
-
-		offset := len(referenceIndexPrefix) + common.ReferenceLength
-		blockTimestamp := binary.BigEndian.Uint64(key[offset:])
-		offset += 8
-		txIndex := binary.BigEndian.Uint64(key[offset:])
-		offset += 8
-		txHash := common.BytesToHash(key[offset:])
-
-		entries = append(entries, ReferenceIndexEntry{
-			BlockTimestamp: blockTimestamp,
-			TxIndex:        txIndex,
-			TxHash:         txHash,
-		})
+		if index < offset {
+			index++
+			continue
+		}
+		if index >= end {
+			break
+		}
+		entries = append(entries, entry)
+		index++
 	}
-
 	if it.Error() != nil {
-		log.Error("Failed to iterate reference index entries", "reference", reference.Hex(), "err", it.Error())
+		log.Error("Failed to iterate paginated reference index entries", "reference", reference.Hex(), "err", it.Error())
 	}
+	return entries, false
+}
 
+// ReadReferenceIndexEntriesPaginated returns a page of transaction entries for a given reference.
+// Results are sorted by blockTimestamp and txIndex (ascending order due to key structure).
+func ReadReferenceIndexEntriesPaginated(db ethdb.Database, reference common.Reference, offset uint64, limit uint64) []ReferenceIndexEntry {
+	entries, _ := ReadReferenceIndexEntriesPaginatedWithInterrupt(db, reference, offset, limit, nil)
 	return entries
+}
+
+// ReadReferenceIndexEntries returns all transaction entries for a given reference.
+// Results are sorted by blockTimestamp and txIndex (ascending order due to key structure).
+func ReadReferenceIndexEntries(db ethdb.Database, reference common.Reference) []ReferenceIndexEntry {
+	return ReadReferenceIndexEntriesPaginated(db, reference, 0, math.MaxUint64)
 }
 
 // ReadReferenceIndexTail retrieves the block number whose reference index is the oldest stored.
@@ -125,4 +165,3 @@ func WriteReferenceIndexTail(db ethdb.KeyValueWriter, blockNumber uint64) {
 		log.Crit("Failed to store reference index tail", "err", err)
 	}
 }
-

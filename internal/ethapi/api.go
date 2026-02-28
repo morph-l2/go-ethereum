@@ -2502,22 +2502,13 @@ func (s *PublicMorphAPI) GetTransactionHashesByReference(
 		return nil, errors.New("limit exceeds maximum value of 100")
 	}
 
-	entries := rawdb.ReadReferenceIndexEntries(s.b.ChainDb(), args.Reference)
-	if len(entries) == 0 {
+	paginatedEntries, interrupted := rawdb.ReadReferenceIndexEntriesPaginatedWithInterrupt(s.b.ChainDb(), args.Reference, offsetVal, limitVal, ctx.Done())
+	if interrupted {
+		return nil, ctx.Err()
+	}
+	if len(paginatedEntries) == 0 {
 		return nil, nil
 	}
-
-	// Validate offset
-	if offsetVal >= uint64(len(entries)) {
-		return nil, fmt.Errorf("offset %d exceeds total results %d", offsetVal, len(entries))
-	}
-
-	// Apply pagination
-	end := offsetVal + limitVal
-	if end > uint64(len(entries)) {
-		end = uint64(len(entries))
-	}
-	paginatedEntries := entries[offsetVal:end]
 
 	// Build result
 	result := make([]rpc.ReferenceTransactionResult, 0, len(paginatedEntries))

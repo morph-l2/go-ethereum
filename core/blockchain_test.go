@@ -3773,6 +3773,28 @@ func TestReferenceIndexBasicOperations(t *testing.T) {
 		t.Fatalf("Reference entries interference: ref1=%d, ref2=%d", len(entries1), len(entries2))
 	}
 
+	// Test 3.1: Pagination reads only the requested window
+	page := rawdb.ReadReferenceIndexEntriesPaginated(db, ref1, 1, 1)
+	if len(page) != 1 {
+		t.Fatalf("Expected 1 paginated entry, got %d", len(page))
+	}
+	if page[0].BlockTimestamp != 150 || page[0].TxHash != txHash3 {
+		t.Fatalf("Unexpected paginated entry: %+v", page[0])
+	}
+	page = rawdb.ReadReferenceIndexEntriesPaginated(db, ref1, 10, 10)
+	if len(page) != 0 {
+		t.Fatalf("Expected empty page for out-of-range offset, got %d", len(page))
+	}
+	interrupt := make(chan struct{})
+	close(interrupt)
+	pageWithInterrupt, interrupted := rawdb.ReadReferenceIndexEntriesPaginatedWithInterrupt(db, ref1, 0, 10, interrupt)
+	if !interrupted {
+		t.Fatal("Expected pagination read to be interrupted")
+	}
+	if len(pageWithInterrupt) != 0 {
+		t.Fatalf("Expected no entries on interrupted pagination read, got %d", len(pageWithInterrupt))
+	}
+
 	// Test 4: Delete an entry
 	rawdb.DeleteReferenceIndexEntry(db, ref1, 100, 0, txHash1)
 	entries = rawdb.ReadReferenceIndexEntries(db, ref1)
@@ -4060,4 +4082,90 @@ func TestReferenceIndicesMultipleTxsSameReference(t *testing.T) {
 
 	chain.Stop()
 	ancientDb.Close()
+}
+
+// TestReferenceIndicesReorgCleanup ensures reference indices from the old canonical
+// branch are removed during reorg, while entries on the new canonical branch remain.
+func TestReferenceIndicesReorgCleanup(t *testing.T) {
+	var (
+		db      = rawdb.NewMemoryDatabase()
+		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		address = crypto.PubkeyToAddress(key.PublicKey)
+		funds   = big.NewInt(100000000000000000)
+		gspec   = &Genesis{
+			Config:  params.TestChainConfig,
+			Alloc:   GenesisAlloc{address: {Balance: funds}},
+			BaseFee: big.NewInt(params.InitialBaseFee),
+		}
+		genesis = gspec.MustCommit(db)
+		signer  = types.LatestSigner(gspec.Config)
+	)
+
+	ref := common.BytesToReference([]byte{0xaa, 0xbb, 0xcc, 0xdd, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xee})
+	sharedTx := types.NewTx(&types.MorphTx{
+		ChainID:    gspec.Config.ChainID,
+		Nonce:      0,
+		GasTipCap:  big.NewInt(1),
+		GasFeeCap:  new(big.Int).Mul(big.NewInt(params.InitialBaseFee), big.NewInt(100)),
+		Gas:        params.TxGas,
+		To:         &common.Address{0x01},
+		Value:      big.NewInt(1),
+		Data:       nil,
+		AccessList: nil,
+		Version:    types.MorphTxVersion1,
+		FeeTokenID: 0,
+		FeeLimit:   nil,
+		Reference:  &ref,
+		Memo:       nil,
+	})
+	signedTx, err := types.SignTx(sharedTx, signer, key)
+	if err != nil {
+		t.Fatalf("failed to sign shared tx: %v", err)
+	}
+
+	chainA, _ := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, 3, func(i int, block *BlockGen) {
+		if i == 0 {
+			block.AddTx(signedTx)
+		}
+	})
+	chainB, _ := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, 4, func(i int, block *BlockGen) {
+		if i == 1 {
+			block.AddTx(signedTx)
+		}
+	})
+
+	l := uint64(0)
+	chain, err := NewBlockChain(db, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, &l)
+	if err != nil {
+		t.Fatalf("failed to create tester chain: %v", err)
+	}
+	defer chain.Stop()
+
+	if _, err := chain.InsertChain(chainA); err != nil {
+		t.Fatalf("failed to insert chainA: %v", err)
+	}
+	entries := rawdb.ReadReferenceIndexEntries(chain.db, ref)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry after chainA insert, got %d", len(entries))
+	}
+	oldTimestamp := chainA[0].Time()
+	if entries[0].BlockTimestamp != oldTimestamp {
+		t.Fatalf("expected old timestamp %d, got %d", oldTimestamp, entries[0].BlockTimestamp)
+	}
+
+	if _, err := chain.InsertChain(chainB); err != nil {
+		t.Fatalf("failed to insert chainB: %v", err)
+	}
+
+	entries = rawdb.ReadReferenceIndexEntries(chain.db, ref)
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly 1 entry after reorg cleanup, got %d", len(entries))
+	}
+	newTimestamp := chainB[1].Time()
+	if entries[0].BlockTimestamp != newTimestamp {
+		t.Fatalf("expected reorged entry timestamp %d, got %d", newTimestamp, entries[0].BlockTimestamp)
+	}
+	if entries[0].TxHash != signedTx.Hash() {
+		t.Fatalf("unexpected tx hash after reorg cleanup: %s", entries[0].TxHash.Hex())
+	}
 }

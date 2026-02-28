@@ -108,7 +108,12 @@ func ReadReferenceIndexEntriesPaginatedWithInterrupt(db ethdb.Database, referenc
 	if offset <= math.MaxUint64-limit {
 		end = offset + limit
 	}
-	entries := make([]ReferenceIndexEntry, 0, limit)
+	// Cap initial allocation to avoid huge pre-allocation when limit is very large
+	initCap := limit
+	if initCap > 1024 {
+		initCap = 1024
+	}
+	entries := make([]ReferenceIndexEntry, 0, initCap)
 	index := uint64(0)
 	for it.Next() {
 		select {

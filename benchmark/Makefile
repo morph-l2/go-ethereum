@@ -26,6 +26,7 @@
 #   BENCH_TPS          - Target transactions per second (default: 100)
 #   BENCH_DURATION     - Benchmark duration (default: 60s)
 #   RPC_PORT           - HTTP RPC port (default: 8545)
+#   MINER_GAS_LIMIT    - Block gas limit for miner (default: 250000000)
 #   PRELOAD_TX_COUNT   - Number of txs to preload into transactions.rlp (default: 50000)
 #   PRELOAD_SENDERS    - Number of sender accounts for preload (default: 50)
 
@@ -54,10 +55,13 @@ RPC_PORT           ?= 8545
 RPC_URL            ?= http://localhost:$(RPC_PORT)
 PRELOAD_TX_COUNT   ?= 50000
 PRELOAD_SENDERS    ?= 50
+MINER_GAS_LIMIT    ?= 250000000
 TOKEN_CONTRACT     ?= 0xBEEF000000000000000000000000000000000001
 
 # Optional: specify an existing accounts.json to reuse across runs.
 # If set, gen_genesis will use these accounts instead of generating new ones.
+# NOTE: If not set, the Makefile will auto-detect accounts.json in the
+# benchmark directory and reuse it if present.
 #   make setup ACCOUNTS_INPUT=./accounts.json
 ACCOUNTS_INPUT     ?=
 
@@ -96,20 +100,25 @@ compile-contract:
 # =====================
 genesis: $(GENESIS_FILE)
 
-# If ACCOUNTS_INPUT is set, pass -accounts-file to reuse existing accounts;
-# otherwise generate new accounts with -accounts NUM_ACCOUNTS.
+# Genesis generation with automatic accounts.json detection:
+#   1. If ACCOUNTS_INPUT is explicitly set, use that file.
+#   2. Else if accounts.json already exists in the benchmark dir, reuse it.
+#   3. Otherwise generate new accounts.
 GEN_GENESIS_FLAGS = -output $(BENCHMARK_DIR) \
 	-bytecode $(BENCHMARK_DIR)/contracts/build/BenchmarkToken_runtime.bin
 
-ifneq ($(ACCOUNTS_INPUT),)
-  GEN_GENESIS_FLAGS += -accounts-file $(abspath $(ACCOUNTS_INPUT))
+# Resolve the effective accounts input: explicit > auto-detect > generate new
+EFFECTIVE_ACCOUNTS_INPUT := $(if $(ACCOUNTS_INPUT),$(abspath $(ACCOUNTS_INPUT)),$(wildcard $(ACCOUNTS_FILE)))
+
+ifneq ($(EFFECTIVE_ACCOUNTS_INPUT),)
+  GEN_GENESIS_FLAGS += -accounts-file $(EFFECTIVE_ACCOUNTS_INPUT)
 else
   GEN_GENESIS_FLAGS += -accounts $(NUM_ACCOUNTS)
 endif
 
 $(GENESIS_FILE): gen_genesis/main.go contracts/build/BenchmarkToken_runtime.bin
-	@if [ -n "$(ACCOUNTS_INPUT)" ]; then \
-		echo "==> Generating genesis using existing accounts: $(ACCOUNTS_INPUT)"; \
+	@if [ -n "$(EFFECTIVE_ACCOUNTS_INPUT)" ]; then \
+		echo "==> Generating genesis using existing accounts: $(EFFECTIVE_ACCOUNTS_INPUT)"; \
 	else \
 		echo "==> Generating genesis with $(NUM_ACCOUNTS) new accounts..."; \
 	fi
@@ -142,7 +151,8 @@ GETH_COMMON_FLAGS = \
 	--standalone.producer \
 	--standalone.blockinterval $(BLOCK_INTERVAL_MS) \
 	--gcmode archive \
-	--miner.gasprice 0 
+	--miner.gasprice 0 \
+	--miner.gaslimit $(MINER_GAS_LIMIT)
 
 start: $(GETH_BIN)
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
@@ -274,12 +284,13 @@ help:
 	@echo ""
 	@echo "=== Configuration ==="
 	@echo "  NUM_ACCOUNTS=$(NUM_ACCOUNTS)             Benchmark accounts in genesis"
-	@echo "  ACCOUNTS_INPUT=                  Path to existing accounts.json (optional)"
+	@echo "  ACCOUNTS_INPUT=                  Path to existing accounts.json (auto-detected if present)"
 	@echo "  BLOCK_INTERVAL_MS=$(BLOCK_INTERVAL_MS)         Block production interval (ms)"
 	@echo "  BENCH_SENDERS=$(BENCH_SENDERS)              Sender accounts for RPC bench"
 	@echo "  BENCH_WORKERS=$(BENCH_WORKERS)              Concurrent RPC sender workers"
 	@echo "  BENCH_TPS=$(BENCH_TPS)                  Target TPS for RPC bench"
 	@echo "  BENCH_DURATION=$(BENCH_DURATION)             RPC benchmark duration"
+	@echo "  MINER_GAS_LIMIT=$(MINER_GAS_LIMIT)       Block gas limit for miner (default 250M)"
 	@echo "  PRELOAD_TX_COUNT=$(PRELOAD_TX_COUNT)         Txs to preload into transactions.rlp"
 	@echo "  PRELOAD_SENDERS=$(PRELOAD_SENDERS)            Sender accounts for preload"
 	@echo "  RPC_PORT=$(RPC_PORT)                 HTTP RPC port"

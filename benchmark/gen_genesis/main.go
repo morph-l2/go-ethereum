@@ -6,13 +6,13 @@
 //
 // Usage: go run ./gen_genesis [flags]
 //
-//	-accounts int     Number of benchmark accounts (default 100)
-//	-output   string  Output directory (default ".")
-//	-bytecode string  Path to ERC20 runtime bytecode hex file (default "benchmark/contracts/build/BenchmarkToken_runtime.bin")
+//	-accounts      int     Number of benchmark accounts to generate (default 100, ignored if -accounts-file is set)
+//	-accounts-file string  Path to an existing accounts.json; if set, uses these accounts instead of generating new ones
+//	-output        string  Output directory (default ".")
+//	-bytecode      string  Path to ERC20 runtime bytecode hex file
 package main
 
 import (
-	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -40,13 +40,12 @@ type AccountInfo struct {
 }
 
 func main() {
-	numAccounts := flag.Int("accounts", 100, "Number of benchmark accounts to generate")
+	numAccounts := flag.Int("accounts", 100, "Number of benchmark accounts to generate (ignored if -accounts-file is set)")
+	accountsFile := flag.String("accounts-file", "", "Path to an existing accounts.json; if set, uses these accounts instead of generating new ones")
 	outputDir := flag.String("output", ".", "Output directory for genesis.json and accounts.json")
 	bytecodePath := flag.String("bytecode", "benchmark/contracts/build/BenchmarkToken_runtime.bin",
 		"Path to ERC20 runtime bytecode hex file (compiled from contracts/BenchmarkToken.sol)")
 	flag.Parse()
-
-	fmt.Printf("Generating genesis with %d benchmark accounts...\n", *numAccounts)
 
 	// Read runtime bytecode from file (eliminates hardcoding; just recompile the contract to update)
 	tokenCode, err := readRuntimeBytecode(*bytecodePath)
@@ -56,22 +55,41 @@ func main() {
 	}
 	fmt.Printf("Loaded runtime bytecode: %d bytes from %s\n", len(tokenCode), *bytecodePath)
 
-	// Generate benchmark accounts
-	accounts := make([]AccountInfo, *numAccounts)
-	keys := make([]*ecdsa.PrivateKey, *numAccounts)
-	for i := 0; i < *numAccounts; i++ {
-		key, err := crypto.GenerateKey()
+	// Load or generate benchmark accounts
+	var accounts []AccountInfo
+	var addresses []common.Address
+
+	if *accountsFile != "" {
+		// Load existing accounts from file
+		accounts, err = loadAccountsFromFile(*accountsFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to generate key: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to load accounts from %s: %v\n", *accountsFile, err)
 			os.Exit(1)
 		}
-		keys[i] = key
-		addr := crypto.PubkeyToAddress(key.PublicKey)
-		accounts[i] = AccountInfo{
-			Address:    addr.Hex(),
-			PrivateKey: hex.EncodeToString(crypto.FromECDSA(key)),
+		fmt.Printf("Loaded %d accounts from %s\n", len(accounts), *accountsFile)
+		for _, acc := range accounts {
+			addresses = append(addresses, common.HexToAddress(acc.Address))
 		}
+	} else {
+		// Generate new accounts
+		accounts = make([]AccountInfo, *numAccounts)
+		for i := 0; i < *numAccounts; i++ {
+			key, err := crypto.GenerateKey()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to generate key: %v\n", err)
+				os.Exit(1)
+			}
+			addr := crypto.PubkeyToAddress(key.PublicKey)
+			accounts[i] = AccountInfo{
+				Address:    addr.Hex(),
+				PrivateKey: hex.EncodeToString(crypto.FromECDSA(key)),
+			}
+			addresses = append(addresses, addr)
+		}
+		fmt.Printf("Generated %d new accounts\n", len(accounts))
 	}
+
+	numAcct := len(accounts)
 
 	// Build genesis alloc using core.GenesisAlloc and core.GenesisAccount
 	alloc := make(core.GenesisAlloc)
@@ -90,16 +108,15 @@ func main() {
 	// Each account gets 1 billion tokens (10^27 with 18 decimals)
 	tokenBalance := new(big.Int).Mul(big.NewInt(1e9), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
 
-	// Total supply = numAccounts * tokenBalance
-	totalSupply := new(big.Int).Mul(big.NewInt(int64(*numAccounts)), tokenBalance)
+	// Total supply = numAcct * tokenBalance
+	totalSupply := new(big.Int).Mul(big.NewInt(int64(numAcct)), tokenBalance)
 
 	// Set totalSupply at slot 2
 	totalSupplySlot := common.BigToHash(big.NewInt(2))
 	tokenStorage[totalSupplySlot] = common.BigToHash(totalSupply)
 
 	// Set balanceOf for each account (mapping at slot 0)
-	for i := 0; i < *numAccounts; i++ {
-		addr := crypto.PubkeyToAddress(keys[i].PublicKey)
+	for _, addr := range addresses {
 		storageKey := balanceOfStorageKey(addr)
 		tokenStorage[storageKey] = common.BigToHash(tokenBalance)
 	}
@@ -113,8 +130,7 @@ func main() {
 
 	// 3. Pre-fund each benchmark account with 10000 ETH
 	ethBalance := new(big.Int).Mul(big.NewInt(10000), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
-	for i := 0; i < *numAccounts; i++ {
-		addr := crypto.PubkeyToAddress(keys[i].PublicKey)
+	for _, addr := range addresses {
 		alloc[addr] = core.GenesisAccount{
 			Balance: ethBalance,
 		}
@@ -184,18 +200,22 @@ func main() {
 	}
 	fmt.Printf("Written %s (%d bytes)\n", genesisPath, len(genesisData))
 
-	// Write accounts.json
-	accountsPath := *outputDir + "/accounts.json"
-	accountsData, err := json.MarshalIndent(accounts, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to marshal accounts: %v\n", err)
-		os.Exit(1)
+	// Write accounts.json only when generating new accounts (not when using -accounts-file)
+	if *accountsFile == "" {
+		accountsPath := *outputDir + "/accounts.json"
+		accountsData, err := json.MarshalIndent(accounts, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to marshal accounts: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(accountsPath, accountsData, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write accounts.json: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Written %s (%d accounts)\n", accountsPath, len(accounts))
+	} else {
+		fmt.Printf("Using existing accounts from %s (%d accounts)\n", *accountsFile, len(accounts))
 	}
-	if err := os.WriteFile(accountsPath, accountsData, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to write accounts.json: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Written %s (%d accounts)\n", accountsPath, len(accounts))
 
 	// Print summary
 	fmt.Println("\n=== Genesis Summary ===")
@@ -203,9 +223,31 @@ func main() {
 	fmt.Printf("Gas Limit:       %d\n", benchGasLimit)
 	fmt.Printf("Mode:            MPT (non-zktrie)\n")
 	fmt.Printf("Token Contract:  %s\n", TokenAddress.Hex())
-	fmt.Printf("Accounts:        %d\n", *numAccounts)
+	fmt.Printf("Accounts:        %d\n", numAcct)
 	fmt.Printf("ETH per account: 10,000 ETH\n")
 	fmt.Printf("ERC20 per acct:  1,000,000,000 BENCH\n")
+}
+
+// loadAccountsFromFile reads an existing accounts.json file and returns the parsed account list.
+func loadAccountsFromFile(path string) ([]AccountInfo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	var accounts []AccountInfo
+	if err := json.Unmarshal(data, &accounts); err != nil {
+		return nil, fmt.Errorf("parse JSON: %w", err)
+	}
+	if len(accounts) == 0 {
+		return nil, fmt.Errorf("accounts file is empty")
+	}
+	// Validate that each account has an address
+	for i, acc := range accounts {
+		if acc.Address == "" {
+			return nil, fmt.Errorf("account %d has no address", i)
+		}
+	}
+	return accounts, nil
 }
 
 // readRuntimeBytecode reads the runtime bytecode hex from a file and returns the decoded bytes.

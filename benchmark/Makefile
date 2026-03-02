@@ -56,6 +56,11 @@ PRELOAD_TX_COUNT   ?= 50000
 PRELOAD_SENDERS    ?= 50
 TOKEN_CONTRACT     ?= 0xBEEF000000000000000000000000000000000001
 
+# Optional: specify an existing accounts.json to reuse across runs.
+# If set, gen_genesis will use these accounts instead of generating new ones.
+#   make setup ACCOUNTS_INPUT=./accounts.json
+ACCOUNTS_INPUT     ?=
+
 # =====================
 # High-level targets
 # =====================
@@ -91,12 +96,24 @@ compile-contract:
 # =====================
 genesis: $(GENESIS_FILE)
 
+# If ACCOUNTS_INPUT is set, pass -accounts-file to reuse existing accounts;
+# otherwise generate new accounts with -accounts NUM_ACCOUNTS.
+GEN_GENESIS_FLAGS = -output $(BENCHMARK_DIR) \
+	-bytecode $(BENCHMARK_DIR)/contracts/build/BenchmarkToken_runtime.bin
+
+ifneq ($(ACCOUNTS_INPUT),)
+  GEN_GENESIS_FLAGS += -accounts-file $(ACCOUNTS_INPUT)
+else
+  GEN_GENESIS_FLAGS += -accounts $(NUM_ACCOUNTS)
+endif
+
 $(GENESIS_FILE): gen_genesis/main.go contracts/build/BenchmarkToken_runtime.bin
-	@echo "==> Generating genesis with $(NUM_ACCOUNTS) accounts..."
-	cd $(ROOT_DIR) && go run ./benchmark/gen_genesis/ \
-		-accounts $(NUM_ACCOUNTS) \
-		-output $(BENCHMARK_DIR) \
-		-bytecode $(BENCHMARK_DIR)/contracts/build/BenchmarkToken_runtime.bin
+	@if [ -n "$(ACCOUNTS_INPUT)" ]; then \
+		echo "==> Generating genesis using existing accounts: $(ACCOUNTS_INPUT)"; \
+	else \
+		echo "==> Generating genesis with $(NUM_ACCOUNTS) new accounts..."; \
+	fi
+	cd $(ROOT_DIR) && go run ./benchmark/gen_genesis/ $(GEN_GENESIS_FLAGS)
 	@echo "==> Genesis generated: $(GENESIS_FILE)"
 
 # =====================
@@ -221,7 +238,7 @@ bench: $(ACCOUNTS_FILE)
 # =====================
 clean: stop
 	@echo "==> Cleaning up..."
-	rm -rf $(DATADIR) $(GENESIS_FILE) $(ACCOUNTS_FILE) $(PID_FILE) $(LOG_FILE)
+	rm -rf $(DATADIR) $(GENESIS_FILE) $(PID_FILE) $(LOG_FILE)
 	@echo "==> Clean."
 
 clean-all: clean
@@ -257,6 +274,7 @@ help:
 	@echo ""
 	@echo "=== Configuration ==="
 	@echo "  NUM_ACCOUNTS=$(NUM_ACCOUNTS)             Benchmark accounts in genesis"
+	@echo "  ACCOUNTS_INPUT=                  Path to existing accounts.json (optional)"
 	@echo "  BLOCK_INTERVAL_MS=$(BLOCK_INTERVAL_MS)         Block production interval (ms)"
 	@echo "  BENCH_SENDERS=$(BENCH_SENDERS)              Sender accounts for RPC bench"
 	@echo "  BENCH_WORKERS=$(BENCH_WORKERS)              Concurrent RPC sender workers"
@@ -270,4 +288,5 @@ help:
 	@echo "  make preload-run PRELOAD_TX_COUNT=100000 PRELOAD_SENDERS=100  # Pure EVM test"
 	@echo "  make all BENCH_TPS=500 BENCH_DURATION=120s                    # RPC test"
 	@echo "  make all BLOCK_INTERVAL_MS=5000 BENCH_TPS=2000                # Larger blocks"
+	@echo "  make setup ACCOUNTS_INPUT=./my_accounts.json                  # Reuse existing accounts"
 

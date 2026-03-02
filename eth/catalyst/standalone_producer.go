@@ -120,6 +120,10 @@ func (p *standaloneProducer) produceBlock() {
 		return
 	}
 
+	// Log txpool stats before block info
+	pending, queued := p.eth.TxPool().Stats()
+	log.Info("TxPool status", "pending", pending, "queued", queued)
+
 	log.Info("Block assembled",
 		"number", execData.Number,
 		"hash", execData.Hash,

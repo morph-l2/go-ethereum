@@ -102,7 +102,7 @@ GEN_GENESIS_FLAGS = -output $(BENCHMARK_DIR) \
 	-bytecode $(BENCHMARK_DIR)/contracts/build/BenchmarkToken_runtime.bin
 
 ifneq ($(ACCOUNTS_INPUT),)
-  GEN_GENESIS_FLAGS += -accounts-file $(ACCOUNTS_INPUT)
+  GEN_GENESIS_FLAGS += -accounts-file $(abspath $(ACCOUNTS_INPUT))
 else
   GEN_GENESIS_FLAGS += -accounts $(NUM_ACCOUNTS)
 endif

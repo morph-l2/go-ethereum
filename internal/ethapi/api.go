@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/tyler-smith/go-bip39"
 
 	"github.com/morph-l2/go-ethereum/accounts"
 	"github.com/morph-l2/go-ethereum/accounts/abi"
@@ -589,32 +588,10 @@ func (s *PrivateAccountAPI) SignAndSendTransaction(ctx context.Context, args Tra
 	return s.SendTransaction(ctx, args, passwd)
 }
 
-// InitializeWallet initializes a new wallet at the provided URL, by generating and returning a new private key.
-func (s *PrivateAccountAPI) InitializeWallet(ctx context.Context, url string) (string, error) {
-	wallet, err := s.am.Wallet(url)
-	if err != nil {
-		return "", err
-	}
-
-	entropy, err := bip39.NewEntropy(256)
-	if err != nil {
-		return "", err
-	}
-
-	mnemonic, err := bip39.NewMnemonic(entropy)
-	if err != nil {
-		return "", err
-	}
-
-	seed := bip39.NewSeed(mnemonic, "")
-
-	switch wallet := wallet.(type) {
-	case *scwallet.Wallet:
-		return mnemonic, wallet.Initialize(seed)
-	default:
-		return "", fmt.Errorf("specified wallet does not support initialization")
-	}
-}
+// InitializeWallet is removed: the bip39 dependency (github.com/tyler-smith/go-bip39)
+// has been deleted from GitHub. Smart card wallet initialization via mnemonic is
+// not used in Morph L2. If needed in the future, re-implement with a maintained
+// bip39 library.
 
 // Unpair deletes a pairing between wallet and geth.
 func (s *PrivateAccountAPI) Unpair(ctx context.Context, url string, pin string) error {

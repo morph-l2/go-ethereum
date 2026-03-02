@@ -65,7 +65,7 @@ type txJSON struct {
 	// MorphTx transaction fields:
 	FeeTokenID hexutil.Uint16    `json:"feeTokenID"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit"`
-	Version    *uint8            `json:"version"`
+	Version    *hexutil.Uint64   `json:"version"`
 	Reference  *common.Reference `json:"reference"`
 	Memo       *hexutil.Bytes    `json:"memo"`
 }
@@ -206,7 +206,8 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.FeeLimit = (*hexutil.Big)(itx.FeeLimit)
 		// Only include V1 fields (version, reference, memo) for V1+ transactions
 		if itx.Version >= MorphTxVersion1 {
-			enc.Version = (*uint8)(&itx.Version)
+			v := hexutil.Uint64(itx.Version)
+			enc.Version = &v
 			enc.Reference = (*common.Reference)(itx.Reference)
 			enc.Memo = (*hexutil.Bytes)(itx.Memo)
 		}
@@ -609,7 +610,7 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.FeeLimit = (*big.Int)(dec.FeeLimit)
 		itx.Value = (*big.Int)(dec.Value)
 		if dec.Version != nil {
-			itx.Version = *dec.Version
+			itx.Version = uint8(*dec.Version)
 		}
 		itx.Reference = (*common.Reference)(dec.Reference)
 		itx.Memo = (*[]byte)(dec.Memo)

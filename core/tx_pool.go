@@ -1373,9 +1373,10 @@ func (pool *TxPool) scheduleReorgLoop() {
 
 // runReorg runs reset and promoteExecutables on behalf of scheduleReorgLoop.
 func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirtyAccounts *accountSet, events map[common.Address]*txSortedMap) {
-	defer func(t0 time.Time) {
-		reorgDurationTimer.Update(time.Since(t0))
-	}(time.Now())
+	reorgStart := time.Now()
+	defer func() {
+		reorgDurationTimer.Update(time.Since(reorgStart))
+	}()
 	defer close(done)
 
 	var promoteAddrs []common.Address
@@ -1385,10 +1386,19 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 		// the flatten operation can be avoided.
 		promoteAddrs = dirtyAccounts.flatten()
 	}
+
+	lockStart := time.Now()
 	pool.mu.Lock()
+	lockDuration := time.Since(lockStart)
+
+	var resetDuration, promoteDuration, demoteDuration, setBaseFeeDuration, updateNoncesDuration time.Duration
+	var truncatePendingDuration, truncateQueueDuration time.Duration
+
 	if reset != nil {
 		// Reset from the old head to the new, rescheduling any reorged transactions
+		t := time.Now()
 		pool.reset(reset.oldHead, reset.newHead)
+		resetDuration = time.Since(t)
 
 		// Nonces were reset, discard any events that became stale
 		for addr := range events {
@@ -1403,36 +1413,56 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 			promoteAddrs = append(promoteAddrs, addr)
 		}
 	}
+
 	// Check for pending transactions for every account that sent new ones
+	t := time.Now()
 	promoted := pool.promoteExecutables(promoteAddrs)
+	promoteDuration = time.Since(t)
 
 	// If a new block appeared, validate the pool of pending transactions. This will
 	// remove any transaction that has been included in the block or was invalidated
 	// because of another transaction (e.g. higher gas price).
 	if reset != nil {
+		t = time.Now()
 		pool.demoteUnexecutables()
+		demoteDuration = time.Since(t)
+
 		if reset.newHead != nil && pool.chainconfig.IsCurie(new(big.Int).Add(reset.newHead.Number, big.NewInt(1))) {
+			t = time.Now()
 			l1BaseFee := fees.GetL1BaseFee(pool.currentState)
 			pendingBaseFee := misc.CalcBaseFee(pool.chainconfig, reset.newHead, l1BaseFee)
 			pool.priced.SetBaseFee(pendingBaseFee)
+			setBaseFeeDuration = time.Since(t)
 		}
 		// Update all accounts to the latest known pending nonce
+		t = time.Now()
 		nonces := make(map[common.Address]uint64, len(pool.pending))
 		for addr, list := range pool.pending {
 			highestPending := list.LastElement()
 			nonces[addr] = highestPending.Nonce() + 1
 		}
 		pool.pendingNonces.setAll(nonces)
+		updateNoncesDuration = time.Since(t)
 	}
+
 	// Ensure pool.queue and pool.pending sizes stay within the configured limits.
+	t = time.Now()
 	pool.truncatePending()
+	truncatePendingDuration = time.Since(t)
+
+	t = time.Now()
 	pool.truncateQueue()
+	truncateQueueDuration = time.Since(t)
+
+	// Gather pool stats while still holding the lock
+	pending, queued := pool.stats()
 
 	dropBetweenReorgHistogram.Update(int64(pool.changesSinceReorg))
 	pool.changesSinceReorg = 0 // Reset change counter
 	pool.mu.Unlock()
 
 	// Notify subsystems for newly added transactions
+	t = time.Now()
 	for _, tx := range promoted {
 		addr, _ := types.Sender(pool.signer, tx)
 		if _, ok := events[addr]; !ok {
@@ -1447,6 +1477,26 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 		}
 		pool.txFeed.Send(NewTxsEvent{txs})
 	}
+	notifyDuration := time.Since(t)
+	totalDuration := time.Since(reorgStart)
+
+	isReset := reset != nil
+	log.Info("TxPool reorg completed",
+		"isReset", isReset,
+		"pending", pending,
+		"queued", queued,
+		"promoted", len(promoted),
+		"acquireLock", lockDuration,
+		"reset", resetDuration,
+		"promote", promoteDuration,
+		"demote", demoteDuration,
+		"setBaseFee", setBaseFeeDuration,
+		"updateNonces", updateNoncesDuration,
+		"truncatePending", truncatePendingDuration,
+		"truncateQueue", truncateQueueDuration,
+		"notify", notifyDuration,
+		"total", totalDuration,
+	)
 }
 
 // reset retrieves the current state of the blockchain and ensures the content

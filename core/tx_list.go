@@ -711,25 +711,50 @@ func (l *txPricedList) Reheap() {
 	defer l.reheapMu.Unlock()
 	start := time.Now()
 	atomic.StoreInt64(&l.stales, 0)
+
+	// Step 1: Collect all remote transactions
 	l.urgent.list = make([]*types.Transaction, 0, l.all.RemoteCount())
 	l.all.Range(func(hash common.Hash, tx *types.Transaction, local bool) bool {
 		l.urgent.list = append(l.urgent.list, tx)
 		return true
 	}, false, true) // Only iterate remotes
-	heap.Init(&l.urgent)
+	collectDuration := time.Since(start)
+	txCount := len(l.urgent.list)
 
-	// balance out the two heaps by moving the worse half of transactions into the
-	// floating heap
+	// Step 2: Build urgent heap
+	t := time.Now()
+	heap.Init(&l.urgent)
+	urgentHeapDuration := time.Since(t)
+
+	// Step 3: Balance the two heaps by moving the worse half of transactions into the
+	// floating heap.
 	// Note: Discard would also do this before the first eviction but Reheap can do
 	// is more efficiently. Also, Underpriced would work suboptimally the first time
 	// if the floating queue was empty.
+	t = time.Now()
 	floatingCount := len(l.urgent.list) * floatingRatio / (urgentRatio + floatingRatio)
 	l.floating.list = make([]*types.Transaction, floatingCount)
 	for i := 0; i < floatingCount; i++ {
 		l.floating.list[i] = heap.Pop(&l.urgent).(*types.Transaction)
 	}
+	popDuration := time.Since(t)
+
+	// Step 4: Build floating heap
+	t = time.Now()
 	heap.Init(&l.floating)
-	reheapTimer.Update(time.Since(start))
+	floatingHeapDuration := time.Since(t)
+
+	totalDuration := time.Since(start)
+	reheapTimer.Update(totalDuration)
+	log.Info("TxPool priced list reheap",
+		"txCount", txCount,
+		"floatingCount", floatingCount,
+		"collect", collectDuration,
+		"urgentHeapInit", urgentHeapDuration,
+		"popToFloating", popDuration,
+		"floatingHeapInit", floatingHeapDuration,
+		"total", totalDuration,
+	)
 }
 
 // SetBaseFee updates the base fee and triggers a re-heap. Note that Removed is not

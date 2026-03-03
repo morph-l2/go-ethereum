@@ -1995,21 +1995,13 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
-	}
-
-	// Include MorphTx-specific fields only for MorphTx transactions,
-	// consistent with NewRPCTransaction behavior.
-	if tx.Type() == types.MorphTxType {
-		fields["feeRate"] = (*hexutil.Big)(receipt.FeeRate)
-		fields["tokenScale"] = (*hexutil.Big)(receipt.TokenScale)
-		fields["feeTokenID"] = (*hexutil.Uint16)(receipt.FeeTokenID)
-		fields["feeLimit"] = (*hexutil.Big)(receipt.FeeLimit)
-		// Only include V1 fields (version, reference, memo) for V1+ transactions
-		if tx.Version() >= types.MorphTxVersion1 {
-			fields["version"] = hexutil.Uint(receipt.Version)
-			fields["reference"] = (*common.Reference)(receipt.Reference)
-			fields["memo"] = (*hexutil.Bytes)(receipt.Memo)
-		}
+		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
+		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
+		"feeTokenID":        (*hexutil.Uint16)(receipt.FeeTokenID),
+		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
+		"version":           hexutil.Uint(receipt.Version),
+		"reference":         (*common.Reference)(receipt.Reference),
+		"memo":              (*hexutil.Bytes)(receipt.Memo),
 	}
 
 	// Assign the effective gas price paid

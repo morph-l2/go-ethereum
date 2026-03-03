@@ -516,31 +516,24 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	}
 	getTxResultTracerResultTimer.UpdateSince(tracerResultTimer)
 
-	execResult := &types.ExecutionResult{
+	env.ExecutionResults[index] = &types.ExecutionResult{
 		From:           sender,
 		To:             receiver,
 		AccountCreated: createdAcc,
 		AccountsAfter:  after,
 		L1DataFee:      (*hexutil.Big)(receipt.L1Fee),
+		FeeTokenID:     receipt.FeeTokenID,
+		FeeLimit:       (*hexutil.Big)(receipt.FeeLimit),
+		Version:        &receipt.Version,
+		Reference:      receipt.Reference,
+		Memo:           (*hexutil.Bytes)(receipt.Memo),
+		FeeRate:        (*hexutil.Big)(receipt.FeeRate),
+		TokenScale:     (*hexutil.Big)(receipt.TokenScale),
 		Gas:            receipt.GasUsed,
 		Failed:         receipt.Status == types.ReceiptStatusFailed,
 		ReturnValue:    fmt.Sprintf("%x", receipt.ReturnValue),
 		CallTrace:      callTrace,
 	}
-	// Include MorphTx-specific fields only for MorphTx transactions
-	if tx.Type() == types.MorphTxType {
-		execResult.FeeTokenID = receipt.FeeTokenID
-		execResult.FeeLimit = (*hexutil.Big)(receipt.FeeLimit)
-		execResult.FeeRate = (*hexutil.Big)(receipt.FeeRate)
-		execResult.TokenScale = (*hexutil.Big)(receipt.TokenScale)
-		// Only include V1 fields for V1+ transactions
-		if tx.Version() >= types.MorphTxVersion1 {
-			execResult.Version = &receipt.Version
-			execResult.Reference = receipt.Reference
-			execResult.Memo = (*hexutil.Bytes)(receipt.Memo)
-		}
-	}
-	env.ExecutionResults[index] = execResult
 
 	return nil
 }

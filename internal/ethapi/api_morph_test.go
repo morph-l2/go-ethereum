@@ -424,11 +424,10 @@ func signTx(t *testing.T, key *ecdsa.PrivateKey, signer types.Signer, inner type
 	return tx
 }
 
-// TestMarshalReceipt_FieldPresence verifies that MorphTx-specific fields are
-// conditionally included in marshalled receipts:
-//   - Non-MorphTx: no MorphTx fields at all
-//   - MorphTx V0:  feeTokenID, feeLimit, feeRate, tokenScale present; version/reference/memo absent
-//   - MorphTx V1:  all MorphTx fields present
+// TestMarshalReceipt_FieldPresence verifies that all MorphTx-specific fields
+// are always present in marshalled receipts regardless of tx type:
+//   - l1Fee, feeRate, tokenScale, feeTokenID, feeLimit, version, reference, memo
+//     are unconditionally included (values may be nil/zero for non-MorphTx).
 func TestMarshalReceipt_FieldPresence(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	testAddr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
@@ -452,9 +451,6 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 		receiptVersion    uint8
 		receiptReference  *common.Reference
 		receiptMemo       *[]byte
-		// expected field presence
-		expectMorphTxFields bool // feeTokenID, feeLimit, feeRate, tokenScale
-		expectV1Fields      bool // version, reference, memo
 	}{
 		{
 			name: "DynamicFeeTx (non-MorphTx)",
@@ -467,8 +463,6 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 				To:        &testAddr,
 				Value:     big.NewInt(1),
 			}),
-			expectMorphTxFields: false,
-			expectV1Fields:      false,
 		},
 		{
 			name: "MorphTx V0",
@@ -489,8 +483,6 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 			receiptTokenScale: tokenScale,
 			receiptFeeLimit:   big.NewInt(1000),
 			receiptVersion:    types.MorphTxVersion0,
-			expectMorphTxFields: true,
-			expectV1Fields:      false,
 		},
 		{
 			name: "MorphTx V1",
@@ -514,8 +506,6 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 			receiptVersion:    types.MorphTxVersion1,
 			receiptReference:  &ref,
 			receiptMemo:       &memo,
-			expectMorphTxFields: true,
-			expectV1Fields:      true,
 		},
 	}
 
@@ -523,18 +513,21 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 	blockHash := common.HexToHash("0xdeadbeef")
 	bigblock := big.NewInt(1)
 
+	// All MorphTx-related fields should always be present in the result map
+	allMorphFields := []string{"l1Fee", "feeRate", "tokenScale", "feeTokenID", "feeLimit", "version", "reference", "memo"}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			receipt := &types.Receipt{
-				Status:      types.ReceiptStatusSuccessful,
-				GasUsed:     21000,
-				FeeTokenID:  tt.receiptFeeTokenID,
-				FeeRate:     tt.receiptFeeRate,
-				TokenScale:  tt.receiptTokenScale,
-				FeeLimit:    tt.receiptFeeLimit,
-				Version:     tt.receiptVersion,
-				Reference:   tt.receiptReference,
-				Memo:        tt.receiptMemo,
+				Status:     types.ReceiptStatusSuccessful,
+				GasUsed:    21000,
+				FeeTokenID: tt.receiptFeeTokenID,
+				FeeRate:    tt.receiptFeeRate,
+				TokenScale: tt.receiptTokenScale,
+				FeeLimit:   tt.receiptFeeLimit,
+				Version:    tt.receiptVersion,
+				Reference:  tt.receiptReference,
+				Memo:       tt.receiptMemo,
 			}
 
 			signer := types.NewEmeraldSigner(big.NewInt(1))
@@ -543,33 +536,11 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 				t.Fatalf("marshalReceipt error: %v", err)
 			}
 
-			// MorphTx-specific fields (feeTokenID, feeLimit, feeRate, tokenScale)
-			morphFields := []string{"feeTokenID", "feeLimit", "feeRate", "tokenScale"}
-			for _, field := range morphFields {
-				_, exists := fields[field]
-				if tt.expectMorphTxFields && !exists {
-					t.Errorf("expected field %q to be present for %s, but it was absent", field, tt.name)
+			// All MorphTx fields should always be present regardless of tx type
+			for _, field := range allMorphFields {
+				if _, exists := fields[field]; !exists {
+					t.Errorf("expected field %q to always be present for %s, but it was absent", field, tt.name)
 				}
-				if !tt.expectMorphTxFields && exists {
-					t.Errorf("expected field %q to be absent for %s, but it was present", field, tt.name)
-				}
-			}
-
-			// V1-specific fields (version, reference, memo)
-			v1Fields := []string{"version", "reference", "memo"}
-			for _, field := range v1Fields {
-				_, exists := fields[field]
-				if tt.expectV1Fields && !exists {
-					t.Errorf("expected field %q to be present for %s, but it was absent", field, tt.name)
-				}
-				if !tt.expectV1Fields && exists {
-					t.Errorf("expected field %q to be absent for %s, but it was present", field, tt.name)
-				}
-			}
-
-			// l1Fee should always be present (common Morph field)
-			if _, exists := fields["l1Fee"]; !exists {
-				t.Errorf("expected field 'l1Fee' to always be present, but it was absent")
 			}
 		})
 	}

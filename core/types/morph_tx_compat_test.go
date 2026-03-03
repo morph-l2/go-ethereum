@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/crypto"
+	"github.com/morph-l2/go-ethereum/rlp"
 )
 
 // TestMorphTxV0BackwardCompatibility tests that old AltFeeTx encoded data
@@ -392,4 +394,200 @@ func TestMorphTxVersionDetection(t *testing.T) {
 		t.Errorf("V1 second byte should be RLP list prefix, got 0x%x", innerData[1])
 	}
 	t.Logf("V1 second inner byte: 0x%x (RLP list prefix)", innerData[1])
+}
+
+// TestMorphTxEncodeRLPConsistency verifies that rlp.Encode(morphTx) produces
+// the same output as the custom encode() method. This ensures Hash() (which
+// uses rlp.Encode internally) is consistent with the wire format.
+func TestMorphTxEncodeRLPConsistency(t *testing.T) {
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	reference := common.HexToReference("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	memo := []byte("hello")
+
+	testCases := []struct {
+		name string
+		tx   *MorphTx
+	}{
+		{
+			name: "V0",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      1,
+				GasTipCap:  big.NewInt(1000000000),
+				GasFeeCap:  big.NewInt(2000000000),
+				Gas:        21000,
+				To:         &to,
+				Value:      big.NewInt(1000000000000000000),
+				Data:       []byte{},
+				AccessList: AccessList{},
+				FeeTokenID: 1,
+				FeeLimit:   big.NewInt(100000000000000000),
+				Version:    MorphTxVersion0,
+				V:          big.NewInt(1),
+				R:          big.NewInt(123456),
+				S:          big.NewInt(654321),
+			},
+		},
+		{
+			name: "V1 with Reference and Memo",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      2,
+				GasTipCap:  big.NewInt(1000000000),
+				GasFeeCap:  big.NewInt(2000000000),
+				Gas:        21000,
+				To:         &to,
+				Value:      big.NewInt(0),
+				Data:       []byte{0x01, 0x02, 0x03},
+				AccessList: AccessList{},
+				FeeTokenID: 0,
+				FeeLimit:   nil,
+				Version:    MorphTxVersion1,
+				Reference:  &reference,
+				Memo:       &memo,
+				V:          big.NewInt(0),
+				R:          big.NewInt(111),
+				S:          big.NewInt(222),
+			},
+		},
+		{
+			name: "V1 minimal",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      3,
+				GasTipCap:  big.NewInt(1000000000),
+				GasFeeCap:  big.NewInt(2000000000),
+				Gas:        50000,
+				To:         &to,
+				Value:      big.NewInt(0),
+				Data:       []byte{},
+				AccessList: AccessList{},
+				FeeTokenID: 0,
+				FeeLimit:   nil,
+				Version:    MorphTxVersion1,
+				Reference:  nil,
+				Memo:       nil,
+				V:          big.NewInt(0),
+				R:          big.NewInt(0),
+				S:          big.NewInt(0),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Path 1: rlp.Encode (used by Hash via prefixedRlpHash)
+			var rlpBuf bytes.Buffer
+			if err := rlp.Encode(&rlpBuf, tc.tx); err != nil {
+				t.Fatalf("rlp.Encode failed: %v", err)
+			}
+
+			// Path 2: custom encode() (used by wire format via encodeTyped)
+			var encodeBuf bytes.Buffer
+			if err := tc.tx.encode(&encodeBuf); err != nil {
+				t.Fatalf("encode() failed: %v", err)
+			}
+
+			if !bytes.Equal(rlpBuf.Bytes(), encodeBuf.Bytes()) {
+				t.Errorf("rlp.Encode and encode() produce different output:\n  rlp.Encode = %s\n  encode()   = %s",
+					hex.EncodeToString(rlpBuf.Bytes()), hex.EncodeToString(encodeBuf.Bytes()))
+			}
+		})
+	}
+}
+
+// TestMorphTxHashMatchesWireFormat verifies that tx.Hash() equals
+// keccak256(wire_bytes) for both V0 and V1 MorphTx transactions.
+func TestMorphTxHashMatchesWireFormat(t *testing.T) {
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	reference := common.HexToReference("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	memo := []byte("hello")
+
+	testCases := []struct {
+		name string
+		tx   *MorphTx
+	}{
+		{
+			name: "V0",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      1,
+				GasTipCap:  big.NewInt(1000000000),
+				GasFeeCap:  big.NewInt(2000000000),
+				Gas:        21000,
+				To:         &to,
+				Value:      big.NewInt(1000000000000000000),
+				Data:       []byte{},
+				AccessList: AccessList{},
+				FeeTokenID: 1,
+				FeeLimit:   big.NewInt(100000000000000000),
+				Version:    MorphTxVersion0,
+				V:          big.NewInt(1),
+				R:          big.NewInt(123456),
+				S:          big.NewInt(654321),
+			},
+		},
+		{
+			name: "V1 with Reference and Memo",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      2,
+				GasTipCap:  big.NewInt(1000000000),
+				GasFeeCap:  big.NewInt(2000000000),
+				Gas:        21000,
+				To:         &to,
+				Value:      big.NewInt(0),
+				Data:       []byte{0x01, 0x02, 0x03},
+				AccessList: AccessList{},
+				FeeTokenID: 0,
+				FeeLimit:   nil,
+				Version:    MorphTxVersion1,
+				Reference:  &reference,
+				Memo:       &memo,
+				V:          big.NewInt(0),
+				R:          big.NewInt(111),
+				S:          big.NewInt(222),
+			},
+		},
+		{
+			name: "V1 minimal",
+			tx: &MorphTx{
+				ChainID:    big.NewInt(1),
+				Nonce:      3,
+				GasTipCap:  big.NewInt(1000000000),
+				GasFeeCap:  big.NewInt(2000000000),
+				Gas:        50000,
+				To:         &to,
+				Value:      big.NewInt(0),
+				Data:       []byte{},
+				AccessList: AccessList{},
+				FeeTokenID: 0,
+				FeeLimit:   nil,
+				Version:    MorphTxVersion1,
+				Reference:  nil,
+				Memo:       nil,
+				V:          big.NewInt(0),
+				R:          big.NewInt(0),
+				S:          big.NewInt(0),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := NewTx(tc.tx)
+
+			wireBytes, err := tx.MarshalBinary()
+			if err != nil {
+				t.Fatalf("MarshalBinary failed: %v", err)
+			}
+
+			expectedHash := crypto.Keccak256Hash(wireBytes)
+
+			if tx.Hash() != expectedHash {
+				t.Errorf("Hash mismatch:\n  tx.Hash()        = %s\n  keccak256(wire)  = %s\n  wireBytes        = %s",
+					tx.Hash().Hex(), expectedHash.Hex(), hex.EncodeToString(wireBytes))
+			}
+		})
+	}
 }

@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"errors"
+	"io"
 	"math/big"
 	"strconv"
 
@@ -175,6 +176,18 @@ func (tx *MorphTx) rawSignatureValues() (v, r, s *big.Int) {
 
 func (tx *MorphTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	tx.ChainID, tx.V, tx.R, tx.S = chainID, v, r, s
+}
+
+// EncodeRLP implements rlp.Encoder so that rlp.Encode produces the same output
+// as the custom encode() method. Without this, Hash() falls back to reflection-based
+// struct encoding which has different field order/count than the wire format.
+func (tx *MorphTx) EncodeRLP(w io.Writer) error {
+	buf := new(bytes.Buffer)
+	if err := tx.encode(buf); err != nil {
+		return err
+	}
+	_, err := w.Write(buf.Bytes())
+	return err
 }
 
 func (tx *MorphTx) encode(b *bytes.Buffer) error {

@@ -412,6 +412,11 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	if tx.Value().Sign() < 0 {
 		return core.ErrNegativeValue
 	}
+
+	if err := tx.ValidateMorphTxVersion(); err != nil {
+		return err
+	}
+
 	// 1. Check balance >= transaction cost (V + GP * GL) to maintain compatibility with the logic without considering L1 data fee.
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL

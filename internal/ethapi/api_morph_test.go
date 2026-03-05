@@ -357,6 +357,88 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			},
 			wantVersion: uint16Ref(types.MorphTxVersion0),
 		},
+
+		// === validateMorphTxVersion rejection cases ===
+		{
+			name:     "jade fork: explicit V0 + FeeTokenID=0 → rejected",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(0)
+				args.FeeTokenID = &fid
+				args.Version = uint16VersionPtr(types.MorphTxVersion0)
+			},
+			wantErr: true,
+		},
+		{
+			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit>0 → rejected",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(0)
+				args.FeeTokenID = &fid
+				args.FeeLimit = (*hexutil.Big)(big.NewInt(1000))
+				args.Version = uint16VersionPtr(types.MorphTxVersion1)
+			},
+			wantErr: true,
+		},
+		{
+			name:     "jade fork: auto V1 (Reference) + FeeTokenID=0 + FeeLimit>0 → rejected",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(0)
+				args.FeeTokenID = &fid
+				args.FeeLimit = (*hexutil.Big)(big.NewInt(1000))
+				args.Reference = &ref
+			},
+			wantErr: true,
+		},
+		{
+			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
+			headTime:    1000,
+			modify: func(args *TransactionArgs) {
+				args.Version = uint16VersionPtr(types.MorphTxVersion1)
+			},
+			wantVersion: uint16Ref(types.MorphTxVersion1),
+		},
+		{
+			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
+			headTime:    1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(0)
+				args.FeeTokenID = &fid
+				args.FeeLimit = (*hexutil.Big)(big.NewInt(0))
+				args.Version = uint16VersionPtr(types.MorphTxVersion1)
+			},
+			wantVersion: uint16Ref(types.MorphTxVersion1),
+		},
+		{
+			name:     "jade fork: auto V0 (FeeTokenID=1) + FeeLimit>0 → ok (V0 ignores FeeLimit)",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(1)
+				args.FeeTokenID = &fid
+				args.FeeLimit = (*hexutil.Big)(big.NewInt(1000))
+			},
+			wantVersion: uint16Ref(types.MorphTxVersion0),
+		},
+		{
+			name:     "jade fork: explicit V1 + FeeTokenID>0 + FeeLimit>0 → ok",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(1)
+				args.FeeTokenID = &fid
+				args.FeeLimit = (*hexutil.Big)(big.NewInt(1000))
+				args.Version = uint16VersionPtr(types.MorphTxVersion1)
+			},
+			wantVersion: uint16Ref(types.MorphTxVersion1),
+		},
+		{
+			name:     "jade fork: unsupported version 99 → rejected",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				args.Version = uint16VersionPtr(99)
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

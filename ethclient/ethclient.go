@@ -371,6 +371,25 @@ func (ec *Client) GetSkippedTransaction(ctx context.Context, txHash common.Hash)
 	return tx, ec.c.CallContext(ctx, &tx, "morph_getSkippedTransaction", txHash)
 }
 
+// GetTransactionHashesByReference returns transactions for the given reference with pagination.
+// Results are sorted by blockTimestamp and txIndex (ascending order).
+// Parameters:
+//   - reference: the reference key to query
+//   - offset: pagination offset (default: 0)
+//   - limit: pagination limit (default: 100, max: 100)
+func (ec *Client) GetTransactionHashesByReference(ctx context.Context, reference common.Reference, offset *hexutil.Uint64, limit *hexutil.Uint64) ([]rpc.ReferenceTransactionResult, error) {
+	var result []rpc.ReferenceTransactionResult
+	args := rpc.ReferenceQueryArgs{
+		Reference: reference,
+		Offset:    offset,
+		Limit:     limit,
+	}
+	if err := ec.c.CallContext(ctx, &result, "morph_getTransactionHashesByReference", args); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // GetBlockByNumberOrHash returns the requested block
 func (ec *Client) GetBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.BlockMore, error) {
 	var raw json.RawMessage

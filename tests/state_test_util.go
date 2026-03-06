@@ -113,8 +113,11 @@ type stTransaction struct {
 	Value                []string            `json:"value"`
 	PrivateKey           []byte              `json:"secretKey"`
 
-	FeeTokenID uint16   `json:"feeTokenID,omitempty"`
-	FeeLimit   *big.Int `json:"feeLimit,omitempty"`
+	FeeTokenID uint16            `json:"feeTokenID,omitempty"`
+	FeeLimit   *big.Int          `json:"feeLimit,omitempty"`
+	Version    byte              `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *[]byte           `json:"memo,omitempty"`
 }
 
 type stTransactionMarshaling struct {
@@ -374,9 +377,12 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		return nil, fmt.Errorf("no gas price provided")
 	}
 
-	msg := types.NewMessage(from, to, tx.Nonce, value, gasLimit, gasPrice,
-		tx.MaxFeePerGas, tx.MaxPriorityFeePerGas, tx.FeeTokenID, tx.FeeLimit,
-		data, accessList, nil, false)
+	msg := types.NewMessage(
+		from, to, tx.Nonce, value, gasLimit, gasPrice,
+		tx.MaxFeePerGas, tx.MaxPriorityFeePerGas,
+		tx.FeeTokenID, tx.FeeLimit, tx.Version, tx.Reference, tx.Memo,
+		data, accessList, nil, false,
+	)
 	return msg, nil
 }
 

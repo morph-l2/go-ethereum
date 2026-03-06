@@ -639,6 +639,9 @@ type storedReceiptRLP struct {
 	FeeRate           *big.Int
 	TokenScale        *big.Int
 	FeeLimit          *big.Int
+	Version           byte              `rlp:"optional"`
+	Reference         []byte            `rlp:"optional"` // Use []byte for RLP compatibility (common.Reference is [32]byte, can't decode empty)
+	Memo              []byte            `rlp:"optional"`
 }
 
 // ReceiptLogs is a barebone version of ReceiptForStorage which only keeps

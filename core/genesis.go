@@ -216,22 +216,22 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	// but the corresponding state is missing.
 	header := rawdb.ReadHeader(db, stored, 0)
 
-	var trieCfg *trie.Config
-
-	if genesis == nil {
-		storedcfg := rawdb.ReadChainConfig(db, stored)
-
+	// Read stored chain config once and reuse throughout this function.
+	storedcfg := rawdb.ReadChainConfig(db, stored)
+	if storedcfg != nil && storedcfg.Morph.FeeVaultAddress == nil {
 		// copy configs named under scroll to morph
-		if storedcfg.Morph.FeeVaultAddress == nil {
-			if storedcfg.Scroll.FeeVaultAddress == nil {
-				log.Error("something wrong with store chain config, both morph and scroll are empty")
-				return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
-			}
-			storedcfg.Morph.UseZktrie = storedcfg.Scroll.UseZktrie
-			storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
-			storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
-			storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
+		if storedcfg.Scroll.FeeVaultAddress == nil {
+			log.Error("something wrong with store chain config, both morph and scroll are empty")
+			return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
 		}
+		storedcfg.Morph.UseZktrie = storedcfg.Scroll.UseZktrie
+		storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
+		storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
+		storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
+	}
+
+	var trieCfg *trie.Config
+	if genesis == nil {
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
@@ -242,18 +242,59 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
-		log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
+		// Trie format mismatch detection:
+		// This occurs when the node is resyncing from genesis with a different trie format
+		// than the one used during `geth init`. For example, a node initialized with zkTrie
+		// genesis (via `geth init`) is now starting with --morph-mpt to prepare for the
+		// upcoming MPT fork. This is only valid for resync from genesis (head == block 0).
+		//
+		// The GenesisStateRoot mechanism ensures genesis block hash consistency across formats:
+		// both zkTrie and MPT genesis produce the same block hash because ToBlock() overrides
+		// header.Root to the fixed GenesisStateRoot value, regardless of the actual trie root.
+		isTrieFormatMismatch := false
+		if storedcfg != nil && genesis != nil && storedcfg.Morph.UseZktrie != genesis.Config.Morph.UseZktrie {
+			isTrieFormatMismatch = true
+			log.Warn("Trie format mismatch detected, re-committing genesis with new format",
+				"stored_format", trieFormatName(storedcfg.Morph.UseZktrie),
+				"configured_format", trieFormatName(genesis.Config.Morph.UseZktrie),
+				"header_root", header.Root.String())
+
+			// GenesisStateRoot is required for cross-format genesis compatibility.
+			// Without it the genesis block hash will differ and the node cannot start.
+			if genesis.Config.Morph.GenesisStateRoot == nil {
+				return genesis.Config, common.Hash{}, fmt.Errorf(
+					"cannot switch trie format from %s to %s without GenesisStateRoot configured",
+					trieFormatName(storedcfg.Morph.UseZktrie),
+					trieFormatName(genesis.Config.Morph.UseZktrie))
+			}
+		} else {
+			log.Error("Genesis state missing or corrupted", "header_root", header.Root.String(), "error", err)
+		}
+
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
 		}
-		// Ensure the stored genesis matches with the given one.
+		// Verify genesis block hash consistency.
+		// For trie format switches, GenesisStateRoot guarantees that ToBlock() produces
+		// the same block hash for both formats (the header.Root is fixed to GenesisStateRoot
+		// rather than the actual trie root, see ToBlock() for details).
 		hash := genesis.ToBlock(nil).Hash()
 		if hash != stored {
+			if isTrieFormatMismatch {
+				return genesis.Config, hash, fmt.Errorf(
+					"genesis hash mismatch during trie format switch (stored: %x, new: %x). "+
+						"Verify that GenesisStateRoot is correctly configured", stored, hash)
+			}
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}
 		block, err := genesis.Commit(db)
 		if err != nil {
 			return genesis.Config, hash, err
+		}
+		if isTrieFormatMismatch {
+			log.Info("Successfully re-committed genesis with new trie format",
+				"format", trieFormatName(genesis.Config.Morph.UseZktrie),
+				"block_hash", block.Hash().String())
 		}
 		return genesis.Config, block.Hash(), nil
 	}
@@ -273,7 +314,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		return newcfg, common.Hash{}, err
 	}
 
-	storedcfg := rawdb.ReadChainConfig(db, stored)
 	if err := overrides.apply(storedcfg); err != nil {
 		return nil, common.Hash{}, err
 	}
@@ -282,16 +322,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		log.Warn("Found genesis block without chain config")
 		rawdb.WriteChainConfig(db, stored, newcfg)
 		return newcfg, stored, nil
-	} else if storedcfg.Morph.FeeVaultAddress == nil {
-		if storedcfg.Scroll.FeeVaultAddress == nil {
-			log.Error("something wrong with store chain config, both morph and scroll are empty")
-			return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
-		}
-		storedcfg.Morph.UseZktrie = storedcfg.Scroll.UseZktrie
-		storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
-		storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
-		storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
-
 	}
 	// Special case: don't change the existing config of a non-mainnet chain if no new
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)
@@ -311,6 +341,14 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 	rawdb.WriteChainConfig(db, stored, newcfg)
 	return newcfg, stored, nil
+}
+
+// trieFormatName returns a human-readable name for the trie format.
+func trieFormatName(useZktrie bool) string {
+	if useZktrie {
+		return "zkTrie"
+	}
+	return "MPT"
 }
 
 func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {

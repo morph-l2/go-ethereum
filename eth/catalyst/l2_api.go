@@ -400,7 +400,7 @@ func (api *l2ConsensusAPI) SetBlockTags(safeBlockHash common.Hash, finalizedBloc
 // AssembleL2BlockV2 assembles a new L2 block based on parent hash.
 // This differs from AssembleL2Block which uses block number.
 // Using parent hash allows building on any parent block, enabling future reorg support.
-func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, txs [][]byte) (*ExecutableL2Data, error) {
+func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *uint64, txs [][]byte) (*ExecutableL2Data, error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
@@ -422,13 +422,17 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, txs [][]byt
 	}
 
 	start := time.Now()
+	ts := time.Now()
+	if timestamp != nil {
+		ts = time.Unix(int64(*timestamp), 0)
+	}
 
 	// Jade fork check: prevent building blocks with wrong storage format (MPT vs zkTrie)
-	if api.eth.BlockChain().Config().IsJadeFork(uint64(time.Now().Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
+	if api.eth.BlockChain().Config().IsJadeFork(uint64(ts.Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
 		return nil, fmt.Errorf("cannot assemble block for fork, useZKtrie: %v, please switch geth", api.eth.BlockChain().Config().Morph.UseZktrie)
 	}
 
-	newBlockResult, err := api.eth.Miner().BuildBlock(parentHash, time.Now(), transactions)
+	newBlockResult, err := api.eth.Miner().BuildBlock(parentHash, ts, transactions)
 	if err != nil {
 		return nil, err
 	}

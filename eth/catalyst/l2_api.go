@@ -427,6 +427,11 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 		ts = time.Unix(int64(*timestamp), 0)
 	}
 
+	// Jade fork check: prevent building blocks with wrong storage format (MPT vs zkTrie)
+	if api.eth.BlockChain().Config().IsJadeFork(uint64(ts.Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
+		return nil, fmt.Errorf("cannot assemble block for fork, useZKtrie: %v, please switch geth", api.eth.BlockChain().Config().Morph.UseZktrie)
+	}
+
 	newBlockResult, err := api.eth.Miner().BuildBlock(parentHash, ts, transactions)
 	if err != nil {
 		return nil, err

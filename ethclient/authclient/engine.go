@@ -76,8 +76,8 @@ func (ec *Client) AssembleL2BlockV2(ctx context.Context, parentHash common.Hash,
 		}
 		txs = append(txs, bz)
 	}
-	var result catalyst.ExecutableL2Data
+	var result *catalyst.ExecutableL2Data
 	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", parentHash, txs)
-	return &result, err
+	return result, err
 }
 

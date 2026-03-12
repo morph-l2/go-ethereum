@@ -66,7 +66,7 @@ func (ec *Client) SetBlockTags(ctx context.Context, safeBlockHash common.Hash, f
 // AssembleL2BlockV2 assembles a L2 Block based on parent hash.
 // This differs from AssembleL2Block which uses block number.
 // Using parent hash allows building on any parent block, enabling future reorg support.
-func (ec *Client) AssembleL2BlockV2(ctx context.Context, parentHash common.Hash, transactions types.Transactions) (*catalyst.ExecutableL2Data, error) {
+func (ec *Client) AssembleL2BlockV2(ctx context.Context, parentHash common.Hash, timestamp *uint64, transactions types.Transactions) (*catalyst.ExecutableL2Data, error) {
 	txs := make([][]byte, 0, len(transactions))
 	for i, tx := range transactions {
 		bz, err := tx.MarshalBinary()
@@ -76,7 +76,7 @@ func (ec *Client) AssembleL2BlockV2(ctx context.Context, parentHash common.Hash,
 		txs = append(txs, bz)
 	}
 	var result *catalyst.ExecutableL2Data
-	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", parentHash, txs)
+	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", parentHash, timestamp, txs)
 	return result, err
 }
 

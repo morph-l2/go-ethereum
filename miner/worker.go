@@ -164,7 +164,7 @@ func (miner *Miner) prepareWork(genParams *generateParams) (*environment, error)
 	}
 
 	timestamp := genParams.timestamp
-	if parent.Time() >= genParams.timestamp {
+	if parent.Time() > genParams.timestamp {
 		timestamp = parent.Time() + 1
 	}
 	var coinBase common.Address

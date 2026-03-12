@@ -264,3 +264,18 @@ func (dh *DecimalOrHex) UnmarshalJSON(data []byte) error {
 	*dh = DecimalOrHex(value)
 	return nil
 }
+
+// ReferenceTransactionResult represents a simplified transaction result for reference queries.
+type ReferenceTransactionResult struct {
+	TransactionHash  common.Hash    `json:"transactionHash"`
+	BlockNumber      hexutil.Uint64 `json:"blockNumber"`
+	BlockTimestamp   hexutil.Uint64 `json:"blockTimestamp"`
+	TransactionIndex hexutil.Uint64 `json:"transactionIndex"`
+}
+
+// ReferenceQueryArgs represents the arguments for querying transactions by reference.
+type ReferenceQueryArgs struct {
+	Reference common.Reference `json:"reference"`
+	Offset    *hexutil.Uint64  `json:"offset,omitempty"`
+	Limit     *hexutil.Uint64  `json:"limit,omitempty"`
+}

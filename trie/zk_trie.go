@@ -31,6 +31,10 @@ import (
 
 var magicHash []byte = []byte("THIS IS THE MAGIC INDEX FOR ZKTRIE")
 
+// maxZkTrieDepth is the maximum depth limit for zkTrie recursion to prevent stack overflow and DoS attacks.
+// The theoretical maximum depth of zkTrie is 256.
+const maxZkTrieDepth = 256
+
 // wrap zktrie for trie interface
 type ZkTrie struct {
 	*zktrie.ZkTrie
@@ -233,5 +237,64 @@ func VerifyProofSMT(rootHash common.Hash, key []byte, proofDb ethdb.KeyValueRead
 		return n.Data(), nil
 	} else {
 		return nil, fmt.Errorf("bad proof node %v", proof)
+	}
+}
+
+// Witness returns a set containing all trie nodes that have been accessed.
+func (t *ZkTrie) Witness() map[string]struct{} {
+	panic("not implemented")
+}
+
+func (t *ZkTrie) CountLeaves(cb func(key, value []byte), parallel, verifyNodeHashes bool) uint64 {
+	root, err := t.ZkTrie.Tree().Root()
+	if err != nil {
+		panic("CountLeaves cannot get root")
+	}
+	return t.countLeaves(root, cb, 0, parallel, verifyNodeHashes)
+}
+
+func (t *ZkTrie) countLeaves(root *zkt.Hash, cb func(key, value []byte), depth int, parallel, verifyNodeHashes bool) uint64 {
+	if root == nil {
+		return 0
+	}
+
+	// Check recursion depth limit to prevent stack overflow and DoS attacks
+	if depth > maxZkTrieDepth {
+		panic(fmt.Sprintf("countLeaves: exceeded max depth limit, depth=%d, maxDepth=%d", depth, maxZkTrieDepth))
+	}
+
+	rootNode, err := t.ZkTrie.Tree().GetNode(root)
+	if err != nil {
+		panic("countLeaves cannot get rootNode")
+	}
+
+	if rootNode.Type == zktrie.NodeTypeLeaf_New {
+		if verifyNodeHashes {
+			calculatedNodeHash, err := rootNode.NodeHash()
+			if err != nil {
+				panic("countLeaves cannot get calculatedNodeHash")
+			}
+			if *calculatedNodeHash != *root {
+				panic("countLeaves node hash mismatch")
+			}
+		}
+
+		cb(append([]byte{}, rootNode.NodeKey.Bytes()...), append([]byte{}, rootNode.Data()...))
+		return 1
+	} else {
+		if parallel && depth < 5 {
+			count := make(chan uint64)
+			leftT := t.Copy()
+			rightT := t.Copy()
+			go func() {
+				count <- leftT.countLeaves(rootNode.ChildL, cb, depth+1, parallel, verifyNodeHashes)
+			}()
+			go func() {
+				count <- rightT.countLeaves(rootNode.ChildR, cb, depth+1, parallel, verifyNodeHashes)
+			}()
+			return <-count + <-count
+		} else {
+			return t.countLeaves(rootNode.ChildL, cb, depth+1, parallel, verifyNodeHashes) + t.countLeaves(rootNode.ChildR, cb, depth+1, parallel, verifyNodeHashes)
+		}
 	}
 }

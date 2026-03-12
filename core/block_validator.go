@@ -59,6 +59,18 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	if !v.config.Morph.IsValidBlockSize(block.PayloadSize()) {
 		return ErrInvalidBlockPayloadSize
 	}
+	// Validate MorphTx for all transactions
+	isJadeFork := v.config.IsJadeFork(block.Time())
+	for _, tx := range block.Transactions() {
+		// Reject MorphTx V1 before jade fork is active
+		if !isJadeFork && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion1 {
+			return types.ErrMorphTxV1NotYetActive
+		}
+		// Validate version, memo, and associated field requirements
+		if err := tx.ValidateMorphTxVersion(); err != nil {
+			return err
+		}
+	}
 	// Header validity is known at this point, check the uncles and transactions
 	header := block.Header()
 	if err := v.engine.VerifyUncles(v.bc, block); err != nil {
@@ -101,7 +113,12 @@ func (v *BlockValidator) ValidateState(block *types.Block, statedb *state.StateD
 	}
 	// Validate the state root against the received state root and throw
 	// an error if they don't match.
-	if root := statedb.IntermediateRoot(v.config.IsEIP158(header.Number)); header.Root != root {
+	//
+	// XOR condition: Only validate state root when (UseZktrie XOR IsJadeFork) == true
+	// This allows cross-format blocks to pass validation without matching local state root.
+	shouldValidateStateRoot := v.config.Morph.UseZktrie != v.config.IsJadeFork(header.Time)
+
+	if root := statedb.IntermediateRoot(v.config.IsEIP158(header.Number)); shouldValidateStateRoot && header.Root != root {
 		return fmt.Errorf("invalid merkle root (remote: %x local: %x)", header.Root, root)
 	}
 	return nil

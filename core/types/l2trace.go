@@ -12,18 +12,15 @@ import (
 
 // BlockTrace contains block execution traces and results required for rollers.
 type BlockTrace struct {
-	ChainID                uint64             `json:"chainID"`
-	Version                string             `json:"version"`
-	Coinbase               *AccountWrapper    `json:"coinbase"`
-	Header                 *Header            `json:"header"`
-	Transactions           []*TransactionData `json:"transactions"`
-	StorageTrace           *StorageTrace      `json:"storageTrace"`
-	Bytecodes              []*BytecodeTrace   `json:"codes"`
-	TxStorageTraces        []*StorageTrace    `json:"txStorageTraces,omitempty"`
-	ExecutionResults       []*ExecutionResult `json:"executionResults"`
-	WithdrawTrieRoot       common.Hash        `json:"withdraw_trie_root,omitempty"`
-	SequencerSetVerifyHash common.Hash        `json:"sequencer_set_verify_hash,omitempty"`
-	StartL1QueueIndex      uint64             `json:"startL1QueueIndex"`
+	ChainID           uint64             `json:"chainID"`
+	Coinbase          *AccountWrapper    `json:"coinbase"`
+	Header            *Header            `json:"header"`
+	Transactions      []*TransactionData `json:"transactions"`
+	StorageTrace      *StorageTrace      `json:"storageTrace"`
+	ExecutionResults  []*ExecutionResult `json:"executionResults"`
+	WithdrawTrieRoot  common.Hash        `json:"withdraw_trie_root,omitempty"`
+	Bytecodes         []*BytecodeTrace   `json:"codes"`
+	StartL1QueueIndex uint64             `json:"startL1QueueIndex"`
 }
 
 // BytecodeTrace stores all accessed bytecodes
@@ -46,24 +43,23 @@ type StorageTrace struct {
 
 	// All storage proofs BEFORE execution
 	StorageProofs map[string]map[string][]hexutil.Bytes `json:"storageProofs,omitempty"`
-
-	// Node entries for deletion, no need to distinguish what it is from, just read them
-	// into the partial db
-	DeletionProofs []hexutil.Bytes `json:"deletionProofs,omitempty"`
 }
 
 // ExecutionResult groups all structured logs emitted by the EVM
 // while replaying a transaction in debug mode as well as transaction
 // execution status, the amount of gas used and the return value
 type ExecutionResult struct {
-	L1DataFee   *hexutil.Big `json:"l1DataFee,omitempty"`
-	FeeTokenID  *uint16      `json:"feeTokenID,omitempty"`
-	FeeRate     *hexutil.Big `json:"feeRate,omitempty"`
-	TokenScale  *hexutil.Big `json:"tokenScale,omitempty"`
-	FeeLimit    *hexutil.Big `json:"feeLimit,omitempty"`
-	Gas         uint64       `json:"gas"`
-	Failed      bool         `json:"failed"`
-	ReturnValue string       `json:"returnValue"`
+	L1DataFee   *hexutil.Big      `json:"l1DataFee,omitempty"`
+	FeeTokenID  *uint16           `json:"feeTokenID,omitempty"`
+	FeeRate     *hexutil.Big      `json:"feeRate,omitempty"`
+	TokenScale  *hexutil.Big      `json:"tokenScale,omitempty"`
+	FeeLimit    *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version     *uint8            `json:"version,omitempty"`
+	Reference   *common.Reference `json:"reference,omitempty"`
+	Memo        *hexutil.Bytes    `json:"memo,omitempty"`
+	Gas         uint64            `json:"gas"`
+	Failed      bool              `json:"failed"`
+	ReturnValue string            `json:"returnValue"`
 	// Sender's account state (before Tx)
 	From *AccountWrapper `json:"from,omitempty"`
 	// Receiver's account state (before Tx)
@@ -140,6 +136,9 @@ type TransactionData struct {
 	GasFeeCap         *hexutil.Big               `json:"gasFeeCap"`
 	FeeTokenID        *uint16                    `json:"feeTokenID,omitempty"`
 	FeeLimit          *hexutil.Big               `json:"feeLimit,omitempty"`
+	Version           uint8                      `json:"version,omitempty"`
+	Reference         *common.Reference          `json:"reference,omitempty"`
+	Memo              *hexutil.Bytes             `json:"memo,omitempty"`
 	From              common.Address             `json:"from"`
 	To                *common.Address            `json:"to"`
 	ChainId           *hexutil.Big               `json:"chainId"`
@@ -195,14 +194,23 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 		S:                 (*hexutil.Big)(s),
 	}
 
-	// Set FeeTokenID and FeeLimit for AltFeeTx
-	if tx.Type() == AltFeeTxType {
+	// Set FeeTokenID and FeeLimit for MorphTx
+	if tx.Type() == MorphTxType {
 		feeTokenID := tx.FeeTokenID()
 		if feeTokenID != 0 {
 			result.FeeTokenID = &feeTokenID
 		}
 		if feeLimit := tx.FeeLimit(); feeLimit != nil && feeLimit.Sign() > 0 {
 			result.FeeLimit = (*hexutil.Big)(feeLimit)
+		}
+		// Only include V1 fields (version, reference, memo) for V1+ transactions
+		if tx.Version() >= MorphTxVersion1 {
+			result.Version = tx.Version()
+			result.Reference = tx.Reference()
+			if tx.Memo() != nil {
+				memo := hexutil.Bytes(*tx.Memo())
+				result.Memo = &memo
+			}
 		}
 	}
 

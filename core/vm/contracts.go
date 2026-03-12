@@ -52,6 +52,7 @@ var (
 type PrecompiledContract interface {
 	RequiredGas(input []byte) uint64  // RequiredPrice calculates the contract gas use
 	Run(input []byte) ([]byte, error) // Run runs the precompiled contract
+	Name() string                     // Name returns the name of the precompiled contract
 }
 
 // PrecompiledContractsHomestead contains the default set of pre-compiled Ethereum
@@ -229,6 +230,29 @@ func ActivePrecompiles(rules params.Rules) []common.Address {
 	}
 }
 
+// ActivePrecompiledContracts returns a map of precompiled contract address to contract
+// enabled with the current configuration.
+func ActivePrecompiledContracts(rules params.Rules) map[common.Address]PrecompiledContract {
+	switch {
+	case rules.IsEmerald:
+		return PrecompiledContractsEmerald
+	case rules.IsMorph203:
+		return PrecompiledContractsMorph203
+	case rules.IsBernoulli:
+		return PrecompiledContractsBernoulli
+	case rules.IsArchimedes:
+		return PrecompiledContractsArchimedes
+	case rules.IsBerlin:
+		return PrecompiledContractsBerlin
+	case rules.IsIstanbul:
+		return PrecompiledContractsIstanbul
+	case rules.IsByzantium:
+		return PrecompiledContractsByzantium
+	default:
+		return PrecompiledContractsHomestead
+	}
+}
+
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.
 // It returns
 // - the returned bytes,
@@ -285,6 +309,10 @@ func (c *ecrecover) Run(input []byte) ([]byte, error) {
 	return common.LeftPadBytes(crypto.Keccak256(pubKey[1:])[12:], 32), nil
 }
 
+func (c *ecrecover) Name() string {
+	return "ECREC"
+}
+
 // SHA256 implemented as a native contract.
 type sha256hash struct{}
 
@@ -300,6 +328,10 @@ func (c *sha256hash) Run(input []byte) ([]byte, error) {
 	return h[:], nil
 }
 
+func (c *sha256hash) Name() string {
+	return "SHA256"
+}
+
 type sha256hashDisabled struct{}
 
 func (c *sha256hashDisabled) RequiredGas(input []byte) uint64 {
@@ -307,6 +339,10 @@ func (c *sha256hashDisabled) RequiredGas(input []byte) uint64 {
 }
 func (c *sha256hashDisabled) Run(input []byte) ([]byte, error) {
 	return nil, errPrecompileDisabled
+}
+
+func (c *sha256hashDisabled) Name() string {
+	return "SHA256_DISABLED"
 }
 
 // RIPEMD160 implemented as a native contract.
@@ -325,6 +361,10 @@ func (c *ripemd160hash) Run(input []byte) ([]byte, error) {
 	return common.LeftPadBytes(ripemd.Sum(nil), 32), nil
 }
 
+func (c *ripemd160hash) Name() string {
+	return "RIPEMD160"
+}
+
 type ripemd160hashDisabled struct{}
 
 func (c *ripemd160hashDisabled) RequiredGas(input []byte) uint64 {
@@ -332,6 +372,10 @@ func (c *ripemd160hashDisabled) RequiredGas(input []byte) uint64 {
 }
 func (c *ripemd160hashDisabled) Run(input []byte) ([]byte, error) {
 	return nil, errPrecompileDisabled
+}
+
+func (c *ripemd160hashDisabled) Name() string {
+	return "RIPEMD160_DISABLED"
 }
 
 // data copy implemented as a native contract.
@@ -346,6 +390,10 @@ func (c *dataCopy) RequiredGas(input []byte) uint64 {
 }
 func (c *dataCopy) Run(in []byte) ([]byte, error) {
 	return in, nil
+}
+
+func (c *dataCopy) Name() string {
+	return "ID"
 }
 
 // bigModExp implements a native big integer exponential modular operation.

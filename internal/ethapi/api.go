@@ -39,6 +39,8 @@ import (
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
 	"github.com/morph-l2/go-ethereum/consensus/misc"
 	"github.com/morph-l2/go-ethereum/core"
+	"github.com/morph-l2/go-ethereum/core/forkid"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -647,6 +649,100 @@ func (api *PublicBlockChainAPI) ChainId() (*hexutil.Big, error) {
 		return (*hexutil.Big)(config.ChainID), nil
 	}
 	return nil, fmt.Errorf("chain not synced beyond EIP-155 replay-protection fork block")
+}
+
+// morphExtension contains Morph-specific configuration fields (EIP-7910 extension)
+type morphExtension struct {
+	UseZktrie    bool    `json:"useZktrie"`
+	JadeForkTime *uint64 `json:"jadeForkTime,omitempty"`
+}
+
+// config represents a single fork configuration (EIP-7910)
+type config struct {
+	ActivationTime  uint64                    `json:"activationTime"`
+	BlobSchedule    interface{}               `json:"blobSchedule"`
+	ChainId         *hexutil.Big              `json:"chainId"`
+	ForkId          hexutil.Bytes             `json:"forkId"`
+	Precompiles     map[string]common.Address `json:"precompiles"`
+	SystemContracts map[string]common.Address `json:"systemContracts"`
+	Morph           *morphExtension           `json:"morph,omitempty"`
+}
+
+// configResponse represents the eth_config RPC response (EIP-7910)
+type configResponse struct {
+	Current *config `json:"current"`
+	Next    *config `json:"next"`
+	Last    *config `json:"last"`
+}
+
+// Config implements the EIP-7910 eth_config method.
+// This method returns fork information including precompiles, system contracts,
+// and Morph-specific configuration.
+func (api *PublicBlockChainAPI) Config(ctx context.Context) (*configResponse, error) {
+	genesis, err := api.b.HeaderByNumber(ctx, 0)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load genesis: %w", err)
+	}
+
+	var (
+		c             = api.b.ChainConfig()
+		currentHeader = api.b.CurrentHeader()
+		currentBlock  = new(big.Int).SetUint64(currentHeader.Number.Uint64())
+		t             = currentHeader.Time
+	)
+
+	assemble := func(c *params.ChainConfig, ts *uint64) *config {
+		if ts == nil {
+			return nil
+		}
+		forkTime := *ts
+
+		var (
+			rules       = c.Rules(currentBlock, forkTime)
+			precompiles = make(map[string]common.Address)
+		)
+		for addr, contract := range vm.ActivePrecompiledContracts(rules) {
+			precompiles[contract.Name()] = addr
+		}
+
+		// Activation time: if fork is activated at genesis, use 0
+		activationTime := forkTime
+		if genesis.Time >= forkTime {
+			activationTime = 0
+		}
+
+		// Calculate ForkID
+		forkID := forkid.NewID(c, genesis.Hash(), ^uint64(0), forkTime).Hash
+
+		// Morph extension
+		morph := &morphExtension{
+			UseZktrie:    c.Morph.UseZktrie,
+			JadeForkTime: c.JadeForkTime,
+		}
+
+		return &config{
+			ActivationTime:  activationTime,
+			BlobSchedule:    nil, // Morph L2 does not use blobs
+			ChainId:         (*hexutil.Big)(c.ChainID),
+			ForkId:          forkID[:],
+			Precompiles:     precompiles,
+			SystemContracts: c.ActiveSystemContracts(forkTime),
+			Morph:           morph,
+		}
+	}
+
+	resp := configResponse{
+		Current: assemble(c, c.Timestamp(c.LatestFork(t))),
+		Next:    assemble(c, c.Timestamp(c.LatestFork(t)+1)),
+		Last:    assemble(c, c.Timestamp(c.LatestFork(^uint64(0)))),
+	}
+
+	// Nil out last if no future fork is configured
+	if resp.Next == nil {
+		resp.Last = nil
+	}
+
+	return &resp, nil
 }
 
 // BlockNumber returns the block number of the chain head.
@@ -1452,9 +1548,12 @@ type RPCTransaction struct {
 	Sender     *common.Address `json:"sender,omitempty"`
 	QueueIndex *hexutil.Uint64 `json:"queueIndex,omitempty"`
 
-	// Alt fee transaction fields:
-	FeeTokenID hexutil.Uint64 `json:"feeTokenID,omitempty"`
-	FeeLimit   *hexutil.Big   `json:"feeLimit,omitempty"`
+	// MorphTx fields:
+	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
+	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
+	Version    *hexutil.Uint64   `json:"version,omitempty"`
+	Reference  *common.Reference `json:"reference,omitempty"`
+	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 }
 
 // NewRPCTransaction returns a transaction that will serialize to the RPC
@@ -1505,7 +1604,7 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		msg := tx.AsL1MessageTx()
 		result.Sender = &msg.Sender
 		result.QueueIndex = (*hexutil.Uint64)(&msg.QueueIndex)
-	case types.AltFeeTxType:
+	case types.MorphTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
@@ -1519,8 +1618,16 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		} else {
 			result.GasPrice = (*hexutil.Big)(tx.GasFeeCap())
 		}
-		result.FeeTokenID = (hexutil.Uint64)(tx.FeeTokenID())
+		feeTokenID := hexutil.Uint16(tx.FeeTokenID())
+		result.FeeTokenID = &feeTokenID
 		result.FeeLimit = (*hexutil.Big)(tx.FeeLimit())
+		// Only include V1 fields (version, reference, memo) for V1+ transactions
+		if tx.Version() >= types.MorphTxVersion1 {
+			version := hexutil.Uint64(tx.Version())
+			result.Version = &version
+			result.Reference = (*common.Reference)(tx.Reference())
+			result.Memo = (*hexutil.Bytes)(tx.Memo())
+		}
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())
@@ -1890,11 +1997,13 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 		"l1Fee":             (*hexutil.Big)(receipt.L1Fee),
 		"feeRate":           (*hexutil.Big)(receipt.FeeRate),
 		"tokenScale":        (*hexutil.Big)(receipt.TokenScale),
+		"feeTokenID":        (*hexutil.Uint16)(receipt.FeeTokenID),
 		"feeLimit":          (*hexutil.Big)(receipt.FeeLimit),
+		"version":           hexutil.Uint(receipt.Version),
+		"reference":         (*common.Reference)(receipt.Reference),
+		"memo":              (*hexutil.Bytes)(receipt.Memo),
 	}
-	if receipt.FeeTokenID != nil {
-		fields["feeTokenID"] = hexutil.Uint16(*receipt.FeeTokenID)
-	}
+
 	// Assign the effective gas price paid
 	if !b.ChainConfig().IsCurie(bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
@@ -2353,4 +2462,71 @@ func toHexSlice(b [][]byte) []string {
 		r[i] = hexutil.Encode(b[i])
 	}
 	return r
+}
+
+// PublicMorphAPI provides morph-specific RPC methods.
+type PublicMorphAPI struct {
+	b Backend
+}
+
+// NewPublicMorphAPI creates a new RPC service for morph-specific methods.
+func NewPublicMorphAPI(b Backend) *PublicMorphAPI {
+	return &PublicMorphAPI{b}
+}
+
+// GetTransactionHashesByReference returns transactions for the given reference with pagination.
+// Results are sorted by blockTimestamp and txIndex (ascending order).
+// Parameters:
+//   - args.reference: the reference key to query
+//   - args.offset: pagination offset (default: 0)
+//   - args.limit: pagination limit (default: 100, max: 100)
+func (s *PublicMorphAPI) GetTransactionHashesByReference(
+	ctx context.Context,
+	args rpc.ReferenceQueryArgs,
+) (
+	[]rpc.ReferenceTransactionResult,
+	error,
+) {
+	// Set default values
+	offsetVal := uint64(0)
+	if args.Offset != nil {
+		offsetVal = uint64(*args.Offset)
+	}
+	limitVal := uint64(100)
+	if args.Limit != nil {
+		limitVal = uint64(*args.Limit)
+	}
+
+	// Validate limit (max 100)
+	if limitVal > 100 {
+		return nil, errors.New("limit exceeds maximum value of 100")
+	}
+	// Cap offset to prevent linear scan DoS
+	if offsetVal > 10000 {
+		return nil, errors.New("offset exceeds maximum value of 10000")
+	}
+
+	paginatedEntries, interrupted := rawdb.ReadReferenceIndexEntriesPaginatedWithInterrupt(s.b.ChainDb(), args.Reference, offsetVal, limitVal, ctx.Done())
+	if interrupted {
+		return nil, ctx.Err()
+	}
+	if len(paginatedEntries) == 0 {
+		return nil, nil
+	}
+
+	// Build result
+	result := make([]rpc.ReferenceTransactionResult, 0, len(paginatedEntries))
+	for _, entry := range paginatedEntries {
+		blockNumber := rawdb.ReadTxLookupEntry(s.b.ChainDb(), entry.TxHash)
+		if blockNumber == nil {
+			continue
+		}
+		result = append(result, rpc.ReferenceTransactionResult{
+			TransactionHash:  entry.TxHash,
+			BlockNumber:      hexutil.Uint64(*blockNumber),
+			BlockTimestamp:   hexutil.Uint64(entry.BlockTimestamp),
+			TransactionIndex: hexutil.Uint64(entry.TxIndex),
+		})
+	}
+	return result, nil
 }

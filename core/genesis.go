@@ -149,6 +149,7 @@ type ChainOverrides struct {
 	Morph203Time *uint64
 	ViridianTime *uint64
 	EmeraldTime  *uint64
+	JadeForkTime *uint64
 }
 
 // apply applies the chain overrides on the supplied chain config.
@@ -164,6 +165,9 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 	}
 	if o.EmeraldTime != nil {
 		cfg.EmeraldTime = o.EmeraldTime
+	}
+	if o.JadeForkTime != nil {
+		cfg.JadeForkTime = o.JadeForkTime
 	}
 	return cfg.CheckConfigForkOrder()
 }
@@ -238,18 +242,46 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
-		log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
+		// Detect trie format mismatch: e.g., DB has zkTrie state but node is configured
+		// for MPT (--morph-mpt). This happens when preparing for MPT fork by resyncing
+		// from genesis with a different trie format.
+		// GenesisStateRoot ensures block hash consistency across formats (see ToBlock()).
+		isTrieFormatMismatch := false
+		if genesis != nil {
+			storedcfg := rawdb.ReadChainConfig(db, stored)
+			if storedcfg != nil && storedcfg.Morph.UseZktrie != genesis.Config.Morph.UseZktrie {
+				isTrieFormatMismatch = true
+				log.Warn("Trie format mismatch detected, re-committing genesis with new format",
+					"stored_format", trieFormatName(storedcfg.Morph.UseZktrie),
+					"configured_format", trieFormatName(genesis.Config.Morph.UseZktrie),
+					"header_root", header.Root.String())
+			}
+		}
+		if !isTrieFormatMismatch {
+			log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
+		}
+
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
 		}
 		// Ensure the stored genesis matches with the given one.
 		hash := genesis.ToBlock(nil).Hash()
 		if hash != stored {
+			if isTrieFormatMismatch {
+				return genesis.Config, hash, fmt.Errorf(
+					"genesis hash mismatch during trie format switch (stored: %x, new: %x); "+
+						"ensure GenesisStateRoot is correctly configured", stored, hash)
+			}
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}
 		block, err := genesis.Commit(db)
 		if err != nil {
 			return genesis.Config, hash, err
+		}
+		if isTrieFormatMismatch {
+			log.Info("Successfully re-committed genesis with new trie format",
+				"format", trieFormatName(genesis.Config.Morph.UseZktrie),
+				"block_hash", block.Hash().String())
 		}
 		return genesis.Config, block.Hash(), nil
 	}
@@ -307,6 +339,14 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 	rawdb.WriteChainConfig(db, stored, newcfg)
 	return newcfg, stored, nil
+}
+
+// trieFormatName returns a human-readable name for the trie format.
+func trieFormatName(useZktrie bool) string {
+	if useZktrie {
+		return "zkTrie"
+	}
+	return "MPT"
 }
 
 func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
@@ -386,7 +426,10 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	statedb.Commit(false)
 	statedb.Database().TrieDB().Commit(root, true, nil)
-
+	if g.Config != nil && g.Config.Morph.GenesisStateRoot != nil {
+		head.Root = *g.Config.Morph.GenesisStateRoot
+		rawdb.WriteDiskStateRoot(db, head.Root, root)
+	}
 	return types.NewBlock(head, nil, nil, nil, trie.NewStackTrie(nil))
 }
 

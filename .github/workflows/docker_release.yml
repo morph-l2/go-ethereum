@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - morph-v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to build (e.g. morph-v2.2.0)'
+        required: true
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
@@ -14,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -31,7 +38,8 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed -e 's/^morph-v//')
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION=$(echo "$TAG" | sed -e 's/^morph-v//')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Build and push
@@ -46,6 +54,6 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           build-args: |
             COMMIT=${{ github.sha }}
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ inputs.tag || github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

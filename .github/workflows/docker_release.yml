@@ -35,12 +35,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.PACKAGE_TOKEN }}
 
-      - name: Extract version
-        id: version
+      - name: Extract version and commit
+        id: meta
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
           VERSION=$(echo "$TAG" | sed -e 's/^morph-v//')
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          COMMIT=$(git rev-parse HEAD)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -50,10 +52,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE_NAME }}:latest
           build-args: |
-            COMMIT=${{ github.sha }}
-            VERSION=${{ inputs.tag || github.ref_name }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

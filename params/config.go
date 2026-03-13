@@ -321,6 +321,7 @@ var (
 		Morph203Time:            NewUint64(0),
 		ViridianTime:            NewUint64(1761544800),
 		EmeraldTime:             NewUint64(1766988000),
+		JadeForkTime:            NewUint64(1774418400),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,
@@ -353,6 +354,7 @@ var (
 		Morph203Time:            NewUint64(1747029600),
 		ViridianTime:            NewUint64(1762149600),
 		EmeraldTime:             NewUint64(1767765600),
+		JadeForkTime:            NewUint64(1775628000),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			UseZktrie:                 true,

@@ -106,10 +106,16 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 		}
 		log.Warn("Snapshot journal missing, falling back to disk snapshot root",
 			"diskRoot", diskRoot, "chainHead", headBlock.Root())
+		// If the snapshot was mid-generation when the node was killed, New will
+		// resume and wait for generation to finish (async=false). This can take
+		// a long time for large state; the log below makes that visible.
+		log.Info("Loading snapshot from disk root (may wait for snapshot generation to finish)...",
+			"diskRoot", diskRoot)
 		snaptree, err = snapshot.New(db, trie.NewDatabase(db), 256, diskRoot, false, false, false)
 		if err != nil {
 			return nil, err
 		}
+		log.Info("Snapshot ready", "diskRoot", diskRoot)
 	}
 	// Sanitize the bloom filter size if it's too small.
 	if bloomSize < 256 {
@@ -207,8 +213,15 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 	// Pruning is done, now drop the "useless" layers from the snapshot.
 	// Firstly, flushing the target layer into the disk. After that all
 	// diff layers below the target will all be merged into the disk.
-	if err := snaptree.Cap(root, 0); err != nil {
-		return err
+	//
+	// Skip Cap when the root is already the disk layer (no diff layers exist).
+	// This happens in the fallback path where the snapshot journal was missing
+	// and we initialised the tree directly from the persisted disk root — Cap
+	// would otherwise return "snapshot is disk layer" and abort needlessly.
+	if snaptree.DiskRoot() != root {
+		if err := snaptree.Cap(root, 0); err != nil {
+			return err
+		}
 	}
 	// Secondly, flushing the snapshot journal into the disk. All diff
 	// layers upon are dropped silently. Eventually the entire snapshot

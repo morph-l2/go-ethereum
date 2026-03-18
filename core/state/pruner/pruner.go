@@ -104,6 +104,21 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 		if snapDiskRoot == (common.Hash{}) {
 			return nil, err // No snapshot at all — nothing we can do.
 		}
+		// The persisted snapshot root may be a zkStateRoot (Poseidon hash)
+		// written when an MPT node first tried — and failed — to generate a
+		// snapshot for a ZK-era block.  The snapshot trie walk calls
+		// trie.New(root, triedb) directly, bypassing the OpenTrie translation
+		// layer, so it can only succeed with the actual on-disk mptStateRoot.
+		// Resolve the mapping here so that the snapshot.New call below (and
+		// the generator it may start) both operate on the correct root.
+		if mptRoot, err2 := rawdb.ReadDiskStateRoot(db, snapDiskRoot); err2 == nil {
+			log.Info("Pruner: resolved snapshot ZK root to MPT root",
+				"zkRoot", snapDiskRoot, "mptRoot", mptRoot)
+			snapDiskRoot = mptRoot
+			// Persist the corrected root so that subsequent snapshot.New
+			// calls (inside loadSnapshot) can locate the disk layer.
+			rawdb.WriteSnapshotRoot(db, snapDiskRoot)
+		}
 		log.Warn("Snapshot journal missing, falling back to snapshot disk-layer root",
 			"snapDiskRoot", snapDiskRoot, "chainHead", headBlock.Root())
 		// If the snapshot was mid-generation when the node was killed, New will

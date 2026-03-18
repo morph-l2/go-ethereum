@@ -81,10 +81,10 @@ type Pruner struct {
 	trieCachePath string
 	headHeader    *types.Header
 	snaptree      *snapshot.Tree
-	// diskRoot is set when the snapshot journal was missing and we fell back
-	// to the persisted disk snapshot root. Prune() uses it as the pruning
-	// target when no explicit root is provided.
-	diskRoot common.Hash
+	// snapDiskRoot is set when the snapshot journal was missing and we fell
+	// back to the persisted snapshot disk-layer root. Prune() uses it as the
+	// pruning target when no explicit root is provided.
+	snapDiskRoot common.Hash
 }
 
 // NewPruner creates the pruner instance.
@@ -94,28 +94,28 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 		return nil, errors.New("Failed to load head block")
 	}
 	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, headBlock.Root(), false, false, false)
-	var diskRoot common.Hash
+	var snapDiskRoot common.Hash
 	if err != nil {
 		// The snapshot journal may be missing because geth was not shut down
 		// cleanly (SIGKILL before BlockChain.Stop could write the journal).
 		// Fall back: initialise the snapshot tree with the persisted disk
 		// snapshot root so that Prune() can still target that state.
-		diskRoot = rawdb.ReadSnapshotRoot(db)
-		if diskRoot == (common.Hash{}) {
+		snapDiskRoot = rawdb.ReadSnapshotRoot(db)
+		if snapDiskRoot == (common.Hash{}) {
 			return nil, err // No snapshot at all — nothing we can do.
 		}
-		log.Warn("Snapshot journal missing, falling back to disk snapshot root",
-			"diskRoot", diskRoot, "chainHead", headBlock.Root())
+		log.Warn("Snapshot journal missing, falling back to snapshot disk-layer root",
+			"snapDiskRoot", snapDiskRoot, "chainHead", headBlock.Root())
 		// If the snapshot was mid-generation when the node was killed, New will
 		// resume and wait for generation to finish (async=false). This can take
 		// a long time for large state; the log below makes that visible.
-		log.Info("Loading snapshot from disk root (may wait for snapshot generation to finish)...",
-			"diskRoot", diskRoot)
-		snaptree, err = snapshot.New(db, trie.NewDatabase(db), 256, diskRoot, false, false, false)
+		log.Info("Loading snapshot from disk-layer root (may wait for snapshot generation to finish)...",
+			"snapDiskRoot", snapDiskRoot)
+		snaptree, err = snapshot.New(db, trie.NewDatabase(db), 256, snapDiskRoot, false, false, false)
 		if err != nil {
 			return nil, err
 		}
-		log.Info("Snapshot ready", "diskRoot", diskRoot)
+		log.Info("Snapshot ready", "snapDiskRoot", snapDiskRoot)
 	}
 	// Sanitize the bloom filter size if it's too small.
 	if bloomSize < 256 {
@@ -133,7 +133,7 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 		trieCachePath: trieCachePath,
 		headHeader:    headBlock.Header(),
 		snaptree:      snaptree,
-		diskRoot:      diskRoot,
+		snapDiskRoot:  snapDiskRoot,
 	}, nil
 }
 
@@ -285,10 +285,10 @@ func (p *Pruner) Prune(root common.Hash) error {
 		// back to the persisted disk snapshot root in NewPruner. Use that
 		// root directly as the pruning target instead of requiring 128 diff
 		// layers that don't exist.
-		if p.diskRoot != (common.Hash{}) {
-			log.Info("Using disk snapshot root as pruning target (journal was missing)",
-				"diskRoot", p.diskRoot)
-			root = p.diskRoot
+		if p.snapDiskRoot != (common.Hash{}) {
+			log.Info("Using snapshot disk-layer root as pruning target (journal was missing)",
+				"snapDiskRoot", p.snapDiskRoot)
+			root = p.snapDiskRoot
 		} else {
 			// Retrieve all snapshot layers from the current HEAD.
 			// In theory there are 128 difflayers + 1 disk layer present,

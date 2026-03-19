@@ -311,6 +311,13 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		var diskRoot common.Hash
 		if bc.cacheConfig.SnapshotLimit > 0 {
 			diskRoot = rawdb.ReadSnapshotRoot(bc.db)
+			// The stored snapshot root may be a zkStateRoot (Poseidon hash) written
+			// by an older code path. Translate it to the on-disk mptStateRoot so that
+			// the backward walk below can compare apples-to-apples with translated
+			// block roots.
+			if mptRoot, err := rawdb.ReadDiskStateRoot(bc.db, diskRoot); err == nil {
+				diskRoot = mptRoot
+			}
 		}
 		if diskRoot != (common.Hash{}) {
 			log.Warn("Head state missing, repairing", "number", head.Number(), "hash", head.Hash(), "snaproot", diskRoot)

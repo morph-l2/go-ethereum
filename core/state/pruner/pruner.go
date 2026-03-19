@@ -120,6 +120,13 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 			return nil, err
 		}
 		log.Info("Snapshot ready", "snapDiskRoot", snapDiskRoot)
+	} else {
+		// snapshot.New succeeded via the normal path (journal was present and
+		// head matched).  Still populate snapDiskRoot so that Prune() uses the
+		// disk-layer root as the pruning target and does not require 128 diff
+		// layers (which the pruner CLI never has, since it doesn't write a
+		// snapshot journal on exit).
+		snapDiskRoot = snaptree.DiskRoot()
 	}
 	// Sanitize the bloom filter size if it's too small.
 	if bloomSize < 256 {

@@ -96,36 +96,25 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, headBlock.Root(), false, false, false)
 	var snapDiskRoot common.Hash
 	if err != nil {
-		// The snapshot journal may be missing because geth was not shut down
-		// cleanly (SIGKILL before BlockChain.Stop could write the journal).
-		// Fall back: initialise the snapshot tree with the persisted disk
-		// snapshot root so that Prune() can still target that state.
-		snapDiskRoot = rawdb.ReadSnapshotRoot(db)
-		if snapDiskRoot == (common.Hash{}) {
-			return nil, err // No snapshot at all — nothing we can do.
-		}
-		// The persisted snapshot root may be a zkStateRoot (Poseidon hash)
-		// written when an MPT node first tried — and failed — to generate a
-		// snapshot for a ZK-era block.  The snapshot trie walk calls
-		// trie.New(root, triedb) directly, bypassing the OpenTrie translation
-		// layer, so it can only succeed with the actual on-disk mptStateRoot.
-		// Resolve the mapping here so that the snapshot.New call below (and
-		// the generator it may start) both operate on the correct root.
+		// The snapshot journal is missing (unclean shutdown or first prune).
+		// Always target the CURRENT chain head so that after pruning the node
+		// can restart at the head height instead of being rolled back to
+		// wherever the last snapshot attempt happened to start.
+		//
+		// The block header carries a zkStateRoot (Poseidon hash); resolve it
+		// to the on-disk mptStateRoot via the DiskStateRoot mapping.  For
+		// post-Jade pure-MPT blocks the mapping does not exist and the head
+		// root is already the mptStateRoot.
+		snapDiskRoot = headBlock.Root()
 		if mptRoot, err2 := rawdb.ReadDiskStateRoot(db, snapDiskRoot); err2 == nil {
-			log.Info("Pruner: resolved snapshot ZK root to MPT root",
+			log.Info("Pruner: resolved head ZK root to MPT root",
 				"zkRoot", snapDiskRoot, "mptRoot", mptRoot)
 			snapDiskRoot = mptRoot
-			// Persist the corrected root so that subsequent snapshot.New
-			// calls (inside loadSnapshot) can locate the disk layer.
-			rawdb.WriteSnapshotRoot(db, snapDiskRoot)
 		}
-		log.Warn("Snapshot journal missing, falling back to snapshot disk-layer root",
-			"snapDiskRoot", snapDiskRoot, "chainHead", headBlock.Root())
-		// If the snapshot was mid-generation when the node was killed, New will
-		// resume and wait for generation to finish (async=false). This can take
-		// a long time for large state; the log below makes that visible.
-		log.Info("Loading snapshot from disk-layer root (may wait for snapshot generation to finish)...",
-			"snapDiskRoot", snapDiskRoot)
+		// Persist so that loadSnapshot inside snapshot.New finds the right base root.
+		rawdb.WriteSnapshotRoot(db, snapDiskRoot)
+		log.Warn("Snapshot journal missing, generating snapshot at chain head",
+			"snapDiskRoot", snapDiskRoot, "headNumber", headBlock.NumberU64())
 		snaptree, err = snapshot.New(db, trie.NewDatabase(db), 256, snapDiskRoot, false, false, false)
 		if err != nil {
 			return nil, err

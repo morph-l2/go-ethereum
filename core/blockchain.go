@@ -860,8 +860,16 @@ func (bc *BlockChain) Stop() {
 	// Ensure that the entirety of the state snapshot is journalled to disk.
 	var snapBase common.Hash
 	if bc.snaps != nil {
+		// The snapshot disk layer is keyed by mptStateRoot (after ZK→MPT
+		// translation in generateSnapshot/Rebuild), but CurrentBlock().Root()
+		// may be a zkStateRoot. Resolve to mptStateRoot so that Journal()
+		// can find the layer in the snapshot tree.
+		journalRoot := bc.CurrentBlock().Root()
+		if mptRoot, err := rawdb.ReadDiskStateRoot(bc.db, journalRoot); err == nil {
+			journalRoot = mptRoot
+		}
 		var err error
-		if snapBase, err = bc.snaps.Journal(bc.CurrentBlock().Root()); err != nil {
+		if snapBase, err = bc.snaps.Journal(journalRoot); err != nil {
 			log.Error("Failed to journal state snapshot", "err", err)
 		}
 	}

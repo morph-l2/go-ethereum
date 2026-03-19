@@ -159,17 +159,27 @@ func loadSnapshot(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache int, 
 	// which is below the snapshot. In this case the snapshot can be recovered
 	// by re-executing blocks but right now it's unavailable.
 	if head := snapshot.Root(); head != root {
-		// If it's legacy snapshot, or it's new-format snapshot but
-		// it's not in recovery mode, returns the error here for
-		// rebuilding the entire snapshot forcibly.
-		if !recovery {
+		// Special case: MPT nodes syncing ZK-era blocks store the snapshot
+		// under the locally-computed mptStateRoot while the block header
+		// (and therefore the `root` argument) carries the zkStateRoot.
+		// If the on-disk snapshot root equals the MPT translation of the
+		// requested root, the snapshot is perfectly valid — accept it
+		// without triggering a costly rebuild.
+		if translated, err := rawdb.ReadDiskStateRoot(diskdb, root); err == nil && head == translated {
+			log.Info("Snapshot root is MPT translation of block root — accepting",
+				"blockRoot", root, "mptRoot", head)
+		} else if !recovery {
+			// If it's legacy snapshot, or it's new-format snapshot but
+			// it's not in recovery mode, returns the error here for
+			// rebuilding the entire snapshot forcibly.
 			return nil, false, fmt.Errorf("head doesn't match snapshot: have %#x, want %#x", head, root)
+		} else {
+			// It's in snapshot recovery, the assumption is held that
+			// the disk layer is always higher than chain head. It can
+			// be eventually recovered when the chain head beyonds the
+			// disk layer.
+			log.Warn("Snapshot is not continuous with chain", "snaproot", head, "chainroot", root)
 		}
-		// It's in snapshot recovery, the assumption is held that
-		// the disk layer is always higher than chain head. It can
-		// be eventually recovered when the chain head beyonds the
-		// disk layer.
-		log.Warn("Snapshot is not continuous with chain", "snaproot", head, "chainroot", root)
 	}
 	// Everything loaded correctly, resume any suspended operations
 	if !generator.Done {

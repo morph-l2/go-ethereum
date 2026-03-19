@@ -147,6 +147,23 @@ func (gs *generatorStats) Log(msg string, root common.Hash, marker []byte) {
 // database and head block asynchronously. The snapshot is returned immediately
 // and generation is continued in the background until done.
 func generateSnapshot(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache int, root common.Hash) *diskLayer {
+	// For MPT nodes that sync ZK-era blocks the block header carries a
+	// zkStateRoot (Poseidon hash) while the on-disk trie is keyed by the
+	// locally-computed mptStateRoot (Keccak256 hash).  The snapshot trie
+	// walk uses trie.New(root, triedb) directly — it does NOT go through
+	// cachingDB.OpenTrie, so it never sees the ReadDiskStateRoot redirect.
+	// If we leave root as the zkStateRoot the trie lookup fails immediately
+	// with "missing trie node", the generator goroutine blocks on genAbort
+	// forever, and waitBuild() hangs the caller.
+	//
+	// Resolve the zkStateRoot → mptStateRoot mapping before doing anything
+	// else so that both WriteSnapshotRoot and the generator goroutine use
+	// the correct on-disk root.
+	if mptRoot, err := rawdb.ReadDiskStateRoot(diskdb, root); err == nil {
+		log.Info("Snapshot generation: resolved ZK state root to MPT root",
+			"zkRoot", root, "mptRoot", mptRoot)
+		root = mptRoot
+	}
 	// Create a new disk layer with an initialized state marker at zero
 	var (
 		stats     = &generatorStats{start: time.Now()}

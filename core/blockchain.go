@@ -311,6 +311,13 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		var diskRoot common.Hash
 		if bc.cacheConfig.SnapshotLimit > 0 {
 			diskRoot = rawdb.ReadSnapshotRoot(bc.db)
+			// The stored snapshot root may be a zkStateRoot (Poseidon hash) written
+			// by an older code path. Translate it to the on-disk mptStateRoot so that
+			// the backward walk below can compare apples-to-apples with translated
+			// block roots.
+			if mptRoot, err := rawdb.ReadDiskStateRoot(bc.db, diskRoot); err == nil {
+				diskRoot = mptRoot
+			}
 		}
 		if diskRoot != (common.Hash{}) {
 			log.Warn("Head state missing, repairing", "number", head.Number(), "hash", head.Hash(), "snaproot", diskRoot)
@@ -558,9 +565,17 @@ func (bc *BlockChain) setHeadBeyondRoot(head uint64, root common.Hash, repair bo
 				beyondRoot := (root == common.Hash{}) // Flag whether we're beyond the requested root (no root, always true)
 
 				for {
-					// If a root threshold was requested but not yet crossed, check
-					if root != (common.Hash{}) && !beyondRoot && newHeadBlock.Root() == root {
-						beyondRoot, rootNumber = true, newHeadBlock.NumberU64()
+					// If a root threshold was requested but not yet crossed, check.
+					// The block root may be a zkStateRoot while the target root is
+					// an mptStateRoot, so also compare via the on-disk mapping.
+					if root != (common.Hash{}) && !beyondRoot {
+						blockRoot := newHeadBlock.Root()
+						if mptRoot, err := rawdb.ReadDiskStateRoot(bc.db, blockRoot); err == nil {
+							blockRoot = mptRoot
+						}
+						if blockRoot == root {
+							beyondRoot, rootNumber = true, newHeadBlock.NumberU64()
+						}
 					}
 					if _, err := state.New(newHeadBlock.Root(), bc.stateCache, bc.snaps); err != nil {
 						log.Trace("Block state missing, rewinding further", "number", newHeadBlock.NumberU64(), "hash", newHeadBlock.Hash())
@@ -845,8 +860,16 @@ func (bc *BlockChain) Stop() {
 	// Ensure that the entirety of the state snapshot is journalled to disk.
 	var snapBase common.Hash
 	if bc.snaps != nil {
+		// The snapshot disk layer is keyed by mptStateRoot (after ZK→MPT
+		// translation in generateSnapshot/Rebuild), but CurrentBlock().Root()
+		// may be a zkStateRoot. Resolve to mptStateRoot so that Journal()
+		// can find the layer in the snapshot tree.
+		journalRoot := bc.CurrentBlock().Root()
+		if mptRoot, err := rawdb.ReadDiskStateRoot(bc.db, journalRoot); err == nil {
+			journalRoot = mptRoot
+		}
 		var err error
-		if snapBase, err = bc.snaps.Journal(bc.CurrentBlock().Root()); err != nil {
+		if snapBase, err = bc.snaps.Journal(journalRoot); err != nil {
 			log.Error("Failed to journal state snapshot", "err", err)
 		}
 	}

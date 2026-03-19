@@ -188,8 +188,14 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 	// Pruning is done, now drop the "useless" layers from the snapshot.
 	// Firstly, flushing the target layer into the disk. After that all
 	// diff layers below the target will all be merged into the disk.
-	if err := snaptree.Cap(root, 0); err != nil {
-		return err
+	//
+	// Skip Cap when the root is already the disk layer (no diff layers to
+	// flatten). This happens when we fell back to DiskRoot() above because
+	// fewer than 128 diff layers were available.
+	if snaptree.DiskRoot() != root {
+		if err := snaptree.Cap(root, 0); err != nil {
+			return err
+		}
 	}
 	// Secondly, flushing the snapshot journal into the disk. All diff
 	// layers upon are dropped silently. Eventually the entire snapshot
@@ -252,15 +258,31 @@ func (p *Pruner) Prune(root common.Hash) error {
 		// Retrieve all snapshot layers from the current HEAD.
 		// In theory there are 128 difflayers + 1 disk layer present,
 		// so 128 diff layers are expected to be returned.
-		layers = p.snaptree.Snapshots(p.headHeader.Root, 128, true)
-		if len(layers) != 128 {
-			// Reject if the accumulated diff layers are less than 128. It
-			// means in most of normal cases, there is no associated state
-			// with bottom-most diff layer.
-			return fmt.Errorf("snapshot not old enough yet: need %d more blocks", 128-len(layers))
+		//
+		// The block header may carry a zkStateRoot (Poseidon hash) while
+		// snapshot diff layers are keyed by the locally-computed mptStateRoot.
+		// Translate before lookup so that Snapshots() can find the layer.
+		headRoot := p.headHeader.Root
+		if mptRoot, err := rawdb.ReadDiskStateRoot(p.db, headRoot); err == nil {
+			headRoot = mptRoot
 		}
-		// Use the bottom-most diff layer as the target
-		root = layers[len(layers)-1].Root()
+		layers = p.snaptree.Snapshots(headRoot, 128, true)
+		if len(layers) != 128 {
+			// Fewer than 128 diff layers available. This happens when the
+			// snapshot was recently rebuilt or the journal had no diff layers
+			// (e.g. clean shutdown right after a Rebuild). Fall back to the
+			// snapshot disk layer root so pruning can still proceed.
+			diskRoot := p.snaptree.DiskRoot()
+			if diskRoot == (common.Hash{}) {
+				return fmt.Errorf("snapshot not old enough yet: need %d more blocks", 128-len(layers))
+			}
+			log.Info("Fewer than 128 snapshot diff layers, using disk root as pruning target",
+				"layers", len(layers), "diskRoot", diskRoot)
+			root = diskRoot
+		} else {
+			// Use the bottom-most diff layer as the target
+			root = layers[len(layers)-1].Root()
+		}
 	}
 	// Ensure the root is really present. The weak assumption
 	// is the presence of root can indicate the presence of the
@@ -410,7 +432,13 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 	if genesis == nil {
 		return errors.New("missing genesis block")
 	}
-	t, err := trie.NewSecure(genesis.Root(), trie.NewDatabase(db))
+	// The genesis block root may be a zkStateRoot; resolve to the
+	// on-disk mptStateRoot so trie.NewSecure can find the nodes.
+	genesisRoot := genesis.Root()
+	if mptRoot, err := rawdb.ReadDiskStateRoot(db, genesisRoot); err == nil {
+		genesisRoot = mptRoot
+	}
+	t, err := trie.NewSecure(genesisRoot, trie.NewDatabase(db))
 	if err != nil {
 		return err
 	}
@@ -489,11 +517,11 @@ const warningLog = `
 
 WARNING!
 
-The clean trie cache is not found. Please delete it by yourself after the 
+The clean trie cache is not found. Please delete it by yourself after the
 pruning. Remember don't start the Geth without deleting the clean trie cache
 otherwise the entire database may be damaged!
 
-Check the command description "geth snapshot prune-zk-state --help" for more details.
+Check the command description "geth snapshot prune-state --help" for more details.
 `
 
 func deleteCleanTrieCache(path string) {

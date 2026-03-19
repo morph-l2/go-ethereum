@@ -730,9 +730,11 @@ func (t *Tree) Rebuild(root common.Hash) {
 	// Start generating a new snapshot from scratch on a background thread. The
 	// generator will run a wiper first if there's not one running right now.
 	log.Info("Rebuilding state snapshot")
-	t.layers = map[common.Hash]snapshot{
-		root: generateSnapshot(t.diskdb, t.triedb, t.cache, root),
-	}
+	base := generateSnapshot(t.diskdb, t.triedb, t.cache, root)
+	// generateSnapshot may have translated root (e.g. zkStateRoot → mptStateRoot
+	// for MPT nodes syncing ZK-era blocks). Use base.root as the map key so that
+	// all subsequent Snapshot()/Update() lookups find the layer correctly.
+	t.layers = map[common.Hash]snapshot{base.root: base}
 }
 
 // AccountIterator creates a new account iterator for the specified root hash and

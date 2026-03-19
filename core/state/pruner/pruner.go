@@ -301,6 +301,19 @@ func (p *Pruner) Prune(root common.Hash) error {
 		// root directly as the pruning target instead of requiring 128 diff
 		// layers that don't exist.
 		if p.snapDiskRoot != (common.Hash{}) {
+			// Verify the snapshot has caught up to the chain head.
+			// The head block root may be a zkStateRoot; resolve it to
+			// the on-disk mptStateRoot for comparison.
+			headRoot := p.headHeader.Root
+			if mptRoot, err2 := rawdb.ReadDiskStateRoot(p.db, headRoot); err2 == nil {
+				headRoot = mptRoot
+			}
+			if p.snapDiskRoot != headRoot {
+				log.Warn("Snapshot is behind chain head; pruning will target the snapshot root, "+
+					"node will need to re-execute blocks from snapshot to head on next startup",
+					"snapDiskRoot", p.snapDiskRoot, "headMptRoot", headRoot,
+					"headNumber", p.headHeader.Number)
+			}
 			log.Info("Using snapshot disk-layer root as pruning target (journal was missing)",
 				"snapDiskRoot", p.snapDiskRoot)
 			root = p.snapDiskRoot
@@ -467,7 +480,13 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 	if genesis == nil {
 		return errors.New("missing genesis block")
 	}
-	t, err := trie.NewSecure(genesis.Root(), trie.NewDatabase(db))
+	// The genesis block root may be a zkStateRoot; resolve to the
+	// on-disk mptStateRoot so trie.NewSecure can find the nodes.
+	genesisRoot := genesis.Root()
+	if mptRoot, err := rawdb.ReadDiskStateRoot(db, genesisRoot); err == nil {
+		genesisRoot = mptRoot
+	}
+	t, err := trie.NewSecure(genesisRoot, trie.NewDatabase(db))
 	if err != nil {
 		return err
 	}
@@ -546,11 +565,11 @@ const warningLog = `
 
 WARNING!
 
-The clean trie cache is not found. Please delete it by yourself after the 
+The clean trie cache is not found. Please delete it by yourself after the
 pruning. Remember don't start the Geth without deleting the clean trie cache
 otherwise the entire database may be damaged!
 
-Check the command description "geth snapshot prune-zk-state --help" for more details.
+Check the command description "geth snapshot prune-state --help" for more details.
 `
 
 func deleteCleanTrieCache(path string) {

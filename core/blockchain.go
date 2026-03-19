@@ -322,36 +322,14 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		if diskRoot != (common.Hash{}) {
 			log.Warn("Head state missing, repairing", "number", head.Number(), "hash", head.Hash(), "snaproot", diskRoot)
 
-			// Walk backwards to find a block whose state matches the
-			// snapshot disk root.  Only update the full-block (state)
-			// marker — do NOT rewind the header chain, fast block, or
-			// delete any block data so the node can re-execute the
-			// remaining blocks to catch up.
-			newHead := head
-			for newHead.NumberU64() > 0 {
-				// Resolve the block's root to its on-disk MPT root.
-				blockRoot := newHead.Root()
-				if mptRoot, err2 := rawdb.ReadDiskStateRoot(bc.db, blockRoot); err2 == nil {
-					blockRoot = mptRoot
-				}
-				if blockRoot == diskRoot {
-					if _, err2 := state.New(newHead.Root(), bc.stateCache, bc.snaps); err2 == nil {
-						break
-					}
-				}
-				parent := bc.GetBlock(newHead.ParentHash(), newHead.NumberU64()-1)
-				if parent == nil {
-					newHead = bc.genesisBlock
-					break
-				}
-				newHead = parent
+			snapDisk, err := bc.setHeadBeyondRoot(head.NumberU64(), diskRoot, true)
+			if err != nil {
+				return nil, err
 			}
-			log.Warn("Rewound full block to snapshot state",
-				"from", head.NumberU64(), "to", newHead.NumberU64(), "snaproot", diskRoot)
-			rawdb.WriteHeadBlockHash(bc.db, newHead.Hash())
-			bc.currentBlock.Store(newHead)
-			headBlockGauge.Update(int64(newHead.NumberU64()))
-			rawdb.WriteSnapshotRecoveryNumber(bc.db, newHead.NumberU64())
+			// Chain rewound, persist old snapshot number to indicate recovery procedure
+			if snapDisk != 0 {
+				rawdb.WriteSnapshotRecoveryNumber(bc.db, snapDisk)
+			}
 		} else {
 			log.Warn("Head state missing, repairing", "number", head.Number(), "hash", head.Hash())
 			if _, err := bc.setHeadBeyondRoot(head.NumberU64(), common.Hash{}, true); err != nil {
@@ -369,28 +347,21 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		// The head full block may be rolled back to a very low height due to
 		// blockchain repair. If the head full block is even lower than the ancient
 		// chain, truncate the ancient store.
-		//
-		// However, after state pruning the full block is intentionally behind
-		// while the fast block (header chain) is still at the tip. In that case
-		// the ancient data is still valid and needed for re-execution, so only
-		// truncate when the fast block is ALSO behind the freezer.
 		fullBlock := bc.CurrentBlock()
-		fastBlock := bc.CurrentFastBlock()
-
-		fullBehind := fullBlock != nil && fullBlock.Hash() != bc.genesisBlock.Hash() && fullBlock.NumberU64() < frozen-1
-		fastBehind := fastBlock != nil && fastBlock.NumberU64() < frozen-1
-
-		if fullBehind && fastBehind {
+		if fullBlock != nil && fullBlock.Hash() != bc.genesisBlock.Hash() && fullBlock.NumberU64() < frozen-1 {
 			needRewind = true
 			low = fullBlock.NumberU64()
-			if fastBlock.NumberU64() < low {
+		}
+		// In fast sync, it may happen that ancient data has been written to the
+		// ancient store, but the LastFastBlock has not been updated, truncate the
+		// extra data here.
+		fastBlock := bc.CurrentFastBlock()
+		if fastBlock != nil && fastBlock.NumberU64() < frozen-1 {
+			needRewind = true
+			if fastBlock.NumberU64() < low || low == 0 {
 				low = fastBlock.NumberU64()
 			}
-		} else if fastBehind {
-			needRewind = true
-			low = fastBlock.NumberU64()
 		}
-		// If only the full block is behind (post-pruning), don't truncate.
 		if needRewind {
 			log.Error("Truncating ancient chain", "from", bc.CurrentHeader().Number.Uint64(), "to", low)
 			if err := bc.SetHead(low); err != nil {

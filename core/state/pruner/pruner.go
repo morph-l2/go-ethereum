@@ -121,12 +121,15 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 		}
 		log.Info("Snapshot ready", "snapDiskRoot", snapDiskRoot)
 	} else {
-		// snapshot.New succeeded via the normal path (journal was present and
-		// head matched).  Still populate snapDiskRoot so that Prune() uses the
-		// disk-layer root as the pruning target and does not require 128 diff
-		// layers (which the pruner CLI never has, since it doesn't write a
-		// snapshot journal on exit).
-		snapDiskRoot = snaptree.DiskRoot()
+		// snapshot.New succeeded via the normal path (journal was present).
+		// Only fall back to the disk-layer root when there are fewer than 128
+		// diff layers — the standard pruning target is HEAD-127, which requires
+		// exactly 128 layers.  The pruner CLI doesn't accumulate layers while
+		// running, so this handles the case where the journal exists but was
+		// created with fewer than 128 blocks since the last snapshot flush.
+		if layers := snaptree.Snapshots(headBlock.Root(), 128, true); len(layers) < 128 {
+			snapDiskRoot = snaptree.DiskRoot()
+		}
 	}
 	// Sanitize the bloom filter size if it's too small.
 	if bloomSize < 256 {
@@ -292,10 +295,9 @@ func (p *Pruner) Prune(root common.Hash) error {
 	// - the probability of this layer being reorg is very low
 	var layers []snapshot.Snapshot
 	if root == (common.Hash{}) {
-		// When the snapshot journal was missing (unclean shutdown), we fell
-		// back to the persisted disk snapshot root in NewPruner. Use that
-		// root directly as the pruning target instead of requiring 128 diff
-		// layers that don't exist.
+		// When the snapshot journal was missing or there were fewer than 128
+		// diff layers, we fell back to the disk snapshot root in NewPruner.
+		// Use that root directly as the pruning target.
 		if p.snapDiskRoot != (common.Hash{}) {
 			// Verify the snapshot has caught up to the chain head.
 			// The head block root may be a zkStateRoot; resolve it to
@@ -310,7 +312,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 					"snapDiskRoot", p.snapDiskRoot, "headMptRoot", headRoot,
 					"headNumber", p.headHeader.Number)
 			}
-			log.Info("Using snapshot disk-layer root as pruning target (journal was missing)",
+			log.Info("Using snapshot disk-layer root as pruning target",
 				"snapDiskRoot", p.snapDiskRoot)
 			root = p.snapDiskRoot
 		} else {

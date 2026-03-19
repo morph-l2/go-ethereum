@@ -253,7 +253,15 @@ func (p *Pruner) Prune(root common.Hash) error {
 		// Retrieve all snapshot layers from the current HEAD.
 		// In theory there are 128 difflayers + 1 disk layer present,
 		// so 128 diff layers are expected to be returned.
-		layers = p.snaptree.Snapshots(p.headHeader.Root, 128, true)
+		//
+		// The block header may carry a zkStateRoot (Poseidon hash) while
+		// snapshot diff layers are keyed by the locally-computed mptStateRoot.
+		// Translate before lookup so that Snapshots() can find the layer.
+		headRoot := p.headHeader.Root
+		if mptRoot, err := rawdb.ReadDiskStateRoot(p.db, headRoot); err == nil {
+			headRoot = mptRoot
+		}
+		layers = p.snaptree.Snapshots(headRoot, 128, true)
 		if len(layers) != 128 {
 			// Reject if the accumulated diff layers are less than 128. It
 			// means in most of normal cases, there is no associated state

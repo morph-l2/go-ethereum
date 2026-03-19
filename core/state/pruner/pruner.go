@@ -189,8 +189,13 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 	// Firstly, flushing the target layer into the disk. After that all
 	// diff layers below the target will all be merged into the disk.
 	//
-	if err := snaptree.Cap(root, 0); err != nil {
-		return err
+	// Skip Cap when the root is already the disk layer (no diff layers to
+	// flatten). This happens when we fell back to DiskRoot() above because
+	// fewer than 128 diff layers were available.
+	if snaptree.DiskRoot() != root {
+		if err := snaptree.Cap(root, 0); err != nil {
+			return err
+		}
 	}
 	// Secondly, flushing the snapshot journal into the disk. All diff
 	// layers upon are dropped silently. Eventually the entire snapshot
@@ -263,13 +268,21 @@ func (p *Pruner) Prune(root common.Hash) error {
 		}
 		layers = p.snaptree.Snapshots(headRoot, 128, true)
 		if len(layers) != 128 {
-			// Reject if the accumulated diff layers are less than 128. It
-			// means in most of normal cases, there is no associated state
-			// with bottom-most diff layer.
-			return fmt.Errorf("snapshot not old enough yet: need %d more blocks", 128-len(layers))
+			// Fewer than 128 diff layers available. This happens when the
+			// snapshot was recently rebuilt or the journal had no diff layers
+			// (e.g. clean shutdown right after a Rebuild). Fall back to the
+			// snapshot disk layer root so pruning can still proceed.
+			diskRoot := p.snaptree.DiskRoot()
+			if diskRoot == (common.Hash{}) {
+				return fmt.Errorf("snapshot not old enough yet: need %d more blocks", 128-len(layers))
+			}
+			log.Info("Fewer than 128 snapshot diff layers, using disk root as pruning target",
+				"layers", len(layers), "diskRoot", diskRoot)
+			root = diskRoot
+		} else {
+			// Use the bottom-most diff layer as the target
+			root = layers[len(layers)-1].Root()
 		}
-		// Use the bottom-most diff layer as the target
-		root = layers[len(layers)-1].Root()
 	}
 	// Ensure the root is really present. The weak assumption
 	// is the presence of root can indicate the presence of the

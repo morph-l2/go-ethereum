@@ -81,10 +81,6 @@ type Pruner struct {
 	trieCachePath string
 	headHeader    *types.Header
 	snaptree      *snapshot.Tree
-	// snapDiskRoot is set when the snapshot journal was missing and we fell
-	// back to the persisted snapshot disk-layer root. Prune() uses it as the
-	// pruning target when no explicit root is provided.
-	snapDiskRoot common.Hash
 }
 
 // NewPruner creates the pruner instance.
@@ -94,42 +90,8 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 		return nil, errors.New("Failed to load head block")
 	}
 	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, headBlock.Root(), false, false, false)
-	var snapDiskRoot common.Hash
 	if err != nil {
-		// The snapshot journal is missing (unclean shutdown or first prune).
-		// Always target the CURRENT chain head so that after pruning the node
-		// can restart at the head height instead of being rolled back to
-		// wherever the last snapshot attempt happened to start.
-		//
-		// The block header carries a zkStateRoot (Poseidon hash); resolve it
-		// to the on-disk mptStateRoot via the DiskStateRoot mapping.  For
-		// post-Jade pure-MPT blocks the mapping does not exist and the head
-		// root is already the mptStateRoot.
-		snapDiskRoot = headBlock.Root()
-		if mptRoot, err2 := rawdb.ReadDiskStateRoot(db, snapDiskRoot); err2 == nil {
-			log.Info("Pruner: resolved head ZK root to MPT root",
-				"zkRoot", snapDiskRoot, "mptRoot", mptRoot)
-			snapDiskRoot = mptRoot
-		}
-		// Persist so that loadSnapshot inside snapshot.New finds the right base root.
-		rawdb.WriteSnapshotRoot(db, snapDiskRoot)
-		log.Warn("Snapshot journal missing, generating snapshot at chain head",
-			"snapDiskRoot", snapDiskRoot, "headNumber", headBlock.NumberU64())
-		snaptree, err = snapshot.New(db, trie.NewDatabase(db), 256, snapDiskRoot, false, false, false)
-		if err != nil {
-			return nil, err
-		}
-		log.Info("Snapshot ready", "snapDiskRoot", snapDiskRoot)
-	} else {
-		// snapshot.New succeeded via the normal path (journal was present).
-		// Only fall back to the disk-layer root when there are fewer than 128
-		// diff layers — the standard pruning target is HEAD-127, which requires
-		// exactly 128 layers.  The pruner CLI doesn't accumulate layers while
-		// running, so this handles the case where the journal exists but was
-		// created with fewer than 128 blocks since the last snapshot flush.
-		if layers := snaptree.Snapshots(headBlock.Root(), 128, true); len(layers) < 128 {
-			snapDiskRoot = snaptree.DiskRoot()
-		}
+		return nil, err // The relevant snapshot(s) might not exist
 	}
 	// Sanitize the bloom filter size if it's too small.
 	if bloomSize < 256 {
@@ -147,7 +109,6 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 		trieCachePath: trieCachePath,
 		headHeader:    headBlock.Header(),
 		snaptree:      snaptree,
-		snapDiskRoot:  snapDiskRoot,
 	}, nil
 }
 
@@ -228,14 +189,8 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 	// Firstly, flushing the target layer into the disk. After that all
 	// diff layers below the target will all be merged into the disk.
 	//
-	// Skip Cap when the root is already the disk layer (no diff layers exist).
-	// This happens in the fallback path where the snapshot journal was missing
-	// and we initialised the tree directly from the persisted disk root — Cap
-	// would otherwise return "snapshot is disk layer" and abort needlessly.
-	if snaptree.DiskRoot() != root {
-		if err := snaptree.Cap(root, 0); err != nil {
-			return err
-		}
+	if err := snaptree.Cap(root, 0); err != nil {
+		return err
 	}
 	// Secondly, flushing the snapshot journal into the disk. All diff
 	// layers upon are dropped silently. Eventually the entire snapshot
@@ -295,40 +250,18 @@ func (p *Pruner) Prune(root common.Hash) error {
 	// - the probability of this layer being reorg is very low
 	var layers []snapshot.Snapshot
 	if root == (common.Hash{}) {
-		// When the snapshot journal was missing or there were fewer than 128
-		// diff layers, we fell back to the disk snapshot root in NewPruner.
-		// Use that root directly as the pruning target.
-		if p.snapDiskRoot != (common.Hash{}) {
-			// Verify the snapshot has caught up to the chain head.
-			// The head block root may be a zkStateRoot; resolve it to
-			// the on-disk mptStateRoot for comparison.
-			headRoot := p.headHeader.Root
-			if mptRoot, err2 := rawdb.ReadDiskStateRoot(p.db, headRoot); err2 == nil {
-				headRoot = mptRoot
-			}
-			if p.snapDiskRoot != headRoot {
-				log.Warn("Snapshot is behind chain head; pruning will target the snapshot root, "+
-					"node will need to re-execute blocks from snapshot to head on next startup",
-					"snapDiskRoot", p.snapDiskRoot, "headMptRoot", headRoot,
-					"headNumber", p.headHeader.Number)
-			}
-			log.Info("Using snapshot disk-layer root as pruning target",
-				"snapDiskRoot", p.snapDiskRoot)
-			root = p.snapDiskRoot
-		} else {
-			// Retrieve all snapshot layers from the current HEAD.
-			// In theory there are 128 difflayers + 1 disk layer present,
-			// so 128 diff layers are expected to be returned.
-			layers = p.snaptree.Snapshots(p.headHeader.Root, 128, true)
-			if len(layers) != 128 {
-				// Reject if the accumulated diff layers are less than 128. It
-				// means in most of normal cases, there is no associated state
-				// with bottom-most diff layer.
-				return fmt.Errorf("snapshot not old enough yet: need %d more blocks", 128-len(layers))
-			}
-			// Use the bottom-most diff layer as the target
-			root = layers[len(layers)-1].Root()
+		// Retrieve all snapshot layers from the current HEAD.
+		// In theory there are 128 difflayers + 1 disk layer present,
+		// so 128 diff layers are expected to be returned.
+		layers = p.snaptree.Snapshots(p.headHeader.Root, 128, true)
+		if len(layers) != 128 {
+			// Reject if the accumulated diff layers are less than 128. It
+			// means in most of normal cases, there is no associated state
+			// with bottom-most diff layer.
+			return fmt.Errorf("snapshot not old enough yet: need %d more blocks", 128-len(layers))
 		}
+		// Use the bottom-most diff layer as the target
+		root = layers[len(layers)-1].Root()
 	}
 	// Ensure the root is really present. The weak assumption
 	// is the presence of root can indicate the presence of the

@@ -91,7 +91,21 @@ func NewPruner(db ethdb.Database, datadir, trieCachePath string, bloomSize uint6
 	}
 	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, headBlock.Root(), false, false, false)
 	if err != nil {
-		return nil, err // The relevant snapshot(s) might not exist
+		// The snapshot journal may be missing (unclean shutdown, or data copied
+		// from a running node). In that case in-memory diff layers are lost and
+		// the on-disk snapshot root lags behind the chain head by up to 128
+		// blocks. Retry with the persisted disk snapshot root so pruning can
+		// still target the available snapshot state.
+		diskRoot := rawdb.ReadSnapshotRoot(db)
+		if diskRoot == (common.Hash{}) {
+			return nil, err
+		}
+		log.Warn("Snapshot journal missing, falling back to disk snapshot root",
+			"diskRoot", diskRoot, "chainHead", headBlock.Root())
+		snaptree, err = snapshot.New(db, trie.NewDatabase(db), 256, diskRoot, false, false, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Sanitize the bloom filter size if it's too small.
 	if bloomSize < 256 {

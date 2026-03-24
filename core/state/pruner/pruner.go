@@ -400,7 +400,19 @@ func RecoverPruning(datadir string, db ethdb.Database, trieCachePath string) err
 	// still feasible to recover the pruning correctly.
 	snaptree, err := snapshot.New(db, trie.NewDatabase(db), 256, headBlock.Root(), false, false, true)
 	if err != nil {
-		return err // The relevant snapshot(s) might not exist
+		// Same fallback as NewPruner: journal may be missing (unclean shutdown
+		// or data copied from a running node). Retry with the persisted disk
+		// snapshot root so recovery can proceed.
+		diskRoot := rawdb.ReadSnapshotRoot(db)
+		if diskRoot == (common.Hash{}) {
+			return err
+		}
+		log.Warn("Snapshot journal missing in RecoverPruning, falling back to disk snapshot root",
+			"diskRoot", diskRoot, "chainHead", headBlock.Root())
+		snaptree, err = snapshot.New(db, trie.NewDatabase(db), 256, diskRoot, false, false, true)
+		if err != nil {
+			return err
+		}
 	}
 	stateBloom, err := NewStateBloomFromDisk(stateBloomPath)
 	if err != nil {
@@ -416,9 +428,16 @@ func RecoverPruning(datadir string, db ethdb.Database, trieCachePath string) err
 
 	// All the state roots of the middle layers should be forcibly pruned,
 	// otherwise the dangling state will be left.
+	//
+	// Translate the head root: block headers carry zkStateRoot while snapshot
+	// layers are keyed by mptStateRoot.
+	headRoot := headBlock.Root()
+	if mptRoot, err := rawdb.ReadDiskStateRoot(db, headRoot); err == nil {
+		headRoot = mptRoot
+	}
 	var (
 		found       bool
-		layers      = snaptree.Snapshots(headBlock.Root(), 128, true)
+		layers      = snaptree.Snapshots(headRoot, 128, true)
 		middleRoots = make(map[common.Hash]struct{})
 	)
 	for _, layer := range layers {
@@ -427,6 +446,17 @@ func RecoverPruning(datadir string, db ethdb.Database, trieCachePath string) err
 			break
 		}
 		middleRoots[layer.Root()] = struct{}{}
+	}
+	if !found {
+		// The stateBloomRoot may be the disk layer itself (when the original
+		// prune used DiskRoot() as target via the fallback path). Snapshots()
+		// with nodisk=true excludes the disk layer, so check explicitly.
+		if snaptree.DiskRoot() == stateBloomRoot {
+			found = true
+			// middleRoots stays empty — no diff layers between disk and target
+			log.Info("Pruning target is the snapshot disk layer, resuming recovery",
+				"stateBloomRoot", stateBloomRoot)
+		}
 	}
 	if !found {
 		log.Error("Pruning target state is not existent")

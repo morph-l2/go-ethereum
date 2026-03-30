@@ -291,22 +291,36 @@ func (t *Tree) Disable() {
 
 // Snapshot retrieves a snapshot belonging to the given block root, or nil if no
 // snapshot is maintained for that block.
+//
+// For ZK-era blocks the header carries a zkStateRoot (Poseidon hash) while
+// snapshot layers are keyed by the locally-computed mptStateRoot (Keccak256).
+// Translate the root through the on-disk mapping so callers can always pass
+// the block header root without knowing which format the snapshot uses.
 func (t *Tree) Snapshot(blockRoot common.Hash) Snapshot {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
+	if mptRoot, err := rawdb.ReadDiskStateRoot(t.diskdb, blockRoot); err == nil {
+		blockRoot = mptRoot
+	}
 	return t.layers[blockRoot]
 }
 
 // Snapshots returns all visited layers from the topmost layer with specific
 // root and traverses downward. The layer amount is limited by the given number.
 // If nodisk is set, then disk layer is excluded.
+//
+// For ZK-era blocks the root may be a zkStateRoot; translate it to the
+// locally-computed mptStateRoot before lookup (same as Snapshot does).
 func (t *Tree) Snapshots(root common.Hash, limits int, nodisk bool) []Snapshot {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
 	if limits == 0 {
 		return nil
+	}
+	if mptRoot, err := rawdb.ReadDiskStateRoot(t.diskdb, root); err == nil {
+		root = mptRoot
 	}
 	layer := t.layers[root]
 	if layer == nil {

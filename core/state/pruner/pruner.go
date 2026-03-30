@@ -268,6 +268,14 @@ func (p *Pruner) Prune(root common.Hash) error {
 	// - in most of the normal cases, the related state is available
 	// - the probability of this layer being reorg is very low
 	var layers []snapshot.Snapshot
+	// If an explicit root was provided and it is a zkStateRoot, translate it
+	// to the locally-computed mptStateRoot before using it as the pruning target.
+	if root != (common.Hash{}) {
+		if mptRoot, err := rawdb.ReadDiskStateRoot(p.db, root); err == nil {
+			log.Info("Translated explicit ZK root to MPT root for pruning", "zkRoot", root, "mptRoot", mptRoot)
+			root = mptRoot
+		}
+	}
 	if root == (common.Hash{}) {
 		// Retrieve all snapshot layers from the current HEAD.
 		// In theory there are 128 difflayers + 1 disk layer present,

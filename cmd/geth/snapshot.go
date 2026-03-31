@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -255,6 +256,37 @@ func pruneState(ctx *cli.Context) error {
 	defer stack.Close()
 
 	chaindb := utils.MakeChainDatabase(ctx, stack, false)
+
+	// Check if pruning target (HEAD-127) is after JadeFork to ensure MPT blocks only
+	headBlock := rawdb.ReadHeadBlock(chaindb)
+	if headBlock == nil {
+		return errors.New("failed to load head block")
+	}
+
+	chainConfig := rawdb.ReadChainConfig(chaindb, rawdb.ReadCanonicalHash(chaindb, 0))
+	if chainConfig == nil {
+		return errors.New("failed to load chain config")
+	}
+
+	// Calculate HEAD-127 block number (pruning target)
+	targetBlockNum := headBlock.NumberU64()
+	if targetBlockNum >= 127 {
+		targetBlockNum -= 127
+	}
+
+	// Check if target block is after JadeFork (MPT era)
+	if chainConfig.JadeForkTime != nil {
+		targetBlock := rawdb.ReadHeader(chaindb, rawdb.ReadCanonicalHash(chaindb, targetBlockNum), targetBlockNum)
+		if targetBlock == nil {
+			return fmt.Errorf("failed to load target block %d", targetBlockNum)
+		}
+		if targetBlock.Time < *chainConfig.JadeForkTime {
+			log.Error("Cannot prune before JadeFork", "targetBlock", targetBlockNum, "targetTime", targetBlock.Time, "jadeForkTime", *chainConfig.JadeForkTime)
+			return errors.New("pruning target (HEAD-127) must be after JadeFork to ensure MPT blocks only")
+		}
+		log.Info("Pruning target is after JadeFork", "targetBlock", targetBlockNum, "targetTime", targetBlock.Time, "jadeForkTime", *chainConfig.JadeForkTime)
+	}
+
 	pruner, err := pruner.NewPruner(chaindb, stack.ResolvePath(""), stack.ResolvePath(config.Eth.TrieCleanCacheJournal), ctx.GlobalUint64(utils.BloomFilterSizeFlag.Name))
 	if err != nil {
 		log.Error("Failed to open snapshot tree", "err", err)

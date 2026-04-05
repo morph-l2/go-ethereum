@@ -39,6 +39,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/eth/tracers/logger"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
@@ -91,17 +92,118 @@ type Backend interface {
 type API struct {
 	backend            Backend
 	morphTracerWrapper morphTracerWrapper
-	addERC20Balance    func(evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error
+	addERC20Balance    func(statedb *state.StateDB, evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
 func NewAPI(backend Backend, morphTracerWrapper morphTracerWrapper) *API {
 	api := &API{backend: backend, morphTracerWrapper: morphTracerWrapper}
-	// TODO
-	api.addERC20Balance = func(evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error {
+	api.addERC20Balance = addERC20Balance
+	return api
+}
+
+type balanceSlotTracer struct {
+	token common.Address
+	slots map[common.Hash]struct{}
+}
+
+func (t *balanceSlotTracer) OnOpcode(_ uint64, opcode byte, _ uint64, _ uint64, scope tracing.OpContext, _ []byte, _ int, err error) {
+	if err != nil || vm.OpCode(opcode) != vm.SLOAD || scope.Address() != t.token {
+		return
+	}
+	stack := scope.StackData()
+	if len(stack) == 0 {
+		return
+	}
+	t.slots[common.Hash(stack[len(stack)-1].Bytes32())] = struct{}{}
+}
+
+func addERC20Balance(statedb *state.StateDB, evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error {
+	if amount == nil || amount.Sign() == 0 {
 		return nil
 	}
-	return api
+	info, err := fees.GetTokenInfo(statedb, tokenID)
+	if err != nil {
+		return err
+	}
+	var slot common.Hash
+	if info.HasSlot {
+		_, slot, err = fees.GetAltTokenBalanceFromSlot(statedb, info.TokenAddress, addr, info.BalanceSlot)
+	} else {
+		slot, err = discoverERC20BalanceSlot(statedb, evm, info.TokenAddress, addr)
+	}
+	if err != nil {
+		return err
+	}
+	current := new(big.Int).SetBytes(statedb.GetState(info.TokenAddress, slot).Bytes())
+	statedb.SetState(info.TokenAddress, slot, common.BigToHash(new(big.Int).Add(current, amount)))
+	return nil
+}
+
+func discoverERC20BalanceSlot(statedb *state.StateDB, evm *vm.EVM, tokenAddress, user common.Address) (common.Hash, error) {
+	currentBalance, userSlots, err := traceERC20BalanceSlots(statedb, evm, tokenAddress, user)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	probe := deriveBalanceProbeAddress(tokenAddress, user)
+	_, probeSlots, err := traceERC20BalanceSlots(statedb, evm, tokenAddress, probe)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	for slot := range userSlots {
+		if _, seen := probeSlots[slot]; seen {
+			continue
+		}
+		ok, err := validateERC20BalanceSlot(statedb, evm, tokenAddress, user, currentBalance, slot)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		if ok {
+			return slot, nil
+		}
+	}
+	return common.Hash{}, fmt.Errorf("failed to discover ERC20 balance slot for token %s", tokenAddress.Hex())
+}
+
+func traceERC20BalanceSlots(statedb *state.StateDB, evm *vm.EVM, tokenAddress, user common.Address) (*big.Int, map[common.Hash]struct{}, error) {
+	probeTracer := &balanceSlotTracer{
+		token: tokenAddress,
+		slots: make(map[common.Hash]struct{}),
+	}
+	cfg := evm.Config
+	cfg.Tracer = &tracing.Hooks{OnOpcode: probeTracer.OnOpcode}
+	probeEVM := vm.NewEVM(evm.Context, evm.TxContext, statedb, evm.ChainConfig(), cfg)
+	balance, err := core.GetAltTokenBalanceByEVM(probeEVM, tokenAddress, user)
+	if err != nil {
+		return nil, nil, err
+	}
+	return balance, probeTracer.slots, nil
+}
+
+func validateERC20BalanceSlot(statedb *state.StateDB, evm *vm.EVM, tokenAddress, user common.Address, currentBalance *big.Int, slot common.Hash) (bool, error) {
+	snapshot := statedb.Snapshot()
+	defer statedb.RevertToSnapshot(snapshot)
+
+	current := new(big.Int).SetBytes(statedb.GetState(tokenAddress, slot).Bytes())
+	statedb.SetState(tokenAddress, slot, common.BigToHash(new(big.Int).Add(current, big.NewInt(1))))
+
+	balance, _, err := traceERC20BalanceSlots(statedb, evm, tokenAddress, user)
+	if err != nil {
+		return false, err
+	}
+	expected := new(big.Int).Add(new(big.Int).Set(currentBalance), big.NewInt(1))
+	return balance.Cmp(expected) == 0, nil
+}
+
+func deriveBalanceProbeAddress(tokenAddress, user common.Address) common.Address {
+	probe := common.BytesToAddress(crypto.Keccak256(tokenAddress.Bytes(), user.Bytes(), []byte("tracecall-balance-probe"))[12:])
+	if probe == (common.Address{}) || probe == user {
+		probe[19] ^= 0x01
+		if probe == user {
+			probe[18] ^= 0x01
+		}
+	}
+	return probe
 }
 
 type chainContext struct {
@@ -990,7 +1092,7 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 			if err != nil {
 				return nil, err
 			}
-			if err := api.addERC20Balance(vmenv, message.FeeTokenID(), message.From(), erc20Amount); err != nil {
+			if err := api.addERC20Balance(statedb, vmenv, message.FeeTokenID(), message.From(), erc20Amount); err != nil {
 				return nil, err
 			}
 		}

@@ -113,13 +113,13 @@ type callFrameMarshaling struct {
 }
 
 type callTracer struct {
-	callstack []callFrame
-	config    callTracerConfig
-	gasLimit  uint64
-	depth     int
-	interrupt atomic.Bool // Atomic flag to signal execution interruption
-	reason    error       // Textual reason for the interruption
-	skip      bool
+	callstack       []callFrame
+	config          callTracerConfig
+	gasLimit        uint64
+	depth           int
+	interrupt       atomic.Bool // Atomic flag to signal execution interruption
+	reason          error       // Textual reason for the interruption
+	systemCallDepth int
 }
 
 type callTracerConfig struct {
@@ -161,7 +161,7 @@ func newCallTracerObject(ctx *tracers.Context, cfg json.RawMessage) (*callTracer
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *callTracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
-	if t.skip {
+	if t.systemCallDepth > 0 {
 		return
 	}
 	t.depth = depth
@@ -191,7 +191,7 @@ func (t *callTracer) OnEnter(depth int, typ byte, from common.Address, to common
 // OnExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (t *callTracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
-	if t.skip {
+	if t.systemCallDepth > 0 {
 		return
 	}
 	if depth == 0 {
@@ -227,16 +227,10 @@ func (t *callTracer) captureEnd(output []byte, gasUsed uint64, err error, revert
 }
 
 func (t *callTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
-	if t.skip {
-		return
-	}
 	t.gasLimit = tx.Gas()
 }
 
 func (t *callTracer) OnTxEnd(receipt *types.Receipt, err error) {
-	if t.skip {
-		return
-	}
 	// Error happened during tx validation.
 	if err != nil {
 		return
@@ -251,15 +245,17 @@ func (t *callTracer) OnTxEnd(receipt *types.Receipt, err error) {
 }
 
 func (t *callTracer) OnSystemCall(env *tracing.VMContext) {
-	t.skip = true
+	t.systemCallDepth++
 }
 
 func (t *callTracer) OnSystemCallEnd() {
-	t.skip = false
+	if t.systemCallDepth > 0 {
+		t.systemCallDepth--
+	}
 }
 
 func (t *callTracer) OnLog(log *types.Log) {
-	if t.skip {
+	if t.systemCallDepth > 0 {
 		return
 	}
 	// Only logs need to be captured via opcode processing

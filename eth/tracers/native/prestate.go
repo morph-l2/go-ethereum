@@ -50,7 +50,6 @@ type prestateTracer struct {
 	env         *tracing.VMContext
 	pre         stateMap
 	post        stateMap
-	create      bool
 	to          common.Address
 	config      prestateTracerConfig
 	chainConfig *params.ChainConfig
@@ -87,9 +86,13 @@ func newPrestateTracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *p
 	}
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
-			OnTxStart: t.OnTxStart,
-			OnTxEnd:   t.OnTxEnd,
-			OnOpcode:  t.OnOpcode,
+			OnTxStart:       t.OnTxStart,
+			OnTxEnd:         t.OnTxEnd,
+			OnOpcode:        t.OnOpcode,
+			OnBalanceChange: t.OnBalanceChange,
+			OnNonceChangeV2: t.OnNonceChange,
+			OnCodeChange:    t.OnCodeChange,
+			OnStorageChange: t.OnStorageChange,
 		},
 		GetResult: t.GetResult,
 		Stop:      t.Stop,
@@ -294,27 +297,104 @@ func (t *prestateTracer) Stop(err error) {
 	t.interrupt.Store(true)
 }
 
-// lookupAccount fetches details of an account and adds it to the prestate
-// if it doesn't exist there.
-func (t *prestateTracer) lookupAccount(addr common.Address) {
-	if _, ok := t.pre[addr]; ok {
+func (t *prestateTracer) OnBalanceChange(addr common.Address, prev, _ *big.Int, reason tracing.BalanceChangeReason) {
+	if t.interrupt.Load() || t.env == nil {
 		return
 	}
-
-	t.pre[addr] = &account{
-		Balance: t.env.StateDB.GetBalance(addr),
-		Nonce:   t.env.StateDB.GetNonce(addr),
-		Code:    t.env.StateDB.GetCode(addr),
-		Storage: make(map[common.Hash]common.Hash),
+	acc, existed := t.ensureAccount(addr)
+	if !existed {
+		acc.Balance = new(big.Int).Set(prev)
+		acc.empty = isEmptyAccount(acc.Balance, acc.Nonce, acc.Code, acc.CodeHash)
 	}
 }
 
-// lookupStorage fetches the requested storage slot and adds
-// it to the prestate of the given contract. It assumes `lookupAccount`
-// has been performed on the contract before.
-func (t *prestateTracer) lookupStorage(addr common.Address, key common.Hash) {
-	if _, ok := t.pre[addr].Storage[key]; ok {
+func (t *prestateTracer) OnNonceChange(addr common.Address, prev, _ uint64, reason tracing.NonceChangeReason) {
+	if t.interrupt.Load() || t.env == nil {
 		return
 	}
-	t.pre[addr].Storage[key] = t.env.StateDB.GetState(addr, key)
+	acc, existed := t.ensureAccount(addr)
+	if !existed {
+		acc.Nonce = prev
+		acc.empty = isEmptyAccount(acc.Balance, acc.Nonce, acc.Code, acc.CodeHash)
+	}
+}
+
+func (t *prestateTracer) OnCodeChange(addr common.Address, prevCodeHash common.Hash, prevCode []byte, codeHash common.Hash, code []byte) {
+	if t.interrupt.Load() || t.env == nil {
+		return
+	}
+	acc, existed := t.ensureAccount(addr)
+	if !existed {
+		acc.Code = common.CopyBytes(prevCode)
+		acc.CodeHash = normalizeCodeHash(prevCodeHash)
+		if t.config.DisableCode {
+			acc.Code = nil
+		}
+		acc.empty = isEmptyAccount(acc.Balance, acc.Nonce, prevCode, normalizeCodeHash(prevCodeHash))
+	}
+}
+
+func (t *prestateTracer) OnStorageChange(addr common.Address, slot common.Hash, prev, _ common.Hash) {
+	if t.interrupt.Load() || t.env == nil || t.config.DisableStorage {
+		return
+	}
+	acc, _ := t.ensureAccount(addr)
+	if _, ok := acc.Storage[slot]; ok {
+		return
+	}
+	acc.Storage[slot] = prev
+}
+
+// lookupAccount fetches details of an account and adds it to the prestate
+// if it doesn't exist there.
+func (t *prestateTracer) lookupAccount(addr common.Address) {
+	t.ensureAccount(addr)
+}
+
+// lookupStorage fetches the requested storage slot and adds
+// it to the prestate of the given contract. It ensures the account
+// exists in the prestate before accessing its storage.
+func (t *prestateTracer) lookupStorage(addr common.Address, key common.Hash) {
+	if t.config.DisableStorage {
+		return
+	}
+	acc, _ := t.ensureAccount(addr)
+	if _, ok := acc.Storage[key]; ok {
+		return
+	}
+	acc.Storage[key] = t.env.StateDB.GetState(addr, key)
+}
+
+func (t *prestateTracer) ensureAccount(addr common.Address) (*account, bool) {
+	if acc, ok := t.pre[addr]; ok {
+		return acc, true
+	}
+	code := t.env.StateDB.GetCode(addr)
+	acc := &account{
+		Balance:  t.env.StateDB.GetBalance(addr),
+		Nonce:    t.env.StateDB.GetNonce(addr),
+		Code:     code,
+		CodeHash: normalizeCodeHash(t.env.StateDB.GetKeccakCodeHash(addr)),
+	}
+	acc.empty = isEmptyAccount(acc.Balance, acc.Nonce, code, acc.CodeHash)
+	if t.config.DisableCode {
+		acc.Code = nil
+	}
+	if !t.config.DisableStorage {
+		acc.Storage = make(map[common.Hash]common.Hash)
+	}
+	t.pre[addr] = acc
+	return acc, false
+}
+
+func normalizeCodeHash(codeHash common.Hash) *common.Hash {
+	if codeHash == (common.Hash{}) || codeHash == codehash.EmptyKeccakCodeHash {
+		return nil
+	}
+	h := codeHash
+	return &h
+}
+
+func isEmptyAccount(balance *big.Int, nonce uint64, code []byte, codeHash *common.Hash) bool {
+	return nonce == 0 && len(code) == 0 && codeHash == nil && (balance == nil || balance.Sign() == 0)
 }

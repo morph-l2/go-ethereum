@@ -236,9 +236,9 @@ type StructLogger struct {
 	structLogs []*StructLog
 	resultSize int
 
-	interrupt atomic.Bool // Atomic flag to signal execution interruption
-	reason    error       // Textual reason for the interruption
-	skip      bool        // skip processing hooks.
+	interrupt       atomic.Bool // Atomic flag to signal execution interruption
+	reason          error       // Textual reason for the interruption
+	systemCallDepth int         // skip visible processing hooks while inside system calls.
 }
 
 // NewStreamingStructLogger returns a new streaming logger.
@@ -307,7 +307,7 @@ func (l *StructLogger) OnOpcode(pc uint64, opcode byte, gas, cost uint64, scope 
 		return
 	}
 	// Processing a system call.
-	if l.skip {
+	if l.systemCallDepth > 0 {
 		return
 	}
 	// check if already accumulated the size of the response.
@@ -406,7 +406,7 @@ func (l *StructLogger) OnExit(depth int, output []byte, gasUsed uint64, err erro
 	if depth != 0 {
 		return
 	}
-	if l.skip {
+	if l.systemCallDepth > 0 {
 		return
 	}
 	l.output = output
@@ -499,11 +499,13 @@ func (l *StructLogger) OnTxStart(env *tracing.VMContext, tx *types.Transaction, 
 }
 
 func (l *StructLogger) OnSystemCallStart(env *tracing.VMContext) {
-	l.skip = true
+	l.systemCallDepth++
 }
 
 func (l *StructLogger) OnSystemCallEnd() {
-	l.skip = false
+	if l.systemCallDepth > 0 {
+		l.systemCallDepth--
+	}
 }
 
 func (l *StructLogger) OnTxEnd(receipt *types.Receipt, err error) {
@@ -558,10 +560,10 @@ func WriteLogs(writer io.Writer, logs []*types.Log) {
 }
 
 type mdLogger struct {
-	out  io.Writer
-	cfg  *Config
-	env  *tracing.VMContext
-	skip bool
+	out             io.Writer
+	cfg             *Config
+	env             *tracing.VMContext
+	systemCallDepth int
 }
 
 // NewMarkdownLogger creates a logger which outputs information in a format adapted
@@ -591,15 +593,17 @@ func (t *mdLogger) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from
 }
 
 func (t *mdLogger) OnSystemCallStart(env *tracing.VMContext) {
-	t.skip = true
+	t.systemCallDepth++
 }
 
 func (t *mdLogger) OnSystemCallEnd() {
-	t.skip = false
+	if t.systemCallDepth > 0 {
+		t.systemCallDepth--
+	}
 }
 
 func (t *mdLogger) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
-	if t.skip {
+	if t.systemCallDepth > 0 {
 		return
 	}
 	if depth != 0 {
@@ -629,7 +633,7 @@ func (t *mdLogger) OnEnter(depth int, typ byte, from common.Address, to common.A
 }
 
 func (t *mdLogger) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
-	if t.skip {
+	if t.systemCallDepth > 0 {
 		return
 	}
 	if depth == 0 {
@@ -643,7 +647,7 @@ func (t *mdLogger) OnExit(depth int, output []byte, gasUsed uint64, err error, r
 
 // OnOpcode also tracks SLOAD/SSTORE ops to track storage change.
 func (t *mdLogger) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
-	if t.skip {
+	if t.systemCallDepth > 0 {
 		return
 	}
 	stack := scope.StackData()
@@ -666,7 +670,7 @@ func (t *mdLogger) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.
 }
 
 func (t *mdLogger) OnFault(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, depth int, err error) {
-	if t.skip {
+	if t.systemCallDepth > 0 {
 		return
 	}
 	fmt.Fprintf(t.out, "\nError: at pc=%d, op=%v: %v\n", pc, op, err)

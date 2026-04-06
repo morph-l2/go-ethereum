@@ -310,9 +310,14 @@ func (t *prestateTracer) lookupAccount(addr common.Address) {
 }
 
 // lookupStorage fetches the requested storage slot and adds
-// it to the prestate of the given contract. It assumes `lookupAccount`
-// has been performed on the contract before.
+// it to the prestate of the given contract. It ensures the account
+// exists in the prestate before accessing its storage.
 func (t *prestateTracer) lookupStorage(addr common.Address, key common.Hash) {
+	// Ensure the account exists in the prestate. This is necessary because
+	// MorphTx fee token operations (balanceOf/transfer) are executed via
+	// Go-level evm.StaticCall/Call, so the fee token contract address may
+	// not have been registered in t.pre by OnTxStart.
+	t.lookupAccount(addr)
 	if _, ok := t.pre[addr].Storage[key]; ok {
 		return
 	}

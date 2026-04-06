@@ -335,10 +335,13 @@ func (t *prestateTracer) OnCodeChange(addr common.Address, prevCodeHash common.H
 }
 
 func (t *prestateTracer) OnStorageChange(addr common.Address, slot common.Hash, prev, _ common.Hash) {
-	if t.interrupt.Load() || t.env == nil || t.config.DisableStorage {
+	if t.interrupt.Load() || t.env == nil {
 		return
 	}
 	acc, _ := t.ensureAccount(addr)
+	if t.config.DisableStorage {
+		return
+	}
 	if _, ok := acc.Storage[slot]; ok {
 		return
 	}
@@ -355,10 +358,10 @@ func (t *prestateTracer) lookupAccount(addr common.Address) {
 // it to the prestate of the given contract. It ensures the account
 // exists in the prestate before accessing its storage.
 func (t *prestateTracer) lookupStorage(addr common.Address, key common.Hash) {
+	acc, _ := t.ensureAccount(addr)
 	if t.config.DisableStorage {
 		return
 	}
-	acc, _ := t.ensureAccount(addr)
 	if _, ok := acc.Storage[key]; ok {
 		return
 	}

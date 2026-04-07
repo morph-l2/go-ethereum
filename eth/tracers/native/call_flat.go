@@ -120,6 +120,7 @@ type flatCallTracer struct {
 	ctx               *tracers.Context // Holds tracer context data
 	interrupt         atomic.Bool      // Atomic flag to signal execution interruption
 	activePrecompiles []common.Address // Updated on tx start based on given rules
+	systemCallDepth   int
 }
 
 type flatCallTracerConfig struct {
@@ -158,7 +159,7 @@ func newFlatCallTracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *p
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *flatCallTracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
-	if t.interrupt.Load() {
+	if t.interrupt.Load() || t.systemCallDepth > 0 {
 		return
 	}
 	t.tracer.OnEnter(depth, typ, from, to, input, gas, value)
@@ -176,7 +177,7 @@ func (t *flatCallTracer) OnEnter(depth int, typ byte, from common.Address, to co
 // OnExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (t *flatCallTracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
-	if t.interrupt.Load() {
+	if t.interrupt.Load() || t.systemCallDepth > 0 {
 		return
 	}
 	t.tracer.OnExit(depth, output, gasUsed, err, reverted)
@@ -224,12 +225,16 @@ func (t *flatCallTracer) OnSystemCallStart(env *tracing.VMContext) {
 	if t.interrupt.Load() {
 		return
 	}
+	t.systemCallDepth++
 	t.tracer.OnSystemCall(env)
 }
 
 func (t *flatCallTracer) OnSystemCallEnd() {
 	if t.interrupt.Load() {
 		return
+	}
+	if t.systemCallDepth > 0 {
+		t.systemCallDepth--
 	}
 	t.tracer.OnSystemCallEnd()
 }

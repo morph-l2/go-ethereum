@@ -92,7 +92,7 @@ type Backend interface {
 type API struct {
 	backend            Backend
 	morphTracerWrapper morphTracerWrapper
-	addERC20Balance    func(statedb *state.StateDB, evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error
+	addERC20Balance    func(statedb *state.StateDB, evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int, mask *syntheticPrecreditMask) error
 }
 
 // NewAPI creates a new API definition for the tracing methods of the Ethereum service.
@@ -107,6 +107,17 @@ type balanceSlotTracer struct {
 	slots map[common.Hash]struct{}
 }
 
+type syntheticPrecreditMask struct {
+	active   bool
+	balances map[common.Address]*big.Int
+	storage  map[common.Address]map[common.Hash]common.Hash
+}
+
+type maskedTracingStateDB struct {
+	inner tracing.StateDB
+	mask  *syntheticPrecreditMask
+}
+
 func (t *balanceSlotTracer) OnOpcode(_ uint64, opcode byte, _ uint64, _ uint64, scope tracing.OpContext, _ []byte, _ int, err error) {
 	if err != nil || vm.OpCode(opcode) != vm.SLOAD || scope.Address() != t.token {
 		return
@@ -118,7 +129,7 @@ func (t *balanceSlotTracer) OnOpcode(_ uint64, opcode byte, _ uint64, _ uint64, 
 	t.slots[common.Hash(stack[len(stack)-1].Bytes32())] = struct{}{}
 }
 
-func addERC20Balance(statedb *state.StateDB, evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int) error {
+func addERC20Balance(statedb *state.StateDB, evm *vm.EVM, tokenID uint16, addr common.Address, amount *big.Int, mask *syntheticPrecreditMask) error {
 	if amount == nil || amount.Sign() == 0 {
 		return nil
 	}
@@ -135,9 +146,163 @@ func addERC20Balance(statedb *state.StateDB, evm *vm.EVM, tokenID uint16, addr c
 	if err != nil {
 		return err
 	}
-	current := new(big.Int).SetBytes(statedb.GetState(info.TokenAddress, slot).Bytes())
-	statedb.SetState(info.TokenAddress, slot, common.BigToHash(new(big.Int).Add(current, amount)))
+	current := statedb.GetState(info.TokenAddress, slot)
+	if mask != nil {
+		mask.addStorage(info.TokenAddress, slot, current)
+	}
+	statedb.SetState(info.TokenAddress, slot, common.BigToHash(new(big.Int).Add(new(big.Int).SetBytes(current.Bytes()), amount)))
 	return nil
+}
+
+func newSyntheticPrecreditMask() *syntheticPrecreditMask {
+	return &syntheticPrecreditMask{
+		active:   true,
+		balances: make(map[common.Address]*big.Int),
+		storage:  make(map[common.Address]map[common.Hash]common.Hash),
+	}
+}
+
+func (m *syntheticPrecreditMask) hasEntries() bool {
+	return m != nil && (len(m.balances) > 0 || len(m.storage) > 0)
+}
+
+func (m *syntheticPrecreditMask) addBalance(addr common.Address, balance *big.Int) {
+	if m == nil {
+		return
+	}
+	m.balances[addr] = new(big.Int).Set(balance)
+}
+
+func (m *syntheticPrecreditMask) addStorage(addr common.Address, slot common.Hash, value common.Hash) {
+	if m == nil {
+		return
+	}
+	if m.storage[addr] == nil {
+		m.storage[addr] = make(map[common.Hash]common.Hash)
+	}
+	m.storage[addr][slot] = value
+}
+
+func (m *syntheticPrecreditMask) originalBalance(addr common.Address) (*big.Int, bool) {
+	if m == nil || !m.active {
+		return nil, false
+	}
+	balance, ok := m.balances[addr]
+	if !ok {
+		return nil, false
+	}
+	return new(big.Int).Set(balance), true
+}
+
+func (m *syntheticPrecreditMask) originalStorage(addr common.Address, slot common.Hash) (common.Hash, bool) {
+	if m == nil || !m.active {
+		return common.Hash{}, false
+	}
+	value, ok := m.storage[addr][slot]
+	return value, ok
+}
+
+func (db *maskedTracingStateDB) GetBalance(addr common.Address) *big.Int {
+	if balance, ok := db.mask.originalBalance(addr); ok {
+		return balance
+	}
+	return db.inner.GetBalance(addr)
+}
+
+func (db *maskedTracingStateDB) GetNonce(addr common.Address) uint64 {
+	return db.inner.GetNonce(addr)
+}
+
+func (db *maskedTracingStateDB) GetCode(addr common.Address) []byte {
+	return db.inner.GetCode(addr)
+}
+
+func (db *maskedTracingStateDB) GetKeccakCodeHash(addr common.Address) common.Hash {
+	return db.inner.GetKeccakCodeHash(addr)
+}
+
+func (db *maskedTracingStateDB) GetPoseidonCodeHash(addr common.Address) common.Hash {
+	return db.inner.GetPoseidonCodeHash(addr)
+}
+
+func (db *maskedTracingStateDB) GetState(addr common.Address, key common.Hash) common.Hash {
+	if value, ok := db.mask.originalStorage(addr, key); ok {
+		return value
+	}
+	return db.inner.GetState(addr, key)
+}
+
+func (db *maskedTracingStateDB) GetTransientState(addr common.Address, key common.Hash) common.Hash {
+	return db.inner.GetTransientState(addr, key)
+}
+
+func (db *maskedTracingStateDB) Exist(addr common.Address) bool {
+	return db.inner.Exist(addr)
+}
+
+func (db *maskedTracingStateDB) GetRefund() uint64 {
+	return db.inner.GetRefund()
+}
+
+func (db *maskedTracingStateDB) GetCodeSize(addr common.Address) uint64 {
+	return db.inner.GetCodeSize(addr)
+}
+
+func shouldMaskSyntheticPrecredits(config *TraceConfig) bool {
+	if config == nil || config.Tracer == nil {
+		return false
+	}
+	if *config.Tracer == "prestateTracer" {
+		return true
+	}
+	if *config.Tracer != "muxTracer" || len(config.TracerConfig) == 0 {
+		return false
+	}
+	var subtracers map[string]json.RawMessage
+	if err := json.Unmarshal(config.TracerConfig, &subtracers); err != nil {
+		return false
+	}
+	_, ok := subtracers["prestateTracer"]
+	return ok
+}
+
+func wrapSyntheticPrecreditHooks(hooks *tracing.Hooks, mask *syntheticPrecreditMask) *tracing.Hooks {
+	if hooks == nil || !mask.hasEntries() {
+		return hooks
+	}
+	base := hooks
+	wrapped := *base
+	wrapped.OnTxStart = func(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
+		if base.OnTxStart == nil {
+			return
+		}
+		envCopy := *env
+		envCopy.StateDB = &maskedTracingStateDB{inner: env.StateDB, mask: mask}
+		base.OnTxStart(&envCopy, tx, from)
+	}
+	wrapped.OnTxEnd = func(receipt *types.Receipt, err error) {
+		mask.active = false
+		if base.OnTxEnd != nil {
+			base.OnTxEnd(receipt, err)
+		}
+	}
+	wrapped.OnBalanceChange = func(addr common.Address, prev, new *big.Int, reason tracing.BalanceChangeReason) {
+		if original, ok := mask.originalBalance(addr); ok {
+			prev = original
+		}
+		if base.OnBalanceChange != nil {
+			base.OnBalanceChange(addr, prev, new, reason)
+		}
+	}
+	wrapped.OnStorageChange = func(addr common.Address, slot common.Hash, prev, new common.Hash) {
+		if original, ok := mask.originalStorage(addr, slot); ok {
+			prev = original
+		}
+		if base.OnStorageChange != nil {
+			base.OnStorageChange(addr, slot, prev, new)
+		}
+	}
+	return &wrapped
 }
 
 func discoverERC20BalanceSlot(statedb *state.StateDB, evm *vm.EVM, tokenAddress, user common.Address) (common.Hash, error) {
@@ -197,7 +362,8 @@ func validateERC20BalanceSlot(statedb *state.StateDB, evm *vm.EVM, tokenAddress,
 
 func deriveBalanceProbeAddress(tokenAddress, user common.Address) common.Address {
 	probe := common.BytesToAddress(crypto.Keccak256(tokenAddress.Bytes(), user.Bytes(), []byte("tracecall-balance-probe"))[12:])
-	if probe == (common.Address{}) || probe == user {
+	var zero common.Address
+	if probe == zero || probe == user {
 		probe[19] ^= 0x01
 		if probe == user {
 			probe[18] ^= 0x01
@@ -1040,6 +1206,9 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 	var (
 		tracer       *Tracer
 		err          error
+		execState    = statedb
+		hooks        *tracing.Hooks
+		mask         *syntheticPrecreditMask
 		structLogger *logger.StructLogger
 		timeout      = defaultTraceTimeout
 		usedGas      uint64
@@ -1062,9 +1231,34 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 			return nil, err
 		}
 	}
-	tracingStateDB := state.NewHookedState(statedb, tracer.Hooks)
+	hooks = tracer.Hooks
+	if l1DataFee != nil && l1DataFee.Sign() > 0 && message.GasPrice().Cmp(big.NewInt(0)) == 0 {
+		if shouldMaskSyntheticPrecredits(config) {
+			execState = statedb.Copy()
+			mask = newSyntheticPrecreditMask()
+		}
+		if message.FeeTokenID() == 0 {
+			if mask != nil {
+				mask.addBalance(message.From(), execState.GetBalance(message.From()))
+			}
+			execState.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
+		} else {
+			probeEVM := vm.NewEVM(vmctx, txContext, execState, api.backend.ChainConfig(), vm.Config{NoBaseFee: true})
+			erc20Amount, err := fees.EthToAlt(execState, message.FeeTokenID(), l1DataFee)
+			if err != nil {
+				return nil, err
+			}
+			if err := api.addERC20Balance(execState, probeEVM, message.FeeTokenID(), message.From(), erc20Amount, mask); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if mask != nil {
+		hooks = wrapSyntheticPrecreditHooks(hooks, mask)
+	}
+	tracingStateDB := state.NewHookedState(execState, hooks)
 	// Run the transaction with tracing enabled.
-	vmenv := vm.NewEVM(vmctx, txContext, tracingStateDB, api.backend.ChainConfig(), vm.Config{Tracer: tracer.Hooks, NoBaseFee: true})
+	vmenv := vm.NewEVM(vmctx, txContext, tracingStateDB, api.backend.ChainConfig(), vm.Config{Tracer: hooks, NoBaseFee: true})
 
 	// Define a meaningful timeout of a single transaction trace
 	if config.Timeout != nil {
@@ -1083,23 +1277,9 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 	}()
 	defer cancel()
 
-	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
-	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {
-		if message.FeeTokenID() == 0 {
-			statedb.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
-		} else {
-			erc20Amount, err := fees.EthToAlt(statedb, message.FeeTokenID(), l1DataFee)
-			if err != nil {
-				return nil, err
-			}
-			if err := api.addERC20Balance(statedb, vmenv, message.FeeTokenID(), message.From(), erc20Amount); err != nil {
-				return nil, err
-			}
-		}
-	}
 	// Call Prepare to clear out the statedb access list
-	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
-	_, err = core.ApplyTransactionWithEVM(message, api.backend.ChainConfig(), new(core.GasPool).AddGas(message.Gas()), statedb, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, vmenv)
+	execState.SetTxContext(txctx.TxHash, txctx.TxIndex)
+	_, err = core.ApplyTransactionWithEVM(message, api.backend.ChainConfig(), new(core.GasPool).AddGas(message.Gas()), execState, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, vmenv)
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}

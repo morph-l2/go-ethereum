@@ -523,6 +523,8 @@ func (l *StructLogger) OnTxEnd(receipt *types.Receipt, err error) {
 }
 
 func (l *StructLogger) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+	// Keep tracking affected accounts during system calls because UpdatedAccounts()
+	// feeds proof collection and fee-token helper calls can touch required accounts.
 	l.statesAffected[to] = struct{}{}
 	target, ok := types.ParseDelegation(l.env.StateDB.GetCode(to))
 	// if the target is a delegation, we need to trace the target

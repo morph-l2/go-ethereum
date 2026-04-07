@@ -36,6 +36,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
@@ -45,6 +46,7 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -623,7 +625,7 @@ func TestAddERC20BalanceDynamicSlotDiscovery(t *testing.T) {
 		GasPrice: big.NewInt(0),
 	}, statedb, params.TestChainConfig, vm.Config{NoBaseFee: true})
 
-	if err := addERC20Balance(statedb, evm, tokenID, user, big.NewInt(5)); err != nil {
+	if err := addERC20Balance(statedb, evm, tokenID, user, big.NewInt(5), nil); err != nil {
 		t.Fatalf("failed to add ERC20 balance: %v", err)
 	}
 	balance, err := core.GetAltTokenBalanceByEVM(evm, token, user)
@@ -633,6 +635,63 @@ func TestAddERC20BalanceDynamicSlotDiscovery(t *testing.T) {
 	if balance.Cmp(big.NewInt(12)) != 0 {
 		t.Fatalf("unexpected ERC20 balance, have %v want %v", balance, 12)
 	}
+}
+
+func TestSyntheticPrecreditMaskPreservesPrestateTracerView(t *testing.T) {
+	t.Parallel()
+
+	user := common.HexToAddress("0x100")
+	recipient := common.HexToAddress("0x101")
+	token := common.HexToAddress("0x200")
+	slot := fees.CalculateAltTokenBalanceSlot(user, common.Hash{})
+	original := common.BigToHash(big.NewInt(7))
+	synthetic := common.BigToHash(big.NewInt(12))
+
+	statedb := newTestStateDB(t, nil)
+	statedb.SetState(token, slot, synthetic)
+
+	var (
+		seenStart common.Hash
+		seenPrev  common.Hash
+		seenFinal common.Hash
+		seenState tracing.StateDB
+	)
+	baseHooks := &tracing.Hooks{
+		OnTxStart: func(env *tracing.VMContext, _ *types.Transaction, _ common.Address) {
+			seenState = env.StateDB
+			seenStart = env.StateDB.GetState(token, slot)
+		},
+		OnStorageChange: func(addr common.Address, key common.Hash, prev, _ common.Hash) {
+			if addr == token && key == slot {
+				seenPrev = prev
+			}
+		},
+		OnTxEnd: func(_ *types.Receipt, _ error) {
+			seenFinal = seenState.GetState(token, slot)
+		},
+	}
+	mask := newSyntheticPrecreditMask()
+	mask.addStorage(token, slot, original)
+	hooks := wrapSyntheticPrecreditHooks(baseHooks, mask)
+
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    0,
+		To:       &recipient,
+		Value:    big.NewInt(0),
+		Gas:      params.TxGas,
+		GasPrice: big.NewInt(0),
+	})
+	hooks.OnTxStart(&tracing.VMContext{
+		BlockNumber: big.NewInt(1),
+		StateDB:     statedb,
+	}, tx, user)
+	hooks.OnStorageChange(token, slot, synthetic, original)
+	statedb.SetState(token, slot, original)
+	hooks.OnTxEnd(&types.Receipt{GasUsed: params.TxGas}, nil)
+
+	require.Equal(t, original, seenStart)
+	require.Equal(t, original, seenPrev)
+	require.Equal(t, original, seenFinal)
 }
 
 type Account struct {

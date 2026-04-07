@@ -24,12 +24,15 @@ func startSystemCallTrace(evm *vm.EVM) func() {
 		return nil
 	}
 	tracer := evm.Config.Tracer
+	if tracer.OnSystemCallEnd == nil {
+		return nil
+	}
 	if tracer.OnSystemCallStartV2 != nil {
 		tracer.OnSystemCallStartV2(evm.GetVMContext())
-	} else if tracer.OnSystemCallStart != nil {
-		tracer.OnSystemCallStart()
+		return tracer.OnSystemCallEnd
 	}
-	if tracer.OnSystemCallEnd != nil {
+	if tracer.OnSystemCallStart != nil {
+		tracer.OnSystemCallStart()
 		return tracer.OnSystemCallEnd
 	}
 	return nil

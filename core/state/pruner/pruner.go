@@ -63,6 +63,26 @@ var (
 	emptyKeccakCodeHash = codehash.EmptyKeccakCodeHash.Bytes()
 )
 
+// teeWriter writes to both the real database and the state bloom filter.
+// This ensures GenerateTrie persists trie nodes to disk (filling gaps from
+// unclean shutdowns) while also recording their hashes in the bloom filter
+// for pruning protection.
+type teeWriter struct {
+	db    ethdb.KeyValueWriter
+	bloom *stateBloom
+}
+
+func (w *teeWriter) Put(key, value []byte) error {
+	if err := w.db.Put(key, value); err != nil {
+		return err
+	}
+	return w.bloom.Put(key, value)
+}
+
+func (w *teeWriter) Delete(key []byte) error {
+	return w.db.Delete(key)
+}
+
 // Pruner is an offline tool to prune the stale state with the
 // help of the snapshot. The workflow of pruner is very simple:
 //
@@ -230,7 +250,8 @@ func prune(snaptree *snapshot.Tree, root common.Hash, maindb ethdb.Database, sta
 
 // Prune deletes all historical state nodes except the nodes belong to the
 // specified state version. If user doesn't specify the state version, use
-// the bottom-most snapshot diff layer as the target.
+// the HEAD state as the target so the node restarts at exactly the same
+// height it stopped at (zero block rewind).
 func (p *Pruner) Prune(root common.Hash) error {
 	// If the state bloom filter is already committed previously,
 	// reuse it for pruning instead of generating a new one. It's
@@ -243,61 +264,16 @@ func (p *Pruner) Prune(root common.Hash) error {
 	if stateBloomRoot != (common.Hash{}) {
 		return RecoverPruning(p.datadir, p.db, p.trieCachePath)
 	}
-	// If the target state root is not specified, use the HEAD-127 as the
-	// target. The reason for picking it is:
-	// - in most of the normal cases, the related state is available
-	// - the probability of this layer being reorg is very low
-	var layers []snapshot.Snapshot
 	if root == (common.Hash{}) {
-		// Retrieve all snapshot layers from the current HEAD.
-		// In theory there are 128 difflayers + 1 disk layer present,
-		// so 128 diff layers are expected to be returned.
-		layers = p.snaptree.Snapshots(p.headHeader.Root, 128, true)
-		if len(layers) != 128 {
-			// Reject if the accumulated diff layers are less than 128. It
-			// means in most of normal cases, there is no associated state
-			// with bottom-most diff layer.
-			return fmt.Errorf("snapshot not old enough yet: need %d more blocks", 128-len(layers))
-		}
-		// Use the bottom-most diff layer as the target
-		root = layers[len(layers)-1].Root()
-	}
-	// Ensure the root is really present. The weak assumption
-	// is the presence of root can indicate the presence of the
-	// entire trie.
-	if blob := rawdb.ReadTrieNode(p.db, root); len(blob) == 0 {
-		// The special case is for clique based networks(rinkeby, goerli
-		// and some other private networks), it's possible that two
-		// consecutive blocks will have same root. In this case snapshot
-		// difflayer won't be created. So HEAD-127 may not paired with
-		// head-127 layer. Instead the paired layer is higher than the
-		// bottom-most diff layer. Try to find the bottom-most snapshot
-		// layer with state available.
-		//
-		// Note HEAD and HEAD-1 is ignored. Usually there is the associated
-		// state available, but we don't want to use the topmost state
-		// as the pruning target.
-		var found bool
-		for i := len(layers) - 2; i >= 2; i-- {
-			if blob := rawdb.ReadTrieNode(p.db, layers[i].Root()); len(blob) != 0 {
-				root = layers[i].Root()
-				found = true
-				log.Info("Selecting middle-layer as the pruning target", "root", root, "depth", i)
-				break
-			}
-		}
-		if !found {
-			if len(layers) > 0 {
-				return errors.New("no snapshot paired state")
-			}
-			return fmt.Errorf("associated state[%x] is not present", root)
-		}
+		// Use HEAD as the pruning target. On L2 chains reorgs are
+		// essentially non-existent, so the HEAD-127 safety margin
+		// from L1 is unnecessary. Combined with the teeWriter that
+		// persists the trie from snapshot, this guarantees zero
+		// height drop after pruning regardless of shutdown method.
+		root = p.headHeader.Root
+		log.Info("Selecting HEAD as the pruning target", "root", root, "height", p.headHeader.Number.Uint64())
 	} else {
-		if len(layers) > 0 {
-			log.Info("Selecting bottom-most difflayer as the pruning target", "root", root, "height", p.headHeader.Number.Uint64()-127)
-		} else {
-			log.Info("Selecting user-specified state as the pruning target", "root", root)
-		}
+		log.Info("Selecting user-specified state as the pruning target", "root", root)
 	}
 	// Before start the pruning, delete the clean trie cache first.
 	// It's necessary otherwise in the next restart we will hit the
@@ -305,19 +281,12 @@ func (p *Pruner) Prune(root common.Hash) error {
 	// state is picked for usage.
 	deleteCleanTrieCache(p.trieCachePath)
 
-	// All the state roots of the middle layer should be forcibly pruned,
-	// otherwise the dangling state will be left.
-	middleRoots := make(map[common.Hash]struct{})
-	for _, layer := range layers {
-		if layer.Root() == root {
-			break
-		}
-		middleRoots[layer.Root()] = struct{}{}
-	}
 	// Traverse the target state, re-construct the whole state trie and
-	// commit to the given bloom filter.
+	// commit to the given bloom filter. The teeWriter ensures trie nodes
+	// are also persisted to disk, filling any gaps from unclean shutdowns.
 	start := time.Now()
-	if err := snapshot.GenerateTrie(p.snaptree, root, p.db, p.stateBloom); err != nil {
+	writer := &teeWriter{db: p.db, bloom: p.stateBloom}
+	if err := snapshot.GenerateTrie(p.snaptree, root, p.db, writer); err != nil {
 		return err
 	}
 	// Traverse the genesis, put all genesis state entries into the
@@ -332,7 +301,7 @@ func (p *Pruner) Prune(root common.Hash) error {
 		return err
 	}
 	log.Info("State bloom filter committed", "name", filterName)
-	return prune(p.snaptree, root, p.db, p.stateBloom, filterName, middleRoots, start)
+	return prune(p.snaptree, root, p.db, p.stateBloom, filterName, nil, start)
 }
 
 // RecoverPruning will resume the pruning procedure during the system restart.
@@ -410,7 +379,14 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 	if genesis == nil {
 		return errors.New("missing genesis block")
 	}
-	t, err := trie.NewSecure(genesis.Root(), trie.NewDatabase(db))
+	// genesis.Root() may be a zkTrie root (overridden via GenesisStateRoot
+	// for block hash compatibility). Resolve it to the actual MPT disk root
+	// so trie.NewSecure can open the trie.
+	genesisRoot := genesis.Root()
+	if mptRoot, err := rawdb.ReadDiskStateRoot(db, genesisRoot); err == nil {
+		genesisRoot = mptRoot
+	}
+	t, err := trie.NewSecure(genesisRoot, trie.NewDatabase(db))
 	if err != nil {
 		return err
 	}

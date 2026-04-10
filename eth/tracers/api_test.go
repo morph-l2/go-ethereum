@@ -36,6 +36,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
@@ -45,6 +46,7 @@ import (
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -252,7 +254,7 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}`,
 		},
 		// Standard JSON trace upon the head, plain transfer.
 		{
@@ -264,7 +266,7 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}`,
 		},
 		// Upon the last state, default to the post block's state
 		{
@@ -275,7 +277,7 @@ func TestTraceCall(t *testing.T) {
 				Value: (*hexutil.Big)(new(big.Int).Add(big.NewInt(params.Ether), big.NewInt(100))),
 			},
 			config: nil,
-			expect: `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
+			expect: `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}`,
 		},
 		// Before the first transaction, should be failed
 		{
@@ -310,7 +312,7 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}`,
 		},
 		// Standard JSON trace upon the pending block
 		{
@@ -322,7 +324,7 @@ func TestTraceCall(t *testing.T) {
 			},
 			config:    nil,
 			expectErr: nil,
-			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[]}`,
+			expect:    `{"gas":21000,"failed":false,"returnValue":"0x","structLogs":[],"l1DataFee":"0x0"}`,
 		},
 	}
 	for i, testspec := range testSuite {
@@ -332,7 +334,7 @@ func TestTraceCall(t *testing.T) {
 				t.Errorf("Expect error %v, get nothing", testspec.expectErr)
 				continue
 			}
-			if !reflect.DeepEqual(err.Error(), testspec.expectErr.Error()) {
+			if err.Error() != testspec.expectErr.Error() {
 				t.Errorf("Error mismatch, want %v, get %v", testspec.expectErr, err)
 			}
 		} else {
@@ -453,7 +455,7 @@ func TestTraceBlock(t *testing.T) {
 				t.Errorf("test %d, want error %v", i, tc.expectErr)
 				continue
 			}
-			if !reflect.DeepEqual(err, tc.expectErr) {
+			if err.Error() != tc.expectErr.Error() {
 				t.Errorf("test %d: error mismatch, want %v, get %v", i, tc.expectErr, err)
 			}
 			continue
@@ -592,6 +594,106 @@ func TestTracingWithOverrides(t *testing.T) {
 	}
 }
 
+func TestAddERC20BalanceDynamicSlotDiscovery(t *testing.T) {
+	t.Parallel()
+
+	tokenID := uint16(1)
+	user := common.HexToAddress("0x100")
+	token := common.HexToAddress("0x200")
+	statedb := newTestStateDB(t, nil)
+
+	// Runtime bytecode:
+	// balanceOf(address) => return sload(keccak256(abi.encode(address, 0)))
+	statedb.SetCode(token, common.FromHex("0x600435600052600060205260406000205460005260206000f3"))
+	setTestTokenInfo(statedb, tokenID, token, nil)
+
+	userSlot := fees.CalculateAltTokenBalanceSlot(user, common.Hash{})
+	statedb.SetState(token, userSlot, common.BigToHash(big.NewInt(7)))
+
+	evm := vm.NewEVM(vm.BlockContext{
+		CanTransfer: core.CanTransfer,
+		Transfer:    core.Transfer,
+		GetHash:     func(uint64) common.Hash { return common.Hash{} },
+		Coinbase:    common.Address{},
+		GasLimit:    30_000_000,
+		BlockNumber: big.NewInt(1),
+		Time:        big.NewInt(0),
+		Difficulty:  big.NewInt(0),
+		BaseFee:     big.NewInt(0),
+	}, vm.TxContext{
+		Origin:   user,
+		GasPrice: big.NewInt(0),
+	}, statedb, params.TestChainConfig, vm.Config{NoBaseFee: true})
+
+	if err := addERC20Balance(statedb, evm, tokenID, user, big.NewInt(5), nil); err != nil {
+		t.Fatalf("failed to add ERC20 balance: %v", err)
+	}
+	balance, err := core.GetAltTokenBalanceByEVM(evm, token, user)
+	if err != nil {
+		t.Fatalf("failed to read ERC20 balance: %v", err)
+	}
+	if balance.Cmp(big.NewInt(12)) != 0 {
+		t.Fatalf("unexpected ERC20 balance, have %v want %v", balance, 12)
+	}
+}
+
+func TestSyntheticPrecreditMaskPreservesPrestateTracerView(t *testing.T) {
+	t.Parallel()
+
+	user := common.HexToAddress("0x100")
+	recipient := common.HexToAddress("0x101")
+	token := common.HexToAddress("0x200")
+	slot := fees.CalculateAltTokenBalanceSlot(user, common.Hash{})
+	original := common.BigToHash(big.NewInt(7))
+	synthetic := common.BigToHash(big.NewInt(12))
+
+	statedb := newTestStateDB(t, nil)
+	statedb.SetState(token, slot, synthetic)
+
+	var (
+		seenStart common.Hash
+		seenPrev  common.Hash
+		seenFinal common.Hash
+		seenState tracing.StateDB
+	)
+	baseHooks := &tracing.Hooks{
+		OnTxStart: func(env *tracing.VMContext, _ *types.Transaction, _ common.Address) {
+			seenState = env.StateDB
+			seenStart = env.StateDB.GetState(token, slot)
+		},
+		OnStorageChange: func(addr common.Address, key common.Hash, prev, _ common.Hash) {
+			if addr == token && key == slot {
+				seenPrev = prev
+			}
+		},
+		OnTxEnd: func(_ *types.Receipt, _ error) {
+			seenFinal = seenState.GetState(token, slot)
+		},
+	}
+	mask := newSyntheticPrecreditMask()
+	mask.addStorage(token, slot, original)
+	hooks := wrapSyntheticPrecreditHooks(baseHooks, mask)
+
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    0,
+		To:       &recipient,
+		Value:    big.NewInt(0),
+		Gas:      params.TxGas,
+		GasPrice: big.NewInt(0),
+	})
+	hooks.OnTxStart(&tracing.VMContext{
+		BlockNumber: big.NewInt(1),
+		StateDB:     statedb,
+	}, tx, user)
+	hooks.OnStorageChange(token, slot, synthetic, original)
+	statedb.SetState(token, slot, original)
+	hooks.OnTxEnd(&types.Receipt{GasUsed: params.TxGas}, nil)
+
+	require.Equal(t, original, seenStart)
+	require.Equal(t, original, seenPrev)
+	require.Equal(t, original, seenFinal)
+}
+
 type Account struct {
 	key  *ecdsa.PrivateKey
 	addr common.Address
@@ -632,4 +734,30 @@ func newStates(keys []common.Hash, vals []common.Hash) *map[common.Hash]common.H
 		m[keys[i]] = vals[i]
 	}
 	return &m
+}
+
+func newTestStateDB(t *testing.T, alloc core.GenesisAlloc) *state.StateDB {
+	t.Helper()
+
+	db := rawdb.NewMemoryDatabase()
+	block := (&core.Genesis{Config: params.TestChainConfig, Alloc: alloc}).MustCommit(db)
+	statedb, err := state.New(block.Root(), state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	return statedb
+}
+
+func setTestTokenInfo(statedb *state.StateDB, tokenID uint16, token common.Address, balanceSlot *common.Hash) {
+	baseSlot := fees.GetTokenInfoStructBaseSlot(tokenID)
+	statedb.SetState(fees.TokenRegistryAddress, fees.CalculateStructFieldSlot(baseSlot, 0), common.BytesToHash(common.LeftPadBytes(token.Bytes(), 32)))
+	if balanceSlot != nil {
+		slotPlusOne := new(big.Int).Add(new(big.Int).SetBytes(balanceSlot.Bytes()), big.NewInt(1))
+		statedb.SetState(fees.TokenRegistryAddress, fees.CalculateStructFieldSlot(baseSlot, 1), common.BigToHash(slotPlusOne))
+	}
+	var status common.Hash
+	status[30] = 18
+	status[31] = 1
+	statedb.SetState(fees.TokenRegistryAddress, fees.CalculateStructFieldSlot(baseSlot, 2), status)
+	statedb.SetState(fees.TokenRegistryAddress, fees.CalculateStructFieldSlot(baseSlot, 3), common.BigToHash(big.NewInt(1)))
 }

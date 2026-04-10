@@ -17,6 +17,7 @@
 package native_test
 
 import (
+	"encoding/json"
 	"errors"
 	"math/big"
 	"testing"
@@ -59,4 +60,37 @@ func TestCallFlatStop(t *testing.T) {
 	// check that the error is returned by GetResult
 	_, tracerError := tracer.GetResult()
 	require.Equal(t, stopError, tracerError)
+}
+
+func TestCallFlatIgnoresHiddenSystemCallFrames(t *testing.T) {
+	tracer, err := tracers.DefaultDirectory.New("flatCallTracer", &tracers.Context{}, nil, params.MainnetChainConfig)
+	require.NoError(t, err)
+
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    0,
+		To:       &common.Address{},
+		Value:    big.NewInt(0),
+		Gas:      21000,
+		GasPrice: big.NewInt(0),
+		Data:     nil,
+	})
+
+	tracer.OnTxStart(&tracing.VMContext{BlockNumber: big.NewInt(0)}, tx, common.Address{})
+	tracer.OnEnter(0, byte(vm.CALL), common.Address{}, common.Address{}, nil, 21000, big.NewInt(0))
+
+	tracer.OnSystemCallStartV2(&tracing.VMContext{})
+	tracer.OnEnter(1, byte(vm.STATICCALL), common.Address{}, common.Address{}, nil, 1000, nil)
+	tracer.OnExit(1, nil, 0, nil, false)
+	tracer.OnSystemCallEnd()
+
+	tracer.OnExit(0, nil, 21000, nil, false)
+	tracer.OnTxEnd(&types.Receipt{GasUsed: 21000}, nil)
+
+	res, err := tracer.GetResult()
+	require.NoError(t, err)
+
+	var frames []map[string]any
+	require.NoError(t, json.Unmarshal(res, &frames))
+	require.Len(t, frames, 1)
+	require.Equal(t, float64(0), frames[0]["subtraces"])
 }

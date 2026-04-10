@@ -58,18 +58,22 @@ func newMuxTracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *params
 	t := &muxTracer{names: names, tracers: objects}
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
-			OnTxStart:       t.OnTxStart,
-			OnTxEnd:         t.OnTxEnd,
-			OnEnter:         t.OnEnter,
-			OnExit:          t.OnExit,
-			OnOpcode:        t.OnOpcode,
-			OnFault:         t.OnFault,
-			OnGasChange:     t.OnGasChange,
-			OnBalanceChange: t.OnBalanceChange,
-			OnNonceChange:   t.OnNonceChange,
-			OnCodeChange:    t.OnCodeChange,
-			OnStorageChange: t.OnStorageChange,
-			OnLog:           t.OnLog,
+			OnTxStart:           t.OnTxStart,
+			OnTxEnd:             t.OnTxEnd,
+			OnEnter:             t.OnEnter,
+			OnExit:              t.OnExit,
+			OnOpcode:            t.OnOpcode,
+			OnFault:             t.OnFault,
+			OnGasChange:         t.OnGasChange,
+			OnBalanceChange:     t.OnBalanceChange,
+			OnNonceChange:       t.OnNonceChange,
+			OnNonceChangeV2:     t.OnNonceChangeV2,
+			OnCodeChange:        t.OnCodeChange,
+			OnStorageChange:     t.OnStorageChange,
+			OnLog:               t.OnLog,
+			OnSystemCallStart:   t.OnSystemCallStart,
+			OnSystemCallStartV2: t.OnSystemCallStartV2,
+			OnSystemCallEnd:     t.OnSystemCallEnd,
 		},
 		GetResult: t.GetResult,
 		Stop:      t.Stop,
@@ -148,6 +152,16 @@ func (t *muxTracer) OnNonceChange(a common.Address, prev, new uint64) {
 	}
 }
 
+func (t *muxTracer) OnNonceChangeV2(a common.Address, prev, new uint64, reason tracing.NonceChangeReason) {
+	for _, t := range t.tracers {
+		if t.OnNonceChangeV2 != nil {
+			t.OnNonceChangeV2(a, prev, new, reason)
+		} else if t.OnNonceChange != nil {
+			t.OnNonceChange(a, prev, new)
+		}
+	}
+}
+
 func (t *muxTracer) OnCodeChange(a common.Address, prevCodeHash common.Hash, prev []byte, codeHash common.Hash, code []byte) {
 	for _, t := range t.tracers {
 		if t.OnCodeChange != nil {
@@ -168,6 +182,32 @@ func (t *muxTracer) OnLog(log *types.Log) {
 	for _, t := range t.tracers {
 		if t.OnLog != nil {
 			t.OnLog(log)
+		}
+	}
+}
+
+func (t *muxTracer) OnSystemCallStart() {
+	for _, t := range t.tracers {
+		if t.OnSystemCallStart != nil {
+			t.OnSystemCallStart()
+		}
+	}
+}
+
+func (t *muxTracer) OnSystemCallStartV2(env *tracing.VMContext) {
+	for _, t := range t.tracers {
+		if t.OnSystemCallStartV2 != nil {
+			t.OnSystemCallStartV2(env)
+		} else if t.OnSystemCallStart != nil {
+			t.OnSystemCallStart()
+		}
+	}
+}
+
+func (t *muxTracer) OnSystemCallEnd() {
+	for _, t := range t.tracers {
+		if t.OnSystemCallEnd != nil {
+			t.OnSystemCallEnd()
 		}
 	}
 }

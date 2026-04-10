@@ -120,8 +120,9 @@ type jsTracer struct {
 	activePrecompiles []common.Address      // List of active precompiles at current block
 	traceStep         bool                  // True if tracer object exposes a `step()` method
 	traceFrame        bool                  // True if tracer object exposes the `enter()` and `exit()` methods
-	err               error                 // Any error that should stop tracing
-	obj               *goja.Object          // Trace object
+	systemCallDepth   int
+	err               error        // Any error that should stop tracing
+	obj               *goja.Object // Trace object
 
 	// Methods exposed by tracer
 	result goja.Callable
@@ -236,12 +237,14 @@ func newJsTracer(code string, ctx *tracers.Context, cfg json.RawMessage, chainCo
 
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
-			OnTxStart: t.OnTxStart,
-			OnTxEnd:   t.OnTxEnd,
-			OnEnter:   t.OnEnter,
-			OnExit:    t.OnExit,
-			OnOpcode:  t.OnOpcode,
-			OnFault:   t.OnFault,
+			OnTxStart:           t.OnTxStart,
+			OnTxEnd:             t.OnTxEnd,
+			OnEnter:             t.OnEnter,
+			OnExit:              t.OnExit,
+			OnOpcode:            t.OnOpcode,
+			OnFault:             t.OnFault,
+			OnSystemCallStartV2: t.OnSystemCallStart,
+			OnSystemCallEnd:     t.OnSystemCallEnd,
 		},
 		GetResult: t.GetResult,
 		Stop:      t.Stop,
@@ -331,6 +334,9 @@ func (t *jsTracer) onStart(from common.Address, to common.Address, create bool, 
 
 // OnOpcode implements the Tracer interface to trace a single step of VM execution.
 func (t *jsTracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+	if t.systemCallDepth > 0 {
+		return
+	}
 	if !t.traceStep {
 		return
 	}
@@ -356,6 +362,9 @@ func (t *jsTracer) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.
 
 // OnFault implements the Tracer interface to trace an execution fault
 func (t *jsTracer) OnFault(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, depth int, err error) {
+	if t.systemCallDepth > 0 {
+		return
+	}
 	if t.err != nil {
 		return
 	}
@@ -384,6 +393,9 @@ func (t *jsTracer) onEnd(output []byte, gasUsed uint64, err error, reverted bool
 
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *jsTracer) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+	if t.systemCallDepth > 0 {
+		return
+	}
 	if t.err != nil {
 		return
 	}
@@ -413,6 +425,9 @@ func (t *jsTracer) OnEnter(depth int, typ byte, from common.Address, to common.A
 // OnExit is called when EVM exits a scope, even if the scope didn't
 // execute any code.
 func (t *jsTracer) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	if t.systemCallDepth > 0 {
+		return
+	}
 	if t.err != nil {
 		return
 	}
@@ -453,6 +468,16 @@ func (t *jsTracer) GetResult() (json.RawMessage, error) {
 // Stop terminates execution of the tracer at the first opportune moment.
 func (t *jsTracer) Stop(err error) {
 	t.vm.Interrupt(err)
+}
+
+func (t *jsTracer) OnSystemCallStart(*tracing.VMContext) {
+	t.systemCallDepth++
+}
+
+func (t *jsTracer) OnSystemCallEnd() {
+	if t.systemCallDepth > 0 {
+		t.systemCallDepth--
+	}
 }
 
 // onError is called anytime the running JS code is interrupted

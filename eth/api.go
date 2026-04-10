@@ -688,6 +688,10 @@ type DiskAndHeaderRoot struct {
 // This is useful for debugging cross-format state access (zkTrie ↔ MPT).
 // If no disk root mapping exists, returns the block's root for both fields.
 func (api *MorphAPI) DiskRoot(ctx context.Context, blockNrOrHash *rpc.BlockNumberOrHash) (DiskAndHeaderRoot, error) {
+	if blockNrOrHash == nil {
+		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+		blockNrOrHash = &latest
+	}
 	block, err := api.eth.APIBackend.BlockByNumberOrHash(ctx, *blockNrOrHash)
 	if err != nil {
 		return DiskAndHeaderRoot{}, fmt.Errorf("failed to retrieve block: %w", err)

@@ -2022,8 +2022,14 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	for i := len(newChain) - 1; i >= 1; i-- {
 		rawdb.WriteReferenceIndexEntriesForBlock(indexesBatch, newChain[i])
 	}
-	// Delete any canonical number assignments above the new head
-	number := bc.CurrentBlock().NumberU64()
+	// Delete any canonical number assignments above the new head.
+	// When len(newChain) <= 1 (short-chain reorg), the insert loop above doesn't
+	// run, so bc.CurrentBlock() is still the old head. Use commonBlock as the base
+	// to correctly delete stale canonical hashes above the fork point.
+	number := commonBlock.NumberU64()
+	if len(newChain) > 1 {
+		number = newChain[1].NumberU64()
+	}
 	for i := number + 1; ; i++ {
 		hash := rawdb.ReadCanonicalHash(bc.db, i)
 		if hash == (common.Hash{}) {

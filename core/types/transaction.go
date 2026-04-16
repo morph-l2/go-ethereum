@@ -380,7 +380,7 @@ func (tx *Transaction) FeeTokenID() uint16 {
 
 func (tx *Transaction) FeeLimit() *big.Int {
 	if !tx.IsMorphTx() {
-		return big.NewInt(0)
+		return nil
 	}
 	return tx.AsMorphTx().FeeLimit
 }
@@ -912,9 +912,9 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	msg := Message{
 		nonce:                 tx.Nonce(),
 		gasLimit:              tx.Gas(),
-		gasPrice:              new(big.Int).Set(tx.GasPrice()),
-		gasFeeCap:             new(big.Int).Set(tx.GasFeeCap()),
-		gasTipCap:             new(big.Int).Set(tx.GasTipCap()),
+		gasPrice:              tx.GasPrice(),
+		gasFeeCap:             tx.GasFeeCap(),
+		gasTipCap:             tx.GasTipCap(),
 		to:                    tx.To(),
 		amount:                tx.Value(),
 		data:                  tx.Data(),
@@ -936,8 +936,8 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		return Message{}, err
 	}
 
-	if tx.FeeLimit() != nil {
-		msg.feeLimit = tx.FeeLimit()
+	if fl := tx.FeeLimit(); fl != nil {
+		msg.feeLimit = new(big.Int).Set(fl)
 	}
 
 	var err error

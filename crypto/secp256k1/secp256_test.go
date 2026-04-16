@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"io"
+	"math/big"
 	"testing"
 )
 
@@ -213,6 +214,41 @@ func TestRecoverSanity(t *testing.T) {
 	}
 	if !bytes.Equal(pubkey1, pubkey2) {
 		t.Errorf("pubkey mismatch: want: %x have: %x", pubkey1, pubkey2)
+	}
+}
+
+func TestIsOnCurveCoordinateRange(t *testing.T) {
+	curve := S256()
+
+	// Valid point on curve: use generator
+	if !curve.IsOnCurve(curve.Gx, curve.Gy) {
+		t.Fatal("generator point should be on curve")
+	}
+
+	// x = -1 should be rejected
+	if curve.IsOnCurve(big.NewInt(-1), curve.Gy) {
+		t.Fatal("negative x should not be on curve")
+	}
+
+	// y = -1 should be rejected
+	if curve.IsOnCurve(curve.Gx, big.NewInt(-1)) {
+		t.Fatal("negative y should not be on curve")
+	}
+
+	// x = P should be rejected
+	if curve.IsOnCurve(curve.P, curve.Gy) {
+		t.Fatal("x = P should not be on curve")
+	}
+
+	// y = P should be rejected
+	if curve.IsOnCurve(curve.Gx, curve.P) {
+		t.Fatal("y = P should not be on curve")
+	}
+
+	// x = P+7 could satisfy the curve equation mod P, but must be rejected
+	pPlus7 := new(big.Int).Add(curve.P, big.NewInt(7))
+	if curve.IsOnCurve(pPlus7, curve.Gy) {
+		t.Fatal("x = P+7 should not be on curve")
 	}
 }
 

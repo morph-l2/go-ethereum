@@ -413,6 +413,47 @@ func TestSharedKeyStatic(t *testing.T) {
 	}
 }
 
+func TestGenerateSharedInvalidPublicKey(t *testing.T) {
+	prv, err := GenerateKey(rand.Reader, DefaultCurve, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skLen := MaxSharedKeyLength(&prv.PublicKey) / 2
+
+	// Off-curve point: valid-looking coordinates that don't satisfy y² = x³ + 7
+	offCurve := &PublicKey{
+		Curve:  DefaultCurve,
+		X:      big.NewInt(1),
+		Y:      big.NewInt(1),
+		Params: ParamsFromCurve(DefaultCurve),
+	}
+	if _, err := prv.GenerateShared(offCurve, skLen, skLen); err != ErrInvalidPublicKey {
+		t.Fatalf("expected ErrInvalidPublicKey for off-curve point, got %v", err)
+	}
+
+	// Nil X coordinate
+	nilX := &PublicKey{
+		Curve:  DefaultCurve,
+		X:      nil,
+		Y:      big.NewInt(1),
+		Params: ParamsFromCurve(DefaultCurve),
+	}
+	if _, err := prv.GenerateShared(nilX, skLen, skLen); err != ErrInvalidPublicKey {
+		t.Fatalf("expected ErrInvalidPublicKey for nil X, got %v", err)
+	}
+
+	// Nil Y coordinate
+	nilY := &PublicKey{
+		Curve:  DefaultCurve,
+		X:      big.NewInt(1),
+		Y:      nil,
+		Params: ParamsFromCurve(DefaultCurve),
+	}
+	if _, err := prv.GenerateShared(nilY, skLen, skLen); err != ErrInvalidPublicKey {
+		t.Fatalf("expected ErrInvalidPublicKey for nil Y, got %v", err)
+	}
+}
+
 func hexKey(prv string) *PrivateKey {
 	key, err := crypto.HexToECDSA(prv)
 	if err != nil {

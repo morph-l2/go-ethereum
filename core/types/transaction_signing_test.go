@@ -136,3 +136,23 @@ func TestChainId(t *testing.T) {
 		t.Error("expected no error")
 	}
 }
+
+func TestSignatureValuesError(t *testing.T) {
+	tx := NewTransaction(0, common.Address{}, big.NewInt(0), 0, big.NewInt(0), nil)
+	signer := HomesteadSigner{}
+
+	invalidSig := make([]byte, 64)
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("Panicked for invalid signature length, expected error: %v", r)
+			}
+		}()
+		_, err := tx.WithSignature(signer, invalidSig)
+		if err == nil {
+			t.Fatal("Expected error for invalid signature length, got nil")
+		}
+		t.Logf("Got expected error: %v", err)
+	}()
+}

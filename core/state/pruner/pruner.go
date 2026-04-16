@@ -383,11 +383,14 @@ func extractGenesis(db ethdb.Database, stateBloom *stateBloom) error {
 	// for block hash compatibility). Resolve it to the actual MPT disk root
 	// so trie.NewSecure can open the trie.
 	genesisRoot := genesis.Root()
-	if mptRoot, err := rawdb.ReadDiskStateRoot(db, genesisRoot); err == nil && mptRoot != (common.Hash{}) {
-		genesisRoot = mptRoot
-	} else if err != nil {
-		log.Warn("failed to read disk state root, keep genesis root", "err", err)
+	mptRoot, err := rawdb.ReadDiskStateRoot(db, genesisRoot)
+	if err != nil {
+		return fmt.Errorf("failed to read disk state root mapping for genesis root %x: %w", genesisRoot, err)
 	}
+	if mptRoot == (common.Hash{}) {
+		return fmt.Errorf("empty disk state root mapping for genesis root %x", genesisRoot)
+	}
+	genesisRoot = mptRoot
 	t, err := trie.NewSecure(genesisRoot, trie.NewDatabase(db))
 	if err != nil {
 		return err

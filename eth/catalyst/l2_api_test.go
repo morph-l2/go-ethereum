@@ -258,6 +258,180 @@ func makeL1Txs(fromIndex, count int) (types.Transactions, []types.L1MessageTx) {
 	return l1Txs, l1Messages
 }
 
+func TestNewL2BlockV2(t *testing.T) {
+	// Build a chain of 10 blocks for reorg testing
+	num := 10
+	genesis, blocks := generateTestL2Chain(num)
+	n, ethService := startEthService(t, genesis, blocks)
+	defer n.Close()
+
+	// Write FirstQueueIndexNotInL2Block for all blocks (required by writeBlockStateWithoutHead)
+	genesisBlock := ethService.BlockChain().GetBlockByNumber(0)
+	rawdb.WriteFirstQueueIndexNotInL2Block(ethService.ChainDb(), genesisBlock.Hash(), 0)
+	for _, block := range blocks {
+		rawdb.WriteFirstQueueIndexNotInL2Block(ethService.ChainDb(), block.Hash(), 0)
+	}
+
+	api := newL2ConsensusAPI(ethService)
+	config := l2ChainConfig()
+	bc := ethService.BlockChain()
+
+	// TC-01: Normal sequential block (parent == currentHead)
+	t.Run("NormalSequentialBlock", func(t *testing.T) {
+		err := sendTransfer(config, ethService)
+		require.NoError(t, err)
+
+		currentHash := bc.CurrentBlock().Hash()
+		ret, err := ethService.Miner().BuildBlock(currentHash, time.Now(), nil)
+		require.NoError(t, err)
+
+		data := ExecutableL2Data{
+			ParentHash:   ret.Block.ParentHash(),
+			Number:       ret.Block.NumberU64(),
+			Miner:        ret.Block.Coinbase(),
+			Timestamp:    ret.Block.Time(),
+			GasLimit:     ret.Block.GasLimit(),
+			BaseFee:      ret.Block.BaseFee(),
+			Transactions: encodeTransactions(ret.Block.Transactions()),
+			StateRoot:    ret.Block.Root(),
+			GasUsed:      ret.Block.GasUsed(),
+			ReceiptRoot:  ret.Block.ReceiptHash(),
+			LogsBloom:    ret.Block.Bloom().Bytes(),
+		}
+
+		err = api.NewL2BlockV2(data, false)
+		require.NoError(t, err)
+		require.EqualValues(t, num+1, bc.CurrentBlock().NumberU64())
+	})
+
+	// TC-03: Parent not found
+	t.Run("ParentNotFound", func(t *testing.T) {
+		data := ExecutableL2Data{
+			ParentHash: common.HexToHash("0xdeadbeef"),
+			Number:     999,
+		}
+		err := api.NewL2BlockV2(data, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "parent block not found")
+	})
+
+	// TC-04: Wrong block number (not parent+1)
+	t.Run("WrongBlockNumber", func(t *testing.T) {
+		data := ExecutableL2Data{
+			ParentHash: bc.CurrentBlock().Hash(),
+			Number:     999, // wrong
+		}
+		err := api.NewL2BlockV2(data, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "wrong block number")
+	})
+
+	// TC-02 + TC-06: Reorg from height 11 to build on block 7
+	t.Run("Reorg", func(t *testing.T) {
+		currentHead := bc.CurrentBlock().NumberU64() // should be 11 after TC-01
+		require.True(t, currentHead >= 10, "chain must be at least 10 blocks")
+
+		// Get block 7 as reorg parent
+		block7 := bc.GetBlockByNumber(7)
+		require.NotNil(t, block7)
+
+		// Build a new block on top of block 7
+		ret, err := ethService.Miner().BuildBlock(block7.Hash(), time.Now(), nil)
+		require.NoError(t, err)
+		newBlock := ret.Block
+
+		data := ExecutableL2Data{
+			ParentHash:   newBlock.ParentHash(),
+			Number:       newBlock.NumberU64(),
+			Miner:        newBlock.Coinbase(),
+			Timestamp:    newBlock.Time(),
+			GasLimit:     newBlock.GasLimit(),
+			BaseFee:      newBlock.BaseFee(),
+			Transactions: encodeTransactions(newBlock.Transactions()),
+			StateRoot:    newBlock.Root(),
+			GasUsed:      newBlock.GasUsed(),
+			ReceiptRoot:  newBlock.ReceiptHash(),
+			LogsBloom:    newBlock.Bloom().Bytes(),
+		}
+
+		// Apply the reorg block via NewL2BlockV2
+		err = api.NewL2BlockV2(data, false)
+		require.NoError(t, err)
+
+		// Verify chain head is now at height 8
+		require.EqualValues(t, 8, bc.CurrentBlock().NumberU64())
+
+		// TC-06: Verify stale canonical hashes are cleaned
+		for h := uint64(9); h <= currentHead; h++ {
+			hash := rawdb.ReadCanonicalHash(ethService.ChainDb(), h)
+			require.Equal(t, common.Hash{}, hash, "canonical hash at height %d should be empty after reorg", h)
+		}
+
+		// Verify new block is canonical at height 8
+		canonicalHash8 := rawdb.ReadCanonicalHash(ethService.ChainDb(), 8)
+		require.NotEqual(t, common.Hash{}, canonicalHash8)
+	})
+
+	// TC-07: Consecutive reorg - now at height 8, reorg to build on block 5
+	t.Run("ConsecutiveReorg", func(t *testing.T) {
+		block5 := bc.GetBlockByNumber(5)
+		require.NotNil(t, block5)
+
+		ret, err := ethService.Miner().BuildBlock(block5.Hash(), time.Now(), nil)
+		require.NoError(t, err)
+		newBlock := ret.Block
+
+		data := ExecutableL2Data{
+			ParentHash:   newBlock.ParentHash(),
+			Number:       newBlock.NumberU64(),
+			Miner:        newBlock.Coinbase(),
+			Timestamp:    newBlock.Time(),
+			GasLimit:     newBlock.GasLimit(),
+			BaseFee:      newBlock.BaseFee(),
+			Transactions: encodeTransactions(newBlock.Transactions()),
+			StateRoot:    newBlock.Root(),
+			GasUsed:      newBlock.GasUsed(),
+			ReceiptRoot:  newBlock.ReceiptHash(),
+			LogsBloom:    newBlock.Bloom().Bytes(),
+		}
+
+		err = api.NewL2BlockV2(data, false)
+		require.NoError(t, err)
+		require.EqualValues(t, 6, bc.CurrentBlock().NumberU64())
+
+		// Stale canonical hashes at 7, 8 should be empty
+		for h := uint64(7); h <= 8; h++ {
+			hash := rawdb.ReadCanonicalHash(ethService.ChainDb(), h)
+			require.Equal(t, common.Hash{}, hash, "height %d should be empty", h)
+		}
+	})
+
+	// TC-05: isSafe=true path
+	t.Run("SafeBlock", func(t *testing.T) {
+		currentHash := bc.CurrentBlock().Hash()
+		ret, err := ethService.Miner().BuildBlock(currentHash, time.Now(), nil)
+		require.NoError(t, err)
+		newBlock := ret.Block
+
+		data := ExecutableL2Data{
+			ParentHash:   newBlock.ParentHash(),
+			Number:       newBlock.NumberU64(),
+			Miner:        newBlock.Coinbase(),
+			Timestamp:    newBlock.Time(),
+			GasLimit:     newBlock.GasLimit(),
+			BaseFee:      newBlock.BaseFee(),
+			Transactions: encodeTransactions(newBlock.Transactions()),
+			StateRoot:    newBlock.Root(),
+			GasUsed:      newBlock.GasUsed(),
+			ReceiptRoot:  newBlock.ReceiptHash(),
+			LogsBloom:    newBlock.Bloom().Bytes(),
+		}
+
+		err = api.NewL2BlockV2(data, true)
+		require.NoError(t, err)
+	})
+}
+
 func sendTransfer(config params.ChainConfig, ethService *eth.Ethereum) error {
 	tx, err := types.SignTx(types.NewTransaction(testNonce, common.HexToAddress("0x9a9070028361F7AAbeB3f2F2Dc07F82C4a98A02a"), big.NewInt(1), params.TxGas, big.NewInt(params.InitialBaseFee*2), nil), types.LatestSigner(&config), testKey)
 	if err != nil {

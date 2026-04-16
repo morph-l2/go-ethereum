@@ -206,3 +206,57 @@ func TestIndexTransactions(t *testing.T) {
 	verify(8, 11, true, 8)
 	verify(0, 8, false, 8)
 }
+
+func TestUnindexTransactionsMissingBody(t *testing.T) {
+	chainDb := NewMemoryDatabase()
+
+	var txs []*types.Transaction
+	to := common.BytesToAddress([]byte{0x11})
+
+	block := types.NewBlock(&types.Header{Number: big.NewInt(0)}, nil, nil, nil, newHasher())
+	WriteBlock(chainDb, block)
+	WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+
+	for i := uint64(1); i <= 10; i++ {
+		tx := types.NewTx(&types.LegacyTx{
+			Nonce:    i,
+			GasPrice: big.NewInt(11111),
+			Gas:      1111,
+			To:       &to,
+			Value:    big.NewInt(111),
+			Data:     []byte{0x11, 0x11, 0x11},
+		})
+		txs = append(txs, tx)
+		block = types.NewBlock(&types.Header{Number: big.NewInt(int64(i))}, []*types.Transaction{tx}, nil, nil, newHasher())
+		WriteBlock(chainDb, block)
+		WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+	}
+	IndexTransactions(chainDb, 0, 11, nil)
+
+	for i := 1; i <= 10; i++ {
+		number := ReadTxLookupEntry(chainDb, txs[i-1].Hash())
+		if number == nil {
+			t.Fatalf("tx index %d missing after indexing", i)
+		}
+	}
+
+	missingBlock := uint64(5)
+	hash := ReadCanonicalHash(chainDb, missingBlock)
+	DeleteBody(chainDb, hash, missingBlock)
+
+	UnindexTransactions(chainDb, 0, 11, nil)
+
+	tail := ReadTxIndexTail(chainDb)
+	if tail == nil || *tail != 11 {
+		t.Fatalf("tx index tail mismatch after unindex with missing body: got %v, want 11", tail)
+	}
+	for i := 1; i <= 10; i++ {
+		number := ReadTxLookupEntry(chainDb, txs[i-1].Hash())
+		if uint64(i) == missingBlock {
+			continue
+		}
+		if number != nil {
+			t.Fatalf("tx index %d should be deleted after unindexing", i)
+		}
+	}
+}

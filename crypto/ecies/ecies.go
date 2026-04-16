@@ -285,7 +285,7 @@ func (prv *PrivateKey) Decrypt(c, s1, s2 []byte) (m []byte, err error) {
 	switch c[0] {
 	case 2, 3, 4:
 		rLen = (prv.PublicKey.Curve.Params().BitSize + 7) / 4
-		if len(c) < (rLen + hLen + 1) {
+		if len(c) < (rLen + hLen + params.BlockSize) {
 			return nil, ErrInvalidMessage
 		}
 	default:
@@ -299,6 +299,9 @@ func (prv *PrivateKey) Decrypt(c, s1, s2 []byte) (m []byte, err error) {
 	R.Curve = prv.PublicKey.Curve
 	R.X, R.Y = elliptic.Unmarshal(R.Curve, c[:rLen])
 	if R.X == nil {
+		return nil, ErrInvalidPublicKey
+	}
+	if !R.Curve.IsOnCurve(R.X, R.Y) {
 		return nil, ErrInvalidPublicKey
 	}
 

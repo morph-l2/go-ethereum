@@ -112,6 +112,12 @@ var (
 	// ErrSenderNoEOA is returned if the sender of a transaction is a contract.
 	ErrSenderNoEOA = errors.New("sender not an eoa")
 
+	// ErrGasLimitTooHigh is returned by preCheck when EIP-7825 is active (post
+	// Amsterdam) and the transaction's declared gas limit exceeds
+	// `params.MaxTxGas`. L1 message and fake-simulation transactions are
+	// exempt.
+	ErrGasLimitTooHigh = errors.New("transaction gas limit too high")
+
 	// -- EIP-7702 errors --
 
 	// Message validation errors:

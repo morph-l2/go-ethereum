@@ -419,3 +419,166 @@ func TestApplyAuthorizationInvalidSignatureSkipped(t *testing.T) {
 		})
 	}
 }
+
+// --- P2-3: EIP-7825 MaxTxGas preCheck tests ----------------------------------
+
+// newMaxTxGasEnv builds a StateTransition configured with enough balance to
+// pass buyGas, so preCheck can exercise the EIP-7825 gas cap in isolation. The
+// transaction gas limit is parameterised per test.
+func newMaxTxGasEnv(t *testing.T, isAmsterdam bool, msg types.Message) *StateTransition {
+	t.Helper()
+	cfg := &params.ChainConfig{
+		ChainID:             big.NewInt(1),
+		HomesteadBlock:      big.NewInt(0),
+		EIP150Block:         big.NewInt(0),
+		EIP155Block:         big.NewInt(0),
+		EIP158Block:         big.NewInt(0),
+		ByzantiumBlock:      big.NewInt(0),
+		ConstantinopleBlock: big.NewInt(0),
+		PetersburgBlock:     big.NewInt(0),
+		IstanbulBlock:       big.NewInt(0),
+		BerlinBlock:         big.NewInt(0),
+		LondonBlock:         big.NewInt(0),
+		ArchimedesBlock:     big.NewInt(0),
+		ShanghaiBlock:       big.NewInt(0),
+		BernoulliBlock:      big.NewInt(0),
+		CurieBlock:          big.NewInt(0),
+		Morph203Time:        params.NewUint64(0),
+		ViridianTime:        params.NewUint64(0),
+		EmeraldTime:         params.NewUint64(0),
+	}
+	if isAmsterdam {
+		cfg.AmsterdamTime = params.NewUint64(0)
+	}
+	db := rawdb.NewMemoryDatabase()
+	sdb, err := state.New(common.Hash{}, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("new statedb: %v", err)
+	}
+	// Fund the sender so buyGas (if reached) would not early-fail.
+	sdb.GetOrNewStateObject(msg.From())
+	sdb.AddBalance(msg.From(), new(big.Int).SetUint64(1e18), tracing.BalanceChangeUnspecified)
+
+	blockCtx := vm.BlockContext{
+		CanTransfer: CanTransfer,
+		Transfer:    Transfer,
+		GetHash:     func(uint64) common.Hash { return common.Hash{} },
+		Coinbase:    common.Address{},
+		GasLimit:    1 << 30, // large enough to not be the limiting factor
+		BlockNumber: big.NewInt(1),
+		Time:        big.NewInt(1),
+		Difficulty:  big.NewInt(0),
+		BaseFee:     big.NewInt(0),
+	}
+	evm := vm.NewEVM(blockCtx, vm.TxContext{}, sdb, cfg, vm.Config{})
+
+	gp := new(GasPool).AddGas(blockCtx.GasLimit)
+	return NewStateTransition(evm, msg, gp, big.NewInt(0))
+}
+
+func makeMaxTxGasMsg(t *testing.T, gas uint64, isFake bool) types.Message {
+	t.Helper()
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("gen key: %v", err)
+	}
+	to := common.HexToAddress("0x1")
+	return types.NewMessage(
+		crypto.PubkeyToAddress(key.PublicKey),
+		&to,
+		0,
+		big.NewInt(0),           // value
+		gas,                     // gas limit under test
+		big.NewInt(1),           // gasPrice
+		big.NewInt(1),           // gasFeeCap
+		big.NewInt(1),           // gasTipCap
+		0,                       // feeTokenID
+		big.NewInt(0),           // feeLimit
+		0,                       // version
+		nil,                     // reference
+		nil,                     // memo
+		nil,                     // data
+		nil,                     // accessList
+		nil,                     // authList
+		isFake,                  // isFake
+	)
+}
+
+func TestPreCheckMaxTxGasPreAmsterdamIgnoresCap(t *testing.T) {
+	// Pre-Amsterdam: a gas limit far above params.MaxTxGas is accepted by
+	// preCheck (it must fail only on unrelated reasons, not ErrGasLimitTooHigh).
+	msg := makeMaxTxGasMsg(t, params.MaxTxGas+1, false)
+	st := newMaxTxGasEnv(t, false, msg)
+	err := st.preCheck()
+	if errors.Is(err, ErrGasLimitTooHigh) {
+		t.Fatalf("pre-Amsterdam preCheck must not return ErrGasLimitTooHigh, got %v", err)
+	}
+}
+
+func TestPreCheckMaxTxGasPostAmsterdamRejectsAboveCap(t *testing.T) {
+	msg := makeMaxTxGasMsg(t, params.MaxTxGas+1, false)
+	st := newMaxTxGasEnv(t, true, msg)
+	err := st.preCheck()
+	if !errors.Is(err, ErrGasLimitTooHigh) {
+		t.Fatalf("post-Amsterdam preCheck must reject gas > MaxTxGas, got %v", err)
+	}
+}
+
+func TestPreCheckMaxTxGasPostAmsterdamAcceptsAtCap(t *testing.T) {
+	// Exactly at the cap must be accepted (the predicate is strict `>`).
+	msg := makeMaxTxGasMsg(t, params.MaxTxGas, false)
+	st := newMaxTxGasEnv(t, true, msg)
+	err := st.preCheck()
+	if errors.Is(err, ErrGasLimitTooHigh) {
+		t.Fatalf("gas == MaxTxGas must be accepted, got %v", err)
+	}
+}
+
+func TestPreCheckMaxTxGasPostAmsterdamAcceptsBelowCap(t *testing.T) {
+	msg := makeMaxTxGasMsg(t, params.MaxTxGas-1, false)
+	st := newMaxTxGasEnv(t, true, msg)
+	err := st.preCheck()
+	if errors.Is(err, ErrGasLimitTooHigh) {
+		t.Fatalf("gas < MaxTxGas must be accepted, got %v", err)
+	}
+}
+
+func TestPreCheckMaxTxGasFakeExempt(t *testing.T) {
+	// eth_call / simulation ("fake") transactions skip the check block entirely
+	// and therefore remain exempt even when Amsterdam is active.
+	msg := makeMaxTxGasMsg(t, params.MaxTxGas+1, true)
+	st := newMaxTxGasEnv(t, true, msg)
+	err := st.preCheck()
+	if errors.Is(err, ErrGasLimitTooHigh) {
+		t.Fatalf("fake transactions must be exempt, got %v", err)
+	}
+}
+
+// TestPreCheckMaxTxGasL1Exempt builds a real L1MessageTx transaction, derives
+// its Message through AsMessage so the IsL1MessageTx flag is set correctly,
+// and verifies that preCheck returns early (nil) without rejecting the
+// oversized gas limit.
+func TestPreCheckMaxTxGasL1Exempt(t *testing.T) {
+	chainID := big.NewInt(1)
+	signer := types.NewLondonSigner(chainID)
+	to := common.HexToAddress("0x1")
+	tx := types.NewTx(&types.L1MessageTx{
+		QueueIndex: 0,
+		Gas:        params.MaxTxGas + 1,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Data:       nil,
+		Sender:     common.HexToAddress("0xdeadbeef"),
+	})
+	msg, err := tx.AsMessage(signer, big.NewInt(0))
+	if err != nil {
+		t.Fatalf("AsMessage: %v", err)
+	}
+	if !msg.IsL1MessageTx() {
+		t.Fatalf("expected IsL1MessageTx to be true")
+	}
+	st := newMaxTxGasEnv(t, true, msg)
+	if err := st.preCheck(); err != nil {
+		t.Fatalf("L1MessageTx must be exempt, got %v", err)
+	}
+}

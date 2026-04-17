@@ -388,6 +388,13 @@ func (st *StateTransition) preCheck() error {
 
 	// Only check transactions that are not fake
 	if !st.msg.IsFake() {
+		// EIP-7825: enforce the per-transaction gas cap when the Amsterdam
+		// fork is active. L1 message transactions are already exempted via
+		// the early-return above; eth_call / simulation ("fake") transactions
+		// stay exempt because they bypass this branch entirely.
+		if st.evm.ChainConfig().IsAmsterdam(st.evm.Context.Time.Uint64()) && st.msg.Gas() > params.MaxTxGas {
+			return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, st.msg.Gas())
+		}
 		// Make sure this transaction's nonce is correct.
 		stNonce := st.state.GetNonce(st.msg.From())
 		if msgNonce := st.msg.Nonce(); stNonce < msgNonce {

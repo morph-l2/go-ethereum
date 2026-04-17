@@ -244,7 +244,23 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		}
 		return p.RequestTxs(hashes)
 	}
-	h.txFetcher = fetcher.NewTxFetcher(h.txpool.Has, h.txpool.AddRemotes, fetchTx)
+	// hasTx answers "do we already know this tx?" for the TxFetcher
+	// pre-filter. We consult both the local txpool (known but not yet
+	// mined transactions) and the chain's tx index (mined transactions
+	// that have been evicted from the pool). This ports the intent of
+	// upstream PR #33607 without introducing a dedicated on-chain cache:
+	// BlockChain.GetTransactionLookup already hits its own LRU cache
+	// before touching the DB, which is sufficient for this pre-filter.
+	// The check remains race-y by design (the fetcher loop does the
+	// authoritative dedupe), so the extra lookup here only shaves off
+	// wasted `fetchTx` round trips for already-confirmed txs.
+	hasTx := func(hash common.Hash) bool {
+		if h.txpool.Has(hash) {
+			return true
+		}
+		return h.chain.GetTransactionLookup(hash) != nil
+	}
+	h.txFetcher = fetcher.NewTxFetcher(hasTx, h.txpool.AddRemotes, fetchTx)
 	h.chainSync = newChainSyncer(h)
 	return h, nil
 }

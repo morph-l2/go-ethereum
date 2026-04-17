@@ -584,6 +584,76 @@ func TestTransactionFetcherBroadcasts(t *testing.T) {
 	})
 }
 
+// TestTransactionFetcherOnchainFiltered verifies that announcements whose
+// hash the hasTx pre-filter reports as already known are dropped before
+// ever reaching the waitlist, regardless of whether the "known" verdict
+// comes from the local txpool or from the chain's tx index.
+//
+// Morph's handler composes hasTx as
+//
+//	h.txpool.Has(hash) || h.chain.GetTransactionLookup(hash) != nil
+//
+// as part of the P2-4 port of upstream PR #33607, so this test models that
+// composition with two independent "known" sets and asserts that both
+// paths short-circuit the announce. It also keeps one brand-new hash in
+// the batch to prove that the filter is scoped to individual hashes and
+// does not poison the rest of the announce.
+func TestTransactionFetcherOnchainFiltered(t *testing.T) {
+	var (
+		// simulated local txpool membership
+		poolKnown = map[common.Hash]struct{}{
+			{0x10}: {},
+		}
+		// simulated on-chain tx index hit
+		chainKnown = map[common.Hash]struct{}{
+			{0x20}: {},
+		}
+	)
+	testTransactionFetcherParallel(t, txFetcherTest{
+		init: func() *TxFetcher {
+			return NewTxFetcher(
+				func(hash common.Hash) bool {
+					if _, ok := poolKnown[hash]; ok {
+						return true
+					}
+					_, ok := chainKnown[hash]
+					return ok
+				},
+				nil,
+				func(string, []common.Hash) error { return nil },
+			)
+		},
+		steps: []interface{}{
+			// Announce a mix of: a brand new hash, a pool-known hash,
+			// and a chain-known hash. Only the new hash may land in
+			// the waitlist; the other two must be filtered out by the
+			// pre-filter and never be scheduled for retrieval.
+			doTxNotify{
+				peer:   "A",
+				hashes: []common.Hash{{0x01}, {0x10}, {0x20}},
+			},
+			isWaiting(map[string][]common.Hash{
+				"A": {{0x01}},
+			}),
+			isScheduled{tracking: nil, fetching: nil},
+
+			// Driving the wait timer must not resurrect the filtered
+			// hashes: they were never tracked, so the scheduler should
+			// only promote the single new hash.
+			doWait{time: txArriveTimeout, step: true},
+			isWaiting(nil),
+			isScheduled{
+				tracking: map[string][]common.Hash{
+					"A": {{0x01}},
+				},
+				fetching: map[string][]common.Hash{
+					"A": {{0x01}},
+				},
+			},
+		},
+	})
+}
+
 // Tests that the waiting list timers properly reset and reschedule.
 func TestTransactionFetcherWaitTimerResets(t *testing.T) {
 	testTransactionFetcherParallel(t, txFetcherTest{

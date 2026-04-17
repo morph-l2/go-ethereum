@@ -483,10 +483,32 @@ func VerifyRangeProof(rootHash common.Hash, firstKey []byte, lastKey []byte, key
 		if bytes.Compare(keys[i], keys[i+1]) >= 0 {
 			return false, errors.New("range is not monotonically increasing")
 		}
+		// In an MPT, a key cannot be a prefix of another key. Reject such
+		// batches to defend against malformed tries that would break the
+		// subsequent proofToPath/unsetInternal reconstruction.
+		if bytes.HasPrefix(keys[i+1], keys[i]) {
+			return false, errors.New("range contains path prefixes")
+		}
 	}
 	for _, value := range values {
 		if len(value) == 0 {
 			return false, errors.New("range contains deletion")
+		}
+	}
+	// Reject responses whose first/last keys fall outside the requested
+	// [firstKey, lastKey] window. The trie-hash check below would also
+	// eventually reject such cases, but doing it here avoids wasting CPU
+	// on reconstructing a trie for clearly out-of-range data and makes
+	// the failure mode explicit.
+	if len(keys) > 0 {
+		if bytes.Compare(keys[0], firstKey) < 0 {
+			return false, errors.New("first returned key is before the requested start")
+		}
+		// morph keeps the upstream-removed `lastKey` parameter; guard with
+		// `lastKey != nil` so the "no right bound" callers (proof == nil
+		// whole-trie path) are not spuriously rejected.
+		if lastKey != nil && bytes.Compare(keys[len(keys)-1], lastKey) > 0 {
+			return false, errors.New("last returned key is after the requested end")
 		}
 	}
 	// Special case, there is no edge proof at all. The given range is expected
@@ -569,7 +591,12 @@ func VerifyRangeProof(rootHash common.Hash, firstKey []byte, lastKey []byte, key
 	if tr.Hash() != rootHash {
 		return false, fmt.Errorf("invalid proof, want hash %x, got %x", rootHash, tr.Hash())
 	}
-	return hasRightElement(root, keys[len(keys)-1]), nil
+	// Use tr.root rather than the stale local `root`: TryUpdate above may
+	// replace the root node (e.g. shortNode -> fullNode promotion), in
+	// which case `root` still points at the pre-update node and would make
+	// hasRightElement return a wrong "more elements" indicator on small
+	// tries. This aligns morph with upstream v1.10.26+ behavior.
+	return hasRightElement(tr.root, keys[len(keys)-1]), nil
 }
 
 // get returns the child of the given node. Return nil if the

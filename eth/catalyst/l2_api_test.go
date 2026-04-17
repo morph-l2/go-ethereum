@@ -1,6 +1,7 @@
 package catalyst
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -370,6 +371,80 @@ func TestNewL2BlockV2(t *testing.T) {
 		// Verify new block is canonical at height 8
 		canonicalHash8 := rawdb.ReadCanonicalHash(ethService.ChainDb(), 8)
 		require.NotEqual(t, common.Hash{}, canonicalHash8)
+	})
+
+	// TC-07: header.NextL1MsgIndex must match the value derived from the
+	// canonical L1 message stream. This field is not covered by Header.Hash(),
+	// so a signature-replay attacker could otherwise set it freely. The check
+	// in writeBlockStateWithoutHead must reject the block before it is
+	// persisted, leaving the chain head untouched.
+	t.Run("TamperedNextL1MessageIndex", func(t *testing.T) {
+		headBefore := bc.CurrentBlock().Hash()
+		numberBefore := bc.CurrentBlock().NumberU64()
+
+		ret, err := ethService.Miner().BuildBlock(headBefore, time.Now(), nil)
+		require.NoError(t, err)
+
+		// The honest miner produces a block with NextL1MsgIndex == 0 here
+		// (no L1 messages in the test setup). Tampering it to a non-zero
+		// value mimics an attacker who replays a legitimate signature while
+		// flipping bits in fields not bound to the block hash.
+		require.EqualValues(t, 0, ret.Block.Header().NextL1MsgIndex,
+			"sanity: honest block should have NextL1MsgIndex = 0 in this test setup")
+
+		data := ExecutableL2Data{
+			ParentHash:         ret.Block.ParentHash(),
+			Number:             ret.Block.NumberU64(),
+			Miner:              ret.Block.Coinbase(),
+			Timestamp:          ret.Block.Time(),
+			GasLimit:           ret.Block.GasLimit(),
+			BaseFee:            ret.Block.BaseFee(),
+			Transactions:       encodeTransactions(ret.Block.Transactions()),
+			StateRoot:          ret.Block.Root(),
+			GasUsed:            ret.Block.GasUsed(),
+			ReceiptRoot:        ret.Block.ReceiptHash(),
+			LogsBloom:          ret.Block.Bloom().Bytes(),
+			NextL1MessageIndex: 99, // tampered
+		}
+
+		err = api.NewL2BlockV2(data, false)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrInvalidNextL1MsgIndex),
+			"expected ErrInvalidNextL1MsgIndex, got: %v", err)
+
+		// Chain head must not have advanced.
+		require.Equal(t, headBefore, bc.CurrentBlock().Hash(),
+			"head must not move when block is rejected")
+		require.Equal(t, numberBefore, bc.CurrentBlock().NumberU64())
+	})
+
+	// TC-08: Honest NextL1MsgIndex on the same parent should still apply
+	// cleanly, proving the check does not over-reject after TC-07.
+	t.Run("HonestNextL1MessageIndexAfterTampered", func(t *testing.T) {
+		headBefore := bc.CurrentBlock().Hash()
+		numberBefore := bc.CurrentBlock().NumberU64()
+
+		ret, err := ethService.Miner().BuildBlock(headBefore, time.Now(), nil)
+		require.NoError(t, err)
+
+		data := ExecutableL2Data{
+			ParentHash:         ret.Block.ParentHash(),
+			Number:             ret.Block.NumberU64(),
+			Miner:              ret.Block.Coinbase(),
+			Timestamp:          ret.Block.Time(),
+			GasLimit:           ret.Block.GasLimit(),
+			BaseFee:            ret.Block.BaseFee(),
+			Transactions:       encodeTransactions(ret.Block.Transactions()),
+			StateRoot:          ret.Block.Root(),
+			GasUsed:            ret.Block.GasUsed(),
+			ReceiptRoot:        ret.Block.ReceiptHash(),
+			LogsBloom:          ret.Block.Bloom().Bytes(),
+			NextL1MessageIndex: ret.Block.Header().NextL1MsgIndex, // honest
+		}
+
+		err = api.NewL2BlockV2(data, false)
+		require.NoError(t, err)
+		require.Equal(t, numberBefore+1, bc.CurrentBlock().NumberU64())
 	})
 
 	// TC-07: Consecutive reorg - now at height 8, reorg to build on block 5

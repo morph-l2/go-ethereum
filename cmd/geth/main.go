@@ -195,6 +195,7 @@ var (
 		utils.RPCGlobalTxFeeCapFlag,
 		utils.AllowUnprotectedTxs,
 		utils.MaxBlockRangeFlag,
+		utils.RPCRangeLimitFlag,
 		utils.BatchRequestLimit,
 		utils.BatchResponseMaxSize,
 	}

@@ -880,6 +880,14 @@ var (
 		Name:  "rpc.getlogs.maxrange",
 		Usage: "Limit max fetched block range for `eth_getLogs` method",
 	}
+	// RPCRangeLimitFlag is an alias for MaxBlockRangeFlag that aligns with
+	// upstream go-ethereum PR #33163. Using either flag caps the block range
+	// (end - begin + 1) allowed in eth_getLogs; -1 and 0 both mean unlimited
+	// so existing deployments that rely on the default -1 keep working.
+	RPCRangeLimitFlag = cli.Int64Flag{
+		Name:  "rpc.rangelimit",
+		Usage: "Limit the maximum block range (end - begin + 1) allowed in range queries such as `eth_getLogs` (alias of --rpc.getlogs.maxrange; -1 or 0 = unlimited)",
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -1568,9 +1576,26 @@ func setWhitelist(ctx *cli.Context, cfg *ethconfig.Config) {
 }
 
 func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
-	if ctx.GlobalIsSet(MaxBlockRangeFlag.Name) {
+	// Resolution order: --rpc.rangelimit takes precedence when both are set,
+	// so operators can opt into the upstream-aligned name without having to
+	// remove the legacy --rpc.getlogs.maxrange flag from their launch
+	// scripts first. When neither flag is set, -1 preserves the historical
+	// "no block range limit" behavior.
+	var (
+		rangelimitSet = ctx.GlobalIsSet(RPCRangeLimitFlag.Name)
+		maxrangeSet   = ctx.GlobalIsSet(MaxBlockRangeFlag.Name)
+	)
+	switch {
+	case rangelimitSet:
+		v := ctx.GlobalInt64(RPCRangeLimitFlag.Name)
+		if v <= 0 {
+			cfg.MaxBlockRange = -1
+		} else {
+			cfg.MaxBlockRange = v
+		}
+	case maxrangeSet:
 		cfg.MaxBlockRange = ctx.GlobalInt64(MaxBlockRangeFlag.Name)
-	} else {
+	default:
 		cfg.MaxBlockRange = -1
 	}
 }

@@ -252,12 +252,13 @@ type TxPool struct {
 	signer      types.Signer
 	mu          sync.RWMutex
 
-	istanbul bool // Fork indicator whether we are in the istanbul stage.
-	eip2718  bool // Fork indicator whether we are using EIP-2718 type transactions.
-	eip1559  bool // Fork indicator whether we are using EIP-1559 type transactions.
-	shanghai bool // Fork indicator whether we are in the Shanghai stage.
-	eip7702  bool // Fork indicator whether we are in the Morph 3.0.0 stage.
-	jade     bool // Fork indicator whether we are in the Jade stage.
+	istanbul  bool // Fork indicator whether we are in the istanbul stage.
+	eip2718   bool // Fork indicator whether we are using EIP-2718 type transactions.
+	eip1559   bool // Fork indicator whether we are using EIP-1559 type transactions.
+	shanghai  bool // Fork indicator whether we are in the Shanghai stage.
+	eip7702   bool // Fork indicator whether we are in the Morph 3.0.0 stage.
+	jade      bool // Fork indicator whether we are in the Jade stage.
+	amsterdam bool // Fork indicator whether we are in the Amsterdam stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	currentHead   *big.Int       // Current blockchain head
@@ -800,7 +801,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		}
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
-	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai)
+	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai, pool.amsterdam)
 	if err != nil {
 		return err
 	}
@@ -1561,6 +1562,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.shanghai = pool.chainconfig.IsShanghai(next)
 	pool.eip7702 = pool.chainconfig.IsViridian(next, newHead.Time)
 	pool.jade = pool.chainconfig.IsJadeFork(newHead.Time)
+	pool.amsterdam = pool.chainconfig.IsAmsterdam(newHead.Time)
 
 	// Remove MorphTx V1 transactions if jade fork is not active (e.g. after reorg)
 	if !pool.jade {

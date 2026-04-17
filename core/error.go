@@ -130,6 +130,14 @@ var (
 	// signed by an address which already has in-flight transactions known to the
 	// pool.
 	ErrAuthorityReserved = errors.New("authority already reserved")
+
+	// ErrInsufficientAuthorizationGas is returned from applyAuthorization in the
+	// post-Amsterdam EIP-7702 gas accounting path when the remaining transaction
+	// gas is insufficient to cover the `CallNewAccountGas - TxAuthTupleGas`
+	// delta required to install a delegation on a non-existing authority
+	// account. Like other applyAuthorization errors, the caller in TransitionDb
+	// silently skips the authorization.
+	ErrInsufficientAuthorizationGas = errors.New("EIP-7702 authorization has insufficient gas for new-account charge")
 )
 
 // EIP-7702 state transition errors.

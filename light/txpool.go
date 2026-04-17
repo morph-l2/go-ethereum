@@ -71,9 +71,10 @@ type TxPool struct {
 	mined        map[common.Hash][]*types.Transaction // mined transactions by block hash
 	clearIdx     uint64                               // earliest block nr that can contain mined tx info
 
-	istanbul bool // Fork indicator whether we are in the istanbul stage.
-	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
-	shanghai bool // Fork indicator whether we are in the shanghai stage.
+	istanbul  bool // Fork indicator whether we are in the istanbul stage.
+	eip2718   bool // Fork indicator whether we are in the eip2718 stage.
+	shanghai  bool // Fork indicator whether we are in the shanghai stage.
+	amsterdam bool // Fork indicator whether we are in the Amsterdam stage.
 
 	currentHead    *big.Int // Current blockchain head
 	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
@@ -351,6 +352,7 @@ func (pool *TxPool) setNewHead(head *types.Header) {
 	pool.istanbul = pool.config.IsIstanbul(next)
 	pool.eip2718 = pool.config.IsBerlin(next)
 	pool.shanghai = pool.config.IsShanghai(next)
+	pool.amsterdam = pool.config.IsAmsterdam(head.Time)
 
 	pool.currentHead = next
 }
@@ -490,7 +492,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	}
 
 	// Should supply enough intrinsic gas
-	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai)
+	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai, pool.amsterdam)
 	if err != nil {
 		return err
 	}

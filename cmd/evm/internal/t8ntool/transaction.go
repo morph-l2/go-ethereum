@@ -139,9 +139,11 @@ func Transaction(ctx *cli.Context) error {
 		} else {
 			r.Address = sender
 		}
-		// Check intrinsic gas
+		// Check intrinsic gas. Amsterdam is a time-based fork; t8n only has
+		// block-number context here, so the Amsterdam EIP-7702 pricing switch
+		// stays disabled for this tool (it matches upstream t8n semantics).
 		if gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil,
-			chainConfig.IsHomestead(new(big.Int)), chainConfig.IsIstanbul(new(big.Int)), chainConfig.IsShanghai(new(big.Int))); err != nil {
+			chainConfig.IsHomestead(new(big.Int)), chainConfig.IsIstanbul(new(big.Int)), chainConfig.IsShanghai(new(big.Int)), false); err != nil {
 			r.Error = err
 			results = append(results, r)
 			continue

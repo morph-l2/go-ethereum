@@ -483,6 +483,19 @@ func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data, isSafe bool) (e
 	if err != nil {
 		return err
 	}
+	// Defense against signature-replay: ensure the declared block hash matches the
+	// hash recomputed from the canonical fields. Without this check, an attacker
+	// could keep params.Hash from a legitimately signed block while tampering with
+	// other content fields, and have the signature verification on the consensus
+	// side accept the tampered body. This is the last line of defense before the
+	// block is committed to the chain; the tendermint side performs the same check
+	// earlier in VerifyBlockSignature to reject tampered blocks before propagation.
+	if (params.Hash != common.Hash{}) && block.Hash() != params.Hash {
+		log.Error("NewL2BlockV2 hash mismatch (signature replay or tampering)",
+			"declared", params.Hash.Hex(), "computed", block.Hash().Hex(), "number", params.Number)
+		return fmt.Errorf("block hash mismatch: declared %s, computed %s",
+			params.Hash.Hex(), block.Hash().Hex())
+	}
 
 	defer func() {
 		if err == nil {

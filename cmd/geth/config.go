@@ -252,6 +252,9 @@ func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
 	if ctx.GlobalIsSet(utils.MetricsInfluxDBTagsFlag.Name) {
 		cfg.Metrics.InfluxDBTags = ctx.GlobalString(utils.MetricsInfluxDBTagsFlag.Name)
 	}
+	if ctx.GlobalIsSet(utils.MetricsInfluxDBIntervalFlag.Name) {
+		cfg.Metrics.InfluxDBInterval = ctx.GlobalDuration(utils.MetricsInfluxDBIntervalFlag.Name)
+	}
 	if ctx.GlobalIsSet(utils.MetricsEnableInfluxDBV2Flag.Name) {
 		cfg.Metrics.EnableInfluxDBV2 = ctx.GlobalBool(utils.MetricsEnableInfluxDBV2Flag.Name)
 	}

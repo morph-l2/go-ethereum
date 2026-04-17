@@ -32,7 +32,6 @@ import (
 	"strings"
 	"text/tabwriter"
 	"text/template"
-	"time"
 
 	pcsclite "github.com/gballet/go-libpcsclite"
 	gopsutil "github.com/shirou/gopsutil/mem"
@@ -863,6 +862,12 @@ var (
 		Name:  "metrics.influxdb.organization",
 		Usage: "InfluxDB organization name (v2 only)",
 		Value: metrics.DefaultConfig.InfluxDBOrganization,
+	}
+
+	MetricsInfluxDBIntervalFlag = cli.DurationFlag{
+		Name:  "metrics.influxdb.interval",
+		Usage: "Interval between metrics reports to InfluxDB (with time unit, e.g. 10s)",
+		Value: metrics.DefaultConfig.InfluxDBInterval,
 	}
 
 	CatalystFlag = cli.BoolFlag{
@@ -2026,20 +2031,25 @@ func SetupMetrics(ctx *cli.Context) {
 			token        = ctx.GlobalString(MetricsInfluxDBTokenFlag.Name)
 			bucket       = ctx.GlobalString(MetricsInfluxDBBucketFlag.Name)
 			organization = ctx.GlobalString(MetricsInfluxDBOrganizationFlag.Name)
+
+			interval = metrics.DefaultConfig.InfluxDBInterval
 		)
+		if ctx.GlobalIsSet(MetricsInfluxDBIntervalFlag.Name) {
+			interval = ctx.GlobalDuration(MetricsInfluxDBIntervalFlag.Name)
+		}
 
 		if enableExport {
 			tagsMap := SplitTagsFlag(ctx.GlobalString(MetricsInfluxDBTagsFlag.Name))
 
-			log.Info("Enabling metrics export to InfluxDB")
+			log.Info("Enabling metrics export to InfluxDB", "interval", interval)
 
-			go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, database, username, password, "geth.", tagsMap)
+			go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, interval, endpoint, database, username, password, "geth.", tagsMap)
 		} else if enableExportV2 {
 			tagsMap := SplitTagsFlag(ctx.GlobalString(MetricsInfluxDBTagsFlag.Name))
 
-			log.Info("Enabling metrics export to InfluxDB (v2)")
+			log.Info("Enabling metrics export to InfluxDB (v2)", "interval", interval)
 
-			go influxdb.InfluxDBV2WithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, token, bucket, organization, "geth.", tagsMap)
+			go influxdb.InfluxDBV2WithTags(metrics.DefaultRegistry, interval, endpoint, token, bucket, organization, "geth.", tagsMap)
 		}
 
 		if ctx.GlobalIsSet(MetricsHTTPFlag.Name) {

@@ -27,6 +27,8 @@ import (
 	"github.com/morph-l2/go-ethereum/common/mclock"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/event"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 var (
@@ -54,6 +56,10 @@ type doWait struct {
 	time time.Duration
 	step bool
 }
+type doChainEvent struct {
+	chain *testTxFetcherChain
+	block *types.Block
+}
 type doDrop string
 type doFunc func()
 
@@ -63,7 +69,27 @@ type isScheduled struct {
 	fetching map[string][]common.Hash
 	dangling map[string][]common.Hash
 }
+type isOnChain []common.Hash
 type isUnderpriced int
+
+type testTxFetcherChain struct {
+	feed event.Feed
+}
+
+func (c *testTxFetcherChain) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription {
+	return c.feed.Subscribe(ch)
+}
+
+func (c *testTxFetcherChain) sendBlock(block *types.Block) {
+	c.feed.Send(core.ChainEvent{Block: block, Hash: block.Hash()})
+}
+
+func newTestChainBlock(number int64, parent common.Hash, txs []*types.Transaction) *types.Block {
+	return types.NewBlock(&types.Header{
+		Number:     big.NewInt(number),
+		ParentHash: parent,
+	}, txs, nil, nil, trie.NewStackTrie(nil))
+}
 
 // txFetcherTest represents a test scenario that can be executed by the test
 // runner.
@@ -584,53 +610,32 @@ func TestTransactionFetcherBroadcasts(t *testing.T) {
 	})
 }
 
-// TestTransactionFetcherOnchainFiltered verifies that announcements whose
-// hash the hasTx pre-filter reports as already known are dropped before
-// ever reaching the waitlist, regardless of whether the "known" verdict
-// comes from the local txpool or from the chain's tx index.
-//
-// Morph's handler composes hasTx as
-//
-//	h.txpool.Has(hash) || h.chain.GetTransactionLookup(hash) != nil
-//
-// as part of the P2-4 port of upstream PR #33607, so this test models that
-// composition with two independent "known" sets and asserts that both
-// paths short-circuit the announce. It also keeps one brand-new hash in
-// the batch to prove that the filter is scoped to individual hashes and
-// does not poison the rest of the announce.
+// TestTransactionFetcherOnchainFiltered verifies that chain events populate the
+// on-chain cache and already confirmed transaction announcements get filtered
+// before ever reaching the waitlist.
 func TestTransactionFetcherOnchainFiltered(t *testing.T) {
-	var (
-		// simulated local txpool membership
-		poolKnown = map[common.Hash]struct{}{
-			{0x10}: {},
-		}
-		// simulated on-chain tx index hit
-		chainKnown = map[common.Hash]struct{}{
-			{0x20}: {},
-		}
-	)
+	chain := new(testTxFetcherChain)
+	block := newTestChainBlock(1, common.Hash{}, []*types.Transaction{testTxs[1]})
+
 	testTransactionFetcherParallel(t, txFetcherTest{
 		init: func() *TxFetcher {
-			return NewTxFetcher(
-				func(hash common.Hash) bool {
-					if _, ok := poolKnown[hash]; ok {
-						return true
-					}
-					_, ok := chainKnown[hash]
-					return ok
-				},
+			return newTxFetcher(
+				chain,
+				func(hash common.Hash) bool { return hash == testTxsHashes[0] },
 				nil,
 				func(string, []common.Hash) error { return nil },
+				mclock.System{}, nil,
 			)
 		},
 		steps: []interface{}{
-			// Announce a mix of: a brand new hash, a pool-known hash,
-			// and a chain-known hash. Only the new hash may land in
-			// the waitlist; the other two must be filtered out by the
-			// pre-filter and never be scheduled for retrieval.
+			doChainEvent{chain: chain, block: block},
+			isOnChain{testTxsHashes[1]},
+
+			// Announce a brand new hash, a txpool-known hash, and an on-chain hash.
+			// Only the new hash may land in the waitlist.
 			doTxNotify{
 				peer:   "A",
-				hashes: []common.Hash{{0x01}, {0x10}, {0x20}},
+				hashes: []common.Hash{{0x01}, testTxsHashes[0], testTxsHashes[1]},
 			},
 			isWaiting(map[string][]common.Hash{
 				"A": {{0x01}},
@@ -648,6 +653,56 @@ func TestTransactionFetcherOnchainFiltered(t *testing.T) {
 				},
 				fetching: map[string][]common.Hash{
 					"A": {{0x01}},
+				},
+			},
+		},
+	})
+}
+
+// TestTransactionFetcherOnchainCacheReorg verifies that a non-contiguous chain
+// event flushes stale on-chain entries so reorged-out transactions can be
+// fetched again.
+func TestTransactionFetcherOnchainCacheReorg(t *testing.T) {
+	chain := new(testTxFetcherChain)
+	oldHead := newTestChainBlock(1, common.Hash{}, []*types.Transaction{testTxs[0]})
+	newHead := newTestChainBlock(2, common.Hash{0xff}, []*types.Transaction{testTxs[1]})
+
+	testTransactionFetcherParallel(t, txFetcherTest{
+		init: func() *TxFetcher {
+			return newTxFetcher(
+				chain,
+				func(common.Hash) bool { return false },
+				nil,
+				func(string, []common.Hash) error { return nil },
+				mclock.System{}, nil,
+			)
+		},
+		steps: []interface{}{
+			doChainEvent{chain: chain, block: oldHead},
+			isOnChain{testTxsHashes[0]},
+
+			doChainEvent{chain: chain, block: newHead},
+			isOnChain{testTxsHashes[1]},
+
+			// The old on-chain hash must be forgotten after the reorg, while the new
+			// canonical one is still filtered out.
+			doTxNotify{
+				peer:   "A",
+				hashes: []common.Hash{testTxsHashes[0], testTxsHashes[1]},
+			},
+			isWaiting(map[string][]common.Hash{
+				"A": {testTxsHashes[0]},
+			}),
+			isScheduled{tracking: nil, fetching: nil},
+
+			doWait{time: txArriveTimeout, step: true},
+			isWaiting(nil),
+			isScheduled{
+				tracking: map[string][]common.Hash{
+					"A": {testTxsHashes[0]},
+				},
+				fetching: map[string][]common.Hash{
+					"A": {testTxsHashes[0]},
 				},
 			},
 		},
@@ -1359,6 +1414,10 @@ func testTransactionFetcher(t *testing.T, tt txFetcherTest) {
 				<-wait // Fetcher supposed to do something, wait until it's done
 			}
 
+		case doChainEvent:
+			step.chain.sendBlock(step.block)
+			<-wait // Fetcher needs to process the chain event, wait until it's done
+
 		case doDrop:
 			if err := fetcher.Drop(string(step)); err != nil {
 				t.Errorf("step %d: %v", i, err)
@@ -1367,6 +1426,13 @@ func testTransactionFetcher(t *testing.T, tt txFetcherTest) {
 
 		case doFunc:
 			step()
+
+		case isOnChain:
+			for _, hash := range step {
+				if !fetcher.txOnChainCache.Contains(hash) {
+					t.Errorf("step %d: hash %x missing from txOnChainCache", i, hash)
+				}
+			}
 
 		case isWaiting:
 			// We need to check that the waiting list (stage 1) internals

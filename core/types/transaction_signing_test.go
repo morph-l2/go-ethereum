@@ -141,18 +141,25 @@ func TestSignatureValuesError(t *testing.T) {
 	tx := NewTransaction(0, common.Address{}, big.NewInt(0), 0, big.NewInt(0), nil)
 	signer := HomesteadSigner{}
 
-	invalidSig := make([]byte, 64)
-
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("Panicked for invalid signature length, expected error: %v", r)
+	tests := []struct {
+		name string
+		sig  []byte
+	}{
+		{name: "empty", sig: nil},
+		{name: "short", sig: make([]byte, 64)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Panicked for invalid signature length, expected error: %v", r)
+				}
+			}()
+			_, err := tx.WithSignature(signer, tt.sig)
+			if err == nil {
+				t.Fatal("Expected error for invalid signature length, got nil")
 			}
-		}()
-		_, err := tx.WithSignature(signer, invalidSig)
-		if err == nil {
-			t.Fatal("Expected error for invalid signature length, got nil")
-		}
-		t.Logf("Got expected error: %v", err)
-	}()
+			t.Logf("Got expected error: %v", err)
+		})
+	}
 }

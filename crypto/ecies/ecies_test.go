@@ -301,7 +301,7 @@ func testParamSelection(t *testing.T, c testCase) {
 	params := ParamsFromCurve(c.Curve)
 	if params == nil {
 		t.Fatal("ParamsFromCurve returned nil")
-	} else if params != nil && !cmpParams(params, c.Expected) {
+	} else if !cmpParams(params, c.Expected) {
 		t.Fatalf("ecies: parameters should be invalid (%s)\n", c.Name)
 	}
 
@@ -359,6 +359,26 @@ func TestBasicKeyValidation(t *testing.T) {
 		if err != ErrInvalidPublicKey {
 			t.Fatal("ecies: validated an invalid key")
 		}
+	}
+}
+
+func TestDecryptRejectsCiphertextAtLegacyMinimumLength(t *testing.T) {
+	prv, err := GenerateKey(rand.Reader, DefaultCurve, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, err := pubkeyParams(&prv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rLen := (prv.PublicKey.Curve.Params().BitSize + 7) / 4
+	legacyMinLen := rLen + params.Hash().Size() + 1
+
+	ciphertext := make([]byte, legacyMinLen)
+	ciphertext[0] = 0x04
+
+	if _, err := prv.Decrypt(ciphertext, nil, nil); err != ErrInvalidMessage {
+		t.Fatalf("expected ErrInvalidMessage for legacy minimum ciphertext length, got %v", err)
 	}
 }
 

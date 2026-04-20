@@ -481,7 +481,7 @@ func inspectTrie(ctx *cli.Context) error {
 	db := utils.MakeChainDatabase(ctx, stack, true)
 	defer db.Close()
 
-	root, blockNumber, blockTime, err := resolveInspectTarget(ctx, db)
+	root, blockNumber, blockTime, blockMetaKnown, err := resolveInspectTarget(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -490,7 +490,7 @@ func inspectTrie(ctx *cli.Context) error {
 	// (UseZktrie=true) and the target block predates JadeFork, the state
 	// is still zkTrie-encoded. We refuse rather than produce garbage.
 	chainConfig := rawdb.ReadChainConfig(db, rawdb.ReadCanonicalHash(db, 0))
-	if chainConfig != nil && chainConfig.Morph.UseZktrie && !chainConfig.IsJadeFork(blockTime) {
+	if chainConfig != nil && chainConfig.Morph.UseZktrie && blockMetaKnown && !chainConfig.IsJadeFork(blockTime) {
 		return fmt.Errorf("%w (block %d time %d predates JadeFork)",
 			trie.ErrUnsupportedTrieFormat, blockNumber, blockTime)
 	}
@@ -537,11 +537,12 @@ func inspectTrie(ctx *cli.Context) error {
 }
 
 // resolveInspectTarget picks a state root and best-effort block metadata
-// from the positional argument. For the "snapshot" keyword the snapshot
-// layer root is used and block metadata is left zero-valued.
-func resolveInspectTarget(ctx *cli.Context, db ethdb.Database) (common.Hash, uint64, uint64, error) {
+// from the positional argument. For the "snapshot" keyword it first tries to
+// recover canonical block metadata from the snapshot root; if no matching
+// header is available the block metadata is returned as unknown.
+func resolveInspectTarget(ctx *cli.Context, db ethdb.Database) (common.Hash, uint64, uint64, bool, error) {
 	if ctx.NArg() > 1 {
-		return common.Hash{}, 0, 0, fmt.Errorf("max 1 argument: %v", ctx.Command.ArgsUsage)
+		return common.Hash{}, 0, 0, false, fmt.Errorf("max 1 argument: %v", ctx.Command.ArgsUsage)
 	}
 
 	arg := "latest"
@@ -549,37 +550,50 @@ func resolveInspectTarget(ctx *cli.Context, db ethdb.Database) (common.Hash, uin
 		arg = ctx.Args().Get(0)
 	}
 
-	// Snapshot mode has no associated canonical header. Callers should
-	// treat blockTime=0 as "unknown" when reporting results.
 	if arg == "snapshot" {
-		root := rawdb.ReadSnapshotRoot(db)
-		if root == (common.Hash{}) {
-			return common.Hash{}, 0, 0, errors.New("snapshot root not found in database")
-		}
-		return root, 0, 0, nil
+		return resolveSnapshotInspectTarget(db)
 	}
 
 	if arg == "latest" {
 		header := rawdb.ReadHeadHeader(db)
 		if header == nil {
-			return common.Hash{}, 0, 0, errors.New("head header not found; database may be empty")
+			return common.Hash{}, 0, 0, false, errors.New("head header not found; database may be empty")
 		}
-		return header.Root, header.Number.Uint64(), header.Time, nil
+		return header.Root, header.Number.Uint64(), header.Time, true, nil
 	}
 
 	n, err := strconv.ParseUint(arg, 10, 64)
 	if err != nil {
-		return common.Hash{}, 0, 0, fmt.Errorf("invalid block argument %q: %w", arg, err)
+		return common.Hash{}, 0, 0, false, fmt.Errorf("invalid block argument %q: %w", arg, err)
 	}
 	hash := rawdb.ReadCanonicalHash(db, n)
 	if hash == (common.Hash{}) {
-		return common.Hash{}, 0, 0, fmt.Errorf("canonical hash for block %d not found", n)
+		return common.Hash{}, 0, 0, false, fmt.Errorf("canonical hash for block %d not found", n)
 	}
 	header := rawdb.ReadHeader(db, hash, n)
 	if header == nil {
-		return common.Hash{}, 0, 0, fmt.Errorf("header for block %d / %x not found", n, hash)
+		return common.Hash{}, 0, 0, false, fmt.Errorf("header for block %d / %x not found", n, hash)
 	}
-	return header.Root, header.Number.Uint64(), header.Time, nil
+	return header.Root, header.Number.Uint64(), header.Time, true, nil
+}
+
+func resolveSnapshotInspectTarget(db ethdb.Database) (common.Hash, uint64, uint64, bool, error) {
+	root := rawdb.ReadSnapshotRoot(db)
+	if root == (common.Hash{}) {
+		return common.Hash{}, 0, 0, false, errors.New("snapshot root not found in database")
+	}
+	if header := rawdb.ReadHeadHeader(db); header != nil && header.Root == root {
+		return root, header.Number.Uint64(), header.Time, true, nil
+	}
+	if number := rawdb.ReadSnapshotRecoveryNumber(db); number != nil {
+		hash := rawdb.ReadCanonicalHash(db, *number)
+		if hash != (common.Hash{}) {
+			if header := rawdb.ReadHeader(db, hash, *number); header != nil && header.Root == root {
+				return root, header.Number.Uint64(), header.Time, true, nil
+			}
+		}
+	}
+	return root, 0, 0, false, nil
 }
 
 func showLeveldbStats(db ethdb.Stater) {

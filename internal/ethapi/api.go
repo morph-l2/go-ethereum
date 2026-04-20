@@ -1014,18 +1014,15 @@ const maxGetStorageSlots = 1024
 //   - empty request is rejected with a parameter error,
 //   - total requested slot count must not exceed maxGetStorageSlots.
 func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map[common.Address][]common.Hash, blockNrOrHash rpc.BlockNumberOrHash) (map[common.Address][]hexutil.Bytes, error) {
-	if len(requests) == 0 {
-		return nil, errors.New("empty request")
-	}
 	var totalSlots int
 	for _, keys := range requests {
 		totalSlots += len(keys)
 		if totalSlots > maxGetStorageSlots {
-			return nil, fmt.Errorf("too many slots (max %d)", maxGetStorageSlots)
+			return nil, &clientLimitExceededError{message: fmt.Sprintf("too many slots (max %d)", maxGetStorageSlots)}
 		}
 	}
 	if totalSlots == 0 {
-		return nil, errors.New("empty request")
+		return nil, &invalidParamsError{message: "empty request"}
 	}
 
 	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)

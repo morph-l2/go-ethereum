@@ -29,6 +29,18 @@ import (
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
+func assertRPCErrorCode(t *testing.T, err error, want int) {
+	t.Helper()
+
+	rpcErr, ok := err.(rpc.Error)
+	if !ok {
+		t.Fatalf("expected rpc.Error, got %T (%v)", err, err)
+	}
+	if got := rpcErr.ErrorCode(); got != want {
+		t.Fatalf("unexpected rpc error code: got %d want %d", got, want)
+	}
+}
+
 // storageValuesBackend is a minimal Backend that only implements
 // StateAndHeaderByNumberOrHash so the GetStorageValues method can be
 // exercised without spinning up a full eth backend. Every other method is
@@ -125,6 +137,7 @@ func TestGetStorageValuesEmptyRequestRejected(t *testing.T) {
 	if !strings.Contains(err.Error(), "empty request") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
+	assertRPCErrorCode(t, err, errCodeInvalidParams)
 }
 
 // TestGetStorageValuesEmptyPerAddressRejected covers the subtle case where
@@ -144,6 +157,7 @@ func TestGetStorageValuesEmptyPerAddressRejected(t *testing.T) {
 	if !strings.Contains(err.Error(), "empty request") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
+	assertRPCErrorCode(t, err, errCodeInvalidParams)
 }
 
 // TestGetStorageValuesExceedsLimit ensures that requests with more than
@@ -165,6 +179,7 @@ func TestGetStorageValuesExceedsLimit(t *testing.T) {
 	if !strings.Contains(err.Error(), "too many slots") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
+	assertRPCErrorCode(t, err, errCodeClientLimitExceeded)
 }
 
 // TestGetStorageValuesLimitBoundary ensures that the maximum allowed slot

@@ -163,3 +163,28 @@ func TestSignatureValuesError(t *testing.T) {
 		})
 	}
 }
+
+func TestSignSetCode(t *testing.T) {
+	key, _ := defaultTestKey()
+	auth := SetCodeAuthorization{
+		Address: common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
+		Nonce:   7,
+	}
+
+	signed, err := SignSetCode(key, auth)
+	if err != nil {
+		t.Fatalf("SignSetCode returned error: %v", err)
+	}
+	if signed.Address != auth.Address {
+		t.Fatalf("address mismatch: have %s want %s", signed.Address, auth.Address)
+	}
+	if signed.Nonce != auth.Nonce {
+		t.Fatalf("nonce mismatch: have %d want %d", signed.Nonce, auth.Nonce)
+	}
+	if signed.R.IsZero() || signed.S.IsZero() {
+		t.Fatal("expected non-zero signature values")
+	}
+	if signed.V > 1 {
+		t.Fatalf("unexpected y parity: %d", signed.V)
+	}
+}

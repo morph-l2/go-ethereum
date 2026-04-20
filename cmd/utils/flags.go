@@ -2062,6 +2062,11 @@ func SetupMetrics(ctx *cli.Context) {
 		if ctx.GlobalIsSet(MetricsInfluxDBIntervalFlag.Name) {
 			interval = ctx.GlobalDuration(MetricsInfluxDBIntervalFlag.Name)
 		}
+		if enableExport || enableExportV2 {
+			if err := metrics.ValidateInfluxDBInterval(interval); err != nil {
+				Fatalf("%v", err)
+			}
+		}
 
 		if enableExport {
 			tagsMap := SplitTagsFlag(ctx.GlobalString(MetricsInfluxDBTagsFlag.Name))

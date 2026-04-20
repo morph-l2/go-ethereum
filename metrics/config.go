@@ -16,7 +16,10 @@
 
 package metrics
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Config contains the configuration for the metric collection.
 type Config struct {
@@ -57,4 +60,13 @@ var DefaultConfig = Config{
 	InfluxDBToken:        "test",
 	InfluxDBBucket:       "geth",
 	InfluxDBOrganization: "geth",
+}
+
+// ValidateInfluxDBInterval rejects non-positive reporting intervals before the
+// exporter reaches time.Tick, which would otherwise panic at runtime.
+func ValidateInfluxDBInterval(interval time.Duration) error {
+	if interval <= 0 {
+		return fmt.Errorf("invalid InfluxDB interval %v (must be > 0)", interval)
+	}
+	return nil
 }

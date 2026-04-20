@@ -44,7 +44,7 @@ import (
 var (
 	inspectTrieTopFlag = cli.IntFlag{
 		Name:  "top",
-		Usage: "Number of storage tries to include in the top-N ranking (0 disables ranking)",
+		Usage: "Number of storage tries to include in the top-N ranking (must be > 0)",
 		Value: 10,
 	}
 	inspectTrieExcludeStorageFlag = cli.BoolFlag{
@@ -456,8 +456,8 @@ func inspect(ctx *cli.Context) error {
 // not understand morph's zkTrie encoding.
 func inspectTrie(ctx *cli.Context) error {
 	topN := ctx.Int(inspectTrieTopFlag.Name)
-	if topN < 0 {
-		return fmt.Errorf("invalid --%s value %d (must be >= 0)", inspectTrieTopFlag.Name, topN)
+	if err := validateInspectTrieTopN(topN); err != nil {
+		return err
 	}
 
 	// Mode 1: summarize an existing dump. The trie database is not
@@ -594,6 +594,13 @@ func resolveSnapshotInspectTarget(db ethdb.Database) (common.Hash, uint64, uint6
 		}
 	}
 	return root, 0, 0, false, nil
+}
+
+func validateInspectTrieTopN(topN int) error {
+	if topN <= 0 {
+		return fmt.Errorf("invalid --%s value %d (must be > 0)", inspectTrieTopFlag.Name, topN)
+	}
+	return nil
 }
 
 func showLeveldbStats(db ethdb.Stater) {

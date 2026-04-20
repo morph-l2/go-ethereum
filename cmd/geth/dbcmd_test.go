@@ -113,3 +113,26 @@ func TestResolveInspectTargetSnapshotUnknownMetadata(t *testing.T) {
 		t.Fatalf("unexpected unknown snapshot target: root=%x number=%d time=%d known=%v", gotRoot, gotNumber, gotTime, gotKnown)
 	}
 }
+
+func TestValidateInspectTrieTopN(t *testing.T) {
+	tests := []struct {
+		name    string
+		topN    int
+		wantErr bool
+	}{
+		{name: "positive", topN: 10},
+		{name: "zero_rejected", topN: 0, wantErr: true},
+		{name: "negative_rejected", topN: -1, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateInspectTrieTopN(tt.topN)
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error for topN=%d", tt.topN)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error for topN=%d: %v", tt.topN, err)
+			}
+		})
+	}
+}

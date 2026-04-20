@@ -44,3 +44,26 @@ func TestConfigInfluxDBIntervalCustom(t *testing.T) {
 		t.Fatalf("DefaultConfig was mutated through local copy: got %v", DefaultConfig.InfluxDBInterval)
 	}
 }
+
+func TestValidateInfluxDBInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		interval time.Duration
+		wantErr  bool
+	}{
+		{name: "positive", interval: 5 * time.Second},
+		{name: "zero_rejected", interval: 0, wantErr: true},
+		{name: "negative_rejected", interval: -1 * time.Second, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateInfluxDBInterval(tt.interval)
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error for interval=%v", tt.interval)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error for interval=%v: %v", tt.interval, err)
+			}
+		})
+	}
+}

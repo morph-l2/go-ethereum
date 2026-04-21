@@ -42,6 +42,13 @@ func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.Exe
 	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data, batchHash)
 }
 
+// NewL2BlockV2 executes L2 Block with reorg support, and sets the block to chain.
+// Unlike NewL2Block, parent is not required to be the current head — reorg is handled
+// automatically by SetCanonical. isSafe=true skips header and state validation.
+func (ec *Client) NewL2BlockV2(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, isSafe bool) error {
+	return ec.c.CallContext(ctx, nil, "engine_newL2BlockV2", executableL2Data, isSafe)
+}
+
 // NewSafeL2Block executes a safe L2 Block, and set the block to chain
 func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL2Data) (*types.Header, error) {
 	var header types.Header

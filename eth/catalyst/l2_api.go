@@ -459,3 +459,66 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 		Hash: newBlockResult.Block.Hash(),
 	}, nil
 }
+
+// NewL2BlockV2 commits a block with reorg support.
+// Unlike NewL2Block, it only requires the parent to exist (not be currentHead).
+// SetCanonical internally detects parentHash != currentHead and triggers reorg automatically.
+// isSafe=true skips verifyBlock and ValidateState (for L1-confirmed blocks).
+func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data, isSafe bool) (err error) {
+	api.newBlockLock.Lock()
+	defer api.newBlockLock.Unlock()
+
+	bc := api.eth.BlockChain()
+
+	parentHeader := bc.GetHeaderByHash(params.ParentHash)
+	if parentHeader == nil {
+		return fmt.Errorf("parent block not found: %s", params.ParentHash.Hex())
+	}
+	if params.Number != parentHeader.Number.Uint64()+1 {
+		return fmt.Errorf("wrong block number: expected %d, got %d",
+			parentHeader.Number.Uint64()+1, params.Number)
+	}
+
+	block, err := api.executableDataToBlock(params, nil)
+	if err != nil {
+		return err
+	}
+	// Defense against signature-replay: ensure the declared block hash matches the
+	// hash recomputed from the canonical fields. Without this check, an attacker
+	// could keep params.Hash from a legitimately signed block while tampering with
+	// other content fields, and have the signature verification on the consensus
+	// side accept the tampered body. This is the last line of defense before the
+	// block is committed to the chain; the tendermint side performs the same check
+	// earlier in VerifyBlockSignature to reject tampered blocks before propagation.
+	if (params.Hash != common.Hash{}) && block.Hash() != params.Hash {
+		log.Error("NewL2BlockV2 hash mismatch (signature replay or tampering)",
+			"declared", params.Hash.Hex(), "computed", block.Hash().Hex(), "number", params.Number)
+		return fmt.Errorf("block hash mismatch: declared %s, computed %s",
+			params.Hash.Hex(), block.Hash().Hex())
+	}
+
+	defer func() {
+		if err == nil {
+			api.verified = make(map[common.Hash]executionResult)
+		}
+	}()
+
+	if bas, verified := api.isVerified(block.Hash()); verified {
+		bc.UpdateBlockProcessMetrics(bas.state, bas.procTime)
+		return bc.WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
+	}
+
+	if !isSafe {
+		if err = api.verifyBlock(block); err != nil {
+			log.Error("failed to verify block", "error", err)
+			return err
+		}
+	}
+
+	stateDB, receipts, _, procTime, err := bc.ProcessBlock(block, parentHeader, isSafe)
+	if err != nil {
+		return err
+	}
+
+	return bc.WriteStateAndSetHead(block, receipts, stateDB, procTime)
+}

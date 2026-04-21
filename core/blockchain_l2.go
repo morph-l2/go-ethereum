@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -13,6 +14,18 @@ import (
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/log"
 )
+
+// ErrInvalidNextL1MsgIndex is returned when a block's header.NextL1MsgIndex
+// disagrees with the value derived from the canonical L1 message stream
+// (parent's FirstQueueIndexNotInL2Block + L1 messages processed in this block).
+//
+// header.NextL1MsgIndex is NOT covered by Header.Hash() (see core/types/block.go
+// headerHashing layout), so a signature-replay attacker can tamper with this
+// field independently from the block hash. The locally derived value, in
+// contrast, is computed from L1MessageTx queue indexes inside the block body
+// which DO participate in Header.TxHash and therefore the block hash, so any
+// mismatch indicates the on-wire header field was tampered with.
+var ErrInvalidNextL1MsgIndex = errors.New("invalid block.NextL1MsgIndex")
 
 func (bc *BlockChain) UpdateBlockProcessMetrics(statedb *state.StateDB, procTime time.Duration) {
 	// Update the metrics touched during block processing
@@ -93,6 +106,29 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	if queueIndex != nil {
 		numProcessed := uint64(block.NumL1MessagesProcessed(*queueIndex))
 		newIndex := *queueIndex + numProcessed
+
+		// Cross-check the header's NextL1MsgIndex against the value derived from
+		// the canonical L1 message stream. See ErrInvalidNextL1MsgIndex doc for
+		// the threat model: this field is not covered by Header.Hash(), so it
+		// must be validated against an independent source before persisting.
+		// Rejecting here ensures the block batch is never written and downstream
+		// state (chain head, executor.nextL1MsgIndex, prover RPC) cannot read a
+		// tampered value from disk.
+		if block.Header().NextL1MsgIndex != newIndex {
+			log.Error(
+				"NextL1MsgIndex mismatch, refusing to write block (tampering or sequencer bug)",
+				"number", block.NumberU64(),
+				"hash", block.Hash().Hex(),
+				"header", block.Header().NextL1MsgIndex,
+				"computed", newIndex,
+				"parentQueueIndex", *queueIndex,
+				"numProcessed", numProcessed,
+			)
+			return fmt.Errorf("%w at #%d %s: header=%d, computed=%d (parent q=%d, processed=%d)",
+				ErrInvalidNextL1MsgIndex, block.NumberU64(), block.Hash().Hex(),
+				block.Header().NextL1MsgIndex, newIndex, *queueIndex, numProcessed)
+		}
+
 		log.Trace(
 			"Blockchain.writeBlockStateWithoutHead WriteFirstQueueIndexNotInL2Block",
 			"number", block.Number(),

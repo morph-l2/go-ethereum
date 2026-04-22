@@ -1241,19 +1241,21 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 	if args.From == nil {
 		args.From = new(common.Address)
 	}
+	header, err := b.HeaderByNumberOrHash(ctx, blockNrOrHash)
+	if err != nil {
+		return 0, err
+	}
+	if header == nil {
+		return 0, errors.New("block not found")
+	}
 	// Determine the highest gas limit can be used during the estimation.
 	if args.Gas != nil && uint64(*args.Gas) >= params.TxGas {
 		hi = uint64(*args.Gas)
 	} else {
-		// Retrieve the block to act as the gas ceiling
-		block, err := b.BlockByNumberOrHash(ctx, blockNrOrHash)
-		if err != nil {
-			return 0, err
-		}
-		if block == nil {
-			return 0, errors.New("block not found")
-		}
-		hi = block.GasLimit()
+		hi = header.GasLimit
+	}
+	if b.ChainConfig().IsAmsterdam(header.Time) && hi > params.MaxTxGas {
+		hi = params.MaxTxGas
 	}
 	// Normalize the max fee per gas the call is willing to spend.
 	var feeCap *big.Int

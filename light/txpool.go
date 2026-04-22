@@ -141,9 +141,19 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 		evm := vm.NewEVM(blockContext, txContext, state, pool.config, vmConfig)
 		return core.GetAltTokenBalance(evm, tokenID, addr)
 	}
+	pool.updateForkIndicators(chain.CurrentHeader())
 	go pool.eventLoop()
 
 	return pool
+}
+
+func (pool *TxPool) updateForkIndicators(head *types.Header) {
+	next := new(big.Int).Add(head.Number, big.NewInt(1))
+	pool.istanbul = pool.config.IsIstanbul(next)
+	pool.eip2718 = pool.config.IsBerlin(next)
+	pool.shanghai = pool.config.IsShanghai(next)
+	pool.amsterdam = pool.config.IsAmsterdam(head.Time)
+	pool.currentHead = next
 }
 
 // currentState returns the light state of the current head header
@@ -342,19 +352,16 @@ func (pool *TxPool) setNewHead(head *types.Header) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), blockCheckTimeout)
 	defer cancel()
+	oldAmsterdam := pool.amsterdam
 
 	txc, _ := pool.reorgOnNewHead(ctx, head)
 	m, r := txc.getLists()
 	pool.relay.NewHead(pool.head, m, r)
 
-	// Update fork indicator by next pending block number
-	next := new(big.Int).Add(head.Number, big.NewInt(1))
-	pool.istanbul = pool.config.IsIstanbul(next)
-	pool.eip2718 = pool.config.IsBerlin(next)
-	pool.shanghai = pool.config.IsShanghai(next)
-	pool.amsterdam = pool.config.IsAmsterdam(head.Time)
-
-	pool.currentHead = next
+	pool.updateForkIndicators(head)
+	if !oldAmsterdam && pool.amsterdam {
+		pool.dropOversizedAmsterdamTxs()
+	}
 }
 
 // Stop stops the light transaction pool
@@ -406,6 +413,9 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	header := pool.chain.GetHeaderByHash(pool.head)
 	if header.GasLimit < tx.Gas() {
 		return core.ErrGasLimit
+	}
+	if pool.amsterdam && tx.Gas() > params.MaxTxGas {
+		return fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
 	}
 
 	// Transactions can't be negative. This may never happen
@@ -500,6 +510,23 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		return core.ErrIntrinsicGas
 	}
 	return currentState.Error()
+}
+
+func (pool *TxPool) dropOversizedAmsterdamTxs() {
+	var hashes []common.Hash
+	batch := pool.chainDb.NewBatch()
+	for hash, tx := range pool.pending {
+		if tx.Gas() > params.MaxTxGas {
+			delete(pool.pending, hash)
+			batch.Delete(hash.Bytes())
+			hashes = append(hashes, hash)
+		}
+	}
+	if len(hashes) == 0 {
+		return
+	}
+	batch.Write()
+	pool.relay.Discard(hashes)
 }
 
 // add validates a new transaction and sets its state pending if processable.

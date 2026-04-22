@@ -3,13 +3,17 @@ package ethapi
 import (
 	"context"
 	"crypto/ecdsa"
+	"fmt"
 	"math/big"
 	"testing"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/params"
@@ -161,6 +165,115 @@ func (m *mockSetDefaultsBackend) ChainConfig() *params.ChainConfig { return m.ch
 func uint16VersionPtr(v uint8) *hexutil.Uint16 {
 	h := hexutil.Uint16(v)
 	return &h
+}
+
+type mockEstimateGasBackend struct {
+	Backend
+	chainConfig *params.ChainConfig
+	header      *types.Header
+	block       *types.Block
+	state       *state.StateDB
+}
+
+func newMockEstimateGasBackend(t *testing.T, config *params.ChainConfig, headerTime uint64, gasLimit uint64) *mockEstimateGasBackend {
+	t.Helper()
+
+	db := rawdb.NewMemoryDatabase()
+	sdb, err := state.New(common.Hash{}, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("new state: %v", err)
+	}
+	header := &types.Header{
+		Number:   big.NewInt(1),
+		Time:     headerTime,
+		GasLimit: gasLimit,
+		BaseFee:  big.NewInt(0),
+	}
+	return &mockEstimateGasBackend{
+		chainConfig: config,
+		header:      header,
+		block:       types.NewBlockWithHeader(header),
+		state:       sdb,
+	}
+}
+
+func (m *mockEstimateGasBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
+func (m *mockEstimateGasBackend) CurrentHeader() *types.Header     { return m.header }
+func (m *mockEstimateGasBackend) HeaderByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*types.Header, error) {
+	return m.header, nil
+}
+func (m *mockEstimateGasBackend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*types.Block, error) {
+	return m.block, nil
+}
+func (m *mockEstimateGasBackend) StateAndHeaderByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*state.StateDB, *types.Header, error) {
+	return m.state.Copy(), m.header, nil
+}
+func (m *mockEstimateGasBackend) GetEVM(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
+	if vmConfig == nil {
+		vmConfig = new(vm.Config)
+	}
+	blockContext := vm.BlockContext{
+		CanTransfer: core.CanTransfer,
+		Transfer:    core.Transfer,
+		GetHash:     func(uint64) common.Hash { return common.Hash{} },
+		Coinbase:    common.Address{},
+		GasLimit:    header.GasLimit,
+		BlockNumber: header.Number,
+		Time:        new(big.Int).SetUint64(header.Time),
+		Difficulty:  big.NewInt(0),
+		BaseFee:     header.BaseFee,
+	}
+	return vm.NewEVM(blockContext, core.NewEVMTxContext(msg), state, m.chainConfig, *vmConfig), state.Error, nil
+}
+
+func oversizedEstimateGasPayload() hexutil.Bytes {
+	size := int((params.MaxTxGas-params.TxGas)/params.TxDataNonZeroGasEIP2028) + 1
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = 0x1
+	}
+	return hexutil.Bytes(data)
+}
+
+func TestDoEstimateGasCapsAtMaxTxGasPostAmsterdam(t *testing.T) {
+	cfg := *params.TestNoL1DataFeeChainConfig
+	cfg.AmsterdamTime = params.NewUint64(0)
+
+	backend := newMockEstimateGasBackend(t, &cfg, 0, 30_000_000)
+	to := common.HexToAddress("0x1")
+	data := oversizedEstimateGasPayload()
+
+	_, err := DoEstimateGas(context.Background(), backend, TransactionArgs{
+		To:   &to,
+		Data: &data,
+	}, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), 0)
+	if err == nil {
+		t.Fatalf("expected estimateGas to fail once capped at MaxTxGas")
+	}
+	want := fmt.Sprintf("gas required exceeds allowance (%d)", params.MaxTxGas)
+	if err.Error() != want {
+		t.Fatalf("unexpected error: got %q want %q", err.Error(), want)
+	}
+}
+
+func TestDoEstimateGasDoesNotCapPreAmsterdam(t *testing.T) {
+	cfg := *params.TestNoL1DataFeeChainConfig
+	cfg.AmsterdamTime = params.NewUint64(20)
+
+	backend := newMockEstimateGasBackend(t, &cfg, 10, 30_000_000)
+	to := common.HexToAddress("0x1")
+	data := oversizedEstimateGasPayload()
+
+	got, err := DoEstimateGas(context.Background(), backend, TransactionArgs{
+		To:   &to,
+		Data: &data,
+	}, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if uint64(got) <= params.MaxTxGas {
+		t.Fatalf("expected pre-Amsterdam estimate to exceed MaxTxGas, got %d", got)
+	}
 }
 
 // TestSetDefaults_MorphTxVersionHeuristic tests the heuristic version defaulting logic

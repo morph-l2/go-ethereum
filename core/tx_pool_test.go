@@ -232,6 +232,31 @@ func setupTxPoolWithConfig(config *params.ChainConfig) (*TxPool, *ecdsa.PrivateK
 	return pool, key
 }
 
+func setupTxPoolWithConfigAndGasLimit(config *params.ChainConfig, gasLimit uint64) (*TxPool, *ecdsa.PrivateKey, *testBlockChain) {
+	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	blockchain := &testBlockChain{gasLimit, statedb, new(event.Feed)}
+
+	key, _ := crypto.GenerateKey()
+	pool := NewTxPool(testTxPoolConfig, config, blockchain)
+
+	// wait for the pool to initialize
+	<-pool.initDoneCh
+	return pool, key, blockchain
+}
+
+func txPoolNextHead(parent *types.Header, ts uint64) *types.Header {
+	number := big.NewInt(1)
+	if parent != nil && parent.Number != nil {
+		number = new(big.Int).Add(parent.Number, big.NewInt(1))
+	}
+	return &types.Header{
+		ParentHash: parent.Hash(),
+		Number:     number,
+		GasLimit:   parent.GasLimit,
+		Time:       ts,
+	}
+}
+
 // validateTxPoolInternals checks various consistency invariants within the pool.
 func validateTxPoolInternals(pool *TxPool) error {
 	pool.mu.RLock()
@@ -410,6 +435,76 @@ func TestInvalidTransactions(t *testing.T) {
 	}
 	if err := pool.AddLocal(tx); err != nil {
 		t.Error("expected", nil, "got", err)
+	}
+}
+
+func TestTxPoolRejectsOversizedGasPostAmsterdam(t *testing.T) {
+	t.Parallel()
+
+	cfg := *noL1feeConfig
+	cfg.AmsterdamTime = params.NewUint64(0)
+
+	pool, key, _ := setupTxPoolWithConfigAndGasLimit(&cfg, 30_000_000)
+	defer pool.Stop()
+
+	tx := transaction(0, params.MaxTxGas+1, key)
+	from, _ := deriveSender(tx)
+	testAddBalance(pool, from, new(big.Int).Add(tx.Cost(), big.NewInt(1)))
+
+	if err := pool.AddRemote(tx); !errors.Is(err, ErrGasLimitTooHigh) {
+		t.Fatalf("expected ErrGasLimitTooHigh, got %v", err)
+	}
+}
+
+func TestTxPoolAllowsOversizedGasPreAmsterdam(t *testing.T) {
+	t.Parallel()
+
+	cfg := *noL1feeConfig
+	cfg.AmsterdamTime = params.NewUint64(1)
+
+	pool, key, _ := setupTxPoolWithConfigAndGasLimit(&cfg, 30_000_000)
+	defer pool.Stop()
+
+	tx := transaction(0, params.MaxTxGas+1, key)
+	from, _ := deriveSender(tx)
+	testAddBalance(pool, from, new(big.Int).Add(tx.Cost(), big.NewInt(1)))
+
+	if err := pool.AddRemote(tx); err != nil {
+		t.Fatalf("pre-Amsterdam oversized tx must be accepted, got %v", err)
+	}
+	if pool.Get(tx.Hash()) == nil {
+		t.Fatalf("expected oversized tx to remain in pool before Amsterdam activation")
+	}
+}
+
+func TestTxPoolDropsOversizedGasOnAmsterdamActivation(t *testing.T) {
+	t.Parallel()
+
+	cfg := *noL1feeConfig
+	cfg.AmsterdamTime = params.NewUint64(1)
+
+	pool, key, blockchain := setupTxPoolWithConfigAndGasLimit(&cfg, 30_000_000)
+	defer pool.Stop()
+
+	tx := transaction(0, params.MaxTxGas+1, key)
+	from, _ := deriveSender(tx)
+	testAddBalance(pool, from, new(big.Int).Add(tx.Cost(), big.NewInt(1)))
+
+	if err := pool.AddRemote(tx); err != nil {
+		t.Fatalf("failed adding oversized pre-Amsterdam tx: %v", err)
+	}
+	if pool.Get(tx.Hash()) == nil {
+		t.Fatalf("expected tx to be present before Amsterdam activation")
+	}
+
+	oldHead := blockchain.CurrentBlock().Header()
+	<-pool.requestReset(oldHead, txPoolNextHead(oldHead, 1))
+
+	if !pool.amsterdam {
+		t.Fatalf("expected pool to switch to Amsterdam mode")
+	}
+	if pool.Get(tx.Hash()) != nil {
+		t.Fatalf("expected oversized tx to be purged on Amsterdam activation")
 	}
 }
 

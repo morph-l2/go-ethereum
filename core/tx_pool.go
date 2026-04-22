@@ -705,6 +705,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if pool.currentMaxGas < tx.Gas() {
 		return ErrGasLimit
 	}
+	if pool.amsterdam && tx.Gas() > params.MaxTxGas {
+		return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+	}
 	// Sanity check for extremely large numbers
 	if tx.GasFeeCap().BitLen() > 256 {
 		return ErrFeeCapVeryHigh
@@ -1289,6 +1292,23 @@ func (pool *TxPool) removeMorphTxV1() {
 	}
 }
 
+// dropOversizedAmsterdamTxs removes any transaction whose gas limit exceeds the
+// per-transaction Amsterdam cap. This is used on fork activation to evict
+// transactions that were admitted pre-fork but become invalid afterwards.
+func (pool *TxPool) dropOversizedAmsterdamTxs() {
+	var toRemove []common.Hash
+	pool.all.Range(func(hash common.Hash, tx *types.Transaction, local bool) bool {
+		if tx.Gas() > params.MaxTxGas {
+			toRemove = append(toRemove, hash)
+		}
+		return true
+	}, true, true)
+	for _, hash := range toRemove {
+		log.Trace("Removing oversized transaction (Amsterdam active)", "hash", hash)
+		pool.removeTx(hash, true)
+	}
+}
+
 // requestReset requests a pool reset to the new head block.
 // The returned channel is closed when the reset has occurred.
 func (pool *TxPool) requestReset(oldHead *types.Header, newHead *types.Header) chan struct{} {
@@ -1474,6 +1494,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	// If we're reorging an old state, reinject all dropped transactions
 	var reinject types.Transactions
+	oldAmsterdam := pool.amsterdam
 
 	if oldHead != nil && oldHead.Hash() != newHead.ParentHash {
 		// If the reorg is too deep, avoid doing it (will happen during fast sync)
@@ -1567,6 +1588,9 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	// Remove MorphTx V1 transactions if jade fork is not active (e.g. after reorg)
 	if !pool.jade {
 		pool.removeMorphTxV1()
+	}
+	if !oldAmsterdam && pool.amsterdam {
+		pool.dropOversizedAmsterdamTxs()
 	}
 
 	// Update current head

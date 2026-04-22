@@ -582,3 +582,190 @@ func TestPreCheckMaxTxGasL1Exempt(t *testing.T) {
 		t.Fatalf("L1MessageTx must be exempt, got %v", err)
 	}
 }
+
+func newTransitionDbAuthorizationEnv(t *testing.T, isAmsterdam bool, seedAuthorities bool, authCount int) *StateTransition {
+	t.Helper()
+
+	cfg := &params.ChainConfig{
+		ChainID:             big.NewInt(1),
+		HomesteadBlock:      big.NewInt(0),
+		EIP150Block:         big.NewInt(0),
+		EIP155Block:         big.NewInt(0),
+		EIP158Block:         big.NewInt(0),
+		ByzantiumBlock:      big.NewInt(0),
+		ConstantinopleBlock: big.NewInt(0),
+		PetersburgBlock:     big.NewInt(0),
+		IstanbulBlock:       big.NewInt(0),
+		BerlinBlock:         big.NewInt(0),
+		LondonBlock:         big.NewInt(0),
+		ArchimedesBlock:     big.NewInt(0),
+		ShanghaiBlock:       big.NewInt(0),
+		BernoulliBlock:      big.NewInt(0),
+		CurieBlock:          big.NewInt(0),
+		Morph203Time:        params.NewUint64(0),
+		ViridianTime:        params.NewUint64(0),
+		EmeraldTime:         params.NewUint64(0),
+	}
+	if isAmsterdam {
+		cfg.AmsterdamTime = params.NewUint64(0)
+	}
+	db := rawdb.NewMemoryDatabase()
+	sdb, err := state.New(common.Hash{}, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("new statedb: %v", err)
+	}
+	senderKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("gen sender key: %v", err)
+	}
+	sender := crypto.PubkeyToAddress(senderKey.PublicKey)
+	to := common.HexToAddress("0x100")
+
+	sdb.GetOrNewStateObject(sender)
+	sdb.AddBalance(sender, big.NewInt(1_000_000_000), tracing.BalanceChangeUnspecified)
+	sdb.GetOrNewStateObject(to)
+
+	var authList []types.SetCodeAuthorization
+	if authCount > 0 {
+		authList = make([]types.SetCodeAuthorization, 0, authCount)
+		for i := 0; i < authCount; i++ {
+			authKey, err := crypto.GenerateKey()
+			if err != nil {
+				t.Fatalf("gen auth key: %v", err)
+			}
+			authority := crypto.PubkeyToAddress(authKey.PublicKey)
+			if seedAuthorities {
+				sdb.GetOrNewStateObject(authority)
+				sdb.AddBalance(authority, big.NewInt(1), tracing.BalanceChangeUnspecified)
+			}
+			auth := types.SetCodeAuthorization{
+				ChainID: *uint256.MustFromBig(cfg.ChainID),
+				Address: common.Address{0x42},
+				Nonce:   0,
+			}
+			auth, err = types.SignSetCode(authKey, auth)
+			if err != nil {
+				t.Fatalf("sign auth: %v", err)
+			}
+			authList = append(authList, auth)
+		}
+	}
+
+	msg := types.NewMessage(
+		sender,
+		&to,
+		0,
+		big.NewInt(0),
+		500_000,
+		big.NewInt(1),
+		big.NewInt(1),
+		big.NewInt(1),
+		0,
+		big.NewInt(0),
+		0,
+		nil,
+		nil,
+		nil,
+		nil,
+		authList,
+		false,
+	)
+	blockCtx := vm.BlockContext{
+		CanTransfer: CanTransfer,
+		Transfer:    Transfer,
+		GetHash:     func(uint64) common.Hash { return common.Hash{} },
+		Coinbase:    common.Address{},
+		GasLimit:    1_000_000,
+		BlockNumber: big.NewInt(1),
+		Time:        big.NewInt(1),
+		Difficulty:  big.NewInt(0),
+		BaseFee:     big.NewInt(0),
+	}
+	evm := vm.NewEVM(blockCtx, vm.TxContext{}, sdb, cfg, vm.Config{})
+	gp := new(GasPool).AddGas(blockCtx.GasLimit)
+	return NewStateTransition(evm, msg, gp, big.NewInt(0))
+}
+
+func transitionDbAuthorizationBaseOverhead(t *testing.T) uint64 {
+	t.Helper()
+
+	st := newTransitionDbAuthorizationEnv(t, false, false, 0)
+	result, err := st.TransitionDb()
+	if err != nil {
+		t.Fatalf("baseline transition failed: %v", err)
+	}
+	if result.Err != nil {
+		t.Fatalf("baseline execution error: %v", result.Err)
+	}
+	return result.UsedGas - params.TxGas
+}
+
+func TestTransitionDbAuthorizationGasExistingAuthoritiesPreVsPostAmsterdam(t *testing.T) {
+	const authCount = 10
+	baseOverhead := transitionDbAuthorizationBaseOverhead(t)
+
+	pre := newTransitionDbAuthorizationEnv(t, false, true, authCount)
+	preResult, err := pre.TransitionDb()
+	if err != nil {
+		t.Fatalf("pre-Amsterdam transition failed: %v", err)
+	}
+	if preResult.Err != nil {
+		t.Fatalf("pre-Amsterdam execution error: %v", preResult.Err)
+	}
+
+	post := newTransitionDbAuthorizationEnv(t, true, true, authCount)
+	postResult, err := post.TransitionDb()
+	if err != nil {
+		t.Fatalf("post-Amsterdam transition failed: %v", err)
+	}
+	if postResult.Err != nil {
+		t.Fatalf("post-Amsterdam execution error: %v", postResult.Err)
+	}
+
+	preIntrinsic := uint64(params.TxGas + authCount*params.CallNewAccountGas)
+	postIntrinsic := uint64(params.TxGas + authCount*params.TxAuthTupleGas)
+	preBeforeRefund := preIntrinsic + baseOverhead
+	refundCounter := uint64(authCount) * (params.CallNewAccountGas - params.TxAuthTupleGas)
+	refundCap := preBeforeRefund / params.RefundQuotientEIP3529
+	wantPre := preBeforeRefund - min(refundCounter, refundCap)
+	if preResult.UsedGas != wantPre {
+		t.Fatalf("pre-Amsterdam used gas mismatch: got %d want %d", preResult.UsedGas, wantPre)
+	}
+	if postResult.UsedGas != postIntrinsic+baseOverhead {
+		t.Fatalf("post-Amsterdam used gas mismatch: got %d want %d", postResult.UsedGas, postIntrinsic+baseOverhead)
+	}
+	if preResult.UsedGas <= postResult.UsedGas {
+		t.Fatalf("expected pre-Amsterdam gas (%d) to exceed post-Amsterdam gas (%d) once refund cap truncates", preResult.UsedGas, postResult.UsedGas)
+	}
+}
+
+func TestTransitionDbAuthorizationGasNewAuthoritiesPreVsPostAmsterdam(t *testing.T) {
+	const authCount = 4
+	baseOverhead := transitionDbAuthorizationBaseOverhead(t)
+
+	pre := newTransitionDbAuthorizationEnv(t, false, false, authCount)
+	preResult, err := pre.TransitionDb()
+	if err != nil {
+		t.Fatalf("pre-Amsterdam transition failed: %v", err)
+	}
+	if preResult.Err != nil {
+		t.Fatalf("pre-Amsterdam execution error: %v", preResult.Err)
+	}
+
+	post := newTransitionDbAuthorizationEnv(t, true, false, authCount)
+	postResult, err := post.TransitionDb()
+	if err != nil {
+		t.Fatalf("post-Amsterdam transition failed: %v", err)
+	}
+	if postResult.Err != nil {
+		t.Fatalf("post-Amsterdam execution error: %v", postResult.Err)
+	}
+
+	want := uint64(params.TxGas+authCount*params.CallNewAccountGas) + baseOverhead
+	if preResult.UsedGas != want {
+		t.Fatalf("pre-Amsterdam used gas mismatch: got %d want %d", preResult.UsedGas, want)
+	}
+	if postResult.UsedGas != want {
+		t.Fatalf("post-Amsterdam used gas mismatch: got %d want %d", postResult.UsedGas, want)
+	}
+}

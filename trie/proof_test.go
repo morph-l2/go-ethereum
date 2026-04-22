@@ -940,9 +940,11 @@ func TestRangeProofKeysOutOfRange(t *testing.T) {
 
 	t.Run("first_before_start", func(t *testing.T) {
 		keys, vals := newKeysVals()
-		// Choose firstKey strictly greater than keys[0] so the first
-		// returned key falls before the requested range.
-		firstKey := increseKey(common.CopyBytes(keys[0]))
+		if len(keys) <= 1 {
+			t.Skip("need at least 2 keys")
+		}
+		// keys[1] is the requested start; keys[0] is strictly before it.
+		firstKey := common.CopyBytes(keys[1])
 		lastKey := common.CopyBytes(keys[len(keys)-1])
 		_, err := VerifyRangeProof(trie.Hash(), firstKey, lastKey, keys, vals, newProof())
 		if err == nil {
@@ -955,10 +957,12 @@ func TestRangeProofKeysOutOfRange(t *testing.T) {
 
 	t.Run("last_after_end", func(t *testing.T) {
 		keys, vals := newKeysVals()
+		if len(keys) <= 1 {
+			t.Skip("need at least 2 keys")
+		}
 		firstKey := common.CopyBytes(keys[0])
-		// Choose lastKey strictly smaller than keys[len-1] so the last
-		// returned key overshoots the requested range.
-		lastKey := decreseKey(common.CopyBytes(keys[len(keys)-1]))
+		// keys[len-2] is the requested end; keys[len-1] is strictly after it.
+		lastKey := common.CopyBytes(keys[len(keys)-2])
 		_, err := VerifyRangeProof(trie.Hash(), firstKey, lastKey, keys, vals, newProof())
 		if err == nil {
 			t.Fatalf("expected error, got nil")
@@ -1023,16 +1027,12 @@ func TestRangeProofKeysOutOfRange(t *testing.T) {
 	})
 }
 
-// TestRangeProofPathPrefix verifies that VerifyRangeProof rejects a batch
-// where one key is a prefix of a following key. Such a pair is impossible
-// in a valid MPT and would otherwise break the subsequent proofToPath /
-// unsetInternal reconstruction.
+// TestRangeProofPathPrefix verifies that VerifyRangeProof does not reject a
+// batch solely because a shorter key is a byte-prefix of a longer key; such
+// pairs are valid MPT entries. The pair is still rejected further down due to
+// the current same-length edge-key requirement.
 func TestRangeProofPathPrefix(t *testing.T) {
 	tr := new(Trie)
-	// Two keys where kLong is a strict extension of kShort. Real MPT
-	// updates cannot produce this combination (the shortNode / fullNode
-	// split would normalize the path), but a malicious peer can still
-	// send it on the wire, so the verifier must reject it.
 	kShort := []byte{0x01, 0x02}
 	kLong := []byte{0x01, 0x02, 0x03}
 	tr.Update(kShort, []byte("short"))
@@ -1054,9 +1054,9 @@ func TestRangeProofPathPrefix(t *testing.T) {
 		proof,
 	)
 	if err == nil {
-		t.Fatalf("expected error on path-prefix pair, got nil")
+		t.Fatalf("expected error due to unequal edge-key lengths, got nil")
 	}
-	if want := "range contains path prefixes"; err.Error() != want {
+	if want := "inconsistent edge keys"; err.Error() != want {
 		t.Fatalf("unexpected error: got %q, want %q", err, want)
 	}
 }

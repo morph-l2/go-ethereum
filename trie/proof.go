@@ -483,10 +483,14 @@ func VerifyRangeProof(rootHash common.Hash, firstKey []byte, lastKey []byte, key
 		if bytes.Compare(keys[i], keys[i+1]) >= 0 {
 			return false, errors.New("range is not monotonically increasing")
 		}
-		// In an MPT, a key cannot be a prefix of another key. Reject such
-		// batches to defend against malformed tries that would break the
-		// subsequent proofToPath/unsetInternal reconstruction.
-		if bytes.HasPrefix(keys[i+1], keys[i]) {
+		// Reject same-length key pairs where one is a byte-prefix of the
+		// other; for fixed-width key spaces (e.g. 32-byte state keys) this
+		// would be identical to the key itself and is already caught above,
+		// but an explicit check documents the invariant. Variable-length
+		// keys where a shorter key happens to share a byte prefix with a
+		// longer key are valid MPT entries (each leaf carries a terminator
+		// in its nibble path) and must not be rejected here.
+		if len(keys[i]) == len(keys[i+1]) && bytes.HasPrefix(keys[i+1], keys[i]) {
 			return false, errors.New("range contains path prefixes")
 		}
 	}

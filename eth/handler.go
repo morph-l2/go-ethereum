@@ -244,7 +244,10 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		}
 		return p.RequestTxs(hashes)
 	}
-	h.txFetcher = fetcher.NewTxFetcher(h.txpool.Has, h.txpool.AddRemotes, fetchTx)
+	// The fetcher tracks recently confirmed transactions from chain events, so
+	// the pre-filter here only needs to answer whether a tx is already pending in
+	// the local txpool.
+	h.txFetcher = fetcher.NewTxFetcherWithChain(h.chain, h.txpool.Has, h.txpool.AddRemotes, fetchTx)
 	h.chainSync = newChainSyncer(h)
 	return h, nil
 }

@@ -25,11 +25,13 @@ import (
 	"time"
 
 	mapset "github.com/deckarep/golang-set"
+	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/mclock"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/event"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/metrics"
 )
@@ -54,6 +56,10 @@ const (
 	// re-request them.
 	maxTxUnderpricedSetSize = 32768
 
+	// txOnChainCacheLimit is the number of recently confirmed transactions to
+	// keep around for announce pre-filtering.
+	txOnChainCacheLimit = 32768
+
 	// txArriveTimeout is the time allowance before an announced transaction is
 	// explicitly requested.
 	txArriveTimeout = 500 * time.Millisecond
@@ -72,6 +78,7 @@ var (
 var (
 	txAnnounceInMeter          = metrics.NewRegisteredMeter("eth/fetcher/transaction/announces/in", nil)
 	txAnnounceKnownMeter       = metrics.NewRegisteredMeter("eth/fetcher/transaction/announces/known", nil)
+	txAnnounceOnchainMeter     = metrics.NewRegisteredMeter("eth/fetcher/transaction/announces/onchain", nil)
 	txAnnounceUnderpricedMeter = metrics.NewRegisteredMeter("eth/fetcher/transaction/announces/underpriced", nil)
 	txAnnounceDOSMeter         = metrics.NewRegisteredMeter("eth/fetcher/transaction/announces/dos", nil)
 
@@ -126,6 +133,10 @@ type txDrop struct {
 	peer string
 }
 
+type txFetcherChain interface {
+	SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription
+}
+
 // TxFetcher is responsible for retrieving new transaction based on announcements.
 //
 // The fetcher operates in 3 stages:
@@ -174,15 +185,26 @@ type TxFetcher struct {
 	addTxs   func([]*types.Transaction) []error // Insert a batch of transactions into local txpool
 	fetchTxs func(string, []common.Hash) error  // Retrieves a set of txs from a remote peer
 
-	step  chan struct{} // Notification channel when the fetcher loop iterates
-	clock mclock.Clock  // Time wrapper to simulate in tests
-	rand  *mrand.Rand   // Randomizer to use in tests instead of map range loops (soft-random)
+	step  chan struct{}  // Notification channel when the fetcher loop iterates
+	clock mclock.Clock   // Time wrapper to simulate in tests
+	rand  *mrand.Rand    // Randomizer to use in tests instead of map range loops (soft-random)
+	chain txFetcherChain // Blockchain used to track recently confirmed txs
+
+	txOnChainCache *lru.Cache // Cache of recently confirmed tx hashes
+	headEventCh    chan core.ChainEvent
+	headSub        event.Subscription
 }
 
 // NewTxFetcher creates a transaction fetcher to retrieve transaction
 // based on hash announcements.
 func NewTxFetcher(hasTx func(common.Hash) bool, addTxs func([]*types.Transaction) []error, fetchTxs func(string, []common.Hash) error) *TxFetcher {
-	return NewTxFetcherForTests(hasTx, addTxs, fetchTxs, mclock.System{}, nil)
+	return newTxFetcher(nil, hasTx, addTxs, fetchTxs, mclock.System{}, nil)
+}
+
+// NewTxFetcherWithChain creates a transaction fetcher that also tracks recently
+// confirmed transactions from canonical chain events.
+func NewTxFetcherWithChain(chain *core.BlockChain, hasTx func(common.Hash) bool, addTxs func([]*types.Transaction) []error, fetchTxs func(string, []common.Hash) error) *TxFetcher {
+	return newTxFetcher(chain, hasTx, addTxs, fetchTxs, mclock.System{}, nil)
 }
 
 // NewTxFetcherForTests is a testing method to mock out the realtime clock with
@@ -190,25 +212,38 @@ func NewTxFetcher(hasTx func(common.Hash) bool, addTxs func([]*types.Transaction
 func NewTxFetcherForTests(
 	hasTx func(common.Hash) bool, addTxs func([]*types.Transaction) []error, fetchTxs func(string, []common.Hash) error,
 	clock mclock.Clock, rand *mrand.Rand) *TxFetcher {
+	return newTxFetcher(nil, hasTx, addTxs, fetchTxs, clock, rand)
+}
+
+// newTxFetcher wires up the fetcher with an optional chain event source.
+func newTxFetcher(
+	chain txFetcherChain, hasTx func(common.Hash) bool, addTxs func([]*types.Transaction) []error, fetchTxs func(string, []common.Hash) error,
+	clock mclock.Clock, rand *mrand.Rand) *TxFetcher {
+	txOnChainCache, err := lru.New(txOnChainCacheLimit)
+	if err != nil {
+		panic(err)
+	}
 	return &TxFetcher{
-		notify:      make(chan *txAnnounce),
-		cleanup:     make(chan *txDelivery),
-		drop:        make(chan *txDrop),
-		quit:        make(chan struct{}),
-		waitlist:    make(map[common.Hash]map[string]struct{}),
-		waittime:    make(map[common.Hash]mclock.AbsTime),
-		waitslots:   make(map[string]map[common.Hash]struct{}),
-		announces:   make(map[string]map[common.Hash]struct{}),
-		announced:   make(map[common.Hash]map[string]struct{}),
-		fetching:    make(map[common.Hash]string),
-		requests:    make(map[string]*txRequest),
-		alternates:  make(map[common.Hash]map[string]struct{}),
-		underpriced: mapset.NewSet(),
-		hasTx:       hasTx,
-		addTxs:      addTxs,
-		fetchTxs:    fetchTxs,
-		clock:       clock,
-		rand:        rand,
+		notify:         make(chan *txAnnounce),
+		cleanup:        make(chan *txDelivery),
+		drop:           make(chan *txDrop),
+		quit:           make(chan struct{}),
+		waitlist:       make(map[common.Hash]map[string]struct{}),
+		waittime:       make(map[common.Hash]mclock.AbsTime),
+		waitslots:      make(map[string]map[common.Hash]struct{}),
+		announces:      make(map[string]map[common.Hash]struct{}),
+		announced:      make(map[common.Hash]map[string]struct{}),
+		fetching:       make(map[common.Hash]string),
+		requests:       make(map[string]*txRequest),
+		alternates:     make(map[common.Hash]map[string]struct{}),
+		underpriced:    mapset.NewSet(),
+		hasTx:          hasTx,
+		addTxs:         addTxs,
+		fetchTxs:       fetchTxs,
+		clock:          clock,
+		rand:           rand,
+		chain:          chain,
+		txOnChainCache: txOnChainCache,
 	}
 }
 
@@ -219,18 +254,22 @@ func (f *TxFetcher) Notify(peer string, hashes []common.Hash) error {
 	txAnnounceInMeter.Mark(int64(len(hashes)))
 
 	// Skip any transaction announcements that we already know of, or that we've
-	// previously marked as cheap and discarded. This check is of course racey,
-	// because multiple concurrent notifies will still manage to pass it, but it's
-	// still valuable to check here because it runs concurrent  to the internal
-	// loop, so anything caught here is time saved internally.
+	// seen recently land on chain, or that we've previously marked as cheap and
+	// discarded. This check is of course racey, because multiple concurrent
+	// notifies will still manage to pass it, but it's still valuable to check
+	// here because it runs concurrent to the internal loop, so anything caught
+	// here is time saved internally.
 	var (
-		unknowns               = make([]common.Hash, 0, len(hashes))
-		duplicate, underpriced int64
+		unknowns                        = make([]common.Hash, 0, len(hashes))
+		duplicate, onchain, underpriced int64
 	)
 	for _, hash := range hashes {
 		switch {
 		case f.hasTx(hash):
 			duplicate++
+
+		case f.txOnChainCache.Contains(hash):
+			onchain++
 
 		case f.underpriced.Contains(hash):
 			underpriced++
@@ -240,6 +279,7 @@ func (f *TxFetcher) Notify(peer string, hashes []common.Hash) error {
 		}
 	}
 	txAnnounceKnownMeter.Mark(duplicate)
+	txAnnounceOnchainMeter.Mark(onchain)
 	txAnnounceUnderpricedMeter.Mark(underpriced)
 
 	// If anything's left to announce, push it into the internal loop
@@ -352,6 +392,10 @@ func (f *TxFetcher) Drop(peer string) error {
 // Start boots up the announcement based synchroniser, accepting and processing
 // hash notifications and block fetches until termination requested.
 func (f *TxFetcher) Start() {
+	if f.chain != nil && f.headEventCh == nil {
+		f.headEventCh = make(chan core.ChainEvent, 10)
+		f.headSub = f.chain.SubscribeChainEvent(f.headEventCh)
+	}
 	go f.loop()
 }
 
@@ -362,15 +406,34 @@ func (f *TxFetcher) Stop() {
 }
 
 func (f *TxFetcher) loop() {
+	if f.headSub != nil {
+		defer f.headSub.Unsubscribe()
+	}
 	var (
 		waitTimer    = new(mclock.Timer)
 		timeoutTimer = new(mclock.Timer)
 
 		waitTrigger    = make(chan struct{}, 1)
 		timeoutTrigger = make(chan struct{}, 1)
+		oldHead        common.Hash
+		haveOldHead    bool
 	)
 	for {
 		select {
+		case ev := <-f.headEventCh:
+			if ev.Block == nil {
+				break
+			}
+			if haveOldHead && ev.Block.ParentHash() != oldHead {
+				f.txOnChainCache.Purge()
+			}
+			oldHead = ev.Block.Hash()
+			haveOldHead = true
+
+			for _, tx := range ev.Block.Transactions() {
+				f.txOnChainCache.Add(tx.Hash(), struct{}{})
+			}
+
 		case ann := <-f.notify:
 			// Drop part of the new announcements if there are too many accumulated.
 			// Note, we could but do not filter already known transactions here as

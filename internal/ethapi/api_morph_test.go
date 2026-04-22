@@ -8,8 +8,13 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/params"
@@ -155,12 +160,139 @@ type mockSetDefaultsBackend struct {
 	header      *types.Header
 }
 
-func (m *mockSetDefaultsBackend) CurrentHeader() *types.Header    { return m.header }
+func (m *mockSetDefaultsBackend) CurrentHeader() *types.Header     { return m.header }
 func (m *mockSetDefaultsBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
 
 func uint16VersionPtr(v uint8) *hexutil.Uint16 {
 	h := hexutil.Uint16(v)
 	return &h
+}
+
+type estimateGasChainContext struct{}
+
+func (estimateGasChainContext) Engine() consensus.Engine { return nil }
+
+func (estimateGasChainContext) GetHeader(common.Hash, uint64) *types.Header { return nil }
+
+// estimateGasBackend is a minimal Backend that can run setDefaults -> DoEstimateGas
+// against an in-memory state without spinning up a full blockchain.
+type estimateGasBackend struct {
+	Backend
+	chainConfig *params.ChainConfig
+	header      *types.Header
+	block       *types.Block
+	state       *state.StateDB
+	gasCap      uint64
+}
+
+func newEstimateGasBackend(t *testing.T, sender common.Address) *estimateGasBackend {
+	t.Helper()
+
+	db := rawdb.NewMemoryDatabase()
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	statedb.SetBalance(sender, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil), tracing.BalanceChangeUnspecified)
+
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		Time:       0,
+		GasLimit:   30_000_000,
+		BaseFee:    big.NewInt(1),
+		Difficulty: big.NewInt(0),
+	}
+	return &estimateGasBackend{
+		chainConfig: params.TestNoL1DataFeeChainConfig,
+		header:      header,
+		block:       types.NewBlockWithHeader(header),
+		state:       statedb,
+		gasCap:      header.GasLimit,
+	}
+}
+
+func (m *estimateGasBackend) CurrentHeader() *types.Header { return types.CopyHeader(m.header) }
+
+func (m *estimateGasBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
+
+func (m *estimateGasBackend) RPCGasCap() uint64 { return m.gasCap }
+
+func (m *estimateGasBackend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*types.Block, error) {
+	return m.block, nil
+}
+
+func (m *estimateGasBackend) StateAndHeaderByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*state.StateDB, *types.Header, error) {
+	return m.state.Copy(), types.CopyHeader(m.header), nil
+}
+
+func (m *estimateGasBackend) GetEVM(ctx context.Context, msg core.Message, statedb *state.StateDB, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
+	author := common.Address{}
+	blockCtx := core.NewEVMBlockContext(header, estimateGasChainContext{}, m.chainConfig, &author)
+	txCtx := core.NewEVMTxContext(msg)
+	return vm.NewEVM(blockCtx, txCtx, statedb, m.chainConfig, *vmConfig), func() error { return nil }, nil
+}
+
+func makeAuthorizationList(count int) []types.SetCodeAuthorization {
+	auths := make([]types.SetCodeAuthorization, count)
+	for i := range auths {
+		auths[i] = types.SetCodeAuthorization{
+			Address: common.Address{byte(i + 1)},
+			Nonce:   uint64(i),
+		}
+	}
+	return auths
+}
+
+func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	backend := newEstimateGasBackend(t, sender)
+
+	nonce := hexutil.Uint64(0)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+
+	tests := []struct {
+		name  string
+		auths []types.SetCodeAuthorization
+		want  uint64
+	}{
+		{
+			name: "legacy call without authorization list",
+			want: params.TxGas,
+		},
+		{
+			name:  "set code with one authorization",
+			auths: makeAuthorizationList(1),
+			want:  params.TxGas + params.CallNewAccountGas,
+		},
+		{
+			name:  "set code with two authorizations",
+			auths: makeAuthorizationList(2),
+			want:  params.TxGas + 2*params.CallNewAccountGas,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := TransactionArgs{
+				From:                 &sender,
+				To:                   &to,
+				Nonce:                &nonce,
+				MaxFeePerGas:         maxFee,
+				MaxPriorityFeePerGas: tip,
+				AuthorizationList:    tt.auths,
+			}
+			if err := args.setDefaults(context.Background(), backend); err != nil {
+				t.Fatalf("setDefaults failed: %v", err)
+			}
+			if args.Gas == nil {
+				t.Fatal("expected gas to be populated")
+			}
+			if have := uint64(*args.Gas); have != tt.want {
+				t.Fatalf("estimated gas mismatch: have %d want %d", have, tt.want)
+			}
+		})
+	}
 }
 
 // TestSetDefaults_MorphTxVersionHeuristic tests the heuristic version defaulting logic
@@ -303,9 +435,9 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: no MorphTx fields → not MorphTx (version nil)",
-			headTime: 1000,
-			modify:   func(args *TransactionArgs) {},
+			name:        "jade fork: no MorphTx fields → not MorphTx (version nil)",
+			headTime:    1000,
+			modify:      func(args *TransactionArgs) {},
 			wantVersion: nil,
 		},
 
@@ -392,16 +524,16 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
-			headTime:    1000,
+			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
+			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				args.Version = uint16VersionPtr(types.MorphTxVersion1)
 			},
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
-			headTime:    1000,
+			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
+			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(0)
 				args.FeeTokenID = &fid

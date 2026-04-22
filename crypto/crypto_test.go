@@ -92,6 +92,32 @@ func TestUnmarshalPubkey(t *testing.T) {
 	}
 }
 
+func TestS256RejectsCoordinatesOutsideField(t *testing.T) {
+	curve := S256()
+	params := curve.Params()
+
+	if !curve.IsOnCurve(params.Gx, params.Gy) {
+		t.Fatal("generator point should be on curve")
+	}
+	if curve.IsOnCurve(big.NewInt(-1), params.Gy) {
+		t.Fatal("negative x should not be on curve")
+	}
+	if curve.IsOnCurve(params.Gx, big.NewInt(-1)) {
+		t.Fatal("negative y should not be on curve")
+	}
+	if curve.IsOnCurve(params.P, params.Gy) {
+		t.Fatal("x = P should not be on curve")
+	}
+	if curve.IsOnCurve(params.Gx, params.P) {
+		t.Fatal("y = P should not be on curve")
+	}
+
+	pPlus7 := new(big.Int).Add(params.P, big.NewInt(7))
+	if curve.IsOnCurve(pPlus7, params.Gy) {
+		t.Fatal("x = P+7 should not be on curve")
+	}
+}
+
 func TestSign(t *testing.T) {
 	key, _ := HexToECDSA(testPrivHex)
 	addr := common.HexToAddress(testAddrHex)

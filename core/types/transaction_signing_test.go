@@ -136,3 +136,55 @@ func TestChainId(t *testing.T) {
 		t.Error("expected no error")
 	}
 }
+
+func TestSignatureValuesError(t *testing.T) {
+	tx := NewTransaction(0, common.Address{}, big.NewInt(0), 0, big.NewInt(0), nil)
+	signer := HomesteadSigner{}
+
+	tests := []struct {
+		name string
+		sig  []byte
+	}{
+		{name: "empty", sig: nil},
+		{name: "short", sig: make([]byte, 64)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Panicked for invalid signature length, expected error: %v", r)
+				}
+			}()
+			_, err := tx.WithSignature(signer, tt.sig)
+			if err == nil {
+				t.Fatal("Expected error for invalid signature length, got nil")
+			}
+			t.Logf("Got expected error: %v", err)
+		})
+	}
+}
+
+func TestSignSetCode(t *testing.T) {
+	key, _ := defaultTestKey()
+	auth := SetCodeAuthorization{
+		Address: common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678"),
+		Nonce:   7,
+	}
+
+	signed, err := SignSetCode(key, auth)
+	if err != nil {
+		t.Fatalf("SignSetCode returned error: %v", err)
+	}
+	if signed.Address != auth.Address {
+		t.Fatalf("address mismatch: have %s want %s", signed.Address, auth.Address)
+	}
+	if signed.Nonce != auth.Nonce {
+		t.Fatalf("nonce mismatch: have %d want %d", signed.Nonce, auth.Nonce)
+	}
+	if signed.R.IsZero() || signed.S.IsZero() {
+		t.Fatal("expected non-zero signature values")
+	}
+	if signed.V > 1 {
+		t.Fatalf("unexpected y parity: %d", signed.V)
+	}
+}

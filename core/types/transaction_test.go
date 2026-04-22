@@ -1513,3 +1513,65 @@ func compareMemoPtr(a, b *[]byte) bool {
 	}
 	return bytes.Equal(*a, *b)
 }
+
+func TestAsMessageFeeLimitIsolation(t *testing.T) {
+	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	originalFeeLimit := big.NewInt(999)
+	signer := LatestSignerForChainID(common.Big1)
+
+	tx, err := SignTx(NewTx(&MorphTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      0,
+		GasTipCap:  big.NewInt(1),
+		GasFeeCap:  big.NewInt(10),
+		Gas:        21000,
+		Value:      big.NewInt(0),
+		FeeTokenID: 1,
+		FeeLimit:   new(big.Int).Set(originalFeeLimit),
+	}), signer, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := tx.AsMessage(signer, big.NewInt(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if msg.FeeLimit() == nil {
+		t.Fatal("msg.FeeLimit() should not be nil for MorphTx")
+	}
+	if msg.FeeLimit().Cmp(originalFeeLimit) != 0 {
+		t.Fatalf("msg.FeeLimit() = %v, want %v", msg.FeeLimit(), originalFeeLimit)
+	}
+
+	msg.FeeLimit().SetInt64(0)
+
+	if tx.FeeLimit().Cmp(originalFeeLimit) != 0 {
+		t.Fatalf("modifying msg.feeLimit mutated original tx: got %v, want %v", tx.FeeLimit(), originalFeeLimit)
+	}
+}
+
+func TestAsMessageNonMorphTxFeeLimitNil(t *testing.T) {
+	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := HomesteadSigner{}
+
+	tx, err := SignTx(NewTx(&LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(1),
+		Gas:      21000,
+		Value:    big.NewInt(0),
+	}), signer, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := tx.AsMessage(signer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if msg.FeeLimit() != nil {
+		t.Fatalf("non-MorphTx msg.FeeLimit() should be nil, got %v", msg.FeeLimit())
+	}
+}

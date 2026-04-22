@@ -252,6 +252,9 @@ func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
 	if ctx.GlobalIsSet(utils.MetricsInfluxDBTagsFlag.Name) {
 		cfg.Metrics.InfluxDBTags = ctx.GlobalString(utils.MetricsInfluxDBTagsFlag.Name)
 	}
+	if ctx.GlobalIsSet(utils.MetricsInfluxDBIntervalFlag.Name) {
+		cfg.Metrics.InfluxDBInterval = ctx.GlobalDuration(utils.MetricsInfluxDBIntervalFlag.Name)
+	}
 	if ctx.GlobalIsSet(utils.MetricsEnableInfluxDBV2Flag.Name) {
 		cfg.Metrics.EnableInfluxDBV2 = ctx.GlobalBool(utils.MetricsEnableInfluxDBV2Flag.Name)
 	}
@@ -264,6 +267,21 @@ func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
 	if ctx.GlobalIsSet(utils.MetricsInfluxDBOrganizationFlag.Name) {
 		cfg.Metrics.InfluxDBOrganization = ctx.GlobalString(utils.MetricsInfluxDBOrganizationFlag.Name)
 	}
+}
+
+// makeMetricsConfig returns a metrics.Config populated from the TOML config
+// file (when --config is provided) and any metrics-related CLI flags.  It is
+// used by callsites that need the resolved metrics configuration before the
+// full node (makeConfigNode) has been initialised.
+func makeMetricsConfig(ctx *cli.Context) metrics.Config {
+	cfg := gethConfig{Metrics: metrics.DefaultConfig}
+	if file := ctx.GlobalString(configFileFlag.Name); file != "" {
+		if err := loadConfig(file, &cfg); err != nil {
+			utils.Fatalf("%v", err)
+		}
+	}
+	applyMetricConfig(ctx, &cfg)
+	return cfg.Metrics
 }
 
 func deprecated(field string) bool {

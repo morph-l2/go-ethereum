@@ -195,6 +195,7 @@ var (
 		utils.RPCGlobalTxFeeCapFlag,
 		utils.AllowUnprotectedTxs,
 		utils.MaxBlockRangeFlag,
+		utils.RPCRangeLimitFlag,
 		utils.BatchRequestLimit,
 		utils.BatchResponseMaxSize,
 	}
@@ -210,6 +211,7 @@ var (
 		utils.MetricsInfluxDBUsernameFlag,
 		utils.MetricsInfluxDBPasswordFlag,
 		utils.MetricsInfluxDBTagsFlag,
+		utils.MetricsInfluxDBIntervalFlag,
 		utils.MetricsEnableInfluxDBV2Flag,
 		utils.MetricsInfluxDBTokenFlag,
 		utils.MetricsInfluxDBBucketFlag,
@@ -315,7 +317,7 @@ func prepare(ctx *cli.Context) {
 	}
 
 	// Start metrics export if enabled
-	utils.SetupMetrics(ctx)
+	utils.SetupMetrics(ctx, makeMetricsConfig(ctx))
 
 	// Start system runtime metrics collection
 	go metrics.CollectProcessMetrics(3 * time.Second)

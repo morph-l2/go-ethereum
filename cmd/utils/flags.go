@@ -32,7 +32,6 @@ import (
 	"strings"
 	"text/tabwriter"
 	"text/template"
-	"time"
 
 	pcsclite "github.com/gballet/go-libpcsclite"
 	gopsutil "github.com/shirou/gopsutil/mem"
@@ -865,6 +864,12 @@ var (
 		Value: metrics.DefaultConfig.InfluxDBOrganization,
 	}
 
+	MetricsInfluxDBIntervalFlag = cli.DurationFlag{
+		Name:  "metrics.influxdb.interval",
+		Usage: "Interval between metrics reports to InfluxDB (with time unit, e.g. 10s)",
+		Value: metrics.DefaultConfig.InfluxDBInterval,
+	}
+
 	CatalystFlag = cli.BoolFlag{
 		Name:  "catalyst",
 		Usage: "Catalyst mode (eth2 integration testing)",
@@ -874,6 +879,14 @@ var (
 	MaxBlockRangeFlag = cli.Int64Flag{
 		Name:  "rpc.getlogs.maxrange",
 		Usage: "Limit max fetched block range for `eth_getLogs` method",
+	}
+	// RPCRangeLimitFlag is an alias for MaxBlockRangeFlag that aligns with
+	// upstream go-ethereum PR #33163. Using either flag caps the block range
+	// (end - begin + 1) allowed in eth_getLogs; -1 and 0 both mean unlimited
+	// so existing deployments that rely on the default -1 keep working.
+	RPCRangeLimitFlag = cli.Int64Flag{
+		Name:  "rpc.rangelimit",
+		Usage: "Limit the maximum block range (end - begin + 1) allowed in range queries such as `eth_getLogs` (alias of --rpc.getlogs.maxrange; -1 or 0 = unlimited)",
 	}
 )
 
@@ -1563,10 +1576,30 @@ func setWhitelist(ctx *cli.Context, cfg *ethconfig.Config) {
 }
 
 func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
-	if ctx.GlobalIsSet(MaxBlockRangeFlag.Name) {
-		cfg.MaxBlockRange = ctx.GlobalInt64(MaxBlockRangeFlag.Name)
-	} else {
-		cfg.MaxBlockRange = -1
+	// Resolution order: --rpc.rangelimit takes precedence when both are set,
+	// so operators can opt into the upstream-aligned name without having to
+	// remove the legacy --rpc.getlogs.maxrange flag from their launch
+	// scripts first. When neither flag is set, cfg.MaxBlockRange is left
+	// unchanged so TOML/defaults are respected.
+	var (
+		rangelimitSet = ctx.GlobalIsSet(RPCRangeLimitFlag.Name)
+		maxrangeSet   = ctx.GlobalIsSet(MaxBlockRangeFlag.Name)
+	)
+	switch {
+	case rangelimitSet:
+		v := ctx.GlobalInt64(RPCRangeLimitFlag.Name)
+		if v <= 0 {
+			cfg.MaxBlockRange = -1
+		} else {
+			cfg.MaxBlockRange = v
+		}
+	case maxrangeSet:
+		v := ctx.GlobalInt64(MaxBlockRangeFlag.Name)
+		if v <= 0 {
+			cfg.MaxBlockRange = -1
+		} else {
+			cfg.MaxBlockRange = v
+		}
 	}
 }
 
@@ -1991,7 +2024,7 @@ func RegisterFilterAPI(stack *node.Node, backend ethapi.Backend, ethcfg *ethconf
 	return filterSystem
 }
 
-func SetupMetrics(ctx *cli.Context) {
+func SetupMetrics(ctx *cli.Context, cfg metrics.Config) {
 	if metrics.Enabled {
 		log.Info("Enabling metrics collection")
 
@@ -2026,20 +2059,30 @@ func SetupMetrics(ctx *cli.Context) {
 			token        = ctx.GlobalString(MetricsInfluxDBTokenFlag.Name)
 			bucket       = ctx.GlobalString(MetricsInfluxDBBucketFlag.Name)
 			organization = ctx.GlobalString(MetricsInfluxDBOrganizationFlag.Name)
+
+			interval = cfg.InfluxDBInterval
 		)
+		if ctx.GlobalIsSet(MetricsInfluxDBIntervalFlag.Name) {
+			interval = ctx.GlobalDuration(MetricsInfluxDBIntervalFlag.Name)
+		}
+		if enableExport || enableExportV2 {
+			if err := metrics.ValidateInfluxDBInterval(interval); err != nil {
+				Fatalf("%v", err)
+			}
+		}
 
 		if enableExport {
 			tagsMap := SplitTagsFlag(ctx.GlobalString(MetricsInfluxDBTagsFlag.Name))
 
-			log.Info("Enabling metrics export to InfluxDB")
+			log.Info("Enabling metrics export to InfluxDB", "interval", interval)
 
-			go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, database, username, password, "geth.", tagsMap)
+			go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, interval, endpoint, database, username, password, "geth.", tagsMap)
 		} else if enableExportV2 {
 			tagsMap := SplitTagsFlag(ctx.GlobalString(MetricsInfluxDBTagsFlag.Name))
 
-			log.Info("Enabling metrics export to InfluxDB (v2)")
+			log.Info("Enabling metrics export to InfluxDB (v2)", "interval", interval)
 
-			go influxdb.InfluxDBV2WithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, token, bucket, organization, "geth.", tagsMap)
+			go influxdb.InfluxDBV2WithTags(metrics.DefaultRegistry, interval, endpoint, token, bucket, organization, "geth.", tagsMap)
 		}
 
 		if ctx.GlobalIsSet(MetricsHTTPFlag.Name) {

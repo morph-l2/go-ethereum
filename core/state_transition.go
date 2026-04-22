@@ -144,7 +144,20 @@ func (result *ExecutionResult) Revert() []byte {
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
-func IntrinsicGas(data []byte, accessList types.AccessList, authList []types.SetCodeAuthorization, isContractCreation bool, isHomestead, isEIP2028 bool, isEIP3860 bool) (uint64, error) {
+//
+// The isAmsterdam flag gates the EIP-7702 authorization-list pricing switch
+// introduced by the Amsterdam fork:
+//   - Pre-Amsterdam: each authorization is charged the worst-case
+//     `CallNewAccountGas` (25000) up front and `applyAuthorization` refunds
+//     `CallNewAccountGas - TxAuthTupleGas` when the authority account already
+//     exists (the refund is shared with the StateDB refund counter and thus
+//     subject to the `gasUsed/5` cap, which can truncate the refund when the
+//     transaction declares many authorizations on existing accounts).
+//   - Post-Amsterdam: each authorization is charged only `TxAuthTupleGas`
+//     (12500) up front and `applyAuthorization` debits the delta directly from
+//     `st.gas` when the authority does not yet exist. This path does not use
+//     the refund counter and is therefore immune to the `gasUsed/5` cap.
+func IntrinsicGas(data []byte, accessList types.AccessList, authList []types.SetCodeAuthorization, isContractCreation bool, isHomestead, isEIP2028 bool, isEIP3860 bool, isAmsterdam bool) (uint64, error) {
 	// Set the starting gas for the raw transaction
 	var gas uint64
 	if isContractCreation && isHomestead {
@@ -191,7 +204,11 @@ func IntrinsicGas(data []byte, accessList types.AccessList, authList []types.Set
 		gas += uint64(accessList.StorageKeys()) * params.TxAccessListStorageKeyGas
 	}
 	if authList != nil {
-		gas += uint64(len(authList)) * params.CallNewAccountGas
+		perAuth := params.CallNewAccountGas
+		if isAmsterdam {
+			perAuth = params.TxAuthTupleGas
+		}
+		gas += uint64(len(authList)) * perAuth
 	}
 	return gas, nil
 }
@@ -371,6 +388,13 @@ func (st *StateTransition) preCheck() error {
 
 	// Only check transactions that are not fake
 	if !st.msg.IsFake() {
+		// EIP-7825: enforce the per-transaction gas cap when the Amsterdam
+		// fork is active. L1 message transactions are already exempted via
+		// the early-return above; eth_call / simulation ("fake") transactions
+		// stay exempt because they bypass this branch entirely.
+		if st.evm.ChainConfig().IsAmsterdam(st.evm.Context.Time.Uint64()) && st.msg.Gas() > params.MaxTxGas {
+			return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, st.msg.Gas())
+		}
 		// Make sure this transaction's nonce is correct.
 		stNonce := st.state.GetNonce(st.msg.From())
 		if msgNonce := st.msg.Nonce(); stNonce < msgNonce {
@@ -485,7 +509,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), st.msg.SetCodeAuthorizations(), contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai)
+	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), st.msg.SetCodeAuthorizations(), contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, rules.IsAmsterdam)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +555,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		if msg.SetCodeAuthorizations() != nil {
 			for _, auth := range msg.SetCodeAuthorizations() {
 				// Note errors are ignored, we simply skip invalid authorizations here.
-				st.applyAuthorization(&auth)
+				st.applyAuthorization(&auth, rules.IsAmsterdam)
 			}
 		}
 
@@ -630,16 +654,47 @@ func (st *StateTransition) validateAuthorization(auth *types.SetCodeAuthorizatio
 }
 
 // applyAuthorization applies an EIP-7702 code delegation to the state.
-func (st *StateTransition) applyAuthorization(auth *types.SetCodeAuthorization) error {
+//
+// The isAmsterdam flag selects between two mutually exclusive gas accounting
+// schemes for the authorization (see IntrinsicGas doc):
+//   - Pre-Amsterdam: IntrinsicGas has charged `CallNewAccountGas` up front.
+//     If the authority already exists in state, refund the delta
+//     `CallNewAccountGas - TxAuthTupleGas` via the StateDB refund counter.
+//   - Post-Amsterdam: IntrinsicGas has charged only `TxAuthTupleGas`. If the
+//     authority does not exist in state, this function debits the delta
+//     `CallNewAccountGas - TxAuthTupleGas` directly from `st.gas`. If `st.gas`
+//     is insufficient to cover the extra charge, the authorization is skipped
+//     (no nonce bump, no code installation) — analogous to how validation
+//     errors returned from validateAuthorization are silently ignored by the
+//     caller in TransitionDb ("errors are ignored, we simply skip invalid
+//     authorizations here").
+func (st *StateTransition) applyAuthorization(auth *types.SetCodeAuthorization, isAmsterdam bool) error {
 	authority, err := st.validateAuthorization(auth)
 	if err != nil {
 		return err
 	}
 
-	// If the account already exists in state, refund the new account cost
-	// charged in the intrinsic calculation.
-	if st.state.Exist(authority) {
-		st.state.AddRefund(params.CallNewAccountGas - params.TxAuthTupleGas)
+	if isAmsterdam {
+		// Post-Amsterdam: charge the non-existing-account delta from remaining
+		// gas. Skip the authorization entirely when gas is insufficient; this
+		// preserves the "skip invalid authorization" contract while avoiding an
+		// OutOfGas in the subsequent EVM call.
+		if !st.state.Exist(authority) {
+			extra := params.CallNewAccountGas - params.TxAuthTupleGas
+			if st.gas < extra {
+				return ErrInsufficientAuthorizationGas
+			}
+			if t := st.evm.Config.Tracer; t != nil && t.OnGasChange != nil {
+				t.OnGasChange(st.gas, st.gas-extra, tracing.GasChangeTxIntrinsicGas)
+			}
+			st.gas -= extra
+		}
+	} else {
+		// Pre-Amsterdam: refund the already-charged new-account cost when the
+		// authority already exists in state.
+		if st.state.Exist(authority) {
+			st.state.AddRefund(params.CallNewAccountGas - params.TxAuthTupleGas)
+		}
 	}
 
 	// Update nonce and account code.

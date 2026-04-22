@@ -1241,19 +1241,21 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 	if args.From == nil {
 		args.From = new(common.Address)
 	}
+	header, err := b.HeaderByNumberOrHash(ctx, blockNrOrHash)
+	if err != nil {
+		return 0, err
+	}
+	if header == nil {
+		return 0, errors.New("block not found")
+	}
 	// Determine the highest gas limit can be used during the estimation.
 	if args.Gas != nil && uint64(*args.Gas) >= params.TxGas {
 		hi = uint64(*args.Gas)
 	} else {
-		// Retrieve the block to act as the gas ceiling
-		block, err := b.BlockByNumberOrHash(ctx, blockNrOrHash)
-		if err != nil {
-			return 0, err
-		}
-		if block == nil {
-			return 0, errors.New("block not found")
-		}
-		hi = block.GasLimit()
+		hi = header.GasLimit
+	}
+	if b.ChainConfig().IsAmsterdam(header.Time) && hi > params.MaxTxGas {
+		hi = params.MaxTxGas
 	}
 	// Normalize the max fee per gas the call is willing to spend.
 	var feeCap *big.Int
@@ -1750,8 +1752,14 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 		addressesToExclude[addr] = struct{}{}
 	}
 
-	// Prevent redundant operations if args contain more authorizations than EVM may handle
-	maxAuthorizations := uint64(*args.Gas) / params.CallNewAccountGas
+	// Prevent redundant operations if args contain more authorizations than EVM may handle.
+	// The per-authorization lower bound follows the active fork semantics so
+	// CreateAccessList stays aligned with post-Amsterdam authorization pricing.
+	perAuthorizationGas := params.CallNewAccountGas
+	if b.ChainConfig().IsAmsterdam(header.Time) {
+		perAuthorizationGas = params.TxAuthTupleGas
+	}
+	maxAuthorizations := uint64(*args.Gas) / perAuthorizationGas
 	if uint64(len(args.AuthorizationList)) > maxAuthorizations {
 		return nil, 0, nil, errors.New("insufficient gas to process all authorizations")
 	}

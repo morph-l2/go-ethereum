@@ -178,6 +178,7 @@ var transactionCommand = cli.Command{
 	Action:  t8ntool.Transaction,
 	Flags: []cli.Flag{
 		t8ntool.InputTxsFlag,
+		t8ntool.InputEnvFlag,
 		t8ntool.ChainIDFlag,
 		t8ntool.ForknameFlag,
 		t8ntool.VerbosityFlag,

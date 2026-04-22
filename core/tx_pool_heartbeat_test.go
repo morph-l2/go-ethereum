@@ -31,8 +31,9 @@ import (
 //
 //   1. bumpBeats is a no-op when the account has no existing heartbeat.
 //   2. bumpBeats refreshes the timestamp when one already exists.
-//   3. enqueueTx unconditionally refreshes the heartbeat on every enqueue
-//      so long-lived but still-active queues are not evicted by Lifetime.
+//   3. enqueueTx refreshes the heartbeat for external enqueues (addAll=true)
+//      so long-lived but still-active queues are not evicted by Lifetime;
+//      internal reshuffles (addAll=false) must not reset the heartbeat.
 //   4. A pending-only replace via add() does not resurrect a heartbeat for
 //      an account that has nothing queued.
 
@@ -168,7 +169,11 @@ func TestTxPoolPendingReplaceDoesNotSpawnBeats(t *testing.T) {
 	if queueList != nil && queueList.Len() > 0 {
 		t.Fatalf("queue should remain empty, got %d entries", queueList.Len())
 	}
-	if got, want := pendingList.txs.items[0].Hash(), replacement.Hash(); got != want {
+	flat := pendingList.txs.Flatten()
+	if len(flat) != 1 {
+		t.Fatalf("expected 1 pending tx, got %d", len(flat))
+	}
+	if got, want := flat[0].Hash(), replacement.Hash(); got != want {
 		t.Fatalf("pending head mismatch: got %x want %x", got, want)
 	}
 }

@@ -486,12 +486,13 @@ func inspectTrie(ctx *cli.Context) error {
 		return err
 	}
 
-	// Detect ZKTrie mode: when the chain began in ZKTrie format
-	// (UseZktrie=true) and the target block predates JadeFork, the state
-	// is still zkTrie-encoded. We refuse rather than produce garbage.
+	// Detect ZKTrie mode: when the chain uses ZKTrie format we must be
+	// able to confirm the target block is past JadeFork (where the trie
+	// switched to MPT). If block metadata is unknown we cannot make that
+	// determination, so we treat unknown metadata as unsafe and refuse.
 	chainConfig := rawdb.ReadChainConfig(db, rawdb.ReadCanonicalHash(db, 0))
-	if chainConfig != nil && chainConfig.Morph.UseZktrie && blockMetaKnown && !chainConfig.IsJadeFork(blockTime) {
-		return fmt.Errorf("%w (block %d time %d predates JadeFork)",
+	if chainConfig != nil && chainConfig.Morph.UseZktrie && (!blockMetaKnown || !chainConfig.IsJadeFork(blockTime)) {
+		return fmt.Errorf("%w (block %d time %d predates or cannot confirm JadeFork)",
 			trie.ErrUnsupportedTrieFormat, blockNumber, blockTime)
 	}
 

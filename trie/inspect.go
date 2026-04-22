@@ -49,6 +49,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"sort"
@@ -448,11 +449,26 @@ func (in *inspector) writeDumpRecord(owner common.Hash, s *LevelStats) {
 
 	off := 32
 	for i := 0; i < trieStatLevels; i++ {
-		binary.LittleEndian.PutUint32(buf[off:], uint32(s.level[i].short.Load()))
+		short := s.level[i].short.Load()
+		if short > math.MaxUint32 {
+			in.setError(fmt.Errorf("dump record overflow: level %d short counter %d exceeds uint32 max", i, short))
+			return
+		}
+		full := s.level[i].full.Load()
+		if full > math.MaxUint32 {
+			in.setError(fmt.Errorf("dump record overflow: level %d full counter %d exceeds uint32 max", i, full))
+			return
+		}
+		value := s.level[i].value.Load()
+		if value > math.MaxUint32 {
+			in.setError(fmt.Errorf("dump record overflow: level %d value counter %d exceeds uint32 max", i, value))
+			return
+		}
+		binary.LittleEndian.PutUint32(buf[off:], uint32(short))
 		off += 4
-		binary.LittleEndian.PutUint32(buf[off:], uint32(s.level[i].full.Load()))
+		binary.LittleEndian.PutUint32(buf[off:], uint32(full))
 		off += 4
-		binary.LittleEndian.PutUint32(buf[off:], uint32(s.level[i].value.Load()))
+		binary.LittleEndian.PutUint32(buf[off:], uint32(value))
 		off += 4
 		binary.LittleEndian.PutUint64(buf[off:], s.level[i].size.Load())
 		off += 8

@@ -1014,10 +1014,12 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 		pool.all.Add(tx, local)
 		pool.priced.Put(tx, local)
 	}
-	// Every new enqueue is a sign of life for this account: refresh the
-	// heartbeat so long-lived but still-active queues are not expired by
-	// Lifetime only because their first enqueue was long ago.
-	pool.beats[from] = time.Now()
+	// Refresh the heartbeat only for external activity (addAll=true).
+	// Internal reshuffles such as demoteUnexecutables and removeTx pass
+	// addAll=false; they must not extend queue lifetime.
+	if addAll {
+		pool.beats[from] = time.Now()
+	}
 	return old != nil, nil
 }
 

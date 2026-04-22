@@ -1016,6 +1016,9 @@ const maxGetStorageSlots = 1024
 func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map[common.Address][]common.Hash, blockNrOrHash rpc.BlockNumberOrHash) (map[common.Address][]hexutil.Bytes, error) {
 	var totalSlots int
 	for _, keys := range requests {
+		if len(keys) == 0 {
+			return nil, &invalidParamsError{message: "address with empty slot list"}
+		}
 		totalSlots += len(keys)
 		if totalSlots > maxGetStorageSlots {
 			return nil, &clientLimitExceededError{message: fmt.Sprintf("too many slots (max %d)", maxGetStorageSlots)}

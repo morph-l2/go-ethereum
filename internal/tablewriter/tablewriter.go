@@ -32,6 +32,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
 )
 
 // Table accumulates headers, data rows, and an optional footer, and
@@ -102,14 +103,37 @@ func (t *Table) Render() error {
 		return fmt.Errorf("tablewriter: footer has %d columns, want %d", len(t.footer), cols)
 	}
 
+	// Compute per-column max widths (in runes) across header, rows and
+	// footer so the separator aligns with the actual column content.
+	w := make([]int, cols)
+	measure := func(cells []string) {
+		for i, c := range cells {
+			if n := utf8.RuneCountInString(c); n > w[i] {
+				w[i] = n
+			}
+		}
+	}
+	measure(t.header)
+	for _, row := range t.rows {
+		measure(row)
+	}
+	if len(t.footer) > 0 {
+		measure(t.footer)
+	}
+	sepParts := make([]string, cols)
+	for i, n := range w {
+		sepParts[i] = strings.Repeat("─", n)
+	}
+	sep := strings.Join(sepParts, "\t")
+
 	tw := tabwriter.NewWriter(t.out, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, strings.Join(t.header, "\t"))
-	fmt.Fprintln(tw, strings.Repeat("─────────\t", cols))
+	fmt.Fprintln(tw, sep)
 	for _, row := range t.rows {
 		fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
 	if len(t.footer) > 0 {
-		fmt.Fprintln(tw, strings.Repeat("─────────\t", cols))
+		fmt.Fprintln(tw, sep)
 		fmt.Fprintln(tw, strings.Join(t.footer, "\t"))
 	}
 	return tw.Flush()

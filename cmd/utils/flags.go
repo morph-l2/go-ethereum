@@ -1594,7 +1594,12 @@ func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
 			cfg.MaxBlockRange = v
 		}
 	case maxrangeSet:
-		cfg.MaxBlockRange = ctx.GlobalInt64(MaxBlockRangeFlag.Name)
+		v := ctx.GlobalInt64(MaxBlockRangeFlag.Name)
+		if v <= 0 {
+			cfg.MaxBlockRange = -1
+		} else {
+			cfg.MaxBlockRange = v
+		}
 	default:
 		cfg.MaxBlockRange = -1
 	}

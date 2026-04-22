@@ -56,9 +56,9 @@ func signTestLegacyTx(t *testing.T) *types.Transaction {
 // TestRPCTransactionBlockTimestamp verifies that NewRPCTransaction populates
 // the BlockTimestamp field with the supplied block timestamp when the
 // transaction has been mined (blockHash is non-zero), matching upstream
-// go-ethereum PR #33709. Pending transactions (zero blockHash) must not
-// expose the field so that eth_getTransactionByHash can continue returning
-// a stable shape and clients can distinguish pending from confirmed txs.
+// go-ethereum PR #33709. Pending transactions (zero blockHash) should expose
+// the field as null so eth_getTransactionByHash returns a stable shape and
+// clients can distinguish pending from confirmed txs.
 func TestRPCTransactionBlockTimestamp(t *testing.T) {
 	tx := signTestLegacyTx(t)
 

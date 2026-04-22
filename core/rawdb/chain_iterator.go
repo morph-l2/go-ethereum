@@ -218,8 +218,12 @@ func indexTransactions(db ethdb.Database, from uint64, to uint64, interrupt chan
 			// Next block available, pop it off and index it
 			delivery := queue.PopItem().(*blockTxHashes)
 			if delivery.err != nil {
-				log.Warn("Missing or corrupt body during indexing; tail not advanced", "block", delivery.number, "err", delivery.err)
-				continue
+				log.Warn("Missing or corrupt block body during indexing; aborting run", "block", delivery.number, "err", delivery.err)
+				WriteTxIndexTail(batch, lastNum)
+				if err := batch.Write(); err != nil {
+					log.Crit("Failed writing batch to db", "error", err)
+				}
+				return
 			}
 			lastNum = delivery.number
 			WriteTxLookupEntries(batch, delivery.number, delivery.hashes)
@@ -311,7 +315,7 @@ func unindexTransactions(db ethdb.Database, from uint64, to uint64, interrupt ch
 			delivery := queue.PopItem().(*blockTxHashes)
 			nextNum = delivery.number + 1
 			if delivery.err != nil {
-				log.Warn("Skipping block with missing body during unindexing", "block", delivery.number, "err", delivery.err)
+				log.Warn("Block skipped during unindexing; tx lookup entries NOT deleted", "block", delivery.number, "err", delivery.err)
 				continue
 			}
 			DeleteTxLookupEntries(batch, delivery.hashes)

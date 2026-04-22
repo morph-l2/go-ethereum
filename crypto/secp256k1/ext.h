@@ -113,6 +113,9 @@ int secp256k1_ext_scalar_mul(const secp256k1_context* ctx, unsigned char *point,
 		return 0;
 	}
 	secp256k1_ge_set_xy(&ge, &feX, &feY);
+	if (!secp256k1_ge_is_valid_var(&ge)) {
+		return 0;
+	}
 	secp256k1_scalar_set_b32(&s, scalar, &overflow);
 	if (overflow || secp256k1_scalar_is_zero(&s)) {
 		ret = 0;

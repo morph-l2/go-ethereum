@@ -207,6 +207,58 @@ func TestIndexTransactions(t *testing.T) {
 	verify(0, 8, false, 8)
 }
 
+func TestIndexTransactionsMissingBody(t *testing.T) {
+	chainDb := NewMemoryDatabase()
+
+	var txs []*types.Transaction
+	to := common.BytesToAddress([]byte{0x11})
+
+	block := types.NewBlock(&types.Header{Number: big.NewInt(0)}, nil, nil, nil, newHasher())
+	WriteBlock(chainDb, block)
+	WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+
+	for i := uint64(1); i <= 10; i++ {
+		tx := types.NewTx(&types.LegacyTx{
+			Nonce:    i,
+			GasPrice: big.NewInt(11111),
+			Gas:      1111,
+			To:       &to,
+			Value:    big.NewInt(111),
+			Data:     []byte{0x11, 0x11, 0x11},
+		})
+		txs = append(txs, tx)
+		block = types.NewBlock(&types.Header{Number: big.NewInt(int64(i))}, []*types.Transaction{tx}, nil, nil, newHasher())
+		WriteBlock(chainDb, block)
+		WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+	}
+
+	missingBlock := uint64(5)
+	hash := ReadCanonicalHash(chainDb, missingBlock)
+	DeleteBody(chainDb, hash, missingBlock)
+
+	IndexTransactions(chainDb, 0, 11, nil)
+
+	// Tail must not advance past the missing block: the last successfully
+	// indexed block from the top was 6, so tail == 6.
+	tail := ReadTxIndexTail(chainDb)
+	if tail == nil || *tail != missingBlock+1 {
+		t.Fatalf("tx index tail mismatch after index with missing body: got %v, want %d", tail, missingBlock+1)
+	}
+	// Blocks above the gap are indexed; blocks at and below are not.
+	for i := uint64(1); i <= 10; i++ {
+		number := ReadTxLookupEntry(chainDb, txs[i-1].Hash())
+		if i > missingBlock {
+			if number == nil {
+				t.Fatalf("tx index %d missing after indexing (above gap)", i)
+			}
+		} else {
+			if number != nil {
+				t.Fatalf("tx index %d should not be indexed (at/below gap)", i)
+			}
+		}
+	}
+}
+
 func TestUnindexTransactionsMissingBody(t *testing.T) {
 	chainDb := NewMemoryDatabase()
 

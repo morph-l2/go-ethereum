@@ -217,11 +217,11 @@ func indexTransactions(db ethdb.Database, from uint64, to uint64, interrupt chan
 			}
 			// Next block available, pop it off and index it
 			delivery := queue.PopItem().(*blockTxHashes)
-			lastNum = delivery.number
 			if delivery.err != nil {
-				log.Warn("Skipping block with missing body during indexing", "block", delivery.number, "err", delivery.err)
+				log.Warn("Missing or corrupt body during indexing; tail not advanced", "block", delivery.number, "err", delivery.err)
 				continue
 			}
+			lastNum = delivery.number
 			WriteTxLookupEntries(batch, delivery.number, delivery.hashes)
 			blocks++
 			txs += len(delivery.hashes)

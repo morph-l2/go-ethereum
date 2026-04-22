@@ -199,6 +199,7 @@ func newMockEstimateGasBackend(t *testing.T, config *params.ChainConfig, headerT
 
 func (m *mockEstimateGasBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
 func (m *mockEstimateGasBackend) CurrentHeader() *types.Header     { return m.header }
+func (m *mockEstimateGasBackend) RPCGasCap() uint64                { return 0 }
 func (m *mockEstimateGasBackend) HeaderByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*types.Header, error) {
 	return m.header, nil
 }
@@ -274,6 +275,55 @@ func TestDoEstimateGasDoesNotCapPreAmsterdam(t *testing.T) {
 	if uint64(got) <= params.MaxTxGas {
 		t.Fatalf("expected pre-Amsterdam estimate to exceed MaxTxGas, got %d", got)
 	}
+}
+
+func TestAccessListAuthorizationLimitUsesAmsterdamPricing(t *testing.T) {
+	makeArgs := func() TransactionArgs {
+		gas := hexutil.Uint64(70_000)
+		nonce := hexutil.Uint64(0)
+		to := common.HexToAddress("0x1")
+		zeroFee := (*hexutil.Big)(big.NewInt(0))
+		return TransactionArgs{
+			To:                   &to,
+			Gas:                  &gas,
+			Nonce:                &nonce,
+			MaxFeePerGas:         zeroFee,
+			MaxPriorityFeePerGas: zeroFee,
+			AuthorizationList:    make([]types.SetCodeAuthorization, 3),
+		}
+	}
+
+	t.Run("pre-Amsterdam rejects conservatively", func(t *testing.T) {
+		cfg := *params.TestNoL1DataFeeChainConfig
+		cfg.AmsterdamTime = params.NewUint64(20)
+
+		backend := newMockEstimateGasBackend(t, &cfg, 10, 1_000_000)
+		_, _, _, err := AccessList(context.Background(), backend, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), makeArgs())
+		if err == nil {
+			t.Fatal("expected pre-Amsterdam access list creation to reject insufficient authorization gas")
+		}
+		if err.Error() != "insufficient gas to process all authorizations" {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("post-Amsterdam accepts same gas budget", func(t *testing.T) {
+		cfg := *params.TestNoL1DataFeeChainConfig
+		cfg.AmsterdamTime = params.NewUint64(0)
+
+		backend := newMockEstimateGasBackend(t, &cfg, 0, 1_000_000)
+		acl, gasUsed, vmErr, err := AccessList(context.Background(), backend, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), makeArgs())
+		if err != nil {
+			t.Fatalf("unexpected access list error: %v", err)
+		}
+		if vmErr != nil {
+			t.Fatalf("unexpected vm error: %v", vmErr)
+		}
+		if gasUsed == 0 {
+			t.Fatal("expected non-zero gasUsed for post-Amsterdam access list execution")
+		}
+		_ = acl
+	})
 }
 
 // TestSetDefaults_MorphTxVersionHeuristic tests the heuristic version defaulting logic

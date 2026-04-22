@@ -1752,8 +1752,14 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 		addressesToExclude[addr] = struct{}{}
 	}
 
-	// Prevent redundant operations if args contain more authorizations than EVM may handle
-	maxAuthorizations := uint64(*args.Gas) / params.CallNewAccountGas
+	// Prevent redundant operations if args contain more authorizations than EVM may handle.
+	// The per-authorization lower bound follows the active fork semantics so
+	// CreateAccessList stays aligned with post-Amsterdam authorization pricing.
+	perAuthorizationGas := params.CallNewAccountGas
+	if b.ChainConfig().IsAmsterdam(header.Time) {
+		perAuthorizationGas = params.TxAuthTupleGas
+	}
+	maxAuthorizations := uint64(*args.Gas) / perAuthorizationGas
 	if uint64(len(args.AuthorizationList)) > maxAuthorizations {
 		return nil, 0, nil, errors.New("insufficient gas to process all authorizations")
 	}

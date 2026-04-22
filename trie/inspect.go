@@ -199,6 +199,7 @@ func Inspect(triedb *Database, root common.Hash, config *InspectConfig) error {
 			}
 		}
 	}()
+	defer close(done)
 
 	in.recordRootSize(root, in.accountStat)
 	in.inspect(trie, trie.root, 0, []byte{}, in.accountStat)
@@ -211,8 +212,6 @@ func Inspect(triedb *Database, root common.Hash, config *InspectConfig) error {
 	if err := in.closeDump(); err != nil {
 		in.setError(err)
 	}
-
-	close(done)
 
 	if err := in.getError(); err != nil {
 		return err
@@ -312,12 +311,11 @@ func InspectContract(triedb *Database, db ethdb.Database, stateRoot common.Hash,
 			}
 		}
 	}()
+	defer close(done)
 
 	if err := g.Wait(); err != nil {
-		close(done)
 		return err
 	}
-	close(done)
 
 	// Display results.
 	fmt.Printf("\n=== Contract Inspection: %s ===\n", address)
@@ -333,19 +331,13 @@ func InspectContract(triedb *Database, db ethdb.Database, stateRoot common.Hash,
 		snapSlots.Load(), common.StorageSize(snapSize.Load()))
 
 	var trieTotal, trieSize uint64
-	for i := 0; i < trieStatLevels; i++ {
-		short, full, value, size := storageStat.level[i].load()
-		trieTotal += short + full + value
-		trieSize += size
-	}
-	fmt.Printf("Storage trie: %d nodes (%s)\n", trieTotal, common.StorageSize(trieSize))
-
-	fmt.Println("\nStorage Trie Depth Distribution:")
 	b := new(strings.Builder)
 	table := tablewriter.NewWriter(b)
 	table.SetHeader([]string{"Depth", "Short", "Full", "Value", "Nodes", "Size"})
 	for i := 0; i < trieStatLevels; i++ {
 		short, full, value, size := storageStat.level[i].load()
+		trieTotal += short + full + value
+		trieSize += size
 		total := short + full + value
 		if total == 0 && size == 0 {
 			continue
@@ -359,6 +351,8 @@ func InspectContract(triedb *Database, db ethdb.Database, stateRoot common.Hash,
 			common.StorageSize(size).String(),
 		}})
 	}
+	fmt.Printf("Storage trie: %d nodes (%s)\n", trieTotal, common.StorageSize(trieSize))
+	fmt.Println("\nStorage Trie Depth Distribution:")
 	if err := table.Render(); err != nil {
 		return err
 	}
@@ -478,6 +472,7 @@ func (in *inspector) writeDumpRecord(owner common.Hash, s *LevelStats) {
 	in.dumpMu.Unlock()
 	if err != nil {
 		in.setError(fmt.Errorf("failed writing trie dump record: %w", err))
+		return
 	}
 	if owner != (common.Hash{}) {
 		in.storageRecordsWritten.Add(1)

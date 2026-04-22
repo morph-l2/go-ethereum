@@ -76,8 +76,17 @@ func (t *Table) SetFooter(footer []string) {
 //
 // Each row must match the header column count; the check is deferred to
 // Render so partially-built tables still round-trip through inspection.
+// The input slice is deep-copied so later mutations by the caller do not
+// affect the stored rows (matching the defensive behaviour of SetHeader and
+// SetFooter).
 func (t *Table) AppendBulk(rows [][]string) {
-	t.rows = append(t.rows, rows...)
+	snapshot := make([][]string, len(rows))
+	for i, row := range rows {
+		r := make([]string, len(row))
+		copy(r, row)
+		snapshot[i] = r
+	}
+	t.rows = append(t.rows, snapshot...)
 }
 
 // Render validates the accumulated state and writes the aligned table to

@@ -1579,8 +1579,8 @@ func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
 	// Resolution order: --rpc.rangelimit takes precedence when both are set,
 	// so operators can opt into the upstream-aligned name without having to
 	// remove the legacy --rpc.getlogs.maxrange flag from their launch
-	// scripts first. When neither flag is set, -1 preserves the historical
-	// "no block range limit" behavior.
+	// scripts first. When neither flag is set, cfg.MaxBlockRange is left
+	// unchanged so TOML/defaults are respected.
 	var (
 		rangelimitSet = ctx.GlobalIsSet(RPCRangeLimitFlag.Name)
 		maxrangeSet   = ctx.GlobalIsSet(MaxBlockRangeFlag.Name)
@@ -1600,8 +1600,6 @@ func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
 		} else {
 			cfg.MaxBlockRange = v
 		}
-	default:
-		cfg.MaxBlockRange = -1
 	}
 }
 
@@ -2026,7 +2024,7 @@ func RegisterFilterAPI(stack *node.Node, backend ethapi.Backend, ethcfg *ethconf
 	return filterSystem
 }
 
-func SetupMetrics(ctx *cli.Context) {
+func SetupMetrics(ctx *cli.Context, cfg metrics.Config) {
 	if metrics.Enabled {
 		log.Info("Enabling metrics collection")
 
@@ -2062,7 +2060,7 @@ func SetupMetrics(ctx *cli.Context) {
 			bucket       = ctx.GlobalString(MetricsInfluxDBBucketFlag.Name)
 			organization = ctx.GlobalString(MetricsInfluxDBOrganizationFlag.Name)
 
-			interval = metrics.DefaultConfig.InfluxDBInterval
+			interval = cfg.InfluxDBInterval
 		)
 		if ctx.GlobalIsSet(MetricsInfluxDBIntervalFlag.Name) {
 			interval = ctx.GlobalDuration(MetricsInfluxDBIntervalFlag.Name)

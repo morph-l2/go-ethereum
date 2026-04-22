@@ -1014,18 +1014,22 @@ const maxGetStorageSlots = 1024
 //   - empty request is rejected with a parameter error,
 //   - total requested slot count must not exceed maxGetStorageSlots.
 func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map[common.Address][]common.Hash, blockNrOrHash rpc.BlockNumberOrHash) (map[common.Address][]hexutil.Bytes, error) {
-	var totalSlots int
+	if len(requests) == 0 {
+		return nil, &invalidParamsError{message: "empty request"}
+	}
+	// Validate empty slot lists first so this error is always reported before
+	// the slot-count limit, regardless of map iteration order.
 	for _, keys := range requests {
 		if len(keys) == 0 {
 			return nil, &invalidParamsError{message: "address with empty slot list"}
 		}
+	}
+	var totalSlots int
+	for _, keys := range requests {
 		totalSlots += len(keys)
 		if totalSlots > maxGetStorageSlots {
 			return nil, &clientLimitExceededError{message: fmt.Sprintf("too many slots (max %d)", maxGetStorageSlots)}
 		}
-	}
-	if totalSlots == 0 {
-		return nil, &invalidParamsError{message: "empty request"}
 	}
 
 	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
@@ -1035,6 +1039,11 @@ func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map
 
 	result := make(map[common.Address][]hexutil.Bytes, len(requests))
 	for addr, keys := range requests {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		vals := make([]hexutil.Bytes, len(keys))
 		for i, key := range keys {
 			v := state.GetState(addr, key)

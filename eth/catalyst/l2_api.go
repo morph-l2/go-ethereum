@@ -263,16 +263,6 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Head
 	return header, api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
-func (api *l2ConsensusAPI) CommitBatch(batch types.RollupBatch, signatures []types.BatchSignature) error {
-	log.Info("commit batch", "batch index", batch.Index)
-	return api.eth.BatchHandler().ImportBatch(&batch, signatures)
-}
-
-func (api *l2ConsensusAPI) AppendBatchSignature(batchHash common.Hash, signature types.BatchSignature) {
-	log.Info("append batch signature", "batch hash", fmt.Sprintf("%x", batchHash))
-	api.eth.BatchHandler().ImportBatchSig(batchHash, signature)
-}
-
 func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, error) {
 	var batchHash common.Hash
 	if params.BatchHash != nil {

@@ -49,16 +49,6 @@ func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL
 	return &header, err
 }
 
-// CommitBatch commit the batch, with the signatures
-func (ec *Client) CommitBatch(ctx context.Context, batch *types.RollupBatch, signatures []types.BatchSignature) error {
-	return ec.c.CallContext(ctx, nil, "engine_commitBatch", batch, signatures)
-}
-
-// AppendBlsSignature append a new bls signature to the batch
-func (ec *Client) AppendBlsSignature(ctx context.Context, batchHash common.Hash, signature types.BatchSignature) error {
-	return ec.c.CallContext(ctx, nil, "engine_appendBatchSignature", batchHash, signature)
-}
-
 // SetBlockTags sets the safe and finalized block by hash
 func (ec *Client) SetBlockTags(ctx context.Context, safeBlockHash common.Hash, finalizedBlockHash common.Hash) error {
 	return ec.c.CallContext(ctx, nil, "engine_setBlockTags", safeBlockHash, finalizedBlockHash)
@@ -80,4 +70,3 @@ func (ec *Client) AssembleL2BlockV2(ctx context.Context, parentHash common.Hash,
 	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", parentHash, timestamp, txs)
 	return result, err
 }
-

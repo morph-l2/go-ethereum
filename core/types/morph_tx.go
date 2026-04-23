@@ -190,6 +190,39 @@ func (tx *MorphTx) EncodeRLP(w io.Writer) error {
 	return err
 }
 
+// DecodeRLP implements rlp.Decoder so that direct rlp.Decode calls use the
+// version-aware decode logic instead of reflection-based struct decoding.
+// Without this, the field order mismatch between MorphTx (which has Version
+// before FeeTokenID) and the v0 wire format (which lacks Version) causes
+// decode failures.
+func (tx *MorphTx) DecodeRLP(s *rlp.Stream) error {
+	kind, _, err := s.Kind()
+	if err != nil {
+		return err
+	}
+	if kind == rlp.List {
+		// V0 format: data is a single RLP list
+		raw, err := s.Raw()
+		if err != nil {
+			return err
+		}
+		return decodeV0MorphTxRLP(tx, raw)
+	}
+	// V1+ format: version byte followed by RLP list
+	versionByte, err := s.Uint8()
+	if err != nil {
+		return err
+	}
+	if versionByte != MorphTxVersion1 {
+		return errors.New("unsupported morph tx version: " + strconv.Itoa(int(versionByte)))
+	}
+	raw, err := s.Raw()
+	if err != nil {
+		return err
+	}
+	return decodeV1MorphTxRLP(tx, raw)
+}
+
 func (tx *MorphTx) encode(b *bytes.Buffer) error {
 	switch tx.Version {
 	case MorphTxVersion0:

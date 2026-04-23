@@ -4,9 +4,14 @@ on:
   push:
     tags:
       - morph-v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to build (e.g. morph-v2.2.0)'
+        required: true
 
 env:
-  IMAGE_NAME: go-ethereum
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   push:
@@ -14,28 +19,43 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log into registry
-        run: echo "${{ secrets.PACKAGE_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PACKAGE_TOKEN }}
 
-      - name: Build the Docker image
+      - name: Extract version and commit
+        id: meta
         run: |
-          docker build . --file Dockerfile \
-            --build-arg COMMIT="${{ github.sha }}" \
-            --build-arg VERSION="${{ github.ref_name }}" \
-            -t "${IMAGE_NAME}"
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION=$(echo "$TAG" | sed -e 's/^morph-v//')
+          COMMIT=$(git rev-parse HEAD)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
 
-      - name: Push image
-        run: |
-          IMAGE_ID="ghcr.io/${{ github.repository }}"
-
-          # Change all uppercase to lowercase
-          IMAGE_ID=$(echo "$IMAGE_ID" | tr '[A-Z]' '[a-z]')
-          # Strip "morph-v" prefix from tag name
-          VERSION=$(echo "${{ github.ref_name }}" | sed -e 's/^morph-v//')
-          echo IMAGE_ID="$IMAGE_ID"
-          echo VERSION="$VERSION"
-          docker tag "$IMAGE_NAME" "$IMAGE_ID:$VERSION"
-          docker tag "$IMAGE_NAME" "$IMAGE_ID:latest"
-          docker push "$IMAGE_ID:$VERSION"
-          docker push "$IMAGE_ID:latest"
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE_NAME }}:latest
+          build-args: |
+            COMMIT=${{ steps.meta.outputs.commit }}
+            VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

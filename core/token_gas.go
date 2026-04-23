@@ -19,6 +19,25 @@ var (
 	maxGas uint64 = 200000
 )
 
+func startSystemCallTrace(evm *vm.EVM) func() {
+	if evm == nil || evm.Config.Tracer == nil {
+		return nil
+	}
+	tracer := evm.Config.Tracer
+	if tracer.OnSystemCallEnd == nil {
+		return nil
+	}
+	if tracer.OnSystemCallStartV2 != nil {
+		tracer.OnSystemCallStartV2(evm.GetVMContext())
+		return tracer.OnSystemCallEnd
+	}
+	if tracer.OnSystemCallStart != nil {
+		tracer.OnSystemCallStart()
+		return tracer.OnSystemCallEnd
+	}
+	return nil
+}
+
 // GetAltTokenBalanceHybrid returns the balance of an alt token using either storage slot or call method
 // If balanceSlot is zero hash, uses call method; otherwise uses storage slot method
 func (st *StateTransition) GetAltTokenBalanceHybrid(tokenID uint16, user common.Address) (*fees.TokenInfo, *big.Int, error) {
@@ -26,7 +45,7 @@ func (st *StateTransition) GetAltTokenBalanceHybrid(tokenID uint16, user common.
 	if err != nil {
 		return nil, nil, err
 	}
-	balance := new(big.Int)
+	var balance *big.Int
 	if !info.HasSlot {
 		balance, err = GetAltTokenBalanceByEVM(st.evm, info.TokenAddress, user)
 		if err != nil {
@@ -61,7 +80,7 @@ func GetAltTokenBalance(evm *vm.EVM, tokenID uint16, user common.Address) (*big.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token address for token ID %d: %v", tokenID, err)
 	}
-	balance := new(big.Int)
+	var balance *big.Int
 	if info.HasSlot {
 		// balance slot exist
 		balance, _, err = fees.GetAltTokenBalanceFromSlot(evm.StateDB, info.TokenAddress, user, info.BalanceSlot)
@@ -89,9 +108,8 @@ func GetAltTokenBalanceByEVM(evm *vm.EVM, tokenAddress, userAddress common.Addre
 	// Create a message call context
 	sender := vm.AccountRef(userAddress)
 
-	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
-		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
-		defer evm.Config.Tracer.OnSystemCallEnd()
+	if endTrace := startSystemCallTrace(evm); endTrace != nil {
+		defer endTrace()
 	}
 
 	// Execute the call (using StaticCall since we're only reading state)
@@ -142,13 +160,14 @@ func transferAltTokenByEVM(evm *vm.EVM, tokenAddress, from, to common.Address, a
 	// Create a message call context
 	sender := vm.AccountRef(from)
 
-	if evm.Config.Tracer != nil && evm.Config.Tracer.OnSystemCallStartV2 != nil && evm.Config.Tracer.OnSystemCallEnd != nil {
-		evm.Config.Tracer.OnSystemCallStartV2(evm.GetVMContext())
-		defer evm.Config.Tracer.OnSystemCallEnd()
-	}
-
 	// Execute the call
-	ret, _, err := evm.Call(sender, tokenAddress, data, maxGas, big.NewInt(0))
+	var ret []byte
+	func() {
+		if endTrace := startSystemCallTrace(evm); endTrace != nil {
+			defer endTrace()
+		}
+		ret, _, err = evm.Call(sender, tokenAddress, data, maxGas, big.NewInt(0))
+	}()
 	if err != nil {
 		return fmt.Errorf("alt token transfer call failed: %v", err)
 	}

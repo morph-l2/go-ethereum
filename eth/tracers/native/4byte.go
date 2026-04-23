@@ -54,6 +54,7 @@ type fourByteTracer struct {
 	reason            error          // Textual reason for the interruption
 	chainConfig       *params.ChainConfig
 	activePrecompiles []common.Address // Updated on CaptureStart based on given rules
+	systemCallDepth   int
 }
 
 // newFourByteTracer returns a native go tracer which collects
@@ -65,8 +66,10 @@ func newFourByteTracer(ctx *tracers.Context, cfg json.RawMessage, chainConfig *p
 	}
 	return &tracers.Tracer{
 		Hooks: &tracing.Hooks{
-			OnTxStart: t.OnTxStart,
-			OnEnter:   t.OnEnter,
+			OnTxStart:           t.OnTxStart,
+			OnEnter:             t.OnEnter,
+			OnSystemCallStartV2: t.OnSystemCallStart,
+			OnSystemCallEnd:     t.OnSystemCallEnd,
 		},
 		GetResult: t.GetResult,
 		Stop:      t.Stop,
@@ -98,7 +101,7 @@ func (t *fourByteTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction
 // OnEnter is called when EVM enters a new scope (via call, create or selfdestruct).
 func (t *fourByteTracer) OnEnter(depth int, opcode byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
 	// Skip if tracing was interrupted
-	if t.interrupt.Load() {
+	if t.interrupt.Load() || t.systemCallDepth > 0 {
 		return
 	}
 	if len(input) < 4 {
@@ -115,6 +118,16 @@ func (t *fourByteTracer) OnEnter(depth int, opcode byte, from common.Address, to
 		return
 	}
 	t.store(input[0:4], len(input)-4)
+}
+
+func (t *fourByteTracer) OnSystemCallStart(*tracing.VMContext) {
+	t.systemCallDepth++
+}
+
+func (t *fourByteTracer) OnSystemCallEnd() {
+	if t.systemCallDepth > 0 {
+		t.systemCallDepth--
+	}
 }
 
 // GetResult returns the json-encoded nested list of call traces, and any

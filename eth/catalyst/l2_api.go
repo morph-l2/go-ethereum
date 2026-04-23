@@ -132,7 +132,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 		return nil, fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.executableDataToBlock(params, nil)
+	block, err := api.executableDataToBlock(params)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func (api *l2ConsensusAPI) ValidateL2Block(params ExecutableL2Data) (*GenericRes
 	}, nil
 }
 
-func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common.Hash) (err error) {
+func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
@@ -198,7 +198,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data, batchHash *common
 		return fmt.Errorf("wrong parent hash: %s, expected parent hash is %s", params.ParentHash, parent.Hash())
 	}
 
-	block, err := api.executableDataToBlock(params, batchHash)
+	block, err := api.executableDataToBlock(params)
 	if err != nil {
 		return err
 	}
@@ -290,11 +290,7 @@ func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, err
 	return types.NewBlockWithHeader(header).WithBody(txs, nil), nil
 }
 
-func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, batchHash *common.Hash) (*types.Block, error) {
-	var bh common.Hash
-	if batchHash != nil {
-		bh = *batchHash
-	}
+func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data) (*types.Block, error) {
 	header := &types.Header{
 		ParentHash:     params.ParentHash,
 		Number:         big.NewInt(int64(params.Number)),
@@ -304,7 +300,6 @@ func (api *l2ConsensusAPI) executableDataToBlock(params ExecutableL2Data, batchH
 		Coinbase:       params.Miner,
 		BaseFee:        params.BaseFee,
 		NextL1MsgIndex: params.NextL1MessageIndex,
-		BatchHash:      bh,
 	}
 	header.Difficulty = l2.Difficulty
 	header.Nonce = l2.Nonce

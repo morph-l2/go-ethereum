@@ -12,26 +12,6 @@ import (
 	"github.com/morph-l2/go-ethereum/rlp"
 )
 
-func WriteRollupBatch(db ethdb.KeyValueWriter, batch *types.RollupBatch) {
-	bz, err := batch.Encode()
-	if err != nil {
-		log.Crit("failed to RLP encode batch", "batch index", batch.Index, "err", err)
-	}
-	if err = db.Put(RollupBatchKey(batch.Index), bz); err != nil {
-		log.Crit("failed to store batch", "batch index", batch.Index, "err", err)
-	}
-
-	// stores batchHash -> batchIndex
-	if err = db.Put(RollupBatchIndexKey(batch.Hash), encodeBigEndian(batch.Index)); err != nil {
-		log.Crit("failed to store batch index", "batch hash", batch.Hash.Hex(), "batch index", batch.Index, "err", err)
-	}
-
-	// stores latest batch index
-	if err = db.Put(rollupHeadBatchKey, encodeBigEndian(batch.Index)); err != nil {
-		log.Crit("failed to store latest batch index", "batch index", batch.Index, "err", err)
-	}
-}
-
 func ReadLatestBatchIndex(db ethdb.Reader) *uint64 {
 	data, err := db.Get(rollupHeadBatchKey)
 	if err != nil && isNotFoundErr(err) {
@@ -76,17 +56,6 @@ func ReadRollupBatch(db ethdb.Reader, batchIndex uint64) (*types.RollupBatch, er
 	return rb, nil
 }
 
-func WriteBatchSignature(db ethdb.KeyValueWriter, batchHash common.Hash, signature types.BatchSignature) {
-	bz, err := rlp.EncodeToBytes(&signature)
-	if err != nil {
-		log.Crit("failed to RLP encode batch signature", "batch hash", batchHash, "signer index", signature.Signer, "err", err)
-	}
-
-	if err = db.Put(RollupBatchSignatureSignerKey(batchHash, signature.Signer), bz); err != nil {
-		log.Crit("failed to store batch signature", "batch index", batchHash, "signer", signature.Signer, "err", err)
-	}
-}
-
 func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) ([]*types.BatchSignature, error) {
 	prefix := RollupBatchSignatureKey(batchHash)
 	it := db.NewIterator(prefix, nil)
@@ -109,18 +78,6 @@ func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) ([]*types.Bat
 		bss = append(bss, bs)
 	}
 	return bss, nil
-}
-
-func WriteBatchL1DataFee(db ethdb.Database, batchIndex uint64, l1DataFee *big.Int) {
-	if err := db.Put(RollupBatchL1DataFeeKey(batchIndex), l1DataFee.Bytes()); err != nil {
-		log.Crit("failed to store batch l1DataFee", "batch index", batchIndex, "l1DataFee", l1DataFee.String(), "err", err)
-	}
-}
-
-func WriteHeadBatchIndexHasFee(db ethdb.Database, batchIndex uint64) {
-	if err := db.Put(rollupBatchHeadBatchHasFeeKey, encodeBigEndian(batchIndex)); err != nil {
-		log.Crit("failed to store head batch which has fee collected", "batch index", batchIndex, "err", err)
-	}
 }
 
 func ReadBatchL1DataFee(db ethdb.Database, batchIndex uint64) *big.Int {

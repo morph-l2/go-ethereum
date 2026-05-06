@@ -3,7 +3,6 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
-	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -78,27 +77,4 @@ func ReadBatchSignatures(db ethdb.Database, batchHash common.Hash) ([]*types.Bat
 		bss = append(bss, bs)
 	}
 	return bss, nil
-}
-
-func ReadBatchL1DataFee(db ethdb.Database, batchIndex uint64) *big.Int {
-	data, err := db.Get(RollupBatchL1DataFeeKey(batchIndex))
-	if err != nil && isNotFoundErr(err) {
-		return nil
-	}
-	if err != nil {
-		log.Crit("failed to read batch from database", "err", err)
-	}
-	return new(big.Int).SetBytes(data)
-}
-
-func ReadLatestBatchIndexHasFee(db ethdb.Reader) *uint64 {
-	data, err := db.Get(rollupBatchHeadBatchHasFeeKey)
-	if err != nil && isNotFoundErr(err) {
-		return nil
-	}
-	if err != nil {
-		log.Crit("failed to read batchIndex from database", "err", err)
-	}
-	index := binary.BigEndian.Uint64(data)
-	return &index
 }

@@ -356,6 +356,68 @@ func TestPendingTxFilterFullTx(t *testing.T) {
 	}
 }
 
+func TestPollingFilterErrCleanup(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tests := []struct {
+		name   string
+		create func(t *testing.T) rpc.ID
+	}{
+		{
+			name: "pending transactions",
+			create: func(t *testing.T) rpc.ID {
+				return api.NewPendingTransactionFilter(nil)
+			},
+		},
+		{
+			name: "blocks",
+			create: func(t *testing.T) rpc.ID {
+				return api.NewBlockFilter()
+			},
+		},
+		{
+			name: "logs",
+			create: func(t *testing.T) rpc.ID {
+				id, err := api.NewFilter(FilterCriteria{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return id
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id := tt.create(t)
+
+			api.filtersMu.Lock()
+			f := api.filters[id]
+			api.filtersMu.Unlock()
+			if f == nil {
+				t.Fatalf("filter %s was not installed", id)
+			}
+
+			f.s.Unsubscribe()
+			deadline := time.Now().Add(time.Second)
+			for {
+				api.filtersMu.Lock()
+				_, exists := api.filters[id]
+				api.filtersMu.Unlock()
+				if !exists {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("filter %s was not cleaned up", id)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}
+
 // TestLogFilterCreation test whether a given filter criteria makes sense.
 // If not it must return an error.
 func TestLogFilterCreation(t *testing.T) {

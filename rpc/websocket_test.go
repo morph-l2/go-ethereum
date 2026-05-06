@@ -117,6 +117,51 @@ func TestWebsocketLargeCall(t *testing.T) {
 	}
 }
 
+// This test checks whether the websocket message size limit option is obeyed.
+func TestWebsocketLargeRead(t *testing.T) {
+	t.Parallel()
+
+	var (
+		srv     = newTestServer()
+		httpsrv = httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+		wsURL   = "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+		buffer  = 64
+	)
+	defer srv.Stop()
+	defer httpsrv.Close()
+
+	for _, tt := range []struct {
+		size  int
+		limit int
+		err   bool
+	}{
+		{200, 200, false},
+		{2048, 1024, true},
+		{wsDefaultReadLimit + buffer, 0, false},
+	} {
+		t.Run("", func(t *testing.T) {
+			limit := tt.limit
+			if limit != 0 {
+				limit += buffer
+			}
+			client, err := DialOptions(context.Background(), wsURL, WithWebsocketMessageSizeLimit(int64(limit)))
+			if err != nil {
+				t.Fatalf("failed to dial test server: %v", err)
+			}
+			defer client.Close()
+
+			var res string
+			err = client.Call(&res, "test_repeat", "A", tt.size)
+			if tt.err && err == nil {
+				t.Fatalf("expected error, got none")
+			}
+			if !tt.err && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestWebsocketPeerInfo(t *testing.T) {
 	var (
 		s     = newTestServer()
@@ -210,7 +255,7 @@ func TestClientWebsocketLargeMessage(t *testing.T) {
 	defer srv.Stop()
 	defer httpsrv.Close()
 
-	respLength := wsMessageSizeLimit - 50
+	respLength := wsDefaultReadLimit - 50
 	srv.RegisterName("test", largeRespService{respLength})
 
 	c, err := DialWebsocket(context.Background(), wsURL, "")

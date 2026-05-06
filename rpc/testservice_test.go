@@ -90,6 +90,10 @@ func (s *testService) EchoWithCtx(ctx context.Context, str string, i int, args *
 	return echoResult{str, i, args}
 }
 
+func (s *testService) Repeat(str string, count int) string {
+	return strings.Repeat(str, count)
+}
+
 func (s *testService) PeerInfo(ctx context.Context) PeerInfo {
 	return PeerInfoFromContext(ctx)
 }

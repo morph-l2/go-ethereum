@@ -19,9 +19,11 @@ package rpc
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"io/ioutil"
 	"net"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -109,6 +111,57 @@ func runTestScript(t *testing.T, file string) {
 		default:
 			panic("invalid line in test script: " + line)
 		}
+	}
+}
+
+func TestServerWebsocketReadLimit(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		readLimit  int64
+		testSize   int
+		shouldFail bool
+	}{
+		{
+			name:       "limit with small request",
+			readLimit:  4096,
+			testSize:   256,
+			shouldFail: false,
+		},
+		{
+			name:       "limit with large request",
+			readLimit:  256,
+			testSize:   1024,
+			shouldFail: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newTestServer()
+			srv.SetWebsocketReadLimit(tc.readLimit)
+			defer srv.Stop()
+
+			httpsrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+			defer httpsrv.Close()
+
+			wsURL := "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+			client, err := DialOptions(context.Background(), wsURL)
+			if err != nil {
+				t.Fatalf("can't dial: %v", err)
+			}
+			defer client.Close()
+
+			var result echoResult
+			err = client.Call(&result, "test_echo", strings.Repeat("A", tc.testSize), 42, &echoArgs{S: "test"})
+			if tc.shouldFail && err == nil {
+				t.Fatalf("expected error for request size %d with limit %d", tc.testSize, tc.readLimit)
+			}
+			if !tc.shouldFail && err != nil {
+				t.Fatalf("unexpected error for request size %d with limit %d: %v", tc.testSize, tc.readLimit, err)
+			}
+		})
 	}
 }
 

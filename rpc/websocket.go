@@ -40,7 +40,7 @@ const (
 	wsPingInterval     = 60 * time.Second
 	wsPingWriteTimeout = 5 * time.Second
 	wsPongTimeout      = 30 * time.Second
-	wsMessageSizeLimit = 10 * 15 * 1024 * 1024
+	wsDefaultReadLimit = 32 * 1024 * 1024
 )
 
 var wsBufferPool = new(sync.Pool)
@@ -67,7 +67,7 @@ func (s *Server) WebsocketHandler(allowedOrigins []string) http.Handler {
 		if enableCompression {
 			_ = conn.SetCompressionLevel(s.compressionLevel)
 		}
-		codec := newWebsocketCodec(conn, r.Host, r.Header)
+		codec := newWebsocketCodec(conn, r.Host, r.Header, s.wsReadLimit)
 		s.ServeCodec(codec, 0)
 	})
 }
@@ -253,7 +253,11 @@ func newClientTransportWS(endpoint string, cfg *clientConfig) (reconnectFunc, er
 			}
 			return nil, hErr
 		}
-		return newWebsocketCodec(conn, dialURL, header), nil
+		messageSizeLimit := int64(wsDefaultReadLimit)
+		if cfg.wsMessageSizeLimit != nil && *cfg.wsMessageSizeLimit >= 0 {
+			messageSizeLimit = *cfg.wsMessageSizeLimit
+		}
+		return newWebsocketCodec(conn, dialURL, header, messageSizeLimit), nil
 	}
 	return connect, nil
 }
@@ -284,8 +288,8 @@ type websocketCodec struct {
 	pingReset chan struct{}
 }
 
-func newWebsocketCodec(conn *websocket.Conn, host string, req http.Header) ServerCodec {
-	conn.SetReadLimit(wsMessageSizeLimit)
+func newWebsocketCodec(conn *websocket.Conn, host string, req http.Header, readLimit int64) ServerCodec {
+	conn.SetReadLimit(readLimit)
 	conn.SetPongHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Time{})
 		return nil

@@ -18,6 +18,7 @@ package filters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -442,6 +443,97 @@ func TestInvalidGetLogsRequest(t *testing.T) {
 		if _, err := api.GetLogs(context.Background(), test); err == nil {
 			t.Errorf("Expected Logs for case #%d to fail", i)
 		}
+	}
+}
+
+func TestExceedLogQueryLimit(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: 1})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	addr1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	addr2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	topic1 := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+	topic2 := common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")
+
+	for _, tt := range []struct {
+		name string
+		crit FilterCriteria
+		want error
+	}{
+		{
+			name: "addresses",
+			crit: FilterCriteria{Addresses: []common.Address{
+				addr1,
+				addr2,
+			}},
+			want: errExceedLogQueryLimit,
+		},
+		{
+			name: "topic alternatives",
+			crit: FilterCriteria{Topics: [][]common.Hash{{
+				topic1,
+				topic2,
+			}}},
+			want: errExceedLogQueryLimit,
+		},
+		{
+			name: "topic positions",
+			crit: FilterCriteria{Topics: make([][]common.Hash, maxTopics+1)},
+			want: errExceedMaxTopics,
+		},
+	} {
+		t.Run(tt.name+"/getLogs", func(t *testing.T) {
+			if _, err := api.GetLogs(context.Background(), tt.crit); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+		t.Run(tt.name+"/newFilter", func(t *testing.T) {
+			if _, err := api.NewFilter(tt.crit); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+		t.Run(tt.name+"/subscribeLogs", func(t *testing.T) {
+			logs := make(chan []*types.Log)
+			if _, err := api.events.SubscribeLogs(ethereum.FilterQuery(tt.crit), logs); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogQueryLimitZeroDisablesWidthLimit(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: 0})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	crit := FilterCriteria{
+		Addresses: []common.Address{
+			common.HexToAddress("0x1111111111111111111111111111111111111111"),
+			common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		},
+		Topics: [][]common.Hash{{
+			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+			common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+		}},
+	}
+
+	id, err := api.NewFilter(crit)
+	if err != nil {
+		t.Fatalf("NewFilter rejected unlimited-width criteria: %v", err)
+	}
+	api.UninstallFilter(id)
+
+	logs := make(chan []*types.Log)
+	sub, err := api.events.SubscribeLogs(ethereum.FilterQuery(crit), logs)
+	if err != nil {
+		t.Fatalf("SubscribeLogs rejected unlimited-width criteria: %v", err)
+	}
+	sub.Unsubscribe()
+
+	tooManyPositions := FilterCriteria{Topics: make([][]common.Hash, maxTopics+1)}
+	if _, err := api.NewFilter(tooManyPositions); !errors.Is(err, errExceedMaxTopics) {
+		t.Fatalf("topic position limit mismatch: got %v, want %v", err, errExceedMaxTopics)
 	}
 }
 

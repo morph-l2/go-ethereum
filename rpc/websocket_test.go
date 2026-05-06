@@ -129,6 +129,9 @@ func TestWebsocketLargeRead(t *testing.T) {
 	)
 	defer srv.Stop()
 	defer httpsrv.Close()
+	if err := srv.RegisterName("repeat", new(repeatService)); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tt := range []struct {
 		size  int
@@ -151,7 +154,7 @@ func TestWebsocketLargeRead(t *testing.T) {
 			defer client.Close()
 
 			var res string
-			err = client.Call(&res, "test_repeat", "A", tt.size)
+			err = client.Call(&res, "repeat_repeat", "A", tt.size)
 			if tt.err && err == nil {
 				t.Fatalf("expected error, got none")
 			}
@@ -160,6 +163,12 @@ func TestWebsocketLargeRead(t *testing.T) {
 			}
 		})
 	}
+}
+
+type repeatService struct{}
+
+func (repeatService) Repeat(str string, count int) string {
+	return strings.Repeat(str, count)
 }
 
 func TestWebsocketPeerInfo(t *testing.T) {

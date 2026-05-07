@@ -1017,10 +1017,7 @@ func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHas
 
 	result := make([]map[string]interface{}, len(receipts))
 	for i, receipt := range receipts {
-		blockNumber := block.NumberU64()
-		bigblock := new(big.Int).SetUint64(blockNumber)
-		signer := types.MakeSigner(s.b.ChainConfig(), bigblock, block.Time())
-		res, err := marshalReceipt(ctx, s.b, receipt, bigblock, block.Hash(), blockNumber, signer, txs[i], i)
+		res, err := marshalReceiptForTx(ctx, s.b, block, receipt, txs[i], i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal receipt %d: %w", i, err)
 		}
@@ -1974,11 +1971,23 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 		return nil, err
 	}
 	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, header.Time)
-	return marshalReceipt(ctx, s.b, receipt, bigblock, blockHash, blockNumber, signer, tx, int(index))
+	return marshalReceiptWithHeader(ctx, s.b, receipt, bigblock, blockHash, blockNumber, header, signer, tx, int(index))
+}
+
+func marshalReceiptForTx(ctx context.Context, b Backend, block *types.Block, receipt *types.Receipt, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	blockNumber := block.NumberU64()
+	bigblock := new(big.Int).SetUint64(blockNumber)
+	header := block.Header()
+	signer := types.MakeSigner(b.ChainConfig(), bigblock, header.Time)
+	return marshalReceiptWithHeader(ctx, b, receipt, bigblock, block.Hash(), blockNumber, header, signer, tx, txIndex)
 }
 
 // marshalReceipt marshals a transaction receipt into a JSON object.
 func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	return marshalReceiptWithHeader(ctx, b, receipt, bigblock, blockHash, blockNumber, nil, signer, tx, txIndex)
+}
+
+func marshalReceiptWithHeader(ctx context.Context, b Backend, receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, header *types.Header, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
 	from, _ := types.Sender(signer, tx)
 
 	fields := map[string]interface{}{
@@ -2008,9 +2017,12 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 	if !b.ChainConfig().IsCurie(bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
 	} else {
-		header, err := b.HeaderByHash(ctx, blockHash)
-		if err != nil {
-			return nil, err
+		if header == nil {
+			var err error
+			header, err = b.HeaderByHash(ctx, blockHash)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		baseFee := header.BaseFee

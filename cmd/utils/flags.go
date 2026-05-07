@@ -560,6 +560,20 @@ var (
 		Usage: "Sets a cap on transaction fee (in ether) that can be sent via the RPC APIs (0 = no cap)",
 		Value: ethconfig.Defaults.RPCTxFeeCap,
 	}
+	RPCTxSyncDefaultTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.txsync.defaulttimeout",
+		Usage: "Default timeout for eth_sendRawTransactionSync",
+		Value: ethconfig.Defaults.TxSyncDefaultTimeout,
+	}
+	RPCTxSyncMaxTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.txsync.maxtimeout",
+		Usage: "Maximum timeout for eth_sendRawTransactionSync",
+		Value: ethconfig.Defaults.TxSyncMaxTimeout,
+	}
+	RPCTxSyncEnabledFlag = cli.BoolTFlag{
+		Name:  "rpc.txsync.enabled",
+		Usage: "Enable eth_sendRawTransactionSync receipt waiting",
+	}
 	// Logging and debug settings
 	EthStatsURLFlag = cli.StringFlag{
 		Name:  "ethstats",
@@ -1737,6 +1751,15 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	}
 	if ctx.GlobalIsSet(RPCGlobalTxFeeCapFlag.Name) {
 		cfg.RPCTxFeeCap = ctx.GlobalFloat64(RPCGlobalTxFeeCapFlag.Name)
+	}
+	if ctx.GlobalIsSet(RPCTxSyncDefaultTimeoutFlag.Name) {
+		cfg.TxSyncDefaultTimeout = ctx.GlobalDuration(RPCTxSyncDefaultTimeoutFlag.Name)
+	}
+	if ctx.GlobalIsSet(RPCTxSyncMaxTimeoutFlag.Name) {
+		cfg.TxSyncMaxTimeout = ctx.GlobalDuration(RPCTxSyncMaxTimeoutFlag.Name)
+	}
+	if ctx.GlobalIsSet(RPCTxSyncEnabledFlag.Name) {
+		cfg.TxSyncEnabled = ctx.GlobalBool(RPCTxSyncEnabledFlag.Name)
 	}
 	if ctx.GlobalIsSet(NoDiscoverFlag.Name) {
 		cfg.EthDiscoveryURLs, cfg.SnapDiscoveryURLs = []string{}, []string{}

@@ -1357,7 +1357,14 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 
 	bc.writeHeadBlock(block)
 	bc.futureBlocks.Remove(block.Hash())
-	bc.chainFeed.Send(ChainEvent{Block: block, Hash: block.Hash(), Logs: logs})
+	bc.chainFeed.Send(ChainEvent{
+		Block:        block,
+		Hash:         block.Hash(),
+		Logs:         logs,
+		Header:       block.Header(),
+		Receipts:     receipts,
+		Transactions: block.Transactions(),
+	})
 	if len(logs) > 0 {
 		bc.logsFeed.Send(logs)
 	}

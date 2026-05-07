@@ -12,12 +12,14 @@ import (
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 // mockMorphBackend is a minimal Backend mock that only implements ChainDb().
@@ -757,5 +759,83 @@ func TestSendRawTransactionSyncTimeout(t *testing.T) {
 	}
 	if got, want := dataErr.ErrorData(), tx.Hash().Hex(); got != want {
 		t.Fatalf("unexpected timeout data: got %v want %v", got, want)
+	}
+}
+
+type blockReceiptsTestBackend struct {
+	Backend
+	pendingBlock    *types.Block
+	pendingReceipts types.Receipts
+}
+
+func (b *blockReceiptsTestBackend) ChainConfig() *params.ChainConfig {
+	return &params.ChainConfig{ChainID: big.NewInt(1)}
+}
+
+func (b *blockReceiptsTestBackend) Pending() (*types.Block, types.Receipts, *state.StateDB) {
+	return b.pendingBlock, b.pendingReceipts, nil
+}
+
+func (b *blockReceiptsTestBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Block, error) {
+	return nil, nil
+}
+
+func (b *blockReceiptsTestBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
+	return nil, nil
+}
+
+func makeReceiptBlock(t *testing.T) (*types.Block, types.Receipts, *types.Transaction) {
+	t.Helper()
+	_, tx := makeTxSyncRaw(t)
+	receipt := &types.Receipt{
+		Status:            types.ReceiptStatusSuccessful,
+		TxHash:            tx.Hash(),
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}
+	receipts := types.Receipts{receipt}
+	block := types.NewBlock(&types.Header{Number: big.NewInt(7), Time: 1}, []*types.Transaction{tx}, nil, receipts, trie.NewStackTrie(nil))
+	return block, receipts, tx
+}
+
+func TestPendingBlockReceipts(t *testing.T) {
+	block, receipts, tx := makeReceiptBlock(t)
+	api := &PublicBlockChainAPI{b: &blockReceiptsTestBackend{pendingBlock: block, pendingReceipts: receipts}}
+
+	result, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	if err != nil {
+		t.Fatalf("GetBlockReceipts pending failed: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(result))
+	}
+	if got := result[0]["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+}
+
+func TestPendingBlockReceiptsUnavailable(t *testing.T) {
+	api := &PublicBlockChainAPI{b: &blockReceiptsTestBackend{}}
+	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	if err == nil || err.Error() != "pending receipts is not available" {
+		t.Fatalf("unexpected pending unavailable error: %v", err)
+	}
+
+	block, _, _ := makeReceiptBlock(t)
+	api = &PublicBlockChainAPI{b: &blockReceiptsTestBackend{pendingBlock: block}}
+	_, err = api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	if err == nil || err.Error() != "pending receipts is not available" {
+		t.Fatalf("unexpected pending receipts unavailable error: %v", err)
+	}
+}
+
+func TestNonPendingBlockReceiptsNotFoundReturnsNull(t *testing.T) {
+	api := &PublicBlockChainAPI{b: &blockReceiptsTestBackend{}}
+	result, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(123)))
+	if err != nil {
+		t.Fatalf("unexpected non-pending error: %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result for missing non-pending block, got %#v", result)
 	}
 }

@@ -1000,6 +1000,13 @@ func (s *PublicBlockChainAPI) GetStorageAt(ctx context.Context, address common.A
 
 // GetBlockReceipts returns the block receipts for the given block hash or number or tag.
 func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) ([]map[string]interface{}, error) {
+	if number, ok := blockNrOrHash.Number(); ok && number == rpc.PendingBlockNumber {
+		block, receipts, _ := s.b.Pending()
+		if block == nil || receipts == nil {
+			return nil, errors.New("pending receipts is not available")
+		}
+		return s.marshalBlockReceipts(ctx, block, receipts)
+	}
 	block, err := s.b.BlockByNumberOrHash(ctx, blockNrOrHash)
 	if block == nil || err != nil {
 		// When the block doesn't exist, the RPC method should return JSON null
@@ -1010,6 +1017,10 @@ func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHas
 	if err != nil {
 		return nil, err
 	}
+	return s.marshalBlockReceipts(ctx, block, receipts)
+}
+
+func (s *PublicBlockChainAPI) marshalBlockReceipts(ctx context.Context, block *types.Block, receipts types.Receipts) ([]map[string]interface{}, error) {
 	txs := block.Transactions()
 	if len(txs) != len(receipts) {
 		return nil, fmt.Errorf("receipts length mismatch: %d vs %d", len(txs), len(receipts))

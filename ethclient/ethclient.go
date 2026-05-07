@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/morph-l2/go-ethereum"
 	"github.com/morph-l2/go-ethereum/common"
@@ -722,6 +723,31 @@ func (ec *Client) SendTransaction(ctx context.Context, tx *types.Transaction) er
 		return err
 	}
 	return ec.c.CallContext(ctx, nil, "eth_sendRawTransaction", hexutil.Encode(data))
+}
+
+// SendTransactionSync submits a signed transaction and waits for a receipt. If
+// timeout is nil or zero, the server uses its configured default timeout.
+func (ec *Client) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, error) {
+	data, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return ec.SendRawTransactionSync(ctx, data, timeout)
+}
+
+// SendRawTransactionSync submits raw transaction bytes and waits for a receipt.
+func (ec *Client) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, error) {
+	var timeoutMs *hexutil.Uint64
+	if timeout != nil {
+		if ms := hexutil.Uint64(timeout.Milliseconds()); ms > 0 {
+			timeoutMs = &ms
+		}
+	}
+	var receipt types.Receipt
+	if err := ec.c.CallContext(ctx, &receipt, "eth_sendRawTransactionSync", hexutil.Bytes(rawTx), timeoutMs); err != nil {
+		return nil, err
+	}
+	return &receipt, nil
 }
 
 func toBlockNumArg(number *big.Int) string {

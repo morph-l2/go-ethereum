@@ -56,6 +56,8 @@ import (
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
+var errSubClosed = errors.New("chain subscription closed")
+
 // PublicEthereumAPI provides an API to access Ethereum related information.
 // It offers only methods that operate on public data that is freely available to anyone.
 type PublicEthereumAPI struct {
@@ -1198,6 +1200,11 @@ type revertError struct {
 	reason string // revert reason hex encoded
 }
 
+type txSyncTimeoutError struct {
+	msg  string
+	hash common.Hash
+}
+
 // ErrorCode returns the JSON error code for a revertal.
 // See: https://github.com/ethereum/wiki/wiki/JSON-RPC-Error-Codes-Improvement-Proposal
 func (e *revertError) ErrorCode() int {
@@ -1208,6 +1215,10 @@ func (e *revertError) ErrorCode() int {
 func (e *revertError) ErrorData() interface{} {
 	return e.reason
 }
+
+func (e *txSyncTimeoutError) Error() string          { return e.msg }
+func (e *txSyncTimeoutError) ErrorCode() int         { return 4 }
+func (e *txSyncTimeoutError) ErrorData() interface{} { return e.hash.Hex() }
 
 // Call executes the given transaction on the state for the given block number.
 //
@@ -2149,6 +2160,105 @@ func (s *PublicTransactionPoolAPI) SendRawTransaction(ctx context.Context, input
 		return common.Hash{}, err
 	}
 	return SubmitTransaction(ctx, s.b, tx)
+}
+
+// SendRawTransactionSync adds the signed transaction to the transaction pool and
+// waits until it has a receipt or the configured server-side timeout expires.
+func (s *PublicTransactionPoolAPI) SendRawTransactionSync(ctx context.Context, input hexutil.Bytes, timeoutMs *hexutil.Uint64) (map[string]interface{}, error) {
+	if !s.b.RPCTxSyncEnabled() {
+		return nil, errors.New("eth_sendRawTransactionSync is disabled")
+	}
+	tx := new(types.Transaction)
+	if err := tx.UnmarshalBinary(input); err != nil {
+		return nil, err
+	}
+
+	ch := make(chan core.ChainEvent, 128)
+	sub := s.b.SubscribeChainEvent(ch)
+	if sub == nil {
+		return nil, errSubClosed
+	}
+	defer sub.Unsubscribe()
+
+	hash, err := SubmitTransaction(ctx, s.b, tx)
+	if err != nil {
+		return nil, err
+	}
+
+	timeout := s.b.RPCTxSyncDefaultTimeout()
+	if timeoutMs != nil && *timeoutMs > 0 {
+		requested := time.Duration(*timeoutMs) * time.Millisecond
+		if max := s.b.RPCTxSyncMaxTimeout(); max > 0 && requested > max {
+			timeout = max
+		} else {
+			timeout = requested
+		}
+	}
+	receiptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if receipt, err := s.GetTransactionReceipt(receiptCtx, hash); err == nil && receipt != nil {
+		return receipt, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	for {
+		select {
+		case <-receiptCtx.Done():
+			if errors.Is(receiptCtx.Err(), context.DeadlineExceeded) {
+				return nil, &txSyncTimeoutError{
+					msg:  fmt.Sprintf("The transaction was added to the transaction pool but wasn't processed in %v", timeout),
+					hash: hash,
+				}
+			}
+			return nil, receiptCtx.Err()
+		case err, ok := <-sub.Err():
+			if !ok {
+				return nil, errSubClosed
+			}
+			return nil, err
+		case ev, ok := <-ch:
+			if !ok {
+				return nil, errSubClosed
+			}
+			receipt, err := s.receiptFromChainEvent(receiptCtx, ev, hash)
+			if err != nil {
+				return nil, err
+			}
+			if receipt != nil {
+				return receipt, nil
+			}
+		}
+	}
+}
+
+func (s *PublicTransactionPoolAPI) receiptFromChainEvent(ctx context.Context, ev core.ChainEvent, hash common.Hash) (map[string]interface{}, error) {
+	rs, txs := ev.Receipts, ev.Transactions
+	if len(rs) == 0 || len(rs) != len(txs) {
+		return s.GetTransactionReceipt(ctx, hash)
+	}
+	header := ev.Header
+	if header == nil && ev.Block != nil {
+		header = ev.Block.Header()
+	}
+	if header == nil {
+		return s.GetTransactionReceipt(ctx, hash)
+	}
+	blockHash := ev.Hash
+	if blockHash == (common.Hash{}) {
+		blockHash = header.Hash()
+	}
+	blockNumber := header.Number.Uint64()
+	bigblock := new(big.Int).SetUint64(blockNumber)
+	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, header.Time)
+	for i, receipt := range rs {
+		if receipt.TxHash != hash && txs[i].Hash() != hash {
+			continue
+		}
+		return marshalReceiptWithHeader(ctx, s.b, receipt, bigblock, blockHash, blockNumber, header, signer, txs[i], i)
+	}
+	return nil, nil
 }
 
 // Sign calculates an ECDSA signature for:

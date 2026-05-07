@@ -3,15 +3,19 @@ package ethapi
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/event"
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
@@ -155,7 +159,7 @@ type mockSetDefaultsBackend struct {
 	header      *types.Header
 }
 
-func (m *mockSetDefaultsBackend) CurrentHeader() *types.Header    { return m.header }
+func (m *mockSetDefaultsBackend) CurrentHeader() *types.Header     { return m.header }
 func (m *mockSetDefaultsBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
 
 func uint16VersionPtr(v uint8) *hexutil.Uint16 {
@@ -303,9 +307,9 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: no MorphTx fields → not MorphTx (version nil)",
-			headTime: 1000,
-			modify:   func(args *TransactionArgs) {},
+			name:        "jade fork: no MorphTx fields → not MorphTx (version nil)",
+			headTime:    1000,
+			modify:      func(args *TransactionArgs) {},
 			wantVersion: nil,
 		},
 
@@ -392,16 +396,16 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
-			headTime:    1000,
+			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
+			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				args.Version = uint16VersionPtr(types.MorphTxVersion1)
 			},
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
-			headTime:    1000,
+			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
+			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(0)
 				args.FeeTokenID = &fid
@@ -625,5 +629,133 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type txSyncTestBackend struct {
+	Backend
+	feed           event.Feed
+	chainConfig    *params.ChainConfig
+	syncEnabled    bool
+	defaultTimeout time.Duration
+	maxTimeout     time.Duration
+	sendEvent      bool
+}
+
+func newTxSyncTestBackend(sendEvent bool) *txSyncTestBackend {
+	return &txSyncTestBackend{
+		chainConfig:    &params.ChainConfig{ChainID: big.NewInt(1), EIP155Block: big.NewInt(0)},
+		syncEnabled:    true,
+		defaultTimeout: time.Second,
+		maxTimeout:     time.Second,
+		sendEvent:      sendEvent,
+	}
+}
+
+func (b *txSyncTestBackend) ChainConfig() *params.ChainConfig { return b.chainConfig }
+func (b *txSyncTestBackend) RPCTxFeeCap() float64             { return 0 }
+func (b *txSyncTestBackend) UnprotectedAllowed() bool         { return true }
+func (b *txSyncTestBackend) RPCTxSyncDefaultTimeout() time.Duration {
+	return b.defaultTimeout
+}
+func (b *txSyncTestBackend) RPCTxSyncMaxTimeout() time.Duration { return b.maxTimeout }
+func (b *txSyncTestBackend) RPCTxSyncEnabled() bool             { return b.syncEnabled }
+func (b *txSyncTestBackend) CurrentBlock() *types.Block {
+	return types.NewBlockWithHeader(&types.Header{Number: big.NewInt(1), Time: 1})
+}
+func (b *txSyncTestBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription {
+	return b.feed.Subscribe(ch)
+}
+func (b *txSyncTestBackend) SendTx(ctx context.Context, tx *types.Transaction) error {
+	if b.sendEvent {
+		header := &types.Header{Number: big.NewInt(1), Time: 1}
+		receipt := &types.Receipt{
+			Status:            types.ReceiptStatusSuccessful,
+			TxHash:            tx.Hash(),
+			TransactionIndex:  0,
+			GasUsed:           21000,
+			CumulativeGasUsed: 21000,
+		}
+		b.feed.Send(core.ChainEvent{
+			Hash:         header.Hash(),
+			Header:       header,
+			Receipts:     types.Receipts{receipt},
+			Transactions: types.Transactions{tx},
+		})
+	}
+	return nil
+}
+func (b *txSyncTestBackend) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
+	return nil, common.Hash{}, 0, 0, errors.New("not found")
+}
+
+func makeTxSyncRaw(t *testing.T) (hexutil.Bytes, *types.Transaction) {
+	t.Helper()
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	to := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	tx := signTx(t, key, types.NewEIP155Signer(big.NewInt(1)), &types.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(1),
+		Gas:      21000,
+		To:       &to,
+		Value:    big.NewInt(1),
+	})
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal tx: %v", err)
+	}
+	return raw, tx
+}
+
+func TestSendRawTransactionSyncDisabled(t *testing.T) {
+	raw, _ := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.syncEnabled = false
+	api := NewPublicTransactionPoolAPI(backend, nil)
+	if _, err := api.SendRawTransactionSync(context.Background(), raw, nil); err == nil || err.Error() != "eth_sendRawTransactionSync is disabled" {
+		t.Fatalf("unexpected disabled error: %v", err)
+	}
+}
+
+func TestSendRawTransactionSyncEventSuccess(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	api := NewPublicTransactionPoolAPI(newTxSyncTestBackend(true), nil)
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err != nil {
+		t.Fatalf("SendRawTransactionSync failed: %v", err)
+	}
+	if got := receipt["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+	if _, ok := receipt["memo"]; !ok {
+		t.Fatalf("expected Morph receipt field memo to be present")
+	}
+}
+
+func TestSendRawTransactionSyncTimeout(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.defaultTimeout = 5 * time.Millisecond
+	backend.maxTimeout = 5 * time.Millisecond
+	api := NewPublicTransactionPoolAPI(backend, nil)
+	_, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	var dataErr interface {
+		ErrorCode() int
+		ErrorData() interface{}
+	}
+	if !errors.As(err, &dataErr) {
+		t.Fatalf("expected structured timeout error, got %T %v", err, err)
+	}
+	if dataErr.ErrorCode() != 4 {
+		t.Fatalf("unexpected timeout error code: %d", dataErr.ErrorCode())
+	}
+	if got, want := dataErr.ErrorData(), tx.Hash().Hex(); got != want {
+		t.Fatalf("unexpected timeout data: got %v want %v", got, want)
 	}
 }

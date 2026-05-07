@@ -133,6 +133,8 @@ const (
 	PendingTransactionsSubscription
 	// BlocksSubscription queries hashes for blocks that are imported
 	BlocksSubscription
+	// TransactionReceiptsSubscription queries receipts when transactions are included in blocks
+	TransactionReceiptsSubscription
 	// LastSubscription keeps track of the last index
 	LastIndexSubscription
 )
@@ -157,6 +159,8 @@ type subscription struct {
 	logs      chan []*types.Log
 	txs       chan []*types.Transaction
 	headers   chan *types.Header
+	receipts  chan []*ReceiptWithTx
+	txHashes  map[common.Hash]bool
 	installed chan struct{} // closed when the filter is installed
 	err       chan error    // closed when the filter is uninstalled
 }
@@ -246,6 +250,7 @@ func (sub *Subscription) Unsubscribe() {
 			case <-sub.f.logs:
 			case <-sub.f.txs:
 			case <-sub.f.headers:
+			case <-sub.f.receipts:
 			}
 		}
 
@@ -313,6 +318,7 @@ func (es *EventSystem) subscribeMinedPendingLogs(crit ethereum.FilterQuery, logs
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -330,6 +336,7 @@ func (es *EventSystem) subscribeLogs(crit ethereum.FilterQuery, logs chan []*typ
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -347,6 +354,7 @@ func (es *EventSystem) subscribePendingLogs(crit ethereum.FilterQuery, logs chan
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -363,6 +371,7 @@ func (es *EventSystem) SubscribeNewHeads(headers chan *types.Header) *Subscripti
 		logs:      make(chan []*types.Log),
 		txs:       make(chan []*types.Transaction),
 		headers:   headers,
+		receipts:  make(chan []*ReceiptWithTx),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -379,6 +388,29 @@ func (es *EventSystem) SubscribePendingTxs(txs chan []*types.Transaction) *Subsc
 		logs:      make(chan []*types.Log),
 		txs:       txs,
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx),
+		installed: make(chan struct{}),
+		err:       make(chan error),
+	}
+	return es.subscribe(sub)
+}
+
+// SubscribeTransactionReceipts creates a subscription that writes receipts for
+// transactions included in newly imported blocks.
+func (es *EventSystem) SubscribeTransactionReceipts(txHashes []common.Hash, receipts chan []*ReceiptWithTx) *Subscription {
+	hashSet := make(map[common.Hash]bool, len(txHashes))
+	for _, hash := range txHashes {
+		hashSet[hash] = true
+	}
+	sub := &subscription{
+		id:        rpc.NewID(),
+		typ:       TransactionReceiptsSubscription,
+		created:   time.Now(),
+		logs:      make(chan []*types.Log),
+		txs:       make(chan []*types.Transaction),
+		headers:   make(chan *types.Header),
+		receipts:  receipts,
+		txHashes:  hashSet,
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -436,6 +468,12 @@ func (es *EventSystem) handleChainEvent(filters filterIndex, ev core.ChainEvent)
 	}
 	for _, f := range filters[BlocksSubscription] {
 		f.headers <- header
+	}
+	for _, f := range filters[TransactionReceiptsSubscription] {
+		matchedReceipts := filterReceipts(f.txHashes, ev)
+		if len(matchedReceipts) > 0 {
+			f.receipts <- matchedReceipts
+		}
 	}
 	if es.lightMode && len(filters[LogsSubscription]) > 0 {
 		es.lightFilterNewHead(header, func(header *types.Header, remove bool) {

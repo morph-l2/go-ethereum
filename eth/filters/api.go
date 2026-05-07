@@ -34,6 +34,10 @@ import (
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
+const maxTxHashes = 200
+
+var errExceedMaxTxHashes = errors.New("exceed maximum transaction hash count")
+
 // filter is a helper struct that holds meta information over the filter type
 // and associated subscription in the event system.
 type filter struct {
@@ -281,6 +285,82 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 				return
 			case <-notifier.Closed(): // connection dropped
 				logsSub.Unsubscribe()
+				return
+			}
+		}
+	}()
+
+	return rpcSub, nil
+}
+
+// TransactionReceiptsQuery defines criteria for transaction receipts subscription.
+// Same as ethereum.TransactionReceiptsQuery but with UnmarshalJSON.
+type TransactionReceiptsQuery ethereum.TransactionReceiptsQuery
+
+// UnmarshalJSON sets receipt query fields with the given data.
+func (args *TransactionReceiptsQuery) UnmarshalJSON(data []byte) error {
+	type input struct {
+		TransactionHashes []common.Hash `json:"transactionHashes"`
+	}
+	var raw input
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	args.TransactionHashes = raw.TransactionHashes
+	return nil
+}
+
+// TransactionReceipts creates a subscription that sends receipt batches when
+// transactions are included in blocks.
+func (api *FilterAPI) TransactionReceipts(ctx context.Context, filter *TransactionReceiptsQuery) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+	if filter != nil && len(filter.TransactionHashes) > maxTxHashes {
+		return nil, errExceedMaxTxHashes
+	}
+
+	var txHashes []common.Hash
+	if filter != nil {
+		txHashes = filter.TransactionHashes
+	}
+	rpcSub := notifier.CreateSubscription()
+	matchedReceipts := make(chan []*ReceiptWithTx)
+	receiptsSub := api.events.SubscribeTransactionReceipts(txHashes, matchedReceipts)
+
+	go func() {
+		defer receiptsSub.Unsubscribe()
+		chainConfig := api.sys.backend.ChainConfig()
+		for {
+			select {
+			case receiptsWithTxs := <-matchedReceipts:
+				marshaledReceipts := make([]map[string]interface{}, 0, len(receiptsWithTxs))
+				for _, receiptWithTx := range receiptsWithTxs {
+					blockNumber := receiptWithTx.Header.Number.Uint64()
+					bigblock := new(big.Int).SetUint64(blockNumber)
+					signer := types.MakeSigner(chainConfig, bigblock, receiptWithTx.Header.Time)
+					marshaled, err := ethapi.MarshalReceipt(
+						receiptWithTx.Receipt,
+						bigblock,
+						receiptWithTx.BlockHash,
+						blockNumber,
+						receiptWithTx.Header,
+						chainConfig,
+						signer,
+						receiptWithTx.Transaction,
+						receiptWithTx.TxIndex,
+					)
+					if err == nil {
+						marshaledReceipts = append(marshaledReceipts, marshaled)
+					}
+				}
+				if len(marshaledReceipts) > 0 {
+					notifier.Notify(rpcSub.ID, marshaledReceipts)
+				}
+			case <-rpcSub.Err():
+				return
+			case <-notifier.Closed():
 				return
 			}
 		}

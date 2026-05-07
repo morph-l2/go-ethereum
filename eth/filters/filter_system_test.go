@@ -242,6 +242,65 @@ func TestBlockSubscription(t *testing.T) {
 	<-sub1.Err()
 }
 
+func TestTransactionReceiptsSubscription(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tx1 := types.NewTransaction(0, common.HexToAddress("0x1000000000000000000000000000000000000001"), big.NewInt(1), 21000, big.NewInt(1), nil)
+	tx2 := types.NewTransaction(1, common.HexToAddress("0x2000000000000000000000000000000000000002"), big.NewInt(2), 21000, big.NewInt(1), nil)
+	header := &types.Header{Number: big.NewInt(1), Time: 1}
+	ev := core.ChainEvent{
+		Hash:         header.Hash(),
+		Header:       header,
+		Receipts:     types.Receipts{{TxHash: tx1.Hash(), Status: types.ReceiptStatusSuccessful}, {TxHash: tx2.Hash(), Status: types.ReceiptStatusSuccessful}},
+		Transactions: types.Transactions{tx1, tx2},
+	}
+
+	allCh := make(chan []*ReceiptWithTx, 1)
+	allSub := api.events.SubscribeTransactionReceipts(nil, allCh)
+	defer allSub.Unsubscribe()
+	filteredCh := make(chan []*ReceiptWithTx, 1)
+	filteredSub := api.events.SubscribeTransactionReceipts([]common.Hash{tx2.Hash()}, filteredCh)
+	defer filteredSub.Unsubscribe()
+	unmatchedCh := make(chan []*ReceiptWithTx, 1)
+	unmatchedSub := api.events.SubscribeTransactionReceipts([]common.Hash{common.HexToHash("0xff")}, unmatchedCh)
+	defer unmatchedSub.Unsubscribe()
+
+	backend.chainFeed.Send(ev)
+	select {
+	case receipts := <-allCh:
+		if len(receipts) != 2 {
+			t.Fatalf("expected 2 receipts, got %d", len(receipts))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for all receipts")
+	}
+	select {
+	case receipts := <-filteredCh:
+		if len(receipts) != 1 || receipts[0].Transaction.Hash() != tx2.Hash() {
+			t.Fatalf("unexpected filtered receipts: %#v", receipts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for filtered receipt")
+	}
+	select {
+	case receipts := <-unmatchedCh:
+		t.Fatalf("unexpected empty/non-matching notification: %#v", receipts)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	missingMetaCh := make(chan []*ReceiptWithTx, 1)
+	missingMetaSub := api.events.SubscribeTransactionReceipts(nil, missingMetaCh)
+	defer missingMetaSub.Unsubscribe()
+	backend.chainFeed.Send(core.ChainEvent{Header: header, Transactions: types.Transactions{tx1}})
+	select {
+	case receipts := <-missingMetaCh:
+		t.Fatalf("unexpected notification for event without receipts: %#v", receipts)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 // TestPendingTxFilter tests whether pending tx filters retrieve all pending transactions that are posted to the event mux.
 func TestPendingTxFilter(t *testing.T) {
 	t.Parallel()

@@ -1999,6 +1999,19 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 }
 
 func marshalReceiptWithHeader(ctx context.Context, b Backend, receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, header *types.Header, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	if b.ChainConfig().IsCurie(bigblock) && header == nil {
+		var err error
+		header, err = b.HeaderByHash(ctx, blockHash)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return MarshalReceipt(receipt, bigblock, blockHash, blockNumber, header, b.ChainConfig(), signer, tx, txIndex)
+}
+
+// MarshalReceipt marshals a transaction receipt into the same JSON object shape
+// used by eth_getTransactionReceipt while preserving Morph-specific fields.
+func MarshalReceipt(receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, header *types.Header, chainConfig *params.ChainConfig, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
 	from, _ := types.Sender(signer, tx)
 
 	fields := map[string]interface{}{
@@ -2025,15 +2038,11 @@ func marshalReceiptWithHeader(ctx context.Context, b Backend, receipt *types.Rec
 	}
 
 	// Assign the effective gas price paid
-	if !b.ChainConfig().IsCurie(bigblock) {
+	if !chainConfig.IsCurie(bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
 	} else {
 		if header == nil {
-			var err error
-			header, err = b.HeaderByHash(ctx, blockHash)
-			if err != nil {
-				return nil, err
-			}
+			return nil, errors.New("missing header for Curie receipt")
 		}
 
 		baseFee := header.BaseFee

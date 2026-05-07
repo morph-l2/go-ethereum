@@ -92,3 +92,34 @@ func TestCustomGenesis(t *testing.T) {
 		geth.ExpectExit()
 	}
 }
+
+func TestOverrideGenesisStartup(t *testing.T) {
+	datadir := tmpdir(t)
+	defer os.RemoveAll(datadir)
+
+	genesis := `{
+		"alloc"      : {},
+		"coinbase"   : "0x0000000000000000000000000000000000000000",
+		"difficulty" : "0x0",
+		"extraData"  : "",
+		"gasLimit"   : "0x2fefd8",
+		"nonce"      : "0x0000000000001338",
+		"mixhash"    : "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"parentHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"timestamp"  : "0x00",
+		"config"     : {
+			"terminalTotalDifficulty": 0
+		}
+	}`
+	json := filepath.Join(datadir, "genesis.json")
+	if err := ioutil.WriteFile(json, []byte(genesis), 0600); err != nil {
+		t.Fatalf("failed to write genesis file: %v", err)
+	}
+
+	geth := runGeth(t, "--override.genesis", json, "--syncmode=full", "--snapshot=false", "--cache", "16",
+		"--datadir", datadir, "--maxpeers", "0", "--port", "0",
+		"--nodiscover", "--nat", "none", "--ipcdisable",
+		"--exec", "eth.getBlock(0).nonce", "console")
+	geth.ExpectRegexp("0x0000000000001338")
+	geth.ExpectExit()
+}

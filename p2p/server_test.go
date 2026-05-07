@@ -123,6 +123,35 @@ func TestServerListen(t *testing.T) {
 	}
 }
 
+func TestSetupDiscoveryV5FailureCleansV4(t *testing.T) {
+	srv := &Server{Config: Config{
+		PrivateKey:       newkey(),
+		ListenAddr:       "127.0.0.1:0",
+		DiscoveryV5:      true,
+		BootstrapNodesV5: []*enode.Node{enode.NewV4(&newkey().PublicKey, nil, 0, 0)},
+		Logger:           testlog.Logger(t, log.LvlTrace),
+	}}
+	srv.log = srv.Config.Logger
+	if err := srv.setupLocalNode(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.nodedb.Close()
+
+	if err := srv.setupDiscovery(); err == nil {
+		if srv.ntab != nil {
+			srv.ntab.Close()
+		}
+		if srv.DiscV5 != nil {
+			srv.DiscV5.Close()
+		}
+		t.Fatal("expected discovery setup to fail")
+	}
+	if srv.ntab != nil {
+		srv.ntab.Close()
+		t.Fatal("expected V4 discovery to be cleaned up after V5 setup failure")
+	}
+}
+
 func TestServerDial(t *testing.T) {
 	// run a one-shot TCP server to handle the connection.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

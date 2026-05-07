@@ -608,6 +608,10 @@ func (srv *Server) setupDiscovery() error {
 			srv.DiscV5, err = discover.ListenV5(conn, srv.localnode, cfg)
 		}
 		if err != nil {
+			if srv.ntab != nil {
+				srv.ntab.Close()
+				srv.ntab = nil
+			}
 			return err
 		}
 	}

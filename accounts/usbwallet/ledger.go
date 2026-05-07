@@ -164,12 +164,16 @@ func (w *ledgerDriver) SignTx(path accounts.DerivationPath, tx *types.Transactio
 		return common.Address{}, nil, accounts.ErrWalletClosed
 	}
 	// Ensure the wallet is capable of signing the given transaction
-	if chainID != nil && w.version[0] <= 1 && w.version[1] <= 0 && w.version[2] <= 2 {
+	if ledgerEIP155Unsupported(w.version, chainID) {
 		//lint:ignore ST1005 brand name displayed on the console
 		return common.Address{}, nil, fmt.Errorf("Ledger v%d.%d.%d doesn't support signing this transaction, please update to v1.0.3 at least", w.version[0], w.version[1], w.version[2])
 	}
 	// All infos gathered and metadata checks out, request signing
 	return w.ledgerSign(path, tx, chainID)
+}
+
+func ledgerEIP155Unsupported(version [3]byte, chainID *big.Int) bool {
+	return chainID != nil && (version[0] < 1 || (version[0] == 1 && version[1] == 0 && version[2] < 3))
 }
 
 // SignTypedMessage implements usbwallet.driver, sending the message to the Ledger and

@@ -35,6 +35,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/eth/ethconfig"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
@@ -263,6 +264,9 @@ func TestTransactionReceiptsSubscription(t *testing.T) {
 	filteredCh := make(chan []*ReceiptWithTx, 1)
 	filteredSub := api.events.SubscribeTransactionReceipts([]common.Hash{tx2.Hash()}, filteredCh)
 	defer filteredSub.Unsubscribe()
+	multiCh := make(chan []*ReceiptWithTx, 1)
+	multiSub := api.events.SubscribeTransactionReceipts([]common.Hash{tx1.Hash(), tx2.Hash()}, multiCh)
+	defer multiSub.Unsubscribe()
 	unmatchedCh := make(chan []*ReceiptWithTx, 1)
 	unmatchedSub := api.events.SubscribeTransactionReceipts([]common.Hash{common.HexToHash("0xff")}, unmatchedCh)
 	defer unmatchedSub.Unsubscribe()
@@ -285,6 +289,21 @@ func TestTransactionReceiptsSubscription(t *testing.T) {
 		t.Fatal("timed out waiting for filtered receipt")
 	}
 	select {
+	case receipts := <-multiCh:
+		if len(receipts) != 2 {
+			t.Fatalf("expected 2 multi-filtered receipts, got %d", len(receipts))
+		}
+		got := map[common.Hash]bool{
+			receipts[0].Transaction.Hash(): true,
+			receipts[1].Transaction.Hash(): true,
+		}
+		if !got[tx1.Hash()] || !got[tx2.Hash()] {
+			t.Fatalf("unexpected multi-filtered receipts: %#v", receipts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for multi-filtered receipts")
+	}
+	select {
 	case receipts := <-unmatchedCh:
 		t.Fatalf("unexpected empty/non-matching notification: %#v", receipts)
 	case <-time.After(50 * time.Millisecond):
@@ -298,6 +317,72 @@ func TestTransactionReceiptsSubscription(t *testing.T) {
 	case receipts := <-missingMetaCh:
 		t.Fatalf("unexpected notification for event without receipts: %#v", receipts)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestTransactionReceiptsSubscriptionGeneratedChain(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	to := common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268")
+	signer := types.NewLondonSigner(big.NewInt(1))
+	genesis := &core.Genesis{
+		Config:  params.TestChainConfig,
+		BaseFee: big.NewInt(params.InitialBaseFee),
+		Alloc:   core.GenesisAlloc{from: {Balance: big.NewInt(1_000_000_000_000_000_000)}},
+	}
+	_, chain, receipts := core.GenerateChainWithGenesis(genesis, ethash.NewFaker(), db, 1, func(i int, gen *core.BlockGen) {
+		for nonce := uint64(0); nonce < 4; nonce++ {
+			tx, err := types.SignTx(types.NewTx(&types.LegacyTx{
+				Nonce:    nonce,
+				GasPrice: gen.BaseFee(),
+				Gas:      21000,
+				To:       &to,
+				Value:    big.NewInt(1),
+			}), signer, key)
+			if err != nil {
+				t.Fatalf("failed to sign tx: %v", err)
+			}
+			gen.AddTx(tx)
+		}
+	})
+	if len(chain) != 1 || len(receipts) != 1 || len(receipts[0]) != 4 {
+		t.Fatalf("unexpected generated chain receipts: blocks=%d receipt batches=%d receipts=%d", len(chain), len(receipts), len(receipts[0]))
+	}
+
+	txHashes := []common.Hash{chain[0].Transactions()[1].Hash(), chain[0].Transactions()[3].Hash()}
+	receiptCh := make(chan []*ReceiptWithTx, 1)
+	sub := api.events.SubscribeTransactionReceipts(txHashes, receiptCh)
+	defer sub.Unsubscribe()
+
+	backend.chainFeed.Send(core.ChainEvent{
+		Hash:         chain[0].Hash(),
+		Header:       chain[0].Header(),
+		Receipts:     receipts[0],
+		Transactions: chain[0].Transactions(),
+	})
+	select {
+	case got := <-receiptCh:
+		if len(got) != len(txHashes) {
+			t.Fatalf("expected %d receipts, got %d", len(txHashes), len(got))
+		}
+		matches := make(map[common.Hash]bool, len(got))
+		for _, receipt := range got {
+			matches[receipt.Receipt.TxHash] = true
+		}
+		for _, hash := range txHashes {
+			if !matches[hash] {
+				t.Fatalf("missing receipt for tx %s in %#v", hash, got)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for generated-chain receipts")
 	}
 }
 

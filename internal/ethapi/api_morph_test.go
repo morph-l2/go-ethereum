@@ -642,6 +642,10 @@ type txSyncTestBackend struct {
 	defaultTimeout time.Duration
 	maxTimeout     time.Duration
 	sendEvent      bool
+	mineOnSend     bool
+	minedBlock     *types.Block
+	minedReceipts  types.Receipts
+	minedTx        *types.Transaction
 }
 
 func newTxSyncTestBackend(sendEvent bool) *txSyncTestBackend {
@@ -669,26 +673,50 @@ func (b *txSyncTestBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event
 	return b.feed.Subscribe(ch)
 }
 func (b *txSyncTestBackend) SendTx(ctx context.Context, tx *types.Transaction) error {
+	header := &types.Header{Number: big.NewInt(1), Time: 1}
+	receipt := &types.Receipt{
+		Status:            types.ReceiptStatusSuccessful,
+		TxHash:            tx.Hash(),
+		TransactionIndex:  0,
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}
+	receipts := types.Receipts{receipt}
+	block := types.NewBlock(header, types.Transactions{tx}, nil, receipts, trie.NewStackTrie(nil))
+	receipt.BlockHash = block.Hash()
+	receipt.BlockNumber = block.Number()
 	if b.sendEvent {
-		header := &types.Header{Number: big.NewInt(1), Time: 1}
-		receipt := &types.Receipt{
-			Status:            types.ReceiptStatusSuccessful,
-			TxHash:            tx.Hash(),
-			TransactionIndex:  0,
-			GasUsed:           21000,
-			CumulativeGasUsed: 21000,
-		}
 		b.feed.Send(core.ChainEvent{
-			Hash:         header.Hash(),
-			Header:       header,
-			Receipts:     types.Receipts{receipt},
+			Hash:         block.Hash(),
+			Header:       block.Header(),
+			Receipts:     receipts,
 			Transactions: types.Transactions{tx},
 		})
+	}
+	if b.mineOnSend {
+		b.minedBlock = block
+		b.minedReceipts = receipts
+		b.minedTx = tx
 	}
 	return nil
 }
 func (b *txSyncTestBackend) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
+	if b.minedTx != nil && b.minedTx.Hash() == txHash {
+		return b.minedTx, b.minedBlock.Hash(), b.minedBlock.NumberU64(), 0, nil
+	}
 	return nil, common.Hash{}, 0, 0, errors.New("not found")
+}
+func (b *txSyncTestBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
+	if b.minedBlock != nil && b.minedBlock.Hash() == hash {
+		return b.minedReceipts, nil
+	}
+	return nil, nil
+}
+func (b *txSyncTestBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+	if b.minedBlock != nil && b.minedBlock.Hash() == hash {
+		return b.minedBlock.Header(), nil
+	}
+	return nil, nil
 }
 
 func makeTxSyncRaw(t *testing.T) (hexutil.Bytes, *types.Transaction) {
@@ -737,6 +765,24 @@ func TestSendRawTransactionSyncEventSuccess(t *testing.T) {
 	}
 }
 
+func TestSendRawTransactionSyncFastReceiptSuccess(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.mineOnSend = true
+	api := NewPublicTransactionPoolAPI(backend, nil)
+
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err != nil {
+		t.Fatalf("SendRawTransactionSync failed: %v", err)
+	}
+	if got := receipt["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+	if got := receipt["blockNumber"]; got != hexutil.Uint64(1) {
+		t.Fatalf("unexpected block number: got %v want %v", got, hexutil.Uint64(1))
+	}
+}
+
 func TestSendRawTransactionSyncTimeout(t *testing.T) {
 	raw, tx := makeTxSyncRaw(t)
 	backend := newTxSyncTestBackend(false)
@@ -764,12 +810,27 @@ func TestSendRawTransactionSyncTimeout(t *testing.T) {
 
 type blockReceiptsTestBackend struct {
 	Backend
+	chainConfig     *params.ChainConfig
 	pendingBlock    *types.Block
 	pendingReceipts types.Receipts
+	blocksByHash    map[common.Hash]*types.Block
+	blocksByNumber  map[uint64]*types.Block
+	receiptsByHash  map[common.Hash]types.Receipts
+	latestNumber    uint64
 }
 
 func (b *blockReceiptsTestBackend) ChainConfig() *params.ChainConfig {
-	return &params.ChainConfig{ChainID: big.NewInt(1)}
+	if b.chainConfig != nil {
+		return b.chainConfig
+	}
+	return &params.ChainConfig{
+		ChainID:        big.NewInt(1),
+		HomesteadBlock: big.NewInt(0),
+		EIP155Block:    big.NewInt(0),
+		EIP158Block:    big.NewInt(0),
+		ByzantiumBlock: big.NewInt(0),
+		LondonBlock:    big.NewInt(0),
+	}
 }
 
 func (b *blockReceiptsTestBackend) Pending() (*types.Block, types.Receipts, *state.StateDB) {
@@ -777,11 +838,27 @@ func (b *blockReceiptsTestBackend) Pending() (*types.Block, types.Receipts, *sta
 }
 
 func (b *blockReceiptsTestBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Block, error) {
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		return b.blocksByHash[hash], nil
+	}
+	if number, ok := blockNrOrHash.Number(); ok {
+		switch number {
+		case rpc.EarliestBlockNumber:
+			return b.blocksByNumber[0], nil
+		case rpc.LatestBlockNumber:
+			return b.blocksByNumber[b.latestNumber], nil
+		default:
+			if number < 0 {
+				return nil, nil
+			}
+			return b.blocksByNumber[uint64(number)], nil
+		}
+	}
 	return nil, nil
 }
 
 func (b *blockReceiptsTestBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
-	return nil, nil
+	return b.receiptsByHash[hash], nil
 }
 
 func makeReceiptBlock(t *testing.T) (*types.Block, types.Receipts, *types.Transaction) {
@@ -798,6 +875,40 @@ func makeReceiptBlock(t *testing.T) (*types.Block, types.Receipts, *types.Transa
 	return block, receipts, tx
 }
 
+func newBlockReceiptsTestBackend() *blockReceiptsTestBackend {
+	return &blockReceiptsTestBackend{
+		blocksByHash:   make(map[common.Hash]*types.Block),
+		blocksByNumber: make(map[uint64]*types.Block),
+		receiptsByHash: make(map[common.Hash]types.Receipts),
+	}
+}
+
+func (b *blockReceiptsTestBackend) addBlock(block *types.Block, receipts types.Receipts) {
+	b.blocksByHash[block.Hash()] = block
+	b.blocksByNumber[block.NumberU64()] = block
+	b.receiptsByHash[block.Hash()] = receipts
+	if block.NumberU64() >= b.latestNumber {
+		b.latestNumber = block.NumberU64()
+	}
+}
+
+func makeBlockReceiptTestBlock(number uint64, txs types.Transactions, receipts types.Receipts) *types.Block {
+	header := &types.Header{
+		Number:   new(big.Int).SetUint64(number),
+		Time:     number + 1,
+		GasLimit: 30_000_000,
+		BaseFee:  big.NewInt(1),
+	}
+	block := types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil))
+	for i, receipt := range receipts {
+		receipt.TxHash = txs[i].Hash()
+		receipt.BlockHash = block.Hash()
+		receipt.BlockNumber = block.Number()
+		receipt.TransactionIndex = uint(i)
+	}
+	return block
+}
+
 func TestPendingBlockReceipts(t *testing.T) {
 	block, receipts, tx := makeReceiptBlock(t)
 	api := &PublicBlockChainAPI{b: &blockReceiptsTestBackend{pendingBlock: block, pendingReceipts: receipts}}
@@ -811,6 +922,102 @@ func TestPendingBlockReceipts(t *testing.T) {
 	}
 	if got := result[0]["transactionHash"]; got != tx.Hash() {
 		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+}
+
+func TestBlockReceiptsByHashNumberAndTransactionTypes(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	to := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	legacySigner := types.NewEIP155Signer(big.NewInt(1))
+	londonSigner := types.NewLondonSigner(big.NewInt(1))
+
+	emptyBlock := makeBlockReceiptTestBlock(0, nil, nil)
+	legacyTx := signTx(t, key, legacySigner, &types.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(7),
+		Gas:      21000,
+		To:       &to,
+		Value:    big.NewInt(1),
+	})
+	legacyReceipts := types.Receipts{{
+		Status:            types.ReceiptStatusSuccessful,
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}}
+	legacyBlock := makeBlockReceiptTestBlock(1, types.Transactions{legacyTx}, legacyReceipts)
+	createTx := signTx(t, key, legacySigner, &types.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(7),
+		Gas:      53000,
+		Value:    big.NewInt(0),
+	})
+	createAddress := common.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccc")
+	createReceipts := types.Receipts{{
+		Status:            types.ReceiptStatusSuccessful,
+		GasUsed:           53000,
+		CumulativeGasUsed: 53000,
+		ContractAddress:   createAddress,
+	}}
+	createBlock := makeBlockReceiptTestBlock(2, types.Transactions{createTx}, createReceipts)
+	dynamicTx := signTx(t, key, londonSigner, &types.DynamicFeeTx{
+		ChainID:   big.NewInt(1),
+		Nonce:     2,
+		GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(10),
+		Gas:       21000,
+		To:        &to,
+		Value:     big.NewInt(3),
+	})
+	dynamicReceipts := types.Receipts{{
+		Status:            types.ReceiptStatusSuccessful,
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}}
+	dynamicBlock := makeBlockReceiptTestBlock(3, types.Transactions{dynamicTx}, dynamicReceipts)
+
+	backend := newBlockReceiptsTestBackend()
+	backend.addBlock(emptyBlock, nil)
+	backend.addBlock(legacyBlock, legacyReceipts)
+	backend.addBlock(createBlock, createReceipts)
+	backend.addBlock(dynamicBlock, dynamicReceipts)
+	api := &PublicBlockChainAPI{b: backend}
+	tests := []struct {
+		name     string
+		query    rpc.BlockNumberOrHash
+		wantLen  int
+		wantHash common.Hash
+		wantAddr interface{}
+	}{
+		{name: "empty block by hash", query: rpc.BlockNumberOrHashWithHash(emptyBlock.Hash(), false), wantLen: 0},
+		{name: "legacy tx by number", query: rpc.BlockNumberOrHashWithNumber(1), wantLen: 1, wantHash: legacyTx.Hash()},
+		{name: "contract create by hash", query: rpc.BlockNumberOrHashWithHash(createBlock.Hash(), false), wantLen: 1, wantHash: createTx.Hash(), wantAddr: createAddress},
+		{name: "dynamic fee tx by latest", query: rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), wantLen: 1, wantHash: dynamicTx.Hash()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := api.GetBlockReceipts(context.Background(), tt.query)
+			if err != nil {
+				t.Fatalf("GetBlockReceipts failed: %v", err)
+			}
+			if len(result) != tt.wantLen {
+				t.Fatalf("expected %d receipts, got %d", tt.wantLen, len(result))
+			}
+			if tt.wantLen == 0 {
+				return
+			}
+			if got := result[0]["transactionHash"]; got != tt.wantHash {
+				t.Fatalf("unexpected transaction hash: got %v want %v", got, tt.wantHash)
+			}
+			if tt.wantAddr != nil && result[0]["contractAddress"] != tt.wantAddr {
+				t.Fatalf("unexpected contract address: got %v want %v", result[0]["contractAddress"], tt.wantAddr)
+			}
+			if _, ok := result[0]["memo"]; !ok {
+				t.Fatalf("expected Morph receipt field memo to be present")
+			}
+		})
 	}
 }
 

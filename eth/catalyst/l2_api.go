@@ -464,7 +464,7 @@ func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data, isSafe bool) (e
 			parentHeader.Number.Uint64()+1, params.Number)
 	}
 
-	block, err := api.executableDataToBlock(params, nil)
+	block, err := api.executableDataToBlock(params)
 	if err != nil {
 		return err
 	}

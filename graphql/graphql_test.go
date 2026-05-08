@@ -76,17 +76,27 @@ func TestGraphQLMaxDepth(t *testing.T) {
 		t.Fatalf("could not construct GraphQL handler: %v", err)
 	}
 
-	var b strings.Builder
-	for i := 0; i < maxQueryDepth+1; i++ {
-		b.WriteString("ommers{")
+	introspectionQueryWithOfTypes := func(ofTypes int) string {
+		var b strings.Builder
+		b.WriteString(`{__type(name:"Block"){fields{type{`)
+		for i := 0; i < ofTypes; i++ {
+			b.WriteString("ofType{")
+		}
+		b.WriteString("name")
+		for i := 0; i < ofTypes; i++ {
+			b.WriteString("}")
+		}
+		b.WriteString("}}}}")
+		return b.String()
 	}
-	b.WriteString("number")
-	for i := 0; i < maxQueryDepth+1; i++ {
-		b.WriteString("}")
-	}
-	query := fmt.Sprintf("{block{%s}}", b.String())
 
-	res := h.Schema.Exec(context.Background(), query, "", nil)
+	// __type -> fields -> type -> ofType... -> name places the leaf field at maxQueryDepth.
+	res := h.Schema.Exec(context.Background(), introspectionQueryWithOfTypes(maxQueryDepth-4), "", nil)
+	if len(res.Errors) != 0 {
+		t.Fatalf("expected query at max depth to succeed, got %v", res.Errors)
+	}
+
+	res = h.Schema.Exec(context.Background(), introspectionQueryWithOfTypes(maxQueryDepth-3), "", nil)
 	for _, err := range res.Errors {
 		if err.Rule == "MaxDepthExceeded" {
 			return

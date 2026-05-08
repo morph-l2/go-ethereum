@@ -165,6 +165,38 @@ func TestServerWebsocketReadLimit(t *testing.T) {
 	}
 }
 
+func TestServerWebsocketDefaultReadLimit(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer()
+	if err := srv.RegisterName("sink", new(wsReadLimitSinkService)); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+
+	httpsrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+	defer httpsrv.Close()
+
+	wsURL := "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+	client, err := DialOptions(context.Background(), wsURL)
+	if err != nil {
+		t.Fatalf("can't dial: %v", err)
+	}
+	defer client.Close()
+
+	var result bool
+	err = client.Call(&result, "sink_accept", strings.Repeat("A", wsDefaultReadLimit+1024))
+	if err == nil {
+		t.Fatalf("expected default websocket read limit to reject request larger than %d bytes", wsDefaultReadLimit)
+	}
+}
+
+type wsReadLimitSinkService struct{}
+
+func (wsReadLimitSinkService) Accept(_ string) bool {
+	return true
+}
+
 // This test checks that responses are delivered for very short-lived connections that
 // only carry a single request.
 func TestServerShortLivedConn(t *testing.T) {

@@ -403,6 +403,17 @@ func TestInspectContractRejectsStorageless(t *testing.T) {
 	}
 }
 
+func TestInspectSkipsDepthsOutsideLevelStats(t *testing.T) {
+	stats := NewLevelStats()
+	in := &inspector{}
+
+	in.inspect(nil, valueNode{0x01}, trieStatLevels, nil, stats)
+
+	if nodes := stats.TotalNodes(); nodes != 0 {
+		t.Fatalf("recorded %d nodes past tracked depth, want 0", nodes)
+	}
+}
+
 // -----------------------------------------------------------------------
 // JSON shape helpers
 // -----------------------------------------------------------------------

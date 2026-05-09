@@ -1576,11 +1576,10 @@ func setWhitelist(ctx *cli.Context, cfg *ethconfig.Config) {
 }
 
 func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
-	// Resolution order: --rpc.rangelimit takes precedence when both are set,
-	// so operators can opt into the upstream-aligned name without having to
-	// remove the legacy --rpc.getlogs.maxrange flag from their launch
-	// scripts first. When neither flag is set, cfg.MaxBlockRange is left
-	// unchanged so TOML/defaults are respected.
+	// Resolution order: --rpc.rangelimit takes precedence if this helper is
+	// called directly with both aliases set. SetEthConfig rejects that
+	// combination for real CLI usage. When neither flag is set, normalize the
+	// zero value to unlimited without overwriting config-file/default values.
 	var (
 		rangelimitSet = ctx.GlobalIsSet(RPCRangeLimitFlag.Name)
 		maxrangeSet   = ctx.GlobalIsSet(MaxBlockRangeFlag.Name)
@@ -1599,6 +1598,10 @@ func setMaxBlockRange(ctx *cli.Context, cfg *ethconfig.Config) {
 			cfg.MaxBlockRange = -1
 		} else {
 			cfg.MaxBlockRange = v
+		}
+	default:
+		if cfg.MaxBlockRange == 0 {
+			cfg.MaxBlockRange = -1
 		}
 	}
 }
@@ -1650,6 +1653,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
+	CheckExclusive(ctx, RPCRangeLimitFlag, MaxBlockRangeFlag)
 	if ctx.GlobalString(GCModeFlag.Name) == GCModeArchive && ctx.GlobalUint64(TxLookupLimitFlag.Name) != 0 {
 		ctx.GlobalSet(TxLookupLimitFlag.Name, "0")
 		log.Warn("Disable transaction unindexing for archive node")

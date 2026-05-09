@@ -83,3 +83,14 @@ func TestSetMaxBlockRangeResolution(t *testing.T) {
 		})
 	}
 }
+
+func TestSetMaxBlockRangePreservesPreconfiguredValue(t *testing.T) {
+	ctx := newFlagContext(t, nil)
+	cfg := &ethconfig.Config{MaxBlockRange: 123}
+
+	setMaxBlockRange(ctx, cfg)
+
+	if cfg.MaxBlockRange != 123 {
+		t.Fatalf("MaxBlockRange = %d, want preconfigured value 123", cfg.MaxBlockRange)
+	}
+}

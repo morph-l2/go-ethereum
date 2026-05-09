@@ -18,7 +18,7 @@
 // third-party tablewriter library used by upstream go-ethereum, trimmed to
 // the subset exercised by morph's CLI reporters. The public API mirrors
 // upstream so call sites can be ported verbatim, but the rendering is
-// backed by the standard library's text/tabwriter for alignment.
+// backed by a small fixed-padding renderer for alignment.
 //
 // This package is intentionally naive: it performs light validation at
 // Render() time rather than buffering per-row diagnostics, and it panics
@@ -31,12 +31,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"text/tabwriter"
 	"unicode/utf8"
 )
 
 // Table accumulates headers, data rows, and an optional footer, and
-// renders them as an aligned text table through text/tabwriter.
+// renders them as an aligned text table.
 //
 // A Table is not safe for concurrent use by multiple goroutines.
 type Table struct {
@@ -129,21 +128,46 @@ func (t *Table) Render() error {
 	if len(t.footer) > 0 {
 		measure(t.footer)
 	}
+	const padding = 2
 	sepParts := make([]string, cols)
 	for i, n := range w {
+		if i < cols-1 {
+			n += padding
+		}
 		sepParts[i] = strings.Repeat("─", n)
 	}
-	sep := strings.Join(sepParts, "\t")
+	sep := strings.Join(sepParts, "")
 
-	tw := tabwriter.NewWriter(t.out, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, strings.Join(t.header, "\t"))
-	fmt.Fprintln(tw, sep)
+	var ret error
+	writeString := func(s string) {
+		if ret != nil {
+			return
+		}
+		_, ret = io.WriteString(t.out, s)
+	}
+	writeLine := func(s string) {
+		writeString(s)
+		writeString("\n")
+	}
+	writeRow := func(cells []string) {
+		for i, cell := range cells {
+			writeString(cell)
+			if i < cols-1 {
+				pad := w[i] - utf8.RuneCountInString(cell) + padding
+				writeString(strings.Repeat(" ", pad))
+			}
+		}
+		writeString("\n")
+	}
+
+	writeRow(t.header)
+	writeLine(sep)
 	for _, row := range t.rows {
-		fmt.Fprintln(tw, strings.Join(row, "\t"))
+		writeRow(row)
 	}
 	if len(t.footer) > 0 {
-		fmt.Fprintln(tw, sep)
-		fmt.Fprintln(tw, strings.Join(t.footer, "\t"))
+		writeLine(sep)
+		writeRow(t.footer)
 	}
-	return tw.Flush()
+	return ret
 }

@@ -18,9 +18,18 @@ package tablewriter
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
+
+var errRenderSink = errors.New("render sink failed")
+
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) {
+	return 0, errRenderSink
+}
 
 func TestTableWriterHappyPath(t *testing.T) {
 	var buf bytes.Buffer
@@ -84,6 +93,21 @@ func TestTableWriterAppendBulkCumulative(t *testing.T) {
 	}
 }
 
+func TestTableWriterSeparatorCoversPadding(t *testing.T) {
+	var buf bytes.Buffer
+	table := NewWriter(&buf)
+	table.SetHeader([]string{"A", "B"})
+	table.AppendBulk([][]string{{"x", "y"}})
+	if err := table.Render(); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	want := "A  B\n────\nx  y\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("output mismatch:\ngot  %q\nwant %q", got, want)
+	}
+}
+
 func TestTableWriterNilWriterPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -108,5 +132,14 @@ func TestTableWriterRenderIdempotent(t *testing.T) {
 	}
 	if buf.String() != first {
 		t.Fatalf("render not idempotent: first=%q second=%q", first, buf.String())
+	}
+}
+
+func TestTableWriterReturnsWriterError(t *testing.T) {
+	table := NewWriter(errWriter{})
+	table.SetHeader([]string{"A"})
+	table.AppendBulk([][]string{{"x"}})
+	if err := table.Render(); !errors.Is(err, errRenderSink) {
+		t.Fatalf("Render error = %v, want %v", err, errRenderSink)
 	}
 }

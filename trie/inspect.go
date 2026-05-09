@@ -182,7 +182,16 @@ func Inspect(triedb *Database, root common.Hash, config *InspectConfig) error {
 	// hung. The reporter shuts down via done when the walk completes.
 	start := time.Now()
 	done := make(chan struct{})
+	progressStopped := make(chan struct{})
+	var stopProgress sync.Once
+	stopProgressReporter := func() {
+		stopProgress.Do(func() {
+			close(done)
+			<-progressStopped
+		})
+	}
 	go func() {
+		defer close(progressStopped)
 		ticker := time.NewTicker(8 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -199,7 +208,7 @@ func Inspect(triedb *Database, root common.Hash, config *InspectConfig) error {
 			}
 		}
 	}()
-	defer close(done)
+	defer stopProgressReporter()
 
 	in.recordRootSize(root, in.accountStat)
 	in.inspect(trie, trie.root, 0, []byte{}, in.accountStat)
@@ -214,8 +223,10 @@ func Inspect(triedb *Database, root common.Hash, config *InspectConfig) error {
 	}
 
 	if err := in.getError(); err != nil {
+		stopProgressReporter()
 		return err
 	}
+	stopProgressReporter()
 	return Summarize(config.DumpPath, config)
 }
 
@@ -484,7 +495,7 @@ func (in *inspector) writeDumpRecord(owner common.Hash, s *LevelStats) {
 // but always waits for them before returning so stat is fully populated
 // by the time the caller observes it.
 func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, stat *LevelStats) {
-	if n == nil {
+	if n == nil || height >= trieStatLevels {
 		return
 	}
 
@@ -540,7 +551,7 @@ func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, sta
 			break
 		}
 		if !in.config.NoStorage {
-			owner := common.BytesToHash(hexToCompact(path))
+			owner := common.BytesToHash(hexToKeybytes(path))
 			storage, err := New(account.Root, in.triedb)
 			if err != nil {
 				log.Error("Failed to open account storage trie", "node", n, "error", err, "height", height, "path", common.Bytes2Hex(path))
@@ -934,10 +945,10 @@ func (s *inspectSummary) MarshalJSON() ([]byte, error) {
 		Summary jsonLevel   `json:"Summary"`
 	}
 	type jsonStorageSummary struct {
-		TotalStorageTries uint64                         `json:"TotalStorageTries"`
-		Totals            jsonLevel                      `json:"Totals"`
-		Levels            []jsonLevel                    `json:"Levels"`
-		DepthHistogram    [trieStatLevels]uint64         `json:"DepthHistogram"`
+		TotalStorageTries uint64                 `json:"TotalStorageTries"`
+		Totals            jsonLevel              `json:"Totals"`
+		Levels            []jsonLevel            `json:"Levels"`
+		DepthHistogram    [trieStatLevels]uint64 `json:"DepthHistogram"`
 	}
 	type jsonInspectSummary struct {
 		AccountTrie     jsonAccountTrie    `json:"AccountTrie"`

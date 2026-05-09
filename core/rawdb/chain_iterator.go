@@ -86,6 +86,7 @@ func InitDatabaseFromFreezer(db ethdb.Database) {
 type blockTxHashes struct {
 	number uint64
 	hashes []common.Hash
+	err    error
 }
 
 // iterateTransactions iterates over all transactions in the (canon) block
@@ -144,7 +145,12 @@ func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool
 			var body types.Body
 			if err := rlp.DecodeBytes(data.rlp, &body); err != nil {
 				log.Warn("Failed to decode block body", "block", data.number, "error", err)
-				return
+				select {
+				case hashesCh <- &blockTxHashes{number: data.number, err: err}:
+				case <-interrupt:
+					return
+				}
+				continue
 			}
 			var hashes []common.Hash
 			for _, tx := range body.Transactions {
@@ -211,6 +217,14 @@ func indexTransactions(db ethdb.Database, from uint64, to uint64, interrupt chan
 			}
 			// Next block available, pop it off and index it
 			delivery := queue.PopItem().(*blockTxHashes)
+			if delivery.err != nil {
+				log.Warn("Missing or corrupt block body during indexing; aborting run", "block", delivery.number, "err", delivery.err)
+				WriteTxIndexTail(batch, lastNum)
+				if err := batch.Write(); err != nil {
+					log.Crit("Failed writing batch to db", "error", err)
+				}
+				return
+			}
 			lastNum = delivery.number
 			WriteTxLookupEntries(batch, delivery.number, delivery.hashes)
 			blocks++
@@ -300,6 +314,10 @@ func unindexTransactions(db ethdb.Database, from uint64, to uint64, interrupt ch
 			}
 			delivery := queue.PopItem().(*blockTxHashes)
 			nextNum = delivery.number + 1
+			if delivery.err != nil {
+				log.Warn("Block skipped during unindexing; tx lookup entries NOT deleted", "block", delivery.number, "err", delivery.err)
+				continue
+			}
 			DeleteTxLookupEntries(batch, delivery.hashes)
 			txs += len(delivery.hashes)
 			blocks++

@@ -403,11 +403,90 @@ func TestInspectContractRejectsStorageless(t *testing.T) {
 	}
 }
 
+func TestInspectDoesNotExpandStorageValuesAsAccounts(t *testing.T) {
+	db := NewDatabase(memorydb.New())
+
+	childTrie, err := New(common.Hash{}, db)
+	if err != nil {
+		t.Fatalf("open child trie: %v", err)
+	}
+	childTrie.Update(crypto.Keccak256([]byte("child-slot")), []byte{0x01})
+	childRoot, _, err := childTrie.Commit(nil)
+	if err != nil {
+		t.Fatalf("commit child trie: %v", err)
+	}
+	if err := db.Commit(childRoot, false, nil); err != nil {
+		t.Fatalf("flush child trie: %v", err)
+	}
+
+	decoyAccount := types.StateAccount{
+		Nonce:          1,
+		Balance:        big.NewInt(1),
+		Root:           childRoot,
+		KeccakCodeHash: codehash.EmptyKeccakCodeHash.Bytes(),
+	}
+	decoyValue, err := rlp.EncodeToBytes(&decoyAccount)
+	if err != nil {
+		t.Fatalf("encode decoy account: %v", err)
+	}
+
+	storageTrie, err := New(common.Hash{}, db)
+	if err != nil {
+		t.Fatalf("open storage trie: %v", err)
+	}
+	storageTrie.Update(crypto.Keccak256([]byte("slot")), decoyValue)
+	storageRoot, _, err := storageTrie.Commit(nil)
+	if err != nil {
+		t.Fatalf("commit storage trie: %v", err)
+	}
+	if err := db.Commit(storageRoot, false, nil); err != nil {
+		t.Fatalf("flush storage trie: %v", err)
+	}
+
+	account := types.StateAccount{
+		Nonce:          1,
+		Balance:        big.NewInt(1),
+		Root:           storageRoot,
+		KeccakCodeHash: codehash.EmptyKeccakCodeHash.Bytes(),
+	}
+	accountValue, err := rlp.EncodeToBytes(&account)
+	if err != nil {
+		t.Fatalf("encode account: %v", err)
+	}
+	accountTrie, err := New(common.Hash{}, db)
+	if err != nil {
+		t.Fatalf("open account trie: %v", err)
+	}
+	accountTrie.Update(crypto.Keccak256([]byte("account")), accountValue)
+	stateRoot, _, err := accountTrie.Commit(nil)
+	if err != nil {
+		t.Fatalf("commit account trie: %v", err)
+	}
+	if err := db.Commit(stateRoot, false, nil); err != nil {
+		t.Fatalf("flush account trie: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	jsonPath := filepath.Join(tempDir, "trie-summary.json")
+	if err := Inspect(db, stateRoot, &InspectConfig{
+		TopN:     10,
+		DumpPath: filepath.Join(tempDir, "trie-dump.bin"),
+		Path:     jsonPath,
+	}); err != nil {
+		t.Fatalf("inspect failed: %v", err)
+	}
+
+	out := loadInspectJSON(t, jsonPath)
+	if out.StorageSummary.TotalStorageTries != 1 {
+		t.Fatalf("expected exactly one real storage trie, got %d", out.StorageSummary.TotalStorageTries)
+	}
+}
+
 func TestInspectSkipsDepthsOutsideLevelStats(t *testing.T) {
 	stats := NewLevelStats()
 	in := &inspector{}
 
-	in.inspect(nil, valueNode{0x01}, trieStatLevels, nil, stats)
+	in.inspect(nil, valueNode{0x01}, trieStatLevels, nil, stats, inspectStorageTrie)
 
 	if nodes := stats.TotalNodes(); nodes != 0 {
 		t.Fatalf("recorded %d nodes past tracked depth, want 0", nodes)

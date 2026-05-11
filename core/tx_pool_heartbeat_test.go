@@ -23,6 +23,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/tracing"
+	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/crypto"
 )
 
@@ -33,7 +34,8 @@ import (
 //   2. bumpBeats refreshes the timestamp when one already exists.
 //   3. enqueueTx refreshes the heartbeat for external enqueues (addAll=true)
 //      so long-lived but still-active queues are not evicted by Lifetime;
-//      internal reshuffles (addAll=false) must not reset the heartbeat.
+//      internal reshuffles (addAll=false) must initialize missing heartbeats
+//      without resetting existing ones.
 //   4. A pending-only replace via add() does not resurrect a heartbeat for
 //      an account that has nothing queued.
 
@@ -175,5 +177,45 @@ func TestTxPoolPendingReplaceDoesNotSpawnBeats(t *testing.T) {
 	}
 	if got, want := flat[0].Hash(), replacement.Hash(); got != want {
 		t.Fatalf("pending head mismatch: got %x want %x", got, want)
+	}
+}
+
+func TestTxPoolInternalEnqueueInitializesMissingBeat(t *testing.T) {
+	pool, key := setupTxPool()
+	defer pool.Stop()
+
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	pool.currentState.AddBalance(from, big.NewInt(1_000_000_000_000_000_000), tracing.BalanceChangeUnspecified)
+
+	tx0 := transaction(0, 100000, key)
+	tx1 := transaction(1, 100000, key)
+	tx2 := transaction(2, 100000, key)
+	for _, tx := range []*types.Transaction{tx0, tx1, tx2} {
+		if err := pool.addRemoteSync(tx); err != nil {
+			t.Fatalf("add executable tx %d failed: %v", tx.Nonce(), err)
+		}
+	}
+
+	pool.mu.RLock()
+	_, hadBeat := pool.beats[from]
+	pool.mu.RUnlock()
+	if hadBeat {
+		t.Fatalf("pending-only account unexpectedly had heartbeat before demotion")
+	}
+
+	pool.RemoveTx(tx0.Hash(), true)
+
+	pool.mu.RLock()
+	beat, ok := pool.beats[from]
+	queue := pool.queue[from]
+	pool.mu.RUnlock()
+	if !ok {
+		t.Fatalf("internal enqueue created queue without heartbeat")
+	}
+	if beat.IsZero() {
+		t.Fatalf("internal enqueue initialized zero heartbeat")
+	}
+	if queue == nil || queue.Len() != 2 {
+		t.Fatalf("expected two demoted queued transactions, got queue=%+v", queue)
 	}
 }

@@ -154,6 +154,13 @@ type inspector struct {
 	err   error
 }
 
+type inspectTrieKind uint8
+
+const (
+	inspectAccountTrie inspectTrieKind = iota
+	inspectStorageTrie
+)
+
 // Inspect walks the trie at root, records per-level node statistics, and
 // streams one record per storage trie to disk. After the walk completes
 // the file is finalized and Summarize is invoked to produce the report.
@@ -211,7 +218,7 @@ func Inspect(triedb *Database, root common.Hash, config *InspectConfig) error {
 	defer stopProgressReporter()
 
 	in.recordRootSize(root, in.accountStat)
-	in.inspect(trie, trie.root, 0, []byte{}, in.accountStat)
+	in.inspect(trie, trie.root, 0, []byte{}, in.accountStat, inspectAccountTrie)
 
 	// inspect is synchronous: it waits for every spawned goroutine in
 	// its subtree before returning, so no extra wait is needed here.
@@ -301,7 +308,7 @@ func InspectContract(triedb *Database, db ethdb.Database, stateRoot common.Hash,
 			dumpBuf:     bufio.NewWriter(io.Discard),
 		}
 		in.recordRootSize(account.Root, storageStat)
-		in.inspect(storage, storage.root, 0, []byte{}, storageStat)
+		in.inspect(storage, storage.root, 0, []byte{}, storageStat, inspectStorageTrie)
 		return in.getError()
 	})
 
@@ -494,7 +501,7 @@ func (in *inspector) writeDumpRecord(owner common.Hash, s *LevelStats) {
 // stat. It may spawn goroutines for children when the semaphore allows,
 // but always waits for them before returning so stat is fully populated
 // by the time the caller observes it.
-func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, stat *LevelStats) {
+func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, stat *LevelStats, kind inspectTrieKind) {
 	if n == nil || height >= trieStatLevels {
 		return
 	}
@@ -508,7 +515,7 @@ func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, sta
 	switch n := (n).(type) {
 	case *shortNode:
 		nextPath := slices.Concat(path, n.Key)
-		in.inspect(trie, n.Val, height+1, nextPath, stat)
+		in.inspect(trie, n.Val, height+1, nextPath, stat, kind)
 	case *fullNode:
 		for idx, child := range n.Children {
 			if child == nil {
@@ -517,11 +524,11 @@ func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, sta
 			childPath := slices.Concat(path, []byte{byte(idx)})
 			childNode := child
 			if in.trySpawn(&wg, func() {
-				in.inspect(trie, childNode, height+1, childPath, stat)
+				in.inspect(trie, childNode, height+1, childPath, stat, kind)
 			}) {
 				continue
 			}
-			in.inspect(trie, childNode, height+1, childPath, stat)
+			in.inspect(trie, childNode, height+1, childPath, stat, kind)
 		}
 	case hashNode:
 		// Resolve the raw node via the shared database; count its
@@ -535,12 +542,12 @@ func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, sta
 		}
 		stat.addSize(height, uint64(len(blob)))
 		resolved := mustDecodeNode(n, blob)
-		in.inspect(trie, resolved, height, path, stat)
+		in.inspect(trie, resolved, height, path, stat, kind)
 		// Return early: hash nodes are a transparent indirection and
 		// must not be counted twice at this depth.
 		return
 	case valueNode:
-		if !hasTerm(path) {
+		if kind != inspectAccountTrie || in.config.NoStorage || !hasTerm(path) {
 			break
 		}
 		var account types.StateAccount
@@ -550,24 +557,22 @@ func (in *inspector) inspect(trie *Trie, n node, height uint32, path []byte, sta
 		if account.Root == (common.Hash{}) || account.Root == emptyRoot {
 			break
 		}
-		if !in.config.NoStorage {
-			owner := common.BytesToHash(hexToKeybytes(path))
-			storage, err := New(account.Root, in.triedb)
-			if err != nil {
-				log.Error("Failed to open account storage trie", "node", n, "error", err, "height", height, "path", common.Bytes2Hex(path))
-				break
-			}
-			storageStat := NewLevelStats()
-			run := func() {
-				in.recordRootSize(account.Root, storageStat)
-				in.inspect(storage, storage.root, 0, []byte{}, storageStat)
-				in.writeDumpRecord(owner, storageStat)
-			}
-			if in.trySpawn(&wg, run) {
-				break
-			}
-			run()
+		owner := common.BytesToHash(hexToKeybytes(path))
+		storage, err := New(account.Root, in.triedb)
+		if err != nil {
+			log.Error("Failed to open account storage trie", "node", n, "error", err, "height", height, "path", common.Bytes2Hex(path))
+			break
 		}
+		storageStat := NewLevelStats()
+		run := func() {
+			in.recordRootSize(account.Root, storageStat)
+			in.inspect(storage, storage.root, 0, []byte{}, storageStat, inspectStorageTrie)
+			in.writeDumpRecord(owner, storageStat)
+		}
+		if in.trySpawn(&wg, run) {
+			break
+		}
+		run()
 	default:
 		panic(fmt.Sprintf("%T: invalid node: %v", n, n))
 	}

@@ -1016,8 +1016,11 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 	}
 	// Refresh the heartbeat only for external activity (addAll=true).
 	// Internal reshuffles such as demoteUnexecutables and removeTx pass
-	// addAll=false; they must not extend queue lifetime.
+	// addAll=false; they must not extend an existing queue lifetime, but
+	// still need a baseline timestamp if they just created the queue.
 	if addAll {
+		pool.beats[from] = time.Now()
+	} else if _, ok := pool.beats[from]; !ok {
 		pool.beats[from] = time.Now()
 	}
 	return old != nil, nil

@@ -154,9 +154,9 @@ func TestTxPoolPendingReplaceDoesNotSpawnBeats(t *testing.T) {
 	}
 
 	pool.mu.RLock()
-	_, stillNoBeats := pool.beats[from]
+	_, beatsExist := pool.beats[from]
 	pool.mu.RUnlock()
-	if stillNoBeats {
+	if beatsExist {
 		t.Fatalf("pending replace path resurrected a heartbeat for queue-less sender")
 	}
 

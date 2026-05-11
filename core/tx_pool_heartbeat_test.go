@@ -219,3 +219,50 @@ func TestTxPoolInternalEnqueueInitializesMissingBeat(t *testing.T) {
 		t.Fatalf("expected two demoted queued transactions, got queue=%+v", queue)
 	}
 }
+
+func TestTxPoolDemoteUnexecutablesInitializesMissingBeat(t *testing.T) {
+	pool, key := setupTxPool()
+	defer pool.Stop()
+
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	pool.currentState.AddBalance(from, big.NewInt(1_000_000_000_000_000_000), tracing.BalanceChangeUnspecified)
+
+	tx0 := transaction(0, 200000, key)
+	tx1 := transaction(1, 100000, key)
+	tx2 := transaction(2, 100000, key)
+	for _, tx := range []*types.Transaction{tx0, tx1, tx2} {
+		if err := pool.addRemoteSync(tx); err != nil {
+			t.Fatalf("add executable tx %d failed: %v", tx.Nonce(), err)
+		}
+	}
+
+	pool.mu.RLock()
+	_, hadBeat := pool.beats[from]
+	pool.mu.RUnlock()
+	if hadBeat {
+		t.Fatalf("pending-only account unexpectedly had heartbeat before demotion")
+	}
+
+	pool.mu.Lock()
+	pool.currentState.SetBalance(from, big.NewInt(150000), tracing.BalanceChangeUnspecified)
+	pool.demoteUnexecutables()
+	pool.mu.Unlock()
+
+	pool.mu.RLock()
+	beat, ok := pool.beats[from]
+	queue := pool.queue[from]
+	pending := pool.pending[from]
+	pool.mu.RUnlock()
+	if !ok {
+		t.Fatalf("demoteUnexecutables created queue without heartbeat")
+	}
+	if beat.IsZero() {
+		t.Fatalf("demoteUnexecutables initialized zero heartbeat")
+	}
+	if queue == nil || queue.Len() != 2 {
+		t.Fatalf("expected two invalidated queued transactions, got queue=%+v", queue)
+	}
+	if pending != nil && pending.Len() != 0 {
+		t.Fatalf("expected pending list to be empty after demotion, got %d", pending.Len())
+	}
+}

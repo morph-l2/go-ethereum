@@ -157,7 +157,8 @@ type inspector struct {
 type inspectTrieKind uint8
 
 const (
-	inspectAccountTrie inspectTrieKind = iota
+	inspectUnknownTrie inspectTrieKind = iota
+	inspectAccountTrie
 	inspectStorageTrie
 )
 

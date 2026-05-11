@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make. 
 
-.PHONY: geth android ios evm all test clean libzkp
+.PHONY: geth migration-checker gen-preimages android ios evm all test clean libzkp
 
 GOBIN = ./build/bin
 GO ?= latest
@@ -12,6 +12,16 @@ geth:
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/geth\" to launch geth."
+
+migration-checker:
+	$(GORUN) build/ci.go install ./cmd/migration-checker
+	@echo "Done building."
+	@echo "Run \"$(GOBIN)/migration-checker\" to launch migration-checker."
+
+gen-preimages:
+	$(GORUN) build/ci.go install ./cmd/gen-preimages
+	@echo "Done building."
+	@echo "Run \"$(GOBIN)/gen-preimages\" to launch gen-preimages."
 
 all:
 	$(GORUN) build/ci.go install

@@ -301,7 +301,7 @@ func testParamSelection(t *testing.T, c testCase) {
 	params := ParamsFromCurve(c.Curve)
 	if params == nil {
 		t.Fatal("ParamsFromCurve returned nil")
-	} else if params != nil && !cmpParams(params, c.Expected) {
+	} else if !cmpParams(params, c.Expected) {
 		t.Fatalf("ecies: parameters should be invalid (%s)\n", c.Name)
 	}
 
@@ -362,6 +362,26 @@ func TestBasicKeyValidation(t *testing.T) {
 	}
 }
 
+func TestDecryptRejectsCiphertextAtLegacyMinimumLength(t *testing.T) {
+	prv, err := GenerateKey(rand.Reader, DefaultCurve, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, err := pubkeyParams(&prv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rLen := (prv.PublicKey.Curve.Params().BitSize + 7) / 4
+	legacyMinLen := rLen + params.Hash().Size() + 1
+
+	ciphertext := make([]byte, legacyMinLen)
+	ciphertext[0] = 0x04
+
+	if _, err := prv.Decrypt(ciphertext, nil, nil); err != ErrInvalidMessage {
+		t.Fatalf("expected ErrInvalidMessage for legacy minimum ciphertext length, got %v", err)
+	}
+}
+
 func TestBox(t *testing.T) {
 	prv1 := hexKey("4b50fa71f5c3eeb8fdc452224b2395af2fcc3d125e06c32c82e048c0559db03f")
 	prv2 := hexKey("d0b043b4c5d657670778242d82d68a29d25d7d711127d17b8e299f156dad361a")
@@ -410,6 +430,47 @@ func TestSharedKeyStatic(t *testing.T) {
 	sk := decode("167ccc13ac5e8a26b131c3446030c60fbfac6aa8e31149d0869f93626a4cdf62")
 	if !bytes.Equal(sk1, sk) {
 		t.Fatalf("shared secret mismatch: want: %x have: %x", sk, sk1)
+	}
+}
+
+func TestGenerateSharedInvalidPublicKey(t *testing.T) {
+	prv, err := GenerateKey(rand.Reader, DefaultCurve, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skLen := MaxSharedKeyLength(&prv.PublicKey) / 2
+
+	// Off-curve point: valid-looking coordinates that don't satisfy y² = x³ + 7
+	offCurve := &PublicKey{
+		Curve:  DefaultCurve,
+		X:      big.NewInt(1),
+		Y:      big.NewInt(1),
+		Params: ParamsFromCurve(DefaultCurve),
+	}
+	if _, err := prv.GenerateShared(offCurve, skLen, skLen); err != ErrInvalidPublicKey {
+		t.Fatalf("expected ErrInvalidPublicKey for off-curve point, got %v", err)
+	}
+
+	// Nil X coordinate
+	nilX := &PublicKey{
+		Curve:  DefaultCurve,
+		X:      nil,
+		Y:      big.NewInt(1),
+		Params: ParamsFromCurve(DefaultCurve),
+	}
+	if _, err := prv.GenerateShared(nilX, skLen, skLen); err != ErrInvalidPublicKey {
+		t.Fatalf("expected ErrInvalidPublicKey for nil X, got %v", err)
+	}
+
+	// Nil Y coordinate
+	nilY := &PublicKey{
+		Curve:  DefaultCurve,
+		X:      big.NewInt(1),
+		Y:      nil,
+		Params: ParamsFromCurve(DefaultCurve),
+	}
+	if _, err := prv.GenerateShared(nilY, skLen, skLen); err != ErrInvalidPublicKey {
+		t.Fatalf("expected ErrInvalidPublicKey for nil Y, got %v", err)
 	}
 }
 

@@ -234,9 +234,12 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	gaspool := new(core.GasPool)
 	gaspool.AddGas(block.GasLimit())
 
-	l1DataFee, err := fees.CalculateL1DataFee(&ttx, state.StateDB, config, block.Number())
-	if err != nil {
-		return nil, nil, common.Hash{}, err
+	l1DataFee := big.NewInt(0)
+	if len(post.TxBytes) != 0 {
+		l1DataFee, err = fees.CalculateL1DataFee(&ttx, state.StateDB, config, block.Number())
+		if err != nil {
+			return nil, nil, common.Hash{}, err
+		}
 	}
 
 	if _, err = core.ApplyMessage(evm, msg, gaspool, l1DataFee); err != nil {

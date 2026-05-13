@@ -628,6 +628,215 @@ func setupSyncer(peers ...*testPeer) *Syncer {
 	return syncer
 }
 
+type revertRequestScenario struct {
+	name           string
+	prepare        func(s *Syncer, peerID string)
+	revert         func(s *Syncer)
+	requestTracked func(s *Syncer) bool
+	peerIdle       func(s *Syncer, peerID string) bool
+}
+
+func makeRevertRequestScenarios() []func() revertRequestScenario {
+	return []func() revertRequestScenario{
+		func() revertRequestScenario {
+			var req *accountRequest
+			return revertRequestScenario{
+				name: "account",
+				prepare: func(s *Syncer, peerID string) {
+					task := &accountTask{}
+					req = &accountRequest{
+						peer:    peerID,
+						id:      1,
+						timeout: time.NewTimer(time.Hour),
+						stale:   make(chan struct{}),
+						task:    task,
+					}
+					task.req = req
+					s.accountReqs[req.id] = req
+					delete(s.accountIdlers, peerID)
+				},
+				revert: func(s *Syncer) { s.revertAccountRequest(req) },
+				requestTracked: func(s *Syncer) bool {
+					_, ok := s.accountReqs[1]
+					return ok
+				},
+				peerIdle: func(s *Syncer, peerID string) bool {
+					_, ok := s.accountIdlers[peerID]
+					return ok
+				},
+			}
+		},
+		func() revertRequestScenario {
+			var req *bytecodeRequest
+			return revertRequestScenario{
+				name: "bytecode",
+				prepare: func(s *Syncer, peerID string) {
+					task := &accountTask{codeTasks: make(map[common.Hash]struct{})}
+					req = &bytecodeRequest{
+						peer:    peerID,
+						id:      1,
+						timeout: time.NewTimer(time.Hour),
+						stale:   make(chan struct{}),
+						hashes:  []common.Hash{common.HexToHash("0x01")},
+						task:    task,
+					}
+					s.bytecodeReqs[req.id] = req
+					delete(s.bytecodeIdlers, peerID)
+				},
+				revert: func(s *Syncer) { s.revertBytecodeRequest(req) },
+				requestTracked: func(s *Syncer) bool {
+					_, ok := s.bytecodeReqs[1]
+					return ok
+				},
+				peerIdle: func(s *Syncer, peerID string) bool {
+					_, ok := s.bytecodeIdlers[peerID]
+					return ok
+				},
+			}
+		},
+		func() revertRequestScenario {
+			var req *storageRequest
+			return revertRequestScenario{
+				name: "storage",
+				prepare: func(s *Syncer, peerID string) {
+					task := &storageTask{}
+					req = &storageRequest{
+						peer:    peerID,
+						id:      1,
+						timeout: time.NewTimer(time.Hour),
+						stale:   make(chan struct{}),
+						subTask: task,
+					}
+					task.req = req
+					s.storageReqs[req.id] = req
+					delete(s.storageIdlers, peerID)
+				},
+				revert: func(s *Syncer) { s.revertStorageRequest(req) },
+				requestTracked: func(s *Syncer) bool {
+					_, ok := s.storageReqs[1]
+					return ok
+				},
+				peerIdle: func(s *Syncer, peerID string) bool {
+					_, ok := s.storageIdlers[peerID]
+					return ok
+				},
+			}
+		},
+		func() revertRequestScenario {
+			var req *trienodeHealRequest
+			return revertRequestScenario{
+				name: "trienode heal",
+				prepare: func(s *Syncer, peerID string) {
+					task := &healTask{trieTasks: make(map[common.Hash]trie.SyncPath)}
+					req = &trienodeHealRequest{
+						peer:    peerID,
+						id:      1,
+						timeout: time.NewTimer(time.Hour),
+						stale:   make(chan struct{}),
+						hashes:  []common.Hash{common.HexToHash("0x02")},
+						paths:   []trie.SyncPath{nil},
+						task:    task,
+					}
+					s.trienodeHealReqs[req.id] = req
+					delete(s.trienodeHealIdlers, peerID)
+				},
+				revert: func(s *Syncer) { s.revertTrienodeHealRequest(req) },
+				requestTracked: func(s *Syncer) bool {
+					_, ok := s.trienodeHealReqs[1]
+					return ok
+				},
+				peerIdle: func(s *Syncer, peerID string) bool {
+					_, ok := s.trienodeHealIdlers[peerID]
+					return ok
+				},
+			}
+		},
+		func() revertRequestScenario {
+			var req *bytecodeHealRequest
+			return revertRequestScenario{
+				name: "bytecode heal",
+				prepare: func(s *Syncer, peerID string) {
+					task := &healTask{codeTasks: make(map[common.Hash]struct{})}
+					req = &bytecodeHealRequest{
+						peer:    peerID,
+						id:      1,
+						timeout: time.NewTimer(time.Hour),
+						stale:   make(chan struct{}),
+						hashes:  []common.Hash{common.HexToHash("0x03")},
+						task:    task,
+					}
+					s.bytecodeHealReqs[req.id] = req
+					delete(s.bytecodeHealIdlers, peerID)
+				},
+				revert: func(s *Syncer) { s.revertBytecodeHealRequest(req) },
+				requestTracked: func(s *Syncer) bool {
+					_, ok := s.bytecodeHealReqs[1]
+					return ok
+				},
+				peerIdle: func(s *Syncer, peerID string) bool {
+					_, ok := s.bytecodeHealIdlers[peerID]
+					return ok
+				},
+			}
+		},
+	}
+}
+
+func TestRevertRequestsReturnPeersToIdlePools(t *testing.T) {
+	t.Parallel()
+
+	for _, makeScenario := range makeRevertRequestScenarios() {
+		scenario := makeScenario()
+		t.Run(scenario.name, func(t *testing.T) {
+			peer := newTestPeer("peer", t, func() {})
+			syncer := setupSyncer(peer)
+
+			scenario.prepare(syncer, peer.ID())
+			if !scenario.requestTracked(syncer) {
+				t.Fatal("request should be tracked before revert")
+			}
+			if scenario.peerIdle(syncer, peer.ID()) {
+				t.Fatal("peer should be busy before revert")
+			}
+
+			scenario.revert(syncer)
+
+			if scenario.requestTracked(syncer) {
+				t.Fatal("request should be removed after revert")
+			}
+			if !scenario.peerIdle(syncer, peer.ID()) {
+				t.Fatal("peer should be returned to the idle pool")
+			}
+		})
+	}
+}
+
+func TestRevertRequestsSkipDroppedPeers(t *testing.T) {
+	t.Parallel()
+
+	for _, makeScenario := range makeRevertRequestScenarios() {
+		scenario := makeScenario()
+		t.Run(scenario.name, func(t *testing.T) {
+			peer := newTestPeer("peer", t, func() {})
+			syncer := setupSyncer(peer)
+
+			scenario.prepare(syncer, peer.ID())
+			if err := syncer.Unregister(peer.ID()); err != nil {
+				t.Fatalf("failed to unregister peer: %v", err)
+			}
+
+			scenario.revert(syncer)
+
+			if scenario.requestTracked(syncer) {
+				t.Fatal("request should be removed after revert")
+			}
+			if scenario.peerIdle(syncer, peer.ID()) {
+				t.Fatal("dropped peer should not be returned to the idle pool")
+			}
+		})
+	}
+}
+
 // TestSync tests a basic sync with one peer
 func TestSync(t *testing.T) {
 	t.Parallel()
@@ -1694,7 +1903,7 @@ func TestSyncAccountPerformance(t *testing.T) {
 	// Doing so would bring this number down to zero in this artificial testcase,
 	// but only add extra IO for no reason in practice.
 	if have, want := src.nTrienodeRequests, 1; have != want {
-		fmt.Printf(src.Stats())
+		fmt.Print(src.Stats())
 		t.Errorf("trie node heal requests wrong, want %d, have %d", want, have)
 	}
 }

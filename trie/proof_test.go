@@ -892,6 +892,175 @@ func TestAllElementsEmptyValueRangeProof(t *testing.T) {
 	}
 }
 
+// TestRangeProofKeysOutOfRange verifies that VerifyRangeProof rejects a
+// response whose first or last key falls outside the requested
+// [firstKey, lastKey] window. This mirrors the defense-in-depth added by
+// upstream PR #33898 (v1.17.1). The test also exercises the guard
+// conditions:
+//
+//   - len(keys) == 0 must skip the boundary check so the dedicated
+//     empty-range branch still runs
+//   - lastKey == nil must skip the upper-bound check (morph keeps the
+//     upstream-removed `lastKey` parameter so whole-trie callers pass nil)
+//   - the check runs before the proof == nil whole-trie branch, so
+//     out-of-range full-trie responses are rejected early
+func TestRangeProofKeysOutOfRange(t *testing.T) {
+	trie, values := randomTrie(4096)
+	var entries entrySlice
+	for _, kv := range values {
+		entries = append(entries, kv)
+	}
+	sort.Sort(entries)
+
+	const (
+		start = 100
+		end   = 200
+	)
+	// newProof builds a fresh edge proof covering entries[start..end-1].
+	newProof := func() *memorydb.Database {
+		p := memorydb.New()
+		if err := trie.Prove(entries[start].k, 0, p); err != nil {
+			t.Fatalf("failed to prove first key: %v", err)
+		}
+		if err := trie.Prove(entries[end-1].k, 0, p); err != nil {
+			t.Fatalf("failed to prove last key: %v", err)
+		}
+		return p
+	}
+	// newKeysVals returns a fresh, independent copy of the slice pair so
+	// each subtest can mutate its own firstKey/lastKey without leaking into
+	// sibling subtests.
+	newKeysVals := func() (keys, vals [][]byte) {
+		for i := start; i < end; i++ {
+			keys = append(keys, common.CopyBytes(entries[i].k))
+			vals = append(vals, common.CopyBytes(entries[i].v))
+		}
+		return
+	}
+
+	t.Run("first_before_start", func(t *testing.T) {
+		keys, vals := newKeysVals()
+		if len(keys) <= 1 {
+			t.Skip("need at least 2 keys")
+		}
+		// keys[1] is the requested start; keys[0] is strictly before it.
+		firstKey := common.CopyBytes(keys[1])
+		lastKey := common.CopyBytes(keys[len(keys)-1])
+		_, err := VerifyRangeProof(trie.Hash(), firstKey, lastKey, keys, vals, newProof())
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if want := "first returned key is before the requested start"; err.Error() != want {
+			t.Fatalf("unexpected error: got %q, want %q", err, want)
+		}
+	})
+
+	t.Run("last_after_end", func(t *testing.T) {
+		keys, vals := newKeysVals()
+		if len(keys) <= 1 {
+			t.Skip("need at least 2 keys")
+		}
+		firstKey := common.CopyBytes(keys[0])
+		// keys[len-2] is the requested end; keys[len-1] is strictly after it.
+		lastKey := common.CopyBytes(keys[len(keys)-2])
+		_, err := VerifyRangeProof(trie.Hash(), firstKey, lastKey, keys, vals, newProof())
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if want := "last returned key is after the requested end"; err.Error() != want {
+			t.Fatalf("unexpected error: got %q, want %q", err, want)
+		}
+	})
+
+	t.Run("exact_boundary_ok", func(t *testing.T) {
+		keys, vals := newKeysVals()
+		firstKey := common.CopyBytes(keys[0])
+		lastKey := common.CopyBytes(keys[len(keys)-1])
+		_, err := VerifyRangeProof(trie.Hash(), firstKey, lastKey, keys, vals, newProof())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("last_key_nil_skips_upper_bound", func(t *testing.T) {
+		// With lastKey == nil the upper-bound check must be bypassed. Use
+		// the whole-trie proof==nil path, which is exactly the morph
+		// caller shape that relies on the guard.
+		var keys, vals [][]byte
+		for _, e := range entries {
+			keys = append(keys, e.k)
+			vals = append(vals, e.v)
+		}
+		_, err := VerifyRangeProof(trie.Hash(), nil, nil, keys, vals, nil)
+		if err != nil {
+			t.Fatalf("expected no error when lastKey == nil, got %v", err)
+		}
+	})
+
+	t.Run("empty_keys_skips_check", func(t *testing.T) {
+		// When len(keys) == 0 the boundary check must not fire; control
+		// flow should fall through to the dedicated empty-range branch.
+		proof := memorydb.New()
+		first := increseKey(common.CopyBytes(entries[len(entries)-1].k))
+		if err := trie.Prove(first, 0, proof); err != nil {
+			t.Fatalf("failed to prove non-existent tail key: %v", err)
+		}
+		_, err := VerifyRangeProof(trie.Hash(), first, nil, nil, nil, proof)
+		if err != nil {
+			t.Fatalf("expected no error when len(keys) == 0, got %v", err)
+		}
+	})
+
+	t.Run("proof_nil_rejects_out_of_range", func(t *testing.T) {
+		// The boundary check must run before the proof == nil whole-trie
+		// branch so out-of-range responses are rejected before trie
+		// reconstruction.
+		keys, vals := newKeysVals()
+		firstKey := increseKey(common.CopyBytes(keys[0]))
+		_, err := VerifyRangeProof(trie.Hash(), firstKey, nil, keys, vals, nil)
+		if err == nil {
+			t.Fatalf("expected out-of-range rejection, got nil")
+		}
+		if want := "first returned key is before the requested start"; err.Error() != want {
+			t.Fatalf("unexpected error: got %q, want %q", err, want)
+		}
+	})
+}
+
+// TestRangeProofPathPrefix verifies that VerifyRangeProof does not reject a
+// batch solely because a shorter key is a byte-prefix of a longer key; such
+// pairs are valid MPT entries. The pair is still rejected further down due to
+// the current same-length edge-key requirement.
+func TestRangeProofPathPrefix(t *testing.T) {
+	tr := new(Trie)
+	kShort := []byte{0x01, 0x02}
+	kLong := []byte{0x01, 0x02, 0x03}
+	tr.Update(kShort, []byte("short"))
+	tr.Update(kLong, []byte("long"))
+
+	proof := memorydb.New()
+	if err := tr.Prove(kShort, 0, proof); err != nil {
+		t.Fatalf("failed to prove kShort: %v", err)
+	}
+	if err := tr.Prove(kLong, 0, proof); err != nil {
+		t.Fatalf("failed to prove kLong: %v", err)
+	}
+	_, err := VerifyRangeProof(
+		tr.Hash(),
+		kShort,
+		kLong,
+		[][]byte{kShort, kLong},
+		[][]byte{[]byte("short"), []byte("long")},
+		proof,
+	)
+	if err == nil {
+		t.Fatalf("expected error due to unequal edge-key lengths, got nil")
+	}
+	if want := "inconsistent edge keys"; err.Error() != want {
+		t.Fatalf("unexpected error: got %q, want %q", err, want)
+	}
+}
+
 // mutateByte changes one byte in b.
 func mutateByte(b []byte) {
 	for r := mrand.Intn(len(b)); ; {

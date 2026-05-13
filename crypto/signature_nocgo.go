@@ -24,6 +24,7 @@ import (
 	"crypto/elliptic"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	btc_ecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -56,7 +57,11 @@ func SigToPub(hash, sig []byte) (*ecdsa.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pub.ToECDSA(), nil
+	return &ecdsa.PublicKey{
+		Curve: S256(),
+		X:     pub.X(),
+		Y:     pub.Y(),
+	}, nil
 }
 
 // Sign calculates an ECDSA signature.
@@ -71,7 +76,7 @@ func Sign(hash []byte, prv *ecdsa.PrivateKey) ([]byte, error) {
 	if len(hash) != 32 {
 		return nil, fmt.Errorf("hash is required to be exactly 32 bytes (%d)", len(hash))
 	}
-	if prv.Curve != btcec.S256() {
+	if prv.Curve != S256() {
 		return nil, errors.New("private key curve is not secp256k1")
 	}
 	// ecdsa.PrivateKey -> btcec.PrivateKey
@@ -126,7 +131,11 @@ func DecompressPubkey(pubkey []byte) (*ecdsa.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return key.ToECDSA(), nil
+	return &ecdsa.PublicKey{
+		Curve: S256(),
+		X:     key.X(),
+		Y:     key.Y(),
+	}, nil
 }
 
 // CompressPubkey encodes a public key to the 33-byte compressed format. The
@@ -146,5 +155,22 @@ func CompressPubkey(pubkey *ecdsa.PublicKey) []byte {
 
 // S256 returns an instance of the secp256k1 curve.
 func S256() elliptic.Curve {
-	return btcec.S256()
+	return btCurve{btcec.S256()}
+}
+
+type btCurve struct {
+	*btcec.KoblitzCurve
+}
+
+func (curve btCurve) IsOnCurve(x, y *big.Int) bool {
+	if x == nil || y == nil {
+		return false
+	}
+	if x.Sign() < 0 || x.Cmp(btcec.Params().P) >= 0 {
+		return false
+	}
+	if y.Sign() < 0 || y.Cmp(btcec.Params().P) >= 0 {
+		return false
+	}
+	return curve.KoblitzCurve.IsOnCurve(x, y)
 }

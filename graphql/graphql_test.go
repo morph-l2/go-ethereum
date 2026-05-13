@@ -105,6 +105,37 @@ func TestGraphQLMaxDepth(t *testing.T) {
 	t.Fatalf("expected max depth exceeded error, got %v", res.Errors)
 }
 
+func TestGraphQLUIRegisteredWithTrailingSlash(t *testing.T) {
+	ddir, err := ioutil.TempDir("", "graphql-ui")
+	if err != nil {
+		t.Fatalf("failed to create temporary datadir: %v", err)
+	}
+	stack, err := node.New(&node.Config{
+		DataDir:      ddir,
+		HTTPHost:     "127.0.0.1",
+		HTTPPort:     0,
+		HTTPTimeouts: node.DefaultConfig.HTTPTimeouts,
+	})
+	if err != nil {
+		t.Fatalf("could not create node: %v", err)
+	}
+	defer stack.Close()
+	if _, err := newHandler(stack, nil, nil, []string{}, []string{}); err != nil {
+		t.Fatalf("could not construct GraphQL handler: %v", err)
+	}
+	if err := stack.Start(); err != nil {
+		t.Fatalf("could not start node: %v", err)
+	}
+	resp, err := http.Get(fmt.Sprintf("%s/graphql/ui/", stack.HTTPEndpoint()))
+	if err != nil {
+		t.Fatalf("could not get GraphQL UI: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status for /graphql/ui/: got %d want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
 // Tests that a graphQL request is successfully handled when graphql is enabled on the specified endpoint
 func TestGraphQLBlockSerialization(t *testing.T) {
 	stack := createNode(t, true, false)

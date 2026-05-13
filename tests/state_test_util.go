@@ -242,7 +242,31 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 		}
 	}
 
-	if _, err = core.ApplyMessage(evm, msg, gaspool, l1DataFee); err != nil {
+	var traceTx *types.Transaction
+	if len(post.TxBytes) != 0 {
+		traceTx = &ttx
+	} else {
+		traceTx = types.NewTx(&types.LegacyTx{
+			Nonce:    msg.Nonce(),
+			To:       msg.To(),
+			Value:    msg.Value(),
+			Gas:      msg.Gas(),
+			GasPrice: msg.GasPrice(),
+			Data:     msg.Data(),
+		})
+	}
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
+		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), traceTx, msg.From())
+	}
+	vmret, err := core.ApplyMessage(evm, msg, gaspool, l1DataFee)
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxEnd != nil {
+		gasUsed := uint64(0)
+		if vmret != nil {
+			gasUsed = vmret.UsedGas
+		}
+		evm.Config.Tracer.OnTxEnd(&types.Receipt{GasUsed: gasUsed}, err)
+	}
+	if err != nil {
 		state.StateDB.RevertToSnapshot(snapshot)
 	}
 

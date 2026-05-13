@@ -271,14 +271,14 @@ func main() {
 // tracerFromFlags parses the cli flags and returns the specified tracer.
 func tracerFromFlags(ctx *cli.Context) *tracing.Hooks {
 	config := &logger.Config{
-		EnableMemory:     !ctx.Bool(TraceDisableMemoryFlag.Name),
-		DisableStack:     ctx.Bool(TraceDisableStackFlag.Name),
-		DisableStorage:   ctx.Bool(TraceDisableStorageFlag.Name),
-		EnableReturnData: !ctx.Bool(TraceDisableReturnDataFlag.Name),
+		EnableMemory:     !ctx.GlobalBool(TraceDisableMemoryFlag.Name),
+		DisableStack:     ctx.GlobalBool(TraceDisableStackFlag.Name),
+		DisableStorage:   ctx.GlobalBool(TraceDisableStorageFlag.Name),
+		EnableReturnData: !ctx.GlobalBool(TraceDisableReturnDataFlag.Name),
 	}
 	switch {
-	case ctx.Bool(TraceFlag.Name):
-		switch format := ctx.String(TraceFormatFlag.Name); format {
+	case ctx.GlobalBool(TraceFlag.Name):
+		switch format := ctx.GlobalString(TraceFormatFlag.Name); format {
 		case "struct":
 			return logger.NewStreamingStructLogger(config, os.Stderr).Hooks()
 		case "json":
@@ -291,9 +291,9 @@ func tracerFromFlags(ctx *cli.Context) *tracing.Hooks {
 			return nil
 		}
 	// Deprecated ways of configuring tracing.
-	case ctx.Bool(MachineFlag.Name):
+	case ctx.GlobalBool(MachineFlag.Name):
 		return logger.NewJSONLogger(config, os.Stderr)
-	case ctx.Bool(DebugFlag.Name):
+	case ctx.GlobalBool(DebugFlag.Name):
 		return logger.NewStreamingStructLogger(config, os.Stderr).Hooks()
 	default:
 		return nil

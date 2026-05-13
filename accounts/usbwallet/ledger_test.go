@@ -45,3 +45,25 @@ func TestLedgerEIP155Version(t *testing.T) {
 		})
 	}
 }
+
+func TestLedgerEIP712Version(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     [3]byte
+		unsupported bool
+	}{
+		{name: "0.0.0", version: [3]byte{0, 0, 0}, unsupported: true},
+		{name: "0.9.9", version: [3]byte{0, 9, 9}, unsupported: true},
+		{name: "1.4.9", version: [3]byte{1, 4, 9}, unsupported: true},
+		{name: "1.5.0", version: [3]byte{1, 5, 0}},
+		{name: "1.6.0", version: [3]byte{1, 6, 0}},
+		{name: "2.0.0", version: [3]byte{2, 0, 0}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if unsupported := ledgerEIP712Unsupported(test.version); unsupported != test.unsupported {
+				t.Fatalf("unsupported mismatch: have %v, want %v", unsupported, test.unsupported)
+			}
+		})
+	}
+}

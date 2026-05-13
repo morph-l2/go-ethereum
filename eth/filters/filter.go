@@ -26,6 +26,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/bloombits"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
@@ -56,7 +57,11 @@ type ReceiptWithTx struct {
 
 func filterReceipts(txHashes map[common.Hash]bool, ev core.ChainEvent) []*ReceiptWithTx {
 	receipts, txs := ev.Receipts, ev.Transactions
-	if len(receipts) == 0 || len(receipts) != len(txs) {
+	if len(receipts) != len(txs) {
+		log.Debug("Skipping chain event with mismatched receipts and transactions", "hash", ev.Hash, "receipts", len(receipts), "transactions", len(txs))
+		return nil
+	}
+	if len(receipts) == 0 {
 		return nil
 	}
 	header := ev.Header

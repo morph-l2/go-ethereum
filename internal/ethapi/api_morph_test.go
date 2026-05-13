@@ -766,16 +766,17 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 
 type txSyncTestBackend struct {
 	Backend
-	feed           event.Feed
-	chainConfig    *params.ChainConfig
-	syncEnabled    bool
-	defaultTimeout time.Duration
-	maxTimeout     time.Duration
-	sendEvent      bool
-	mineOnSend     bool
-	minedBlock     *types.Block
-	minedReceipts  types.Receipts
-	minedTx        *types.Transaction
+	feed             event.Feed
+	chainConfig      *params.ChainConfig
+	syncEnabled      bool
+	defaultTimeout   time.Duration
+	maxTimeout       time.Duration
+	sendEvent        bool
+	mineOnSend       bool
+	failHeaderByHash bool
+	minedBlock       *types.Block
+	minedReceipts    types.Receipts
+	minedTx          *types.Transaction
 }
 
 func newTxSyncTestBackend(sendEvent bool) *txSyncTestBackend {
@@ -843,6 +844,9 @@ func (b *txSyncTestBackend) GetReceipts(ctx context.Context, hash common.Hash) (
 	return nil, nil
 }
 func (b *txSyncTestBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+	if b.failHeaderByHash {
+		return nil, errors.New("header temporarily unavailable")
+	}
 	if b.minedBlock != nil && b.minedBlock.Hash() == hash {
 		return b.minedBlock.Header(), nil
 	}
@@ -910,6 +914,22 @@ func TestSendRawTransactionSyncFastReceiptSuccess(t *testing.T) {
 	}
 	if got := receipt["blockNumber"]; got != hexutil.Uint64(1) {
 		t.Fatalf("unexpected block number: got %v want %v", got, hexutil.Uint64(1))
+	}
+}
+
+func TestSendRawTransactionSyncFastReceiptErrorFallsBackToEvent(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(true)
+	backend.mineOnSend = true
+	backend.failHeaderByHash = true
+	api := NewPublicTransactionPoolAPI(backend, nil)
+
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err != nil {
+		t.Fatalf("SendRawTransactionSync failed: %v", err)
+	}
+	if got := receipt["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
 	}
 }
 

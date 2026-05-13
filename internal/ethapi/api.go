@@ -2282,8 +2282,6 @@ func (s *PublicTransactionPoolAPI) SendRawTransactionSync(ctx context.Context, i
 
 	if receipt, err := s.GetTransactionReceipt(receiptCtx, hash); err == nil && receipt != nil {
 		return receipt, nil
-	} else if err != nil {
-		return nil, err
 	}
 
 	for {
@@ -2318,15 +2316,19 @@ func (s *PublicTransactionPoolAPI) SendRawTransactionSync(ctx context.Context, i
 
 func (s *PublicTransactionPoolAPI) receiptFromChainEvent(ctx context.Context, ev core.ChainEvent, hash common.Hash) (map[string]interface{}, error) {
 	rs, txs := ev.Receipts, ev.Transactions
-	if len(rs) == 0 || len(rs) != len(txs) {
-		return s.GetTransactionReceipt(ctx, hash)
+	if len(rs) != len(txs) {
+		log.Debug("Falling back for chain event with mismatched receipts and transactions", "hash", ev.Hash, "receipts", len(rs), "transactions", len(txs))
+		return s.getTransactionReceiptFallback(ctx, hash)
+	}
+	if len(rs) == 0 {
+		return s.getTransactionReceiptFallback(ctx, hash)
 	}
 	header := ev.Header
 	if header == nil && ev.Block != nil {
 		header = ev.Block.Header()
 	}
 	if header == nil {
-		return s.GetTransactionReceipt(ctx, hash)
+		return s.getTransactionReceiptFallback(ctx, hash)
 	}
 	blockHash := ev.Hash
 	if blockHash == (common.Hash{}) {
@@ -2342,6 +2344,15 @@ func (s *PublicTransactionPoolAPI) receiptFromChainEvent(ctx context.Context, ev
 		return marshalReceiptWithHeader(ctx, s.b, receipt, bigblock, blockHash, blockNumber, header, signer, txs[i], i)
 	}
 	return nil, nil
+}
+
+func (s *PublicTransactionPoolAPI) getTransactionReceiptFallback(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
+	receipt, err := s.GetTransactionReceipt(ctx, hash)
+	if err != nil {
+		log.Debug("Failed to retrieve transaction receipt during chain event fallback", "hash", hash, "err", err)
+		return nil, nil
+	}
+	return receipt, nil
 }
 
 // Sign calculates an ECDSA signature for:

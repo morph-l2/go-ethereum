@@ -18,6 +18,7 @@ package filters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -383,6 +384,18 @@ func TestTransactionReceiptsSubscriptionGeneratedChain(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for generated-chain receipts")
+	}
+}
+
+func TestTransactionReceiptsRejectsTooManyHashes(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	hashes := make([]common.Hash, maxTxHashes+1)
+	_, err := api.TransactionReceipts(context.Background(), &TransactionReceiptsQuery{TransactionHashes: hashes})
+	if !errors.Is(err, errExceedMaxTxHashes) {
+		t.Fatalf("unexpected error: got %v want %v", err, errExceedMaxTxHashes)
 	}
 }
 

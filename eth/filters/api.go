@@ -313,12 +313,12 @@ func (args *TransactionReceiptsQuery) UnmarshalJSON(data []byte) error {
 // TransactionReceipts creates a subscription that sends receipt batches when
 // transactions are included in blocks.
 func (api *FilterAPI) TransactionReceipts(ctx context.Context, filter *TransactionReceiptsQuery) (*rpc.Subscription, error) {
+	if filter != nil && len(filter.TransactionHashes) > maxTxHashes {
+		return nil, errExceedMaxTxHashes
+	}
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
-	}
-	if filter != nil && len(filter.TransactionHashes) > maxTxHashes {
-		return nil, errExceedMaxTxHashes
 	}
 
 	var txHashes []common.Hash

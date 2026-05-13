@@ -42,6 +42,34 @@ import (
 )
 
 var (
+	inspectTrieTopFlag = cli.IntFlag{
+		Name:  "top",
+		Usage: "Number of storage tries to include in the top-N ranking (must be > 0)",
+		Value: 10,
+	}
+	inspectTrieExcludeStorageFlag = cli.BoolFlag{
+		Name:  "exclude-storage",
+		Usage: "Skip walking per-account storage tries",
+	}
+	inspectTrieOutputFileFlag = cli.StringFlag{
+		Name:  "output",
+		Usage: "Write the report as JSON to the given file (default: stdout summary)",
+	}
+	inspectTrieDumpPathFlag = cli.StringFlag{
+		Name:  "dump-path",
+		Usage: "Path for the pass-1 trie dump file (default: <datadir>/trie-dump.bin)",
+	}
+	inspectTrieSummarizeFlag = cli.StringFlag{
+		Name:  "summarize",
+		Usage: "Summarize an existing trie dump file (skips trie traversal)",
+	}
+	inspectTrieContractFlag = cli.StringFlag{
+		Name:  "contract",
+		Usage: "Inspect a single contract's storage footprint by 0x address",
+	}
+)
+
+var (
 	removedbCommand = cli.Command{
 		Action:    utils.MigrateFlags(removeDB),
 		Name:      "removedb",
@@ -61,6 +89,7 @@ Remove blockchain and state databases`,
 		Category:  "DATABASE COMMANDS",
 		Subcommands: []cli.Command{
 			dbInspectCmd,
+			dbInspectTrieCmd,
 			dbStatCmd,
 			dbCompactCmd,
 			dbGetCmd,
@@ -71,6 +100,52 @@ Remove blockchain and state databases`,
 			dbImportCmd,
 			dbExportCmd,
 		},
+	}
+	dbInspectTrieCmd = cli.Command{
+		Action:    utils.MigrateFlags(inspectTrie),
+		Name:      "inspect-trie",
+		ArgsUsage: "[blocknum|latest|snapshot]",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.AncientFlag,
+			utils.SyncModeFlag,
+			utils.MainnetFlag,
+			utils.RopstenFlag,
+			utils.SepoliaFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+			utils.MorphFlag,
+			utils.MorphHoleskyFlag,
+			utils.MorphHoodiFlag,
+			inspectTrieTopFlag,
+			inspectTrieExcludeStorageFlag,
+			inspectTrieOutputFileFlag,
+			inspectTrieDumpPathFlag,
+			inspectTrieSummarizeFlag,
+			inspectTrieContractFlag,
+		},
+		Usage: "Walk an MPT state trie and report structural metrics",
+		Description: `This command walks the MPT-encoded account trie for the given target and,
+unless --exclude-storage is set, every non-empty storage trie. The walk
+is a two-pass operation: pass 1 streams per-storage-trie records into
+--dump-path (default <datadir>/trie-dump.bin), pass 2 summarizes the
+dump and prints tables to stdout (or writes JSON via --output).
+
+The argument selects the state to inspect:
+
+    latest               the current head (default if omitted)
+    <blocknum>           the canonical block at the given decimal height
+    snapshot             the state root recorded by the snapshot layer
+
+Alternative modes:
+
+    --summarize <path>   skip the walk and re-summarize an existing dump
+    --contract 0xADDR    inspect a single contract's storage trie + snap
+                         view, bypassing the top-N account-trie scan
+
+This command only supports MPT mode. It refuses to run against ZKTrie-
+encoded history (pre-JadeFork on morph mainnet/Holesky); target a block
+after the JadeFork activation time or run on an MPT-native chain.`,
 	}
 	dbInspectCmd = cli.Command{
 		Action:    utils.MigrateFlags(inspect),
@@ -355,6 +430,178 @@ func inspect(ctx *cli.Context) error {
 	defer db.Close()
 
 	return rawdb.InspectDatabase(db, prefix, start)
+}
+
+// inspectTrie is the handler for `geth db inspect-trie`. It dispatches to
+// one of three upstream-aligned modes depending on the flags supplied:
+//
+//   - --summarize <path>: skip the trie walk and re-analyze an existing
+//     pass-1 dump. Useful to regenerate a report cheaply after a long
+//     walk, or to share dumps across machines for offline inspection.
+//   - --contract 0xADDR: run trie.InspectContract against the resolved
+//     state root to compare the trie and snapshot views for one
+//     contract.
+//   - otherwise: run the two-pass inspector (pass 1 writes a dump, pass
+//     2 produces the summary) via trie.Inspect.
+//
+// The positional argument selects the state root for the trie-walk and
+// contract modes:
+//
+//	latest      (default)  head block's state root
+//	<blocknum>             canonical block at decimal height
+//	snapshot               state root recorded by the snapshot layer
+//
+// ZKTrie-encoded morph history is refused via trie.ErrUnsupportedTrieFormat.
+// This matches upstream's "MPT only" contract since the inspector does
+// not understand morph's zkTrie encoding.
+func inspectTrie(ctx *cli.Context) error {
+	topN := ctx.Int(inspectTrieTopFlag.Name)
+	if err := validateInspectTrieTopN(topN); err != nil {
+		return err
+	}
+
+	// Mode 1: summarize an existing dump. The trie database is not
+	// needed since we only read the binary dump.
+	if summarizePath := ctx.String(inspectTrieSummarizeFlag.Name); summarizePath != "" {
+		if ctx.NArg() > 0 {
+			return fmt.Errorf("block argument is not supported with --%s", inspectTrieSummarizeFlag.Name)
+		}
+		cfg := &trie.InspectConfig{
+			TopN:     topN,
+			Path:     ctx.String(inspectTrieOutputFileFlag.Name),
+			DumpPath: summarizePath,
+		}
+		log.Info("Summarizing trie dump", "path", summarizePath, "top", topN)
+		return trie.Summarize(summarizePath, cfg)
+	}
+
+	stack, _ := makeConfigNode(ctx)
+	defer stack.Close()
+
+	db := utils.MakeChainDatabase(ctx, stack, true)
+	defer db.Close()
+
+	root, blockNumber, blockTime, blockMetaKnown, err := resolveInspectTarget(ctx, db)
+	if err != nil {
+		return err
+	}
+
+	// Detect ZKTrie mode: when the chain uses ZKTrie format we must be
+	// able to confirm the target block is past JadeFork (where the trie
+	// switched to MPT). If block metadata is unknown we cannot make that
+	// determination, so we treat unknown metadata as unsafe and refuse.
+	chainConfig := rawdb.ReadChainConfig(db, rawdb.ReadCanonicalHash(db, 0))
+	if chainConfig != nil && chainConfig.Morph.UseZktrie && (!blockMetaKnown || !chainConfig.IsJadeFork(blockTime)) {
+		return fmt.Errorf("%w (block %d time %d predates or cannot confirm JadeFork)",
+			trie.ErrUnsupportedTrieFormat, blockNumber, blockTime)
+	}
+
+	triedb := trie.NewDatabase(db)
+
+	// Mode 2: single-contract inspection. The result is printed to
+	// stdout; --output/--dump-path are ignored in this mode because
+	// InspectContract emits a fixed report directly.
+	if contractArg := ctx.String(inspectTrieContractFlag.Name); contractArg != "" {
+		if !common.IsHexAddress(contractArg) {
+			return fmt.Errorf("invalid --%s value %q: not an address", inspectTrieContractFlag.Name, contractArg)
+		}
+		address := common.HexToAddress(contractArg)
+		log.Info("Inspecting contract", "address", address, "root", root, "block", blockNumber)
+		return trie.InspectContract(triedb, db, root, address)
+	}
+
+	// Mode 3: full two-pass trie inspection.
+	dumpPath := ctx.String(inspectTrieDumpPathFlag.Name)
+	if dumpPath == "" {
+		dumpPath = stack.ResolvePath("trie-dump.bin")
+	}
+	cfg := &trie.InspectConfig{
+		NoStorage: ctx.Bool(inspectTrieExcludeStorageFlag.Name),
+		TopN:      topN,
+		Path:      ctx.String(inspectTrieOutputFileFlag.Name),
+		DumpPath:  dumpPath,
+	}
+	log.Info("Inspecting trie",
+		"root", root,
+		"block", blockNumber,
+		"time", blockTime,
+		"excludeStorage", cfg.NoStorage,
+		"top", topN,
+		"dump", cfg.DumpPath,
+	)
+	start := time.Now()
+	if err := trie.Inspect(triedb, root, cfg); err != nil {
+		return err
+	}
+	log.Info("Trie inspection complete", "elapsed", common.PrettyDuration(time.Since(start)))
+	return nil
+}
+
+// resolveInspectTarget picks a state root and best-effort block metadata
+// from the positional argument. For the "snapshot" keyword it first tries to
+// recover canonical block metadata from the snapshot root; if no matching
+// header is available the block metadata is returned as unknown.
+func resolveInspectTarget(ctx *cli.Context, db ethdb.Database) (common.Hash, uint64, uint64, bool, error) {
+	if ctx.NArg() > 1 {
+		return common.Hash{}, 0, 0, false, fmt.Errorf("max 1 argument: %v", ctx.Command.ArgsUsage)
+	}
+
+	arg := "latest"
+	if ctx.NArg() == 1 {
+		arg = ctx.Args().Get(0)
+	}
+
+	if arg == "snapshot" {
+		return resolveSnapshotInspectTarget(db)
+	}
+
+	if arg == "latest" {
+		header := rawdb.ReadHeadHeader(db)
+		if header == nil {
+			return common.Hash{}, 0, 0, false, errors.New("head header not found; database may be empty")
+		}
+		return header.Root, header.Number.Uint64(), header.Time, true, nil
+	}
+
+	n, err := strconv.ParseUint(arg, 10, 64)
+	if err != nil {
+		return common.Hash{}, 0, 0, false, fmt.Errorf("invalid block argument %q: %w", arg, err)
+	}
+	hash := rawdb.ReadCanonicalHash(db, n)
+	if hash == (common.Hash{}) {
+		return common.Hash{}, 0, 0, false, fmt.Errorf("canonical hash for block %d not found", n)
+	}
+	header := rawdb.ReadHeader(db, hash, n)
+	if header == nil {
+		return common.Hash{}, 0, 0, false, fmt.Errorf("header for block %d / %x not found", n, hash)
+	}
+	return header.Root, header.Number.Uint64(), header.Time, true, nil
+}
+
+func resolveSnapshotInspectTarget(db ethdb.Database) (common.Hash, uint64, uint64, bool, error) {
+	root := rawdb.ReadSnapshotRoot(db)
+	if root == (common.Hash{}) {
+		return common.Hash{}, 0, 0, false, errors.New("snapshot root not found in database")
+	}
+	if header := rawdb.ReadHeadHeader(db); header != nil && header.Root == root {
+		return root, header.Number.Uint64(), header.Time, true, nil
+	}
+	if number := rawdb.ReadSnapshotRecoveryNumber(db); number != nil {
+		hash := rawdb.ReadCanonicalHash(db, *number)
+		if hash != (common.Hash{}) {
+			if header := rawdb.ReadHeader(db, hash, *number); header != nil && header.Root == root {
+				return root, header.Number.Uint64(), header.Time, true, nil
+			}
+		}
+	}
+	return root, 0, 0, false, nil
+}
+
+func validateInspectTrieTopN(topN int) error {
+	if topN <= 0 {
+		return fmt.Errorf("invalid --%s value %d (must be > 0)", inspectTrieTopFlag.Name, topN)
+	}
+	return nil
 }
 
 func showLeveldbStats(db ethdb.Stater) {

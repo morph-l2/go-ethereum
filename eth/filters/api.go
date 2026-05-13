@@ -30,6 +30,7 @@ import (
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
+	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
@@ -353,6 +354,8 @@ func (api *FilterAPI) TransactionReceipts(ctx context.Context, filter *Transacti
 					)
 					if err == nil {
 						marshaledReceipts = append(marshaledReceipts, marshaled)
+					} else {
+						log.Warn("Failed to marshal transaction receipt for subscription", "hash", receiptWithTx.Receipt.TxHash, "err", err)
 					}
 				}
 				if len(marshaledReceipts) > 0 {

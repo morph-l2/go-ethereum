@@ -1671,7 +1671,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
 	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
 	CheckExclusive(ctx, OverrideGenesisFlag, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
-	CheckExclusive(ctx, OverrideGenesisFlag, NetworkIdFlag)
+	CheckExclusive(ctx, OverrideGenesisFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	CheckExclusive(ctx, RPCRangeLimitFlag, MaxBlockRangeFlag)
@@ -1796,11 +1796,28 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.GlobalIsSet(RPCGlobalTxFeeCapFlag.Name) {
 		cfg.RPCTxFeeCap = ctx.GlobalFloat64(RPCGlobalTxFeeCapFlag.Name)
 	}
-	if ctx.GlobalIsSet(RPCTxSyncDefaultTimeoutFlag.Name) {
-		cfg.TxSyncDefaultTimeout = ctx.GlobalDuration(RPCTxSyncDefaultTimeoutFlag.Name)
+	txSyncDefaultTimeout := cfg.TxSyncDefaultTimeout
+	txSyncMaxTimeout := cfg.TxSyncMaxTimeout
+	txSyncDefaultTimeoutSet := ctx.GlobalIsSet(RPCTxSyncDefaultTimeoutFlag.Name)
+	txSyncMaxTimeoutSet := ctx.GlobalIsSet(RPCTxSyncMaxTimeoutFlag.Name)
+	if txSyncDefaultTimeoutSet {
+		txSyncDefaultTimeout = ctx.GlobalDuration(RPCTxSyncDefaultTimeoutFlag.Name)
 	}
-	if ctx.GlobalIsSet(RPCTxSyncMaxTimeoutFlag.Name) {
-		cfg.TxSyncMaxTimeout = ctx.GlobalDuration(RPCTxSyncMaxTimeoutFlag.Name)
+	if txSyncMaxTimeoutSet {
+		txSyncMaxTimeout = ctx.GlobalDuration(RPCTxSyncMaxTimeoutFlag.Name)
+	}
+	if txSyncDefaultTimeoutSet || txSyncMaxTimeoutSet {
+		if txSyncDefaultTimeout <= 0 {
+			Fatalf("--%s must be positive", RPCTxSyncDefaultTimeoutFlag.Name)
+		}
+		if txSyncMaxTimeout <= 0 {
+			Fatalf("--%s must be positive", RPCTxSyncMaxTimeoutFlag.Name)
+		}
+		if txSyncDefaultTimeout > txSyncMaxTimeout {
+			Fatalf("--%s must be less than or equal to --%s", RPCTxSyncDefaultTimeoutFlag.Name, RPCTxSyncMaxTimeoutFlag.Name)
+		}
+		cfg.TxSyncDefaultTimeout = txSyncDefaultTimeout
+		cfg.TxSyncMaxTimeout = txSyncMaxTimeout
 	}
 	if ctx.GlobalIsSet(RPCTxSyncEnabledFlag.Name) {
 		cfg.TxSyncEnabled = ctx.GlobalBool(RPCTxSyncEnabledFlag.Name)

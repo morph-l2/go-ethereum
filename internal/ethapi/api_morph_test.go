@@ -958,6 +958,17 @@ func TestSendRawTransactionSyncTimeout(t *testing.T) {
 	}
 }
 
+func TestSendRawTransactionSyncRejectsOverflowTimeout(t *testing.T) {
+	raw, _ := makeTxSyncRaw(t)
+	api := NewPublicTransactionPoolAPI(newTxSyncTestBackend(false), nil)
+	tooLarge := hexutil.Uint64(^uint64(0))
+
+	_, err := api.SendRawTransactionSync(context.Background(), raw, &tooLarge)
+	if err == nil || err.Error() != "transaction sync timeout too large" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 type blockReceiptsTestBackend struct {
 	Backend
 	chainConfig     *params.ChainConfig

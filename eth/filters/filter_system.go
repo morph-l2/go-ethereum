@@ -584,6 +584,14 @@ func (es *EventSystem) eventLoop() {
 			es.handleRemovedLogs(index, ev)
 		case ev := <-es.chainCh:
 			es.handleChainEvent(index, ev)
+			var headHash common.Hash
+			if ev.Block != nil {
+				headHash = ev.Block.Hash()
+			} else if ev.Header != nil {
+				headHash = ev.Header.Hash()
+			} else {
+				continue
+			}
 			// If we have no pending log subscription,
 			// we don't need to collect any pending logs.
 			if len(index[PendingLogsSubscription]) == 0 {
@@ -595,7 +603,7 @@ func (es *EventSystem) eventLoop() {
 			if pendingBlock == nil || pendingReceipts == nil {
 				continue
 			}
-			if pendingBlock.ParentHash() != ev.Block.Hash() {
+			if pendingBlock.ParentHash() != headHash {
 				continue
 			}
 			var logs []*types.Log

@@ -2256,6 +2256,21 @@ func (s *PublicTransactionPoolAPI) SendRawTransactionSync(ctx context.Context, i
 		return nil, err
 	}
 
+	timeout := s.b.RPCTxSyncDefaultTimeout()
+	if timeoutMs != nil && *timeoutMs > 0 {
+		const maxMs = uint64(time.Duration(math.MaxInt64) / time.Millisecond)
+		ms := uint64(*timeoutMs)
+		if ms > maxMs {
+			return nil, errors.New("transaction sync timeout too large")
+		}
+		requested := time.Duration(ms) * time.Millisecond
+		if max := s.b.RPCTxSyncMaxTimeout(); max > 0 && requested > max {
+			timeout = max
+		} else {
+			timeout = requested
+		}
+	}
+
 	ch := make(chan core.ChainEvent, 128)
 	sub := s.b.SubscribeChainEvent(ch)
 	if sub == nil {
@@ -2268,15 +2283,6 @@ func (s *PublicTransactionPoolAPI) SendRawTransactionSync(ctx context.Context, i
 		return nil, err
 	}
 
-	timeout := s.b.RPCTxSyncDefaultTimeout()
-	if timeoutMs != nil && *timeoutMs > 0 {
-		requested := time.Duration(*timeoutMs) * time.Millisecond
-		if max := s.b.RPCTxSyncMaxTimeout(); max > 0 && requested > max {
-			timeout = max
-		} else {
-			timeout = requested
-		}
-	}
 	receiptCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

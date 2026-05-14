@@ -746,8 +746,9 @@ func (ec *Client) SendTransactionSync(ctx context.Context, tx *types.Transaction
 // SendRawTransactionSync submits raw transaction bytes and waits for a receipt.
 func (ec *Client) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, error) {
 	var timeoutMs *hexutil.Uint64
-	if timeout != nil {
-		if ms := hexutil.Uint64(timeout.Milliseconds()); ms > 0 {
+	if timeout != nil && *timeout > 0 {
+		if timeoutMillis := timeout.Milliseconds(); timeoutMillis > 0 {
+			ms := hexutil.Uint64(timeoutMillis)
 			timeoutMs = &ms
 		}
 	}

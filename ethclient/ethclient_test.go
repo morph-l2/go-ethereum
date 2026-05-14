@@ -266,6 +266,29 @@ func TestSendRawTransactionSyncClient(t *testing.T) {
 	}
 }
 
+func TestSendRawTransactionSyncClientIgnoresNonPositiveTimeout(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		timeout := timeout
+		t.Run(timeout.String(), func(t *testing.T) {
+			service := &ethclientRPCService{
+				receipt: &types.Receipt{
+					Status: types.ReceiptStatusSuccessful,
+					Logs:   []*types.Log{},
+				},
+			}
+			client, cleanup := newEthclientRPC(t, service)
+			defer cleanup()
+
+			if _, err := client.SendRawTransactionSync(context.Background(), []byte{0x01}, &timeout); err != nil {
+				t.Fatalf("SendRawTransactionSync failed: %v", err)
+			}
+			if service.gotTimeout != nil {
+				t.Fatalf("expected nil timeout for %v, got %v", timeout, service.gotTimeout)
+			}
+		})
+	}
+}
+
 func TestTransactionReceiptsClient(t *testing.T) {
 	queryHash := common.HexToHash("0xabcd")
 	wantReceipt := &types.Receipt{

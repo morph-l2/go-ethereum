@@ -70,6 +70,9 @@ func WithWebsocketDialer(dialer websocket.Dialer) ClientOption {
 // WithWebsocketMessageSizeLimit configures the websocket message size limit used by the RPC
 // client. Passing a limit of 0 means no limit.
 func WithWebsocketMessageSizeLimit(messageSizeLimit int64) ClientOption {
+	if messageSizeLimit < 0 {
+		panic("websocket message size limit must be non-negative")
+	}
 	return optionFunc(func(cfg *clientConfig) {
 		cfg.wsMessageSizeLimit = &messageSizeLimit
 	})

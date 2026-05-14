@@ -565,8 +565,16 @@ func TestExceedLogQueryLimit(t *testing.T) {
 }
 
 func TestLogQueryLimitZeroDisablesWidthLimit(t *testing.T) {
+	testLogQueryLimitDisablesWidthLimit(t, 0)
+}
+
+func TestLogQueryLimitNegativeDisablesWidthLimit(t *testing.T) {
+	testLogQueryLimitDisablesWidthLimit(t, -1)
+}
+
+func testLogQueryLimitDisablesWidthLimit(t *testing.T, logQueryLimit int) {
 	db := rawdb.NewMemoryDatabase()
-	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: 0})
+	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: logQueryLimit})
 	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
 
 	crit := FilterCriteria{

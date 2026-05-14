@@ -386,7 +386,7 @@ func validateLogQuery(crit ethereum.FilterQuery, logQueryLimit int) error {
 	if len(crit.Topics) > maxTopics {
 		return errExceedMaxTopics
 	}
-	if logQueryLimit == 0 {
+	if logQueryLimit <= 0 {
 		return nil
 	}
 	if len(crit.Addresses) > logQueryLimit {

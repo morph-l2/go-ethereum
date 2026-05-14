@@ -1750,7 +1750,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		cfg.FilterLogCacheSize = ctx.Int(CacheLogSizeFlag.Name)
 	}
 	if ctx.IsSet(RPCGlobalLogQueryLimit.Name) {
-		cfg.LogQueryLimit = ctx.Int(RPCGlobalLogQueryLimit.Name)
+		logQueryLimit := ctx.Int(RPCGlobalLogQueryLimit.Name)
+		if logQueryLimit < 0 {
+			Fatalf("--%s must be non-negative", RPCGlobalLogQueryLimit.Name)
+		}
+		cfg.LogQueryLimit = logQueryLimit
 	}
 	if !ctx.Bool(SnapshotFlag.Name) {
 		// If snap-sync is requested, this flag is also required

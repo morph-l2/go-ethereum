@@ -83,6 +83,9 @@ func (s *Server) SetBatchLimits(itemLimit, maxResponseSize int) {
 //
 // This method should be called before processing any requests via Websocket server.
 func (s *Server) SetWebsocketReadLimit(limit int64) {
+	if limit < 0 {
+		limit = 0
+	}
 	s.wsReadLimit = limit
 }
 

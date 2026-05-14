@@ -118,6 +118,8 @@ type stTransaction struct {
 	Version    byte              `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
 	Memo       *[]byte           `json:"memo,omitempty"`
+
+	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 }
 
 type stTransactionMarshaling struct {
@@ -408,7 +410,7 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		from, to, tx.Nonce, value, gasLimit, gasPrice,
 		tx.MaxFeePerGas, tx.MaxPriorityFeePerGas,
 		tx.FeeTokenID, tx.FeeLimit, tx.Version, tx.Reference, tx.Memo,
-		data, accessList, nil, false,
+		data, accessList, tx.AuthorizationList, false,
 	)
 	return msg, nil
 }

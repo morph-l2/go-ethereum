@@ -996,6 +996,67 @@ func (s *PublicBlockChainAPI) GetStorageAt(ctx context.Context, address common.A
 	return res[:], state.Error()
 }
 
+// maxGetStorageSlots caps the total number of storage slots that
+// eth_getStorageValues will read per request. The value mirrors upstream
+// go-ethereum PR #32591 and prevents a single oversized RPC call from
+// pinning a state snapshot for an unbounded amount of time.
+const maxGetStorageSlots = 1024
+
+// GetStorageValues returns multiple storage slot values for multiple accounts
+// at the given block, following upstream go-ethereum PR #32591. Compared to
+// issuing many eth_getStorageAt calls, this batches the state snapshot
+// lookup so every slot is read against the same consistent view.
+//
+// The returned map preserves the input per-address slot ordering; slots that
+// are not set resolve to the all-zero hash.
+//
+// Errors:
+//   - empty request is rejected with a parameter error,
+//   - total requested slot count must not exceed maxGetStorageSlots.
+func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map[common.Address][]common.Hash, blockNrOrHash rpc.BlockNumberOrHash) (map[common.Address][]hexutil.Bytes, error) {
+	if len(requests) == 0 {
+		return nil, &invalidParamsError{message: "empty request"}
+	}
+	// Validate empty slot lists first so this error is always reported before
+	// the slot-count limit, regardless of map iteration order.
+	for _, keys := range requests {
+		if len(keys) == 0 {
+			return nil, &invalidParamsError{message: "address with empty slot list"}
+		}
+	}
+	var totalSlots int
+	for _, keys := range requests {
+		totalSlots += len(keys)
+		if totalSlots > maxGetStorageSlots {
+			return nil, &clientLimitExceededError{message: fmt.Sprintf("too many slots (max %d)", maxGetStorageSlots)}
+		}
+	}
+
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, err
+	}
+
+	result := make(map[common.Address][]hexutil.Bytes, len(requests))
+	for addr, keys := range requests {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		vals := make([]hexutil.Bytes, len(keys))
+		for i, key := range keys {
+			v := state.GetState(addr, key)
+			vals[i] = v[:]
+		}
+		if err := state.Error(); err != nil {
+			return nil, err
+		}
+		result[addr] = vals
+	}
+	return result, nil
+}
+
 // GetBlockReceipts returns the block receipts for the given block hash or number or tag.
 func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) ([]map[string]interface{}, error) {
 	block, err := s.b.BlockByNumberOrHash(ctx, blockNrOrHash)
@@ -1524,6 +1585,7 @@ func (s *PublicBlockChainAPI) rpcMarshalBlock(ctx context.Context, b *types.Bloc
 type RPCTransaction struct {
 	BlockHash         *common.Hash                 `json:"blockHash"`
 	BlockNumber       *hexutil.Big                 `json:"blockNumber"`
+	BlockTimestamp    *hexutil.Uint64              `json:"blockTimestamp"`
 	From              common.Address               `json:"from"`
 	Gas               hexutil.Uint64               `json:"gas"`
 	GasPrice          *hexutil.Big                 `json:"gasPrice"`
@@ -1579,6 +1641,7 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 	if blockHash != (common.Hash{}) {
 		result.BlockHash = &blockHash
 		result.BlockNumber = (*hexutil.Big)(new(big.Int).SetUint64(blockNumber))
+		result.BlockTimestamp = (*hexutil.Uint64)(&blockTime)
 		result.TransactionIndex = (*hexutil.Uint64)(&index)
 	}
 	switch tx.Type() {

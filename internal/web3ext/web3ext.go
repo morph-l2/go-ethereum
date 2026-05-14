@@ -598,6 +598,12 @@ web3._extend({
 			call: 'eth_getBlockReceipts',
 			params: 1,
 		}),
+		new web3._extend.Method({
+			name: 'getStorageValues',
+			call: 'eth_getStorageValues',
+			params: 2,
+			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
 	],
 	properties: [
 		new web3._extend.Property({

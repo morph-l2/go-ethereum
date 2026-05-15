@@ -123,6 +123,54 @@ func TestServerListen(t *testing.T) {
 	}
 }
 
+func TestSetupDiscoveryV5FailureCleansV4(t *testing.T) {
+	srv := &Server{Config: Config{
+		PrivateKey:       newkey(),
+		ListenAddr:       "127.0.0.1:0",
+		DiscoveryV5:      true,
+		BootstrapNodesV5: []*enode.Node{enode.NewV4(&newkey().PublicKey, nil, 0, 0)},
+		Logger:           testlog.Logger(t, log.LvlTrace),
+	}}
+	srv.log = srv.Config.Logger
+	if err := srv.setupLocalNode(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.nodedb.Close()
+
+	if err := srv.setupDiscovery(); err == nil {
+		if srv.ntab != nil {
+			srv.ntab.Close()
+		}
+		if srv.DiscV5 != nil {
+			srv.DiscV5.Close()
+		}
+		t.Fatal("expected discovery setup to fail")
+	}
+	if srv.ntab != nil {
+		srv.ntab.Close()
+		t.Fatal("expected V4 discovery to be cleaned up after V5 setup failure")
+	}
+}
+
+func TestListenLoopNormalClose(t *testing.T) {
+	logs := runListenLoopWithAcceptError(t, net.ErrClosed)
+	for _, msg := range logs {
+		if msg == "Read error" {
+			t.Fatal("listener close logged as read error")
+		}
+	}
+}
+
+func TestListenLoopReadError(t *testing.T) {
+	logs := runListenLoopWithAcceptError(t, errors.New("accept failed"))
+	for _, msg := range logs {
+		if msg == "Read error" {
+			return
+		}
+	}
+	t.Fatal("expected non-close accept error to be logged")
+}
+
 func TestServerDial(t *testing.T) {
 	// run a one-shot TCP server to handle the connection.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -503,6 +551,53 @@ func randomID() (id enode.ID) {
 		id[i] = byte(rand.Intn(255))
 	}
 	return id
+}
+
+func runListenLoopWithAcceptError(t *testing.T, acceptErr error) []string {
+	t.Helper()
+
+	logc := make(chan string, 10)
+	logger := log.New()
+	logger.SetHandler(log.FuncHandler(func(r *log.Record) error {
+		logc <- r.Msg
+		return nil
+	}))
+	srv := &Server{
+		Config:   Config{Logger: logger},
+		listener: errorListener{err: acceptErr},
+		log:      logger,
+	}
+	srv.loopWG.Add(1)
+	done := make(chan struct{})
+	go func() {
+		srv.listenLoop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("listenLoop did not exit")
+	}
+
+	var logs []string
+	for {
+		select {
+		case msg := <-logc:
+			logs = append(logs, msg)
+		default:
+			return logs
+		}
+	}
+}
+
+type errorListener struct {
+	err error
+}
+
+func (l errorListener) Accept() (net.Conn, error) { return nil, l.err }
+func (l errorListener) Close() error              { return nil }
+func (l errorListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IP{127, 0, 0, 1}, Port: 0}
 }
 
 // This test checks that inbound connections are throttled by IP.

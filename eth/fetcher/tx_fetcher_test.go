@@ -1246,6 +1246,44 @@ func TestTransactionFetcherDropRescheduling(t *testing.T) {
 	})
 }
 
+func TestTransactionFetcherDropAlternates(t *testing.T) {
+	testTransactionFetcherParallel(t, txFetcherTest{
+		init: func() *TxFetcher {
+			return NewTxFetcher(
+				func(common.Hash) bool { return false },
+				func(txs []*types.Transaction) []error {
+					return make([]error, len(txs))
+				},
+				func(string, []common.Hash) error { return nil },
+			)
+		},
+		steps: []interface{}{
+			doTxNotify{peer: "A", hashes: []common.Hash{{0x01}}},
+			doWait{time: txArriveTimeout, step: true},
+			doTxNotify{peer: "B", hashes: []common.Hash{{0x01}}},
+			isScheduled{
+				tracking: map[string][]common.Hash{
+					"A": {{0x01}},
+					"B": {{0x01}},
+				},
+				fetching: map[string][]common.Hash{
+					"A": {{0x01}},
+				},
+			},
+			doDrop("B"),
+			isWaiting(nil),
+			isScheduled{
+				tracking: map[string][]common.Hash{
+					"A": {{0x01}},
+				},
+				fetching: map[string][]common.Hash{
+					"A": {{0x01}},
+				},
+			},
+		},
+	})
+}
+
 // This test reproduces a crash caught by the fuzzer. The root cause was a
 // dangling transaction timing out and clashing on readd with a concurrently
 // announced one.

@@ -34,6 +34,13 @@ import (
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
+var (
+	errExceedMaxTopics     = errors.New("exceed max topics")
+	errExceedLogQueryLimit = errors.New("exceed max addresses or topics per search position")
+)
+
+const maxTopics = 4
+
 // filter is a helper struct that holds meta information over the filter type
 // and associated subscription in the event system.
 type filter struct {
@@ -56,6 +63,7 @@ type FilterAPI struct {
 	filters       map[rpc.ID]*filter
 	timeout       time.Duration
 	maxBlockRange int64
+	logQueryLimit int
 }
 
 // NewFilterAPI returns a new FilterAPI instance.
@@ -66,6 +74,7 @@ func NewFilterAPI(system *FilterSystem, lightMode bool, maxBlockRange int64) *Fi
 		filters:       make(map[rpc.ID]*filter),
 		timeout:       system.cfg.Timeout,
 		maxBlockRange: maxBlockRange,
+		logQueryLimit: system.cfg.LogQueryLimit,
 	}
 	go api.timeoutLoop(system.cfg.Timeout)
 
@@ -118,6 +127,7 @@ func (api *FilterAPI) NewPendingTransactionFilter(fullTx *bool) rpc.ID {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer pendingTxSub.Unsubscribe()
 		for {
 			select {
 			case pTx := <-pendingTxs:
@@ -201,6 +211,7 @@ func (api *FilterAPI) NewBlockFilter() rpc.ID {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer headerSub.Unsubscribe()
 		for {
 			select {
 			case h := <-headers:
@@ -318,6 +329,7 @@ func (api *FilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer logsSub.Unsubscribe()
 		for {
 			select {
 			case l := <-logs:
@@ -342,6 +354,9 @@ func (api *FilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 //
 // https://eth.wiki/json-rpc/API#eth_getlogs
 func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*types.Log, error) {
+	if err := validateLogQuery(ethereum.FilterQuery(crit), api.logQueryLimit); err != nil {
+		return nil, err
+	}
 	var filter *Filter
 	if crit.BlockHash != nil {
 		// Block filter requested, construct a single-shot filter
@@ -365,6 +380,24 @@ func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*type
 		return nil, err
 	}
 	return returnLogs(logs), err
+}
+
+func validateLogQuery(crit ethereum.FilterQuery, logQueryLimit int) error {
+	if len(crit.Topics) > maxTopics {
+		return errExceedMaxTopics
+	}
+	if logQueryLimit <= 0 {
+		return nil
+	}
+	if len(crit.Addresses) > logQueryLimit {
+		return errExceedLogQueryLimit
+	}
+	for _, topics := range crit.Topics {
+		if len(topics) > logQueryLimit {
+			return errExceedLogQueryLimit
+		}
+	}
+	return nil
 }
 
 // UninstallFilter removes the filter with the given filter id.
@@ -560,6 +593,9 @@ func (args *FilterCriteria) UnmarshalJSON(data []byte) error {
 	// topics is an array consisting of strings and/or arrays of strings.
 	// JSON null values are converted to common.Hash{} and ignored by the filter manager.
 	if len(raw.Topics) > 0 {
+		if len(raw.Topics) > maxTopics {
+			return errExceedMaxTopics
+		}
 		args.Topics = make([][]common.Hash, len(raw.Topics))
 		for i, t := range raw.Topics {
 			switch topic := t.(type) {

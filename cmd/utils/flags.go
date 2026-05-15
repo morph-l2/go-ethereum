@@ -559,6 +559,11 @@ var (
 		Usage: "Sets a cap on transaction fee (in ether) that can be sent via the RPC APIs (0 = no cap)",
 		Value: ethconfig.Defaults.RPCTxFeeCap,
 	}
+	RPCGlobalLogQueryLimit = &cli.IntFlag{
+		Name:  "rpc.logquerylimit",
+		Usage: "Maximum number of alternative addresses or topics allowed per search position in eth_getLogs filter criteria (0 = no cap)",
+		Value: ethconfig.Defaults.LogQueryLimit,
+	}
 	// Logging and debug settings
 	EthStatsURLFlag = cli.StringFlag{
 		Name:  "ethstats",
@@ -1744,6 +1749,13 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.IsSet(CacheLogSizeFlag.Name) {
 		cfg.FilterLogCacheSize = ctx.Int(CacheLogSizeFlag.Name)
 	}
+	if ctx.IsSet(RPCGlobalLogQueryLimit.Name) {
+		logQueryLimit := ctx.Int(RPCGlobalLogQueryLimit.Name)
+		if logQueryLimit < 0 {
+			Fatalf("--%s must be non-negative", RPCGlobalLogQueryLimit.Name)
+		}
+		cfg.LogQueryLimit = logQueryLimit
+	}
 	if !ctx.Bool(SnapshotFlag.Name) {
 		// If snap-sync is requested, this flag is also required
 		if cfg.SyncMode == downloader.SnapSync {
@@ -2019,7 +2031,8 @@ func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, filterSyst
 func RegisterFilterAPI(stack *node.Node, backend ethapi.Backend, ethcfg *ethconfig.Config) *filters.FilterSystem {
 	isLightClient := ethcfg.SyncMode == downloader.LightSync
 	filterSystem := filters.NewFilterSystem(backend, filters.Config{
-		LogCacheSize: ethcfg.FilterLogCacheSize,
+		LogCacheSize:  ethcfg.FilterLogCacheSize,
+		LogQueryLimit: ethcfg.LogQueryLimit,
 	})
 	stack.RegisterAPIs([]rpc.API{{
 		Namespace: "eth",

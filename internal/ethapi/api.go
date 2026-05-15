@@ -1025,19 +1025,15 @@ func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map
 	if len(requests) == 0 {
 		return nil, &invalidParamsError{message: "empty request"}
 	}
-	// Validate empty slot lists first so this error is always reported before
-	// the slot-count limit, regardless of map iteration order.
-	for _, keys := range requests {
-		if len(keys) == 0 {
-			return nil, &invalidParamsError{message: "address with empty slot list"}
-		}
-	}
 	var totalSlots int
 	for _, keys := range requests {
 		totalSlots += len(keys)
 		if totalSlots > maxGetStorageSlots {
 			return nil, &clientLimitExceededError{message: fmt.Sprintf("too many slots (max %d)", maxGetStorageSlots)}
 		}
+	}
+	if totalSlots == 0 {
+		return nil, &invalidParamsError{message: "empty request"}
 	}
 
 	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)

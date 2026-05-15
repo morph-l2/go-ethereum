@@ -175,13 +175,12 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 				// To keep the original behaviour, send a single tx hash in one notification.
 				// TODO(rjl493456442) Send a batch of tx hashes in one notification
 				latest := api.sys.backend.CurrentHeader()
+				l1BaseFee, err := api.pendingL1BaseFee(latest)
+				if err != nil {
+					continue
+				}
 				for _, tx := range txs {
 					if fullTx != nil && *fullTx {
-						stateDB, err := api.sys.backend.StateAt(latest.Root)
-						if err != nil {
-							continue
-						}
-						l1BaseFee := fees.GetL1BaseFee(stateDB)
 						rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee)
 						notifier.Notify(rpcSub.ID, rpcTx)
 					} else {
@@ -567,11 +566,10 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 			return returnHashes(hashes), nil
 		case PendingTransactionsSubscription:
 			if f.fullTx {
-				stateDB, err := api.sys.backend.StateAt(latest.Root)
+				l1BaseFee, err := api.pendingL1BaseFee(latest)
 				if err != nil {
 					return nil, err
 				}
-				l1BaseFee := fees.GetL1BaseFee(stateDB)
 				txs := make([]*ethapi.RPCTransaction, 0, len(f.txs))
 				for _, tx := range f.txs {
 					txs = append(txs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
@@ -594,6 +592,20 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 	}
 
 	return []interface{}{}, fmt.Errorf("filter not found")
+}
+
+func (api *FilterAPI) pendingL1BaseFee(latest *types.Header) (*big.Int, error) {
+	if latest == nil {
+		return nil, nil
+	}
+	stateDB, err := api.sys.backend.StateAt(latest.Root)
+	if err != nil {
+		return nil, err
+	}
+	if stateDB == nil {
+		return nil, nil
+	}
+	return fees.GetL1BaseFee(stateDB), nil
 }
 
 // returnHashes is a helper that will return an empty hash array case the given hash array is nil,

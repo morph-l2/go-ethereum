@@ -106,6 +106,17 @@ func TestBlockGasLimits(t *testing.T) {
 	}
 }
 
+func TestVerifyGaslimit(t *testing.T) {
+	err := VerifyGaslimit(10_000_000, 10_009_765)
+	if err == nil {
+		t.Fatal("expected gas limit error")
+	}
+	want := "invalid gas limit: have 10009765, want 10000000 +/- 9764"
+	if err.Error() != want {
+		t.Fatalf("unexpected gas limit error: got %q want %q", err.Error(), want)
+	}
+}
+
 // TestCalcBaseFee assumes all blocks are 1559-blocks
 func TestCalcBaseFee(t *testing.T) {
 	tests := []struct {

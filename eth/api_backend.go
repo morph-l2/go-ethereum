@@ -348,6 +348,18 @@ func (b *EthAPIBackend) RPCTxFeeCap() float64 {
 	return b.eth.config.RPCTxFeeCap
 }
 
+func (b *EthAPIBackend) RPCTxSyncDefaultTimeout() time.Duration {
+	return b.eth.config.TxSyncDefaultTimeout
+}
+
+func (b *EthAPIBackend) RPCTxSyncMaxTimeout() time.Duration {
+	return b.eth.config.TxSyncMaxTimeout
+}
+
+func (b *EthAPIBackend) RPCTxSyncEnabled() bool {
+	return b.eth.config.TxSyncEnabled
+}
+
 func (b *EthAPIBackend) BloomStatus() (uint64, uint64) {
 	sections, _, _ := b.eth.bloomIndexer.Sections()
 	return params.BloomBitsBlocks, sections

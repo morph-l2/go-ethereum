@@ -28,6 +28,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum"
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
@@ -189,6 +190,140 @@ var (
 	emptyAddr          = crypto.PubkeyToAddress(emptyAccountKey.PublicKey)
 	testBalance        = big.NewInt(2e15)
 )
+
+type ethclientRPCService struct {
+	receipt         *types.Receipt
+	gotRaw          []byte
+	gotTimeout      *hexutil.Uint64
+	receiptBatches  chan []*types.Receipt
+	gotReceiptQuery *ethereum.TransactionReceiptsQuery
+}
+
+func (s *ethclientRPCService) SendRawTransactionSync(ctx context.Context, input hexutil.Bytes, timeout *hexutil.Uint64) (*types.Receipt, error) {
+	s.gotRaw = append([]byte(nil), input...)
+	s.gotTimeout = timeout
+	return s.receipt, nil
+}
+
+func (s *ethclientRPCService) TransactionReceipts(ctx context.Context, q *ethereum.TransactionReceiptsQuery) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return nil, rpc.ErrNotificationsUnsupported
+	}
+	s.gotReceiptQuery = q
+	sub := notifier.CreateSubscription()
+	go func() {
+		select {
+		case receipts := <-s.receiptBatches:
+			notifier.Notify(sub.ID, receipts)
+		case <-sub.Err():
+		}
+	}()
+	return sub, nil
+}
+
+func newEthclientRPC(t *testing.T, service interface{}) (*Client, func()) {
+	t.Helper()
+	server := rpc.NewServer()
+	if err := server.RegisterName("eth", service); err != nil {
+		t.Fatalf("failed to register eth service: %v", err)
+	}
+	client := rpc.DialInProc(server)
+	return NewClient(client), func() {
+		client.Close()
+		server.Stop()
+	}
+}
+
+func TestSendRawTransactionSyncClient(t *testing.T) {
+	wantHash := common.HexToHash("0x1234")
+	service := &ethclientRPCService{
+		receipt: &types.Receipt{
+			Status:            types.ReceiptStatusSuccessful,
+			TxHash:            wantHash,
+			GasUsed:           21000,
+			CumulativeGasUsed: 21000,
+			Logs:              []*types.Log{},
+		},
+	}
+	client, cleanup := newEthclientRPC(t, service)
+	defer cleanup()
+
+	rawTx := []byte{0x01, 0x02, 0x03}
+	timeout := 1500 * time.Millisecond
+	receipt, err := client.SendRawTransactionSync(context.Background(), rawTx, &timeout)
+	if err != nil {
+		t.Fatalf("SendRawTransactionSync failed: %v", err)
+	}
+	if receipt.TxHash != wantHash {
+		t.Fatalf("unexpected receipt hash: got %s want %s", receipt.TxHash, wantHash)
+	}
+	if !bytes.Equal(service.gotRaw, rawTx) {
+		t.Fatalf("unexpected raw tx: got %x want %x", service.gotRaw, rawTx)
+	}
+	if service.gotTimeout == nil || uint64(*service.gotTimeout) != uint64(timeout.Milliseconds()) {
+		t.Fatalf("unexpected timeout: got %v want %dms", service.gotTimeout, timeout.Milliseconds())
+	}
+}
+
+func TestSendRawTransactionSyncClientIgnoresNonPositiveTimeout(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		timeout := timeout
+		t.Run(timeout.String(), func(t *testing.T) {
+			service := &ethclientRPCService{
+				receipt: &types.Receipt{
+					Status: types.ReceiptStatusSuccessful,
+					Logs:   []*types.Log{},
+				},
+			}
+			client, cleanup := newEthclientRPC(t, service)
+			defer cleanup()
+
+			if _, err := client.SendRawTransactionSync(context.Background(), []byte{0x01}, &timeout); err != nil {
+				t.Fatalf("SendRawTransactionSync failed: %v", err)
+			}
+			if service.gotTimeout != nil {
+				t.Fatalf("expected nil timeout for %v, got %v", timeout, service.gotTimeout)
+			}
+		})
+	}
+}
+
+func TestTransactionReceiptsClient(t *testing.T) {
+	queryHash := common.HexToHash("0xabcd")
+	wantReceipt := &types.Receipt{
+		Status:            types.ReceiptStatusSuccessful,
+		TxHash:            common.HexToHash("0x1234"),
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+		Logs:              []*types.Log{},
+	}
+	service := &ethclientRPCService{receiptBatches: make(chan []*types.Receipt, 1)}
+	client, cleanup := newEthclientRPC(t, service)
+	defer cleanup()
+
+	ch := make(chan []*types.Receipt, 1)
+	sub, err := client.SubscribeTransactionReceipts(context.Background(), &ethereum.TransactionReceiptsQuery{TransactionHashes: []common.Hash{queryHash}}, ch)
+	if err != nil {
+		t.Fatalf("SubscribeTransactionReceipts failed: %v", err)
+	}
+	defer sub.Unsubscribe()
+	if service.gotReceiptQuery == nil || len(service.gotReceiptQuery.TransactionHashes) != 1 || service.gotReceiptQuery.TransactionHashes[0] != queryHash {
+		t.Fatalf("unexpected receipt query: %#v", service.gotReceiptQuery)
+	}
+
+	service.receiptBatches <- []*types.Receipt{wantReceipt}
+	select {
+	case receipts := <-ch:
+		if len(receipts) != 1 || receipts[0].TxHash != wantReceipt.TxHash {
+			t.Fatalf("unexpected receipts: %#v", receipts)
+		}
+	case err := <-sub.Err():
+		t.Fatalf("subscription failed: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for transaction receipts")
+	}
+}
 
 var genesis = &core.Genesis{
 	Config: params.AllEthashProtocolChanges,

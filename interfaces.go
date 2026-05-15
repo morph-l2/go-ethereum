@@ -64,6 +64,12 @@ type ChainReader interface {
 	SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (Subscription, error)
 }
 
+// TransactionReceiptsQuery defines criteria for transaction receipts subscription.
+// If TransactionHashes is empty, receipts for all transactions in new blocks are delivered.
+type TransactionReceiptsQuery struct {
+	TransactionHashes []common.Hash
+}
+
 // TransactionReader provides access to past transactions and their receipts.
 // Implementations may impose arbitrary restrictions on the transactions and receipts that
 // can be retrieved. Historic transactions may not be available.
@@ -83,6 +89,8 @@ type TransactionReader interface {
 	// transaction may not be included in the current canonical chain even if a receipt
 	// exists.
 	TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
+	// SubscribeTransactionReceipts subscribes to batches of receipts emitted for new blocks.
+	SubscribeTransactionReceipts(ctx context.Context, q *TransactionReceiptsQuery, ch chan<- []*types.Receipt) (Subscription, error)
 }
 
 // ChainStateReader wraps access to the state trie of the canonical blockchain. Note that

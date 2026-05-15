@@ -91,6 +91,9 @@ var Defaults = Config{
 	GPO:                     FullNodeGPO,
 	RPCTxFeeCap:             1,  // 1 ether
 	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
+	TxSyncDefaultTimeout:    20 * time.Second,
+	TxSyncMaxTimeout:        1 * time.Minute,
+	TxSyncEnabled:           true,
 }
 
 func init() {
@@ -204,6 +207,11 @@ type Config struct {
 	// RPCTxFeeCap is the global transaction fee(price * gaslimit) cap for
 	// send-transction variants. The unit is ether.
 	RPCTxFeeCap float64
+
+	// eth_sendRawTransactionSync timeout and gating options.
+	TxSyncDefaultTimeout time.Duration `toml:",omitempty"`
+	TxSyncMaxTimeout     time.Duration `toml:",omitempty"`
+	TxSyncEnabled        bool
 
 	// Checkpoint is a hardcoded checkpoint which can be nil.
 	Checkpoint *params.TrustedCheckpoint `toml:",omitempty"`

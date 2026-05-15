@@ -204,7 +204,14 @@ func (bc *BlockChain) SetCanonical(head *types.Block) (common.Hash, error) {
 
 	// Emit events
 	logs := bc.collectLogs(head, false)
-	bc.chainFeed.Send(ChainEvent{Block: head, Hash: head.Hash(), Logs: logs})
+	bc.chainFeed.Send(ChainEvent{
+		Block:        head,
+		Hash:         head.Hash(),
+		Logs:         logs,
+		Header:       head.Header(),
+		Receipts:     bc.GetReceiptsByHash(head.Hash()),
+		Transactions: head.Transactions(),
+	})
 	if len(logs) > 0 {
 		bc.logsFeed.Send(logs)
 	}

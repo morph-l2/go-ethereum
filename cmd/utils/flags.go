@@ -20,6 +20,7 @@ package utils
 import (
 	"crypto/ecdsa"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -184,6 +185,10 @@ var (
 	MorphMPTFlag = cli.BoolFlag{
 		Name:  "morph-mpt",
 		Usage: "Use MPT (Merkle Patricia Trie) instead of zkTrie for state storage",
+	}
+	OverrideGenesisFlag = &cli.StringFlag{
+		Name:  "override.genesis",
+		Usage: "Load genesis block and configuration from file at this path",
 	}
 	DeveloperFlag = cli.BoolFlag{
 		Name:  "dev",
@@ -563,6 +568,20 @@ var (
 		Name:  "rpc.logquerylimit",
 		Usage: "Maximum number of alternative addresses or topics allowed per search position in eth_getLogs filter criteria (0 = no cap)",
 		Value: ethconfig.Defaults.LogQueryLimit,
+	}
+	RPCTxSyncDefaultTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.txsync.defaulttimeout",
+		Usage: "Default timeout for eth_sendRawTransactionSync",
+		Value: ethconfig.Defaults.TxSyncDefaultTimeout,
+	}
+	RPCTxSyncMaxTimeoutFlag = cli.DurationFlag{
+		Name:  "rpc.txsync.maxtimeout",
+		Usage: "Maximum timeout for eth_sendRawTransactionSync",
+		Value: ethconfig.Defaults.TxSyncMaxTimeout,
+	}
+	RPCTxSyncEnabledFlag = cli.BoolTFlag{
+		Name:  "rpc.txsync.enabled",
+		Usage: "Enable eth_sendRawTransactionSync receipt waiting",
 	}
 	// Logging and debug settings
 	EthStatsURLFlag = cli.StringFlag{
@@ -1656,6 +1675,8 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
 	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
+	CheckExclusive(ctx, OverrideGenesisFlag, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
+	CheckExclusive(ctx, OverrideGenesisFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	CheckExclusive(ctx, RPCRangeLimitFlag, MaxBlockRangeFlag)
@@ -1786,6 +1807,32 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	}
 	if ctx.GlobalIsSet(RPCGlobalTxFeeCapFlag.Name) {
 		cfg.RPCTxFeeCap = ctx.GlobalFloat64(RPCGlobalTxFeeCapFlag.Name)
+	}
+	txSyncDefaultTimeout := cfg.TxSyncDefaultTimeout
+	txSyncMaxTimeout := cfg.TxSyncMaxTimeout
+	txSyncDefaultTimeoutSet := ctx.GlobalIsSet(RPCTxSyncDefaultTimeoutFlag.Name)
+	txSyncMaxTimeoutSet := ctx.GlobalIsSet(RPCTxSyncMaxTimeoutFlag.Name)
+	if txSyncDefaultTimeoutSet {
+		txSyncDefaultTimeout = ctx.GlobalDuration(RPCTxSyncDefaultTimeoutFlag.Name)
+	}
+	if txSyncMaxTimeoutSet {
+		txSyncMaxTimeout = ctx.GlobalDuration(RPCTxSyncMaxTimeoutFlag.Name)
+	}
+	if txSyncDefaultTimeoutSet || txSyncMaxTimeoutSet {
+		if txSyncDefaultTimeout <= 0 {
+			Fatalf("--%s must be positive", RPCTxSyncDefaultTimeoutFlag.Name)
+		}
+		if txSyncMaxTimeout <= 0 {
+			Fatalf("--%s must be positive", RPCTxSyncMaxTimeoutFlag.Name)
+		}
+		if txSyncDefaultTimeout > txSyncMaxTimeout {
+			Fatalf("--%s must be less than or equal to --%s", RPCTxSyncDefaultTimeoutFlag.Name, RPCTxSyncMaxTimeoutFlag.Name)
+		}
+		cfg.TxSyncDefaultTimeout = txSyncDefaultTimeout
+		cfg.TxSyncMaxTimeout = txSyncMaxTimeout
+	}
+	if ctx.GlobalIsSet(RPCTxSyncEnabledFlag.Name) {
+		cfg.TxSyncEnabled = ctx.GlobalBool(RPCTxSyncEnabledFlag.Name)
 	}
 	if ctx.GlobalIsSet(NoDiscoverFlag.Name) {
 		cfg.EthDiscoveryURLs, cfg.SnapDiscoveryURLs = []string{}, []string{}
@@ -1955,6 +2002,18 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		if !ctx.GlobalIsSet(MinerGasPriceFlag.Name) {
 			cfg.Miner.GasPrice = big.NewInt(1)
 		}
+	case ctx.GlobalString(OverrideGenesisFlag.Name) != "":
+		file, err := os.Open(ctx.GlobalString(OverrideGenesisFlag.Name))
+		if err != nil {
+			Fatalf("Failed to read genesis file: %v", err)
+		}
+		defer file.Close()
+
+		genesis := new(core.Genesis)
+		if err := json.NewDecoder(file).Decode(genesis); err != nil {
+			Fatalf("Invalid genesis file: %v", err)
+		}
+		cfg.Genesis = genesis
 	default:
 		if cfg.NetworkId == 1 {
 			SetDNSDiscoveryDefaults(cfg, params.MainnetGenesisHash)

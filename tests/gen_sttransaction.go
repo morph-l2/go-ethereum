@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/common/math"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -26,6 +27,11 @@ func (s stTransaction) MarshalJSON() ([]byte, error) {
 		GasLimit             []math.HexOrDecimal64        `json:"gasLimit"`
 		Value                []string                     `json:"value"`
 		PrivateKey           hexutil.Bytes                `json:"secretKey"`
+		FeeTokenID           math.HexOrDecimal64          `json:"feeTokenID,omitempty"`
+		FeeLimit             *math.HexOrDecimal256        `json:"feeLimit,omitempty"`
+		Version              math.HexOrDecimal64          `json:"version,omitempty"`
+		Reference            *common.Reference            `json:"reference,omitempty"`
+		Memo                 *hexutil.Bytes               `json:"memo,omitempty"`
 		AuthorizationList    []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	}
 	var enc stTransaction
@@ -44,6 +50,14 @@ func (s stTransaction) MarshalJSON() ([]byte, error) {
 	}
 	enc.Value = s.Value
 	enc.PrivateKey = s.PrivateKey
+	enc.FeeTokenID = math.HexOrDecimal64(s.FeeTokenID)
+	enc.FeeLimit = (*math.HexOrDecimal256)(s.FeeLimit)
+	enc.Version = math.HexOrDecimal64(s.Version)
+	enc.Reference = s.Reference
+	if s.Memo != nil {
+		memo := hexutil.Bytes(*s.Memo)
+		enc.Memo = &memo
+	}
 	enc.AuthorizationList = s.AuthorizationList
 	return json.Marshal(&enc)
 }
@@ -61,6 +75,11 @@ func (s *stTransaction) UnmarshalJSON(input []byte) error {
 		GasLimit             []math.HexOrDecimal64        `json:"gasLimit"`
 		Value                []string                     `json:"value"`
 		PrivateKey           *hexutil.Bytes               `json:"secretKey"`
+		FeeTokenID           *math.HexOrDecimal64         `json:"feeTokenID,omitempty"`
+		FeeLimit             *math.HexOrDecimal256        `json:"feeLimit,omitempty"`
+		Version              *math.HexOrDecimal64         `json:"version,omitempty"`
+		Reference            *common.Reference            `json:"reference,omitempty"`
+		Memo                 *hexutil.Bytes               `json:"memo,omitempty"`
 		AuthorizationList    []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	}
 	var dec stTransaction
@@ -99,6 +118,22 @@ func (s *stTransaction) UnmarshalJSON(input []byte) error {
 	}
 	if dec.PrivateKey != nil {
 		s.PrivateKey = *dec.PrivateKey
+	}
+	if dec.FeeTokenID != nil {
+		s.FeeTokenID = uint16(*dec.FeeTokenID)
+	}
+	if dec.FeeLimit != nil {
+		s.FeeLimit = (*big.Int)(dec.FeeLimit)
+	}
+	if dec.Version != nil {
+		s.Version = byte(*dec.Version)
+	}
+	if dec.Reference != nil {
+		s.Reference = dec.Reference
+	}
+	if dec.Memo != nil {
+		memo := []byte(*dec.Memo)
+		s.Memo = &memo
 	}
 	if dec.AuthorizationList != nil {
 		s.AuthorizationList = dec.AuthorizationList

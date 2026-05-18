@@ -249,6 +249,9 @@ var Forks = map[string]*params.ChainConfig{
 		ShanghaiBlock:       big.NewInt(0),
 		BernoulliBlock:      big.NewInt(0),
 		CurieBlock:          big.NewInt(0),
+		Morph: params.MorphConfig{
+			FeeVaultAddress: &params.MorphFeeVaultAddress,
+		},
 	},
 	"Morph203": {
 		ChainID:             big.NewInt(1),
@@ -269,6 +272,9 @@ var Forks = map[string]*params.ChainConfig{
 		BernoulliBlock:      big.NewInt(0),
 		CurieBlock:          big.NewInt(0),
 		Morph203Time:        new(uint64),
+		Morph: params.MorphConfig{
+			FeeVaultAddress: &params.MorphFeeVaultAddress,
+		},
 	},
 	"Viridian": {
 		ChainID:             big.NewInt(1),
@@ -290,6 +296,9 @@ var Forks = map[string]*params.ChainConfig{
 		CurieBlock:          big.NewInt(0),
 		Morph203Time:        new(uint64),
 		ViridianTime:        new(uint64),
+		Morph: params.MorphConfig{
+			FeeVaultAddress: &params.MorphFeeVaultAddress,
+		},
 	},
 	"Emerald": {
 		ChainID:             big.NewInt(1),
@@ -312,6 +321,9 @@ var Forks = map[string]*params.ChainConfig{
 		Morph203Time:        new(uint64),
 		ViridianTime:        new(uint64),
 		EmeraldTime:         new(uint64),
+		Morph: params.MorphConfig{
+			FeeVaultAddress: &params.MorphFeeVaultAddress,
+		},
 	},
 	"Jade": {
 		ChainID:             big.NewInt(1),
@@ -335,6 +347,9 @@ var Forks = map[string]*params.ChainConfig{
 		ViridianTime:        new(uint64),
 		EmeraldTime:         new(uint64),
 		JadeForkTime:        new(uint64),
+		Morph: params.MorphConfig{
+			FeeVaultAddress: &params.MorphFeeVaultAddress,
+		},
 	},
 }
 

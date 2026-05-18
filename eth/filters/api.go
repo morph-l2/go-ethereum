@@ -161,12 +161,17 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 				// To keep the original behaviour, send a single tx hash in one notification.
 				// TODO(rjl493456442) Send a batch of tx hashes in one notification
 				latest := api.sys.backend.CurrentHeader()
-				l1BaseFee, err := api.pendingL1BaseFee(latest)
-				if err != nil {
-					continue
+				sendFullTx := fullTx != nil && *fullTx
+				var l1BaseFee *big.Int
+				if sendFullTx {
+					var err error
+					l1BaseFee, err = api.pendingL1BaseFee(latest)
+					if err != nil {
+						continue
+					}
 				}
 				for _, tx := range txs {
-					if fullTx != nil && *fullTx {
+					if sendFullTx {
 						rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee)
 						notifier.Notify(rpcSub.ID, rpcTx)
 					} else {

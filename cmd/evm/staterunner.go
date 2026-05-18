@@ -78,17 +78,25 @@ func stateTestCmd(ctx *cli.Context) error {
 		for _, st := range test.Subtests() {
 			// Run the test and aggregate the result
 			result := &StatetestResult{Name: key, Fork: st.Fork, Pass: true}
-			_, s, err := test.Run(st, cfg, false)
-			// Emit stateRoot + logsRoot + postLogsHash for evmlab tracing
-			// and cross-client diff harnesses. logsRoot and postLogsHash
-			// are identical here (both are keccak256(rlp(stateDB.Logs())))
-			// and emitted under both keys so consumers tracking either
-			// convention pick them up.
+			_, s, evmResult, err := test.RunWithResult(st, cfg, false)
+			// Emit stateRoot + logsRoot + postLogsHash + returndata/gas for
+			// evmlab tracing and cross-client diff harnesses. logsRoot and
+			// postLogsHash are identical here (both are
+			// keccak256(rlp(stateDB.Logs()))) and emitted under both keys so
+			// consumers tracking either convention pick them up. gasUsed is the
+			// EVM-only gas from ApplyMessage; harnesses can normalize runner
+			// convention skew against clients that report total tx gas.
 			if ctx.GlobalBool(MachineFlag.Name) && s != nil {
 				logsHash := rlpHash(s.Logs())
+				var output []byte
+				var gasUsed uint64
+				if evmResult != nil {
+					output = evmResult.ReturnData
+					gasUsed = evmResult.GasUsed
+				}
 				fmt.Fprintf(os.Stderr,
-					"{\"stateRoot\": \"%x\", \"logsRoot\": \"%x\", \"postLogsHash\": \"%x\"}\n",
-					s.IntermediateRoot(false), logsHash, logsHash)
+					"{\"stateRoot\": \"%x\", \"logsRoot\": \"%x\", \"postLogsHash\": \"%x\", \"output\": \"0x%x\", \"gasUsed\": %d}\n",
+					s.IntermediateRoot(false), logsHash, logsHash, output, gasUsed)
 			}
 			if err != nil {
 				// Test failed, mark as so and dump any state to aid debugging

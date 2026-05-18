@@ -17,6 +17,7 @@ var _ = (*stTransactionMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (s stTransaction) MarshalJSON() ([]byte, error) {
 	type stTransaction struct {
+		Type                 *math.HexOrDecimal64         `json:"type,omitempty"`
 		GasPrice             *math.HexOrDecimal256        `json:"gasPrice"`
 		MaxFeePerGas         *math.HexOrDecimal256        `json:"maxFeePerGas"`
 		MaxPriorityFeePerGas *math.HexOrDecimal256        `json:"maxPriorityFeePerGas"`
@@ -35,6 +36,10 @@ func (s stTransaction) MarshalJSON() ([]byte, error) {
 		AuthorizationList    []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	}
 	var enc stTransaction
+	if s.Type != nil {
+		typ := math.HexOrDecimal64(*s.Type)
+		enc.Type = &typ
+	}
 	enc.GasPrice = (*math.HexOrDecimal256)(s.GasPrice)
 	enc.MaxFeePerGas = (*math.HexOrDecimal256)(s.MaxFeePerGas)
 	enc.MaxPriorityFeePerGas = (*math.HexOrDecimal256)(s.MaxPriorityFeePerGas)
@@ -65,6 +70,7 @@ func (s stTransaction) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON unmarshals from JSON.
 func (s *stTransaction) UnmarshalJSON(input []byte) error {
 	type stTransaction struct {
+		Type                 *math.HexOrDecimal64         `json:"type,omitempty"`
 		GasPrice             *math.HexOrDecimal256        `json:"gasPrice"`
 		MaxFeePerGas         *math.HexOrDecimal256        `json:"maxFeePerGas"`
 		MaxPriorityFeePerGas *math.HexOrDecimal256        `json:"maxPriorityFeePerGas"`
@@ -85,6 +91,10 @@ func (s *stTransaction) UnmarshalJSON(input []byte) error {
 	var dec stTransaction
 	if err := json.Unmarshal(input, &dec); err != nil {
 		return err
+	}
+	if dec.Type != nil {
+		typ := uint64(*dec.Type)
+		s.Type = &typ
 	}
 	if dec.GasPrice != nil {
 		s.GasPrice = (*big.Int)(dec.GasPrice)

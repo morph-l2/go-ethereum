@@ -23,9 +23,13 @@ import (
 	"io/ioutil"
 	"os"
 
+	"golang.org/x/crypto/sha3"
+
+	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/tests"
 
 	"gopkg.in/urfave/cli.v1"
@@ -75,9 +79,16 @@ func stateTestCmd(ctx *cli.Context) error {
 			// Run the test and aggregate the result
 			result := &StatetestResult{Name: key, Fork: st.Fork, Pass: true}
 			_, s, err := test.Run(st, cfg, false)
-			// print state root for evmlab tracing
+			// Emit stateRoot + logsRoot + postLogsHash for evmlab tracing
+			// and cross-client diff harnesses. logsRoot and postLogsHash
+			// are identical here (both are keccak256(rlp(stateDB.Logs())))
+			// and emitted under both keys so consumers tracking either
+			// convention pick them up.
 			if ctx.GlobalBool(MachineFlag.Name) && s != nil {
-				fmt.Fprintf(os.Stderr, "{\"stateRoot\": \"%x\"}\n", s.IntermediateRoot(false))
+				logsHash := rlpHash(s.Logs())
+				fmt.Fprintf(os.Stderr,
+					"{\"stateRoot\": \"%x\", \"logsRoot\": \"%x\", \"postLogsHash\": \"%x\"}\n",
+					s.IntermediateRoot(false), logsHash, logsHash)
 			}
 			if err != nil {
 				// Test failed, mark as so and dump any state to aid debugging
@@ -94,4 +105,15 @@ func stateTestCmd(ctx *cli.Context) error {
 	out, _ := json.MarshalIndent(results, "", "  ")
 	fmt.Println(string(out))
 	return nil
+}
+
+// rlpHash returns the keccak256 hash of the RLP encoding of x. Used to
+// derive the post-execution logs root in the same way tests/state_test_util.go
+// does so the MachineFlag-mode output matches what the cross-client diff
+// harness expects.
+func rlpHash(x interface{}) (h common.Hash) {
+	hw := sha3.NewLegacyKeccak256()
+	rlp.Encode(hw, x)
+	hw.Sum(h[:0])
+	return h
 }

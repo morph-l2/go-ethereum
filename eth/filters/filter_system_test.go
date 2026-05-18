@@ -136,7 +136,7 @@ func (b *testBackend) BloomStatus() (uint64, uint64) {
 }
 
 func (b *testBackend) StateAt(root common.Hash) (*state.StateDB, error) {
-	return nil, nil
+	return state.New(root, state.NewDatabase(b.db), nil)
 }
 
 func (b *testBackend) ServiceFilter(ctx context.Context, session *bloombits.MatcherSession) {
@@ -302,11 +302,12 @@ func TestPendingTxFilter(t *testing.T) {
 func TestPendingTxFilterFullTx(t *testing.T) {
 	t.Parallel()
 
-	var (
-		db           = rawdb.NewMemoryDatabase()
-		backend, sys = newTestFilterSystem(t, db, Config{})
-		api          = NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+	db := rawdb.NewMemoryDatabase()
+	(&core.Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
 
+	var (
 		transactions = []*types.Transaction{
 			types.NewTransaction(0, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
 			types.NewTransaction(1, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),

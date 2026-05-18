@@ -30,6 +30,7 @@ import (
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
+	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
@@ -480,14 +481,19 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 
 func (api *FilterAPI) pendingL1BaseFee(latest *types.Header) (*big.Int, error) {
 	if latest == nil {
-		return nil, nil
+		err := errors.New("State not found: latest header is nil")
+		log.Error("State not found", "err", err)
+		return nil, err
 	}
 	stateDB, err := api.sys.backend.StateAt(latest.Root)
 	if err != nil {
-		return nil, err
+		log.Error("State not found", "number", latest.Number, "hash", latest.Hash().Hex(), "state", stateDB, "err", err)
+		return nil, fmt.Errorf("State not found: %w", err)
 	}
 	if stateDB == nil {
-		return nil, nil
+		err := errors.New("State not found")
+		log.Error("State not found", "number", latest.Number, "hash", latest.Hash().Hex(), "state", stateDB, "err", err)
+		return nil, err
 	}
 	return fees.GetL1BaseFee(stateDB), nil
 }

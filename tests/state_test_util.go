@@ -440,7 +440,7 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		return nil, fmt.Errorf("invalid tx data %q", dataHex)
 	}
 	var accessList types.AccessList
-	if tx.AccessLists != nil && tx.AccessLists[ps.Indexes.Data] != nil {
+	if tx.AccessLists != nil && ps.Indexes.Data < len(tx.AccessLists) && tx.AccessLists[ps.Indexes.Data] != nil {
 		accessList = *tx.AccessLists[ps.Indexes.Data]
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.

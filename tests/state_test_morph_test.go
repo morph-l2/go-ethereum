@@ -133,6 +133,29 @@ func TestStateTestOutOfBoundsIndexReturnsErrorNotPanic(t *testing.T) {
 	}
 }
 
+func TestStateTestShortAccessListDoesNotPanic(t *testing.T) {
+	var test StateTest
+	if err := json.Unmarshal([]byte(shortAccessListStateTest), &test); err != nil {
+		t.Fatal(err)
+	}
+
+	_, statedb, _, result, err := test.RunNoVerifyWithResult(StateSubtest{Fork: "Jade", Index: 0}, vmConfigForTest(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statedb == nil {
+		t.Fatal("expected statedb")
+	}
+	if result == nil {
+		t.Fatal("expected execution result")
+	}
+	contract := common.HexToAddress("0x0000000000000000000000000000000000005701")
+	got := statedb.GetState(contract, common.Hash{})
+	if got != common.BigToHash(big.NewInt(0x2a)) {
+		t.Fatalf("expected contract storage slot 0 to be written, got %s", got)
+	}
+}
+
 const outOfBoundsIndexStateTest = `{
   "env": {
     "currentCoinbase": "0000000000000000000000000000000000000000",
@@ -157,6 +180,51 @@ const outOfBoundsIndexStateTest = `{
     "to": "0x0000000000000000000000000000000000000001",
     "value": ["0x1"],
     "data": ["0x"],
+    "accessLists": [null],
+    "secretKey": "0x45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8"
+  },
+  "post": {
+    "Jade": [{
+      "indexes": { "data": 1, "gas": 0, "value": 0 },
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "logs": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expectException": null
+    }]
+  }
+}`
+
+const shortAccessListStateTest = `{
+  "env": {
+    "currentCoinbase": "0000000000000000000000000000000000000000",
+    "currentDifficulty": "0x0",
+    "currentGasLimit": "0x989680",
+    "currentNumber": "0x1",
+    "currentTimestamp": "0x1",
+    "currentBaseFee": "0x1"
+  },
+  "pre": {
+    "0000000000000000000000000000000000005701": {
+      "balance": "0x0",
+      "nonce": "0x0",
+      "code": "0x602a60005500",
+      "storage": {}
+    },
+    "a94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+      "balance": "0xde0b6b3a7640000",
+      "nonce": "0x0",
+      "code": "0x",
+      "storage": {}
+    }
+  },
+  "transaction": {
+    "type": "0x2",
+    "nonce": "0x0",
+    "gasLimit": ["0x7a1200"],
+    "to": "0x0000000000000000000000000000000000005701",
+    "value": ["0x0"],
+    "data": ["0x", "0x"],
+    "maxFeePerGas": "0x10",
+    "maxPriorityFeePerGas": "0x1",
     "accessLists": [null],
     "secretKey": "0x45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8"
   },
@@ -272,4 +340,3 @@ const standardTypedTxWithMorphFeeFieldsStateTest = `{
     }]
   }
 }`
-

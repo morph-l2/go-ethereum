@@ -3,6 +3,7 @@ package tests
 import (
 	"encoding/json"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -113,6 +114,61 @@ func TestStateTestIgnoresMorphFeeFieldsOnStandardTypedTransactions(t *testing.T)
 func vmConfigForTest() vm.Config {
 	return vm.Config{}
 }
+
+func TestStateTestOutOfBoundsIndexReturnsErrorNotPanic(t *testing.T) {
+	// post.indexes.data == len(tx.data) must surface as a schema error,
+	// not panic at the indexing line. Regression for the >= vs > check
+	// in state_test_util.go::toMessage.
+	var test StateTest
+	if err := json.Unmarshal([]byte(outOfBoundsIndexStateTest), &test); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, _, err := test.RunNoVerifyWithResult(StateSubtest{Fork: "Jade", Index: 0}, vmConfigForTest(), false)
+	if err == nil {
+		t.Fatal("expected out-of-bounds index to return an error, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "out of bounds") {
+		t.Fatalf("expected an out-of-bounds error message, got: %v", got)
+	}
+}
+
+const outOfBoundsIndexStateTest = `{
+  "env": {
+    "currentCoinbase": "0000000000000000000000000000000000000000",
+    "currentDifficulty": "0x0",
+    "currentGasLimit": "0x989680",
+    "currentNumber": "0x1",
+    "currentTimestamp": "0x1",
+    "currentBaseFee": "0x1"
+  },
+  "pre": {
+    "a94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+      "balance": "0xde0b6b3a7640000",
+      "nonce": "0x0",
+      "code": "0x",
+      "storage": {}
+    }
+  },
+  "transaction": {
+    "nonce": "0x0",
+    "gasPrice": "0x1",
+    "gasLimit": ["0x5208"],
+    "to": "0x0000000000000000000000000000000000000001",
+    "value": ["0x1"],
+    "data": ["0x"],
+    "accessLists": [null],
+    "secretKey": "0x45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8"
+  },
+  "post": {
+    "Jade": [{
+      "indexes": { "data": 1, "gas": 0, "value": 0 },
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "logs": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expectException": null
+    }]
+  }
+}`
 
 const l1FeeWithoutTxBytesStateTest = `{
   "env": {

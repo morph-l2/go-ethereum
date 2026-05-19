@@ -410,14 +410,17 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		}
 	}
 
-	// Get values specific to this post state.
-	if ps.Indexes.Data > len(tx.Data) {
+	// Get values specific to this post state. Use >= because index == len
+	// also overruns the slice — a malformed/minimized fixture in that range
+	// would otherwise panic at the indexing line below instead of producing
+	// a clean schema error.
+	if ps.Indexes.Data >= len(tx.Data) {
 		return nil, fmt.Errorf("tx data index %d out of bounds", ps.Indexes.Data)
 	}
-	if ps.Indexes.Value > len(tx.Value) {
+	if ps.Indexes.Value >= len(tx.Value) {
 		return nil, fmt.Errorf("tx value index %d out of bounds", ps.Indexes.Value)
 	}
-	if ps.Indexes.Gas > len(tx.GasLimit) {
+	if ps.Indexes.Gas >= len(tx.GasLimit) {
 		return nil, fmt.Errorf("tx gas limit index %d out of bounds", ps.Indexes.Gas)
 	}
 	dataHex := tx.Data[ps.Indexes.Data]

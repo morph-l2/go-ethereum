@@ -51,15 +51,22 @@ func TestStateTestTraceEmitsJSONOpcodes(t *testing.T) {
 	tt := new(testT8n)
 	tt.TestCmd = cmdtest.NewTestCmd(t, tt)
 	tt.Run("evm-test", "--trace", "--trace.format", "json", "--json", "statetest", fixture)
-	_ = tt.Output()
+	stdout := string(tt.Output())
 	tt.WaitExit()
 
+	// The opcode trace stays on stderr (the EIP-3155 JSON logger writes there),
+	// matching morph-reth's `--trace` stream split.
 	stderr := tt.StderrText()
 	if !strings.Contains(stderr, `"pc":0`) || !strings.Contains(stderr, `"op":`) {
 		t.Fatalf("expected JSON opcode trace on stderr, got:\n%s", stderr)
 	}
+
+	// The per-subtest result now lives on stdout as one JSON object per line,
+	// with stateRoot/logsRoot/postLogsHash carried as 0x-prefixed common.Hash
+	// fields of the result struct (aligned with upstream and morph-reth) rather
+	// than a hand-rolled unprefixed stderr line.
 	var result map[string]any
-	for _, line := range strings.Split(stderr, "\n") {
+	for _, line := range strings.Split(stdout, "\n") {
 		var candidate map[string]any
 		if json.Unmarshal([]byte(line), &candidate) == nil && candidate["stateRoot"] != nil {
 			result = candidate
@@ -67,11 +74,14 @@ func TestStateTestTraceEmitsJSONOpcodes(t *testing.T) {
 		}
 	}
 	if result == nil {
-		t.Fatalf("expected MachineFlag statetest result JSON on stderr, got:\n%s", stderr)
+		t.Fatalf("expected statetest result JSON with stateRoot on stdout, got:\n%s", stdout)
+	}
+	if root, _ := result["stateRoot"].(string); !strings.HasPrefix(root, "0x") {
+		t.Fatalf("expected 0x-prefixed stateRoot, got %q", result["stateRoot"])
 	}
 	for _, field := range []string{"logsRoot", "postLogsHash", "gasUsed", "output"} {
 		if _, ok := result[field]; !ok {
-			t.Fatalf("expected MachineFlag statetest result to include %s, got result=%v\nstderr:\n%s", field, result, stderr)
+			t.Fatalf("expected statetest result to include %s, got result=%v\nstdout:\n%s", field, result, stdout)
 		}
 	}
 }

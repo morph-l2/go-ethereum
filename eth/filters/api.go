@@ -435,12 +435,10 @@ func (api *FilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*types.Lo
 //
 // https://eth.wiki/json-rpc/API#eth_getfilterchanges
 func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
-	api.filtersMu.Lock()
-	defer api.filtersMu.Unlock()
-
 	chainConfig := api.sys.backend.ChainConfig()
 	latest := api.sys.backend.CurrentHeader()
 
+	api.filtersMu.Lock()
 	if f, found := api.filters[id]; found {
 		if !f.deadline.Stop() {
 			// timer expired but filter is not yet removed in timeout loop
@@ -453,33 +451,43 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 		case BlocksSubscription:
 			hashes := f.hashes
 			f.hashes = nil
+			api.filtersMu.Unlock()
 			return returnHashes(hashes), nil
 		case PendingTransactionsSubscription:
+			txs := f.txs
+			f.txs = nil
 			if f.fullTx {
+				api.filtersMu.Unlock()
 				l1BaseFee, err := api.pendingL1BaseFee(latest)
 				if err != nil {
+					api.filtersMu.Lock()
+					if current, found := api.filters[id]; found && current == f {
+						current.txs = append(txs, current.txs...)
+					}
+					api.filtersMu.Unlock()
 					return nil, err
 				}
-				txs := make([]*ethapi.RPCTransaction, 0, len(f.txs))
-				for _, tx := range f.txs {
-					txs = append(txs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
+				rpcTxs := make([]*ethapi.RPCTransaction, 0, len(txs))
+				for _, tx := range txs {
+					rpcTxs = append(rpcTxs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
 				}
-				f.txs = nil
-				return txs, nil
+				return rpcTxs, nil
 			} else {
-				hashes := make([]common.Hash, 0, len(f.txs))
-				for _, tx := range f.txs {
+				hashes := make([]common.Hash, 0, len(txs))
+				for _, tx := range txs {
 					hashes = append(hashes, tx.Hash())
 				}
-				f.txs = nil
+				api.filtersMu.Unlock()
 				return hashes, nil
 			}
 		case LogsSubscription, MinedAndPendingLogsSubscription:
 			logs := f.logs
 			f.logs = nil
+			api.filtersMu.Unlock()
 			return returnLogs(logs), nil
 		}
 	}
+	api.filtersMu.Unlock()
 
 	return []interface{}{}, fmt.Errorf("filter not found")
 }

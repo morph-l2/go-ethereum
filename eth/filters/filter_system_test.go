@@ -53,6 +53,7 @@ type testBackend struct {
 	chainFeed       event.Feed
 	pendingBlock    *types.Block
 	pendingReceipts types.Receipts
+	stateAtHook     func()
 }
 
 func (b *testBackend) ChainConfig() *params.ChainConfig {
@@ -136,6 +137,9 @@ func (b *testBackend) BloomStatus() (uint64, uint64) {
 }
 
 func (b *testBackend) StateAt(root common.Hash) (*state.StateDB, error) {
+	if b.stateAtHook != nil {
+		b.stateAtHook()
+	}
 	return state.New(root, state.NewDatabase(b.db), nil)
 }
 
@@ -353,6 +357,61 @@ func TestPendingTxFilterFullTx(t *testing.T) {
 		if txs[i].Hash != transactions[i].Hash() {
 			t.Errorf("hashes[%d] invalid, want %x, got %x", i, transactions[i].Hash(), txs[i].Hash)
 		}
+	}
+}
+
+func TestGetFilterChangesFullTxStateAtDoesNotHoldFiltersMu(t *testing.T) {
+	t.Parallel()
+
+	db := rawdb.NewMemoryDatabase()
+	(&core.Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
+	backend, sys := newTestFilterSystem(t, db, Config{})
+
+	stateAtEntered := make(chan struct{})
+	releaseStateAt := make(chan struct{})
+	backend.stateAtHook = func() {
+		close(stateAtEntered)
+		<-releaseStateAt
+	}
+
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+	fullTx := true
+	fid := api.NewPendingTransactionFilter(&fullTx)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := api.GetFilterChanges(fid)
+		done <- err
+	}()
+
+	select {
+	case <-stateAtEntered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for GetFilterChanges to enter StateAt")
+	}
+
+	locked := make(chan struct{})
+	go func() {
+		api.filtersMu.Lock()
+		_ = len(api.filters)
+		api.filtersMu.Unlock()
+		close(locked)
+	}()
+
+	select {
+	case <-locked:
+	case <-time.After(time.Second):
+		t.Fatal("filtersMu remained locked while GetFilterChanges was blocked in StateAt")
+	}
+
+	close(releaseStateAt)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("GetFilterChanges failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for GetFilterChanges to return")
 	}
 }
 

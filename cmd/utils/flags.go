@@ -33,6 +33,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"text/template"
+	"time"
 
 	pcsclite "github.com/gballet/go-libpcsclite"
 	gopsutil "github.com/shirou/gopsutil/mem"
@@ -1666,6 +1667,19 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 	}
 }
 
+func validateTxSyncTimeouts(defaultTimeout, maxTimeout time.Duration) error {
+	if defaultTimeout <= 0 {
+		return fmt.Errorf("--%s must be positive", RPCTxSyncDefaultTimeoutFlag.Name)
+	}
+	if maxTimeout <= 0 {
+		return fmt.Errorf("--%s must be positive", RPCTxSyncMaxTimeoutFlag.Name)
+	}
+	if defaultTimeout > maxTimeout {
+		return fmt.Errorf("--%s must be less than or equal to --%s", RPCTxSyncDefaultTimeoutFlag.Name, RPCTxSyncMaxTimeoutFlag.Name)
+	}
+	return nil
+}
+
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
@@ -1806,19 +1820,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if txSyncMaxTimeoutSet {
 		txSyncMaxTimeout = ctx.GlobalDuration(RPCTxSyncMaxTimeoutFlag.Name)
 	}
-	if txSyncDefaultTimeoutSet || txSyncMaxTimeoutSet {
-		if txSyncDefaultTimeout <= 0 {
-			Fatalf("--%s must be positive", RPCTxSyncDefaultTimeoutFlag.Name)
-		}
-		if txSyncMaxTimeout <= 0 {
-			Fatalf("--%s must be positive", RPCTxSyncMaxTimeoutFlag.Name)
-		}
-		if txSyncDefaultTimeout > txSyncMaxTimeout {
-			Fatalf("--%s must be less than or equal to --%s", RPCTxSyncDefaultTimeoutFlag.Name, RPCTxSyncMaxTimeoutFlag.Name)
-		}
-		cfg.TxSyncDefaultTimeout = txSyncDefaultTimeout
-		cfg.TxSyncMaxTimeout = txSyncMaxTimeout
+	if err := validateTxSyncTimeouts(txSyncDefaultTimeout, txSyncMaxTimeout); err != nil {
+		Fatalf("%v", err)
 	}
+	cfg.TxSyncDefaultTimeout = txSyncDefaultTimeout
+	cfg.TxSyncMaxTimeout = txSyncMaxTimeout
 	if ctx.GlobalIsSet(RPCTxSyncEnabledFlag.Name) {
 		cfg.TxSyncEnabled = ctx.GlobalBool(RPCTxSyncEnabledFlag.Name)
 	}

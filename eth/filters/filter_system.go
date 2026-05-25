@@ -617,6 +617,7 @@ func (es *EventSystem) eventLoop() {
 			} else if ev.Header != nil {
 				headHash = ev.Header.Hash()
 			} else {
+				log.Warn("Dropping chain event with no block and no header")
 				continue
 			}
 			// If we have no pending log subscription,

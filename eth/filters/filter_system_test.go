@@ -634,6 +634,15 @@ func TestGetLogsRange(t *testing.T) {
 		if _, err := api.GetLogs(context.Background(), test); err == nil {
 			t.Errorf("Expected Logs for failing case #%d to fail", i)
 		}
+		id, err := api.NewFilter(test)
+		if err != nil {
+			t.Errorf("Expected filter creation for failing case #%d not to fail: %v", i, err)
+			continue
+		}
+		if _, err := api.GetFilterLogs(context.Background(), id); err == nil {
+			t.Errorf("Expected FilterLogs for failing case #%d to fail", i)
+		}
+		api.UninstallFilter(id)
 	}
 
 	okTestCases := []FilterCriteria{
@@ -648,6 +657,15 @@ func TestGetLogsRange(t *testing.T) {
 		if _, err := api.GetLogs(context.Background(), test); err != nil {
 			t.Errorf("Expected Logs for ok case #%d not to fail", i)
 		}
+		id, err := api.NewFilter(test)
+		if err != nil {
+			t.Errorf("Expected filter creation for ok case #%d not to fail: %v", i, err)
+			continue
+		}
+		if _, err := api.GetFilterLogs(context.Background(), id); err != nil {
+			t.Errorf("Expected FilterLogs for ok case #%d not to fail: %v", i, err)
+		}
+		api.UninstallFilter(id)
 	}
 }
 

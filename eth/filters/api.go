@@ -445,7 +445,7 @@ func (api *FilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*types.Lo
 			end = f.crit.ToBlock.Int64()
 		}
 		// Construct the range filter
-		filter = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics)
+		filter = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics, api.maxBlockRange)
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)

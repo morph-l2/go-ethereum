@@ -67,7 +67,7 @@ func (s *Server) WebsocketHandler(allowedOrigins []string) http.Handler {
 		if enableCompression {
 			_ = conn.SetCompressionLevel(s.compressionLevel)
 		}
-		codec := newWebsocketCodec(conn, r.Host, r.Header, s.wsReadLimit)
+		codec := newWebsocketCodec(conn, r.Host, r.Header, s.wsReadLimit.Load())
 		s.ServeCodec(codec, 0)
 	})
 }

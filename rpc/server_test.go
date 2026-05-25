@@ -26,6 +26,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -188,6 +189,33 @@ func TestServerWebsocketDefaultReadLimit(t *testing.T) {
 	err = client.Call(&result, "sink_accept", strings.Repeat("A", wsDefaultReadLimit+1024))
 	if err == nil {
 		t.Fatalf("expected default websocket read limit to reject request larger than %d bytes", wsDefaultReadLimit)
+	}
+}
+
+func TestServerWebsocketReadLimitConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer()
+	defer srv.Stop()
+
+	httpsrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+	defer httpsrv.Close()
+
+	var stop atomic.Bool
+	defer stop.Store(true)
+	go func() {
+		for i := int64(1); !stop.Load(); i++ {
+			srv.SetWebsocketReadLimit(i)
+		}
+	}()
+
+	wsURL := "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+	for i := 0; i < 100; i++ {
+		client, err := DialWebsocket(context.Background(), wsURL, "")
+		if err != nil {
+			t.Fatalf("can't dial: %v", err)
+		}
+		client.Close()
 	}
 }
 

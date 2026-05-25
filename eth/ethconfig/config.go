@@ -91,7 +91,7 @@ var Defaults = Config{
 	RPCTxFeeCap:             1,  // 1 ether
 	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
 	TxSyncDefaultTimeout:    20 * time.Second,
-	TxSyncMaxTimeout:        1 * time.Minute,
+	TxSyncMaxTimeout:        29 * time.Second,
 	TxSyncEnabled:           true,
 }
 

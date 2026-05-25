@@ -321,6 +321,51 @@ func TestTransactionReceiptsSubscription(t *testing.T) {
 	}
 }
 
+func TestTransactionReceiptsSlowConsumerDoesNotBlockEventLoop(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tx := types.NewTransaction(0, common.HexToAddress("0x1000000000000000000000000000000000000001"), big.NewInt(1), 21000, big.NewInt(1), nil)
+	header1 := &types.Header{Number: big.NewInt(1), Time: 1}
+	header2 := &types.Header{Number: big.NewInt(2), Time: 2}
+
+	// Intentionally never read from receiptCh. The receipt subscription must not
+	// be able to block the shared event loop.
+	receiptCh := make(chan []*ReceiptWithTx)
+	receiptSub := api.events.SubscribeTransactionReceipts(nil, receiptCh)
+	defer receiptSub.Unsubscribe()
+
+	headerCh := make(chan *types.Header, 2)
+	headerSub := api.events.SubscribeNewHeads(headerCh)
+	defer headerSub.Unsubscribe()
+
+	backend.chainFeed.Send(core.ChainEvent{
+		Hash:         header1.Hash(),
+		Header:       header1,
+		Receipts:     types.Receipts{{TxHash: tx.Hash(), Status: types.ReceiptStatusSuccessful}},
+		Transactions: types.Transactions{tx},
+	})
+	select {
+	case got := <-headerCh:
+		if got.Hash() != header1.Hash() {
+			t.Fatalf("unexpected first header: have %s, want %s", got.Hash(), header1.Hash())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first header")
+	}
+
+	backend.chainFeed.Send(core.ChainEvent{Hash: header2.Hash(), Header: header2})
+	select {
+	case got := <-headerCh:
+		if got.Hash() != header2.Hash() {
+			t.Fatalf("unexpected second header: have %s, want %s", got.Hash(), header2.Hash())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("receipt subscription blocked the event loop")
+	}
+}
+
 func TestTransactionReceiptsSubscriptionGeneratedChain(t *testing.T) {
 	db := rawdb.NewMemoryDatabase()
 	backend, sys := newTestFilterSystem(t, db, Config{})

@@ -327,7 +327,7 @@ func (api *FilterAPI) TransactionReceipts(ctx context.Context, filter *Transacti
 		txHashes = filter.TransactionHashes
 	}
 	rpcSub := notifier.CreateSubscription()
-	matchedReceipts := make(chan []*ReceiptWithTx)
+	matchedReceipts := make(chan []*ReceiptWithTx, txReceiptsChanSize)
 	receiptsSub := api.events.SubscribeTransactionReceipts(txHashes, matchedReceipts)
 
 	go func() {

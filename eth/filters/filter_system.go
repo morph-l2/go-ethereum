@@ -149,6 +149,8 @@ const (
 	logsChanSize = 10
 	// chainEvChanSize is the size of channel listening to ChainEvent.
 	chainEvChanSize = 10
+	// txReceiptsChanSize is the buffer for transaction receipt subscriptions.
+	txReceiptsChanSize = 1
 )
 
 type subscription struct {
@@ -318,7 +320,7 @@ func (es *EventSystem) subscribeMinedPendingLogs(crit ethereum.FilterQuery, logs
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
-		receipts:  make(chan []*ReceiptWithTx),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -336,7 +338,7 @@ func (es *EventSystem) subscribeLogs(crit ethereum.FilterQuery, logs chan []*typ
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
-		receipts:  make(chan []*ReceiptWithTx),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -354,7 +356,7 @@ func (es *EventSystem) subscribePendingLogs(crit ethereum.FilterQuery, logs chan
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
-		receipts:  make(chan []*ReceiptWithTx),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -371,7 +373,7 @@ func (es *EventSystem) SubscribeNewHeads(headers chan *types.Header) *Subscripti
 		logs:      make(chan []*types.Log),
 		txs:       make(chan []*types.Transaction),
 		headers:   headers,
-		receipts:  make(chan []*ReceiptWithTx),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -388,7 +390,7 @@ func (es *EventSystem) SubscribePendingTxs(txs chan []*types.Transaction) *Subsc
 		logs:      make(chan []*types.Log),
 		txs:       txs,
 		headers:   make(chan *types.Header),
-		receipts:  make(chan []*ReceiptWithTx),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -472,7 +474,11 @@ func (es *EventSystem) handleChainEvent(filters filterIndex, ev core.ChainEvent)
 	for _, f := range filters[TransactionReceiptsSubscription] {
 		matchedReceipts := filterReceipts(f.txHashes, ev)
 		if len(matchedReceipts) > 0 {
-			f.receipts <- matchedReceipts
+			select {
+			case f.receipts <- matchedReceipts:
+			default:
+				log.Warn("Dropping transaction receipts for slow subscription", "id", f.id, "receipts", len(matchedReceipts))
+			}
 		}
 	}
 	if es.lightMode && len(filters[LogsSubscription]) > 0 {

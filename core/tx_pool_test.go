@@ -422,12 +422,13 @@ func TestValidateTxNonceMax(t *testing.T) {
 
 	from := crypto.PubkeyToAddress(key.PublicKey)
 	testAddBalance(pool, from, big.NewInt(1000000000000000000))
+	testSetNonce(pool, from, math.MaxUint64-2)
 
 	if err := pool.validateTx(transaction(math.MaxUint64, 100000, key), false); !errors.Is(err, ErrNonceMax) {
 		t.Fatalf("expected %v for max nonce, got %v", ErrNonceMax, err)
 	}
-	if err := pool.validateTx(transaction(math.MaxUint64-1, 100000, key), false); errors.Is(err, ErrNonceMax) {
-		t.Fatalf("did not expect %v for max-1 nonce, got %v", ErrNonceMax, err)
+	if err := pool.validateTx(transaction(math.MaxUint64-1, 100000, key), false); err != nil {
+		t.Fatalf("expected max-1 nonce to pass validation, got %v", err)
 	}
 }
 

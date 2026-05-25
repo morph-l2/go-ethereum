@@ -366,6 +366,41 @@ func TestTransactionReceiptsSlowConsumerDoesNotBlockEventLoop(t *testing.T) {
 	}
 }
 
+func TestEventSystemStopClosesInstalledSubscriptions(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	receiptCh := make(chan []*ReceiptWithTx)
+	receiptSub := api.events.SubscribeTransactionReceipts(nil, receiptCh)
+	headerSub := api.events.SubscribeNewHeads(make(chan *types.Header))
+
+	api.events.chainSub.Unsubscribe()
+
+	for name, errCh := range map[string]<-chan error{
+		"receipt": receiptSub.Err(),
+		"header":  headerSub.Err(),
+	} {
+		select {
+		case <-errCh:
+		case <-time.After(time.Second):
+			t.Fatalf("%s subscription err channel was not closed", name)
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		receiptSub.Unsubscribe()
+		headerSub.Unsubscribe()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe blocked after event system stopped")
+	}
+}
+
 func TestTransactionReceiptsSubscriptionGeneratedChain(t *testing.T) {
 	db := rawdb.NewMemoryDatabase()
 	backend, sys := newTestFilterSystem(t, db, Config{})

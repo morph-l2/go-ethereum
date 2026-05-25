@@ -249,6 +249,8 @@ func (sub *Subscription) Unsubscribe() {
 			select {
 			case sub.es.uninstall <- sub.f:
 				break uninstallLoop
+			case <-sub.f.err:
+				return
 			case <-sub.f.logs:
 			case <-sub.f.txs:
 			case <-sub.f.headers:
@@ -268,6 +270,14 @@ func (es *EventSystem) subscribe(sub *subscription) *Subscription {
 	es.install <- sub
 	<-sub.installed
 	return &Subscription{ID: sub.id, f: sub, es: es}
+}
+
+func closeSubscriptionErr(f *subscription) {
+	select {
+	case <-f.err:
+	default:
+		close(f.err)
+	}
 }
 
 // SubscribeLogs creates a subscription that will write all logs matching the
@@ -567,18 +577,29 @@ func (es *EventSystem) lightFilterLogs(header *types.Header, addresses []common.
 
 // eventLoop (un)installs filters and processes mux events.
 func (es *EventSystem) eventLoop() {
+	index := make(filterIndex)
+	for i := UnknownSubscription; i < LastIndexSubscription; i++ {
+		index[i] = make(map[rpc.ID]*subscription)
+	}
+
 	// Ensure all subscriptions get cleaned up
 	defer func() {
 		es.txsSub.Unsubscribe()
 		es.logsSub.Unsubscribe()
 		es.rmLogsSub.Unsubscribe()
 		es.chainSub.Unsubscribe()
-	}()
 
-	index := make(filterIndex)
-	for i := UnknownSubscription; i < LastIndexSubscription; i++ {
-		index[i] = make(map[rpc.ID]*subscription)
-	}
+		closed := make(map[*subscription]struct{})
+		for _, filters := range index {
+			for _, f := range filters {
+				if _, ok := closed[f]; ok {
+					continue
+				}
+				closeSubscriptionErr(f)
+				closed[f] = struct{}{}
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -638,7 +659,7 @@ func (es *EventSystem) eventLoop() {
 			} else {
 				delete(index[f.typ], f.id)
 			}
-			close(f.err)
+			closeSubscriptionErr(f)
 
 		// System stopped
 		case <-es.txsSub.Err():

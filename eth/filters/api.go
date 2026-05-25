@@ -365,6 +365,8 @@ func (api *FilterAPI) TransactionReceipts(ctx context.Context, filter *Transacti
 				return
 			case <-notifier.Closed():
 				return
+			case <-receiptsSub.Err():
+				return
 			}
 		}
 	}()

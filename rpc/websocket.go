@@ -254,7 +254,7 @@ func newClientTransportWS(endpoint string, cfg *clientConfig) (reconnectFunc, er
 			return nil, hErr
 		}
 		messageSizeLimit := int64(wsDefaultReadLimit)
-		if cfg.wsMessageSizeLimit != nil && *cfg.wsMessageSizeLimit >= 0 {
+		if cfg.wsMessageSizeLimit != nil {
 			messageSizeLimit = *cfg.wsMessageSizeLimit
 		}
 		return newWebsocketCodec(conn, dialURL, header, messageSizeLimit), nil

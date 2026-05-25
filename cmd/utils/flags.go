@@ -559,7 +559,7 @@ var (
 		Usage: "Sets a cap on transaction fee (in ether) that can be sent via the RPC APIs (0 = no cap)",
 		Value: ethconfig.Defaults.RPCTxFeeCap,
 	}
-	RPCGlobalLogQueryLimit = &cli.IntFlag{
+	RPCGlobalLogQueryLimit = cli.IntFlag{
 		Name:  "rpc.logquerylimit",
 		Usage: "Maximum number of alternative addresses or topics allowed per search position in eth_getLogs filter criteria (0 = no cap)",
 		Value: ethconfig.Defaults.LogQueryLimit,

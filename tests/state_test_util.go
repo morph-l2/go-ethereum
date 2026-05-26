@@ -102,6 +102,7 @@ type stEnvMarshaling struct {
 //go:generate gencodec -type stTransaction -field-override stTransactionMarshaling -out gen_sttransaction.go
 
 type stTransaction struct {
+	Type                 *uint64             `json:"type,omitempty"`
 	GasPrice             *big.Int            `json:"gasPrice"`
 	MaxFeePerGas         *big.Int            `json:"maxFeePerGas"`
 	MaxPriorityFeePerGas *big.Int            `json:"maxPriorityFeePerGas"`
@@ -113,20 +114,30 @@ type stTransaction struct {
 	Value                []string            `json:"value"`
 	PrivateKey           []byte              `json:"secretKey"`
 
-	FeeTokenID uint16            `json:"feeTokenID,omitempty"`
+	// FeeTokenID and Version are wider than the underlying MorphTx fields
+	// (uint16/byte) so the codec can round-trip arbitrary fixture values
+	// without silent truncation. Bounds-checked in toMessage at use time.
+	FeeTokenID uint64            `json:"feeTokenID,omitempty"`
 	FeeLimit   *big.Int          `json:"feeLimit,omitempty"`
-	Version    byte              `json:"version,omitempty"`
+	Version    uint64            `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
 	Memo       *[]byte           `json:"memo,omitempty"`
+
+	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 }
 
 type stTransactionMarshaling struct {
+	Type                 *math.HexOrDecimal64
 	GasPrice             *math.HexOrDecimal256
 	MaxFeePerGas         *math.HexOrDecimal256
 	MaxPriorityFeePerGas *math.HexOrDecimal256
 	Nonce                math.HexOrDecimal64
 	GasLimit             []math.HexOrDecimal64
 	PrivateKey           hexutil.Bytes
+	FeeTokenID           math.HexOrDecimal64
+	FeeLimit             *math.HexOrDecimal256
+	Version              math.HexOrDecimal64
+	Memo                 *hexutil.Bytes
 }
 
 // GetChainConfig takes a fork definition and returns a chain config.
@@ -168,27 +179,54 @@ func (t *StateTest) Subtests() []StateSubtest {
 
 // Run executes a specific subtest and verifies the post-state and logs
 func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config, snapshotter bool) (*snapshot.Tree, *state.StateDB, error) {
-	snaps, statedb, root, err := t.RunNoVerify(subtest, vmconfig, snapshotter)
+	snaps, statedb, _, _, err := t.RunWithResult(subtest, vmconfig, snapshotter)
+	return snaps, statedb, err
+}
+
+// StateTestRunResult carries the extra per-transaction result fields emitted
+// by statetest harnesses. GasUsed is EVM-only gas (transaction intrinsic gas is
+// subtracted) so consumers can compare it with opcode-level trace accounting.
+type StateTestRunResult struct {
+	ReturnData []byte
+	GasUsed    uint64
+}
+
+// RunWithResult executes a specific subtest, verifies the post-state/logs, and
+// returns the post-state root, returndata, plus EVM-only gasUsed in addition
+// to the final state. The returned root is the same value used for
+// post-state verification, so callers (e.g. cmd/evm/staterunner.go's JSON
+// output path) can emit it directly without recomputing — recomputation with
+// a different EIP-158 flag would silently diverge once any state mutation
+// is introduced between this point and the second IntermediateRoot call.
+func (t *StateTest) RunWithResult(subtest StateSubtest, vmconfig vm.Config, snapshotter bool) (*snapshot.Tree, *state.StateDB, common.Hash, *StateTestRunResult, error) {
+	snaps, statedb, root, result, err := t.RunNoVerifyWithResult(subtest, vmconfig, snapshotter)
 	if err != nil {
-		return snaps, statedb, err
+		return snaps, statedb, root, result, err
 	}
 	post := t.json.Post[subtest.Fork][subtest.Index]
 	// N.B: We need to do this in a two-step process, because the first Commit takes care
 	// of suicides, and we need to touch the coinbase _after_ it has potentially suicided.
 	if root != common.Hash(post.Root) {
-		return snaps, statedb, fmt.Errorf("post state root mismatch: got %x, want %x", root, post.Root)
+		return snaps, statedb, root, result, fmt.Errorf("post state root mismatch: got %x, want %x", root, post.Root)
 	}
 	if logs := rlpHash(statedb.Logs()); logs != common.Hash(post.Logs) {
-		return snaps, statedb, fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
+		return snaps, statedb, root, result, fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
 	}
-	return snaps, statedb, nil
+	return snaps, statedb, root, result, nil
 }
 
 // RunNoVerify runs a specific subtest and returns the statedb and post-state root
 func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapshotter bool) (*snapshot.Tree, *state.StateDB, common.Hash, error) {
+	snaps, statedb, root, _, err := t.RunNoVerifyWithResult(subtest, vmconfig, snapshotter)
+	return snaps, statedb, root, err
+}
+
+// RunNoVerifyWithResult runs a specific subtest and returns the statedb,
+// post-state root, returndata, and EVM-only gasUsed.
+func (t *StateTest) RunNoVerifyWithResult(subtest StateSubtest, vmconfig vm.Config, snapshotter bool) (*snapshot.Tree, *state.StateDB, common.Hash, *StateTestRunResult, error) {
 	config, eips, err := GetChainConfig(subtest.Fork)
 	if err != nil {
-		return nil, nil, common.Hash{}, UnsupportedForkError{subtest.Fork}
+		return nil, nil, common.Hash{}, nil, UnsupportedForkError{subtest.Fork}
 	}
 	vmconfig.ExtraEips = eips
 	block := t.genesis(config).ToBlock(nil)
@@ -206,19 +244,20 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	post := t.json.Post[subtest.Fork][subtest.Index]
 	msg, err := t.json.Tx.toMessage(post, baseFee)
 	if err != nil {
-		return nil, nil, common.Hash{}, err
+		return nil, nil, common.Hash{}, nil, err
 	}
+	signer := types.MakeSigner(config, block.Number(), block.Time())
 
 	var ttx types.Transaction
 	// Try to recover tx with current signer
 	if len(post.TxBytes) != 0 {
 		err := ttx.UnmarshalBinary(post.TxBytes)
 		if err != nil {
-			return nil, nil, common.Hash{}, err
+			return nil, nil, common.Hash{}, nil, err
 		}
 
 		if _, err := types.Sender(types.LatestSigner(config), &ttx); err != nil {
-			return nil, nil, common.Hash{}, err
+			return nil, nil, common.Hash{}, nil, err
 		}
 	}
 
@@ -234,12 +273,68 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	gaspool := new(core.GasPool)
 	gaspool.AddGas(block.GasLimit())
 
-	l1DataFee, err := fees.CalculateL1DataFee(&ttx, state.StateDB, config, block.Number())
-	if err != nil {
-		return nil, nil, common.Hash{}, err
+	l1DataFee := big.NewInt(0)
+	if len(post.TxBytes) != 0 {
+		l1DataFee, err = fees.CalculateL1DataFee(&ttx, state.StateDB, config, block.Number())
+		if err != nil {
+			return nil, nil, common.Hash{}, nil, err
+		}
+	} else {
+		l1DataFee, err = fees.EstimateL1DataFeeForMessage(msg, baseFee, config, signer, state.StateDB, block.Number())
+		if err != nil {
+			return nil, nil, common.Hash{}, nil, err
+		}
 	}
 
-	if _, err = core.ApplyMessage(evm, msg, gaspool, l1DataFee); err != nil {
+	var traceTx *types.Transaction
+	if len(post.TxBytes) != 0 {
+		traceTx = &ttx
+	} else {
+		traceTx = types.NewTx(&types.LegacyTx{
+			Nonce:    msg.Nonce(),
+			To:       msg.To(),
+			Value:    msg.Value(),
+			Gas:      msg.Gas(),
+			GasPrice: msg.GasPrice(),
+			Data:     msg.Data(),
+		})
+	}
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxStart != nil {
+		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), traceTx, msg.From())
+	}
+	vmret, err := core.ApplyMessage(evm, msg, gaspool, l1DataFee)
+	var result *StateTestRunResult
+	if vmret != nil {
+		rules := config.Rules(block.Number(), block.Time())
+		intrinsicGas, intrinsicErr := core.IntrinsicGas(
+			msg.Data(),
+			msg.AccessList(),
+			msg.SetCodeAuthorizations(),
+			msg.To() == nil,
+			rules.IsHomestead,
+			rules.IsIstanbul,
+			rules.IsShanghai,
+		)
+		if intrinsicErr != nil {
+			return nil, nil, common.Hash{}, nil, intrinsicErr
+		}
+		gasUsed := vmret.UsedGas
+		if gasUsed >= intrinsicGas {
+			gasUsed -= intrinsicGas
+		}
+		result = &StateTestRunResult{
+			ReturnData: common.CopyBytes(vmret.ReturnData),
+			GasUsed:    gasUsed,
+		}
+	}
+	if evm.Config.Tracer != nil && evm.Config.Tracer.OnTxEnd != nil {
+		gasUsed := uint64(0)
+		if vmret != nil {
+			gasUsed = vmret.UsedGas
+		}
+		evm.Config.Tracer.OnTxEnd(&types.Receipt{GasUsed: gasUsed}, err)
+	}
+	if err != nil {
 		state.StateDB.RevertToSnapshot(snapshot)
 	}
 
@@ -253,7 +348,7 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	state.StateDB.AddBalance(block.Coinbase(), new(big.Int), tracing.BalanceIncreaseRewardMineBlock)
 	// And _now_ get the state root
 	root := state.StateDB.IntermediateRoot(config.IsEIP158(block.Number()))
-	return state.Snapshots, state.StateDB, root, nil
+	return state.Snapshots, state.StateDB, root, result, nil
 }
 
 func (t *StateTest) gasLimit(subtest StateSubtest) uint64 {
@@ -328,14 +423,17 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		}
 	}
 
-	// Get values specific to this post state.
-	if ps.Indexes.Data > len(tx.Data) {
+	// Get values specific to this post state. Use >= because index == len
+	// also overruns the slice — a malformed/minimized fixture in that range
+	// would otherwise panic at the indexing line below instead of producing
+	// a clean schema error.
+	if ps.Indexes.Data >= len(tx.Data) {
 		return nil, fmt.Errorf("tx data index %d out of bounds", ps.Indexes.Data)
 	}
-	if ps.Indexes.Value > len(tx.Value) {
+	if ps.Indexes.Value >= len(tx.Value) {
 		return nil, fmt.Errorf("tx value index %d out of bounds", ps.Indexes.Value)
 	}
-	if ps.Indexes.Gas > len(tx.GasLimit) {
+	if ps.Indexes.Gas >= len(tx.GasLimit) {
 		return nil, fmt.Errorf("tx gas limit index %d out of bounds", ps.Indexes.Gas)
 	}
 	dataHex := tx.Data[ps.Indexes.Data]
@@ -355,7 +453,7 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		return nil, fmt.Errorf("invalid tx data %q", dataHex)
 	}
 	var accessList types.AccessList
-	if tx.AccessLists != nil && tx.AccessLists[ps.Indexes.Data] != nil {
+	if tx.AccessLists != nil && ps.Indexes.Data < len(tx.AccessLists) && tx.AccessLists[ps.Indexes.Data] != nil {
 		accessList = *tx.AccessLists[ps.Indexes.Data]
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
@@ -376,12 +474,41 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 	if gasPrice == nil {
 		return nil, fmt.Errorf("no gas price provided")
 	}
+	gasFeeCap := tx.MaxFeePerGas
+	if gasFeeCap == nil {
+		gasFeeCap = gasPrice
+	}
+	gasTipCap := tx.MaxPriorityFeePerGas
+	if gasTipCap == nil {
+		gasTipCap = gasPrice
+	}
+
+	var (
+		feeTokenID uint16
+		feeLimit   *big.Int
+		version    byte
+		reference  *common.Reference
+		memo       *[]byte
+	)
+	if tx.Type != nil && *tx.Type == types.MorphTxType {
+		if tx.FeeTokenID > 0xFFFF {
+			return nil, fmt.Errorf("feeTokenID %d exceeds uint16 max (0xFFFF)", tx.FeeTokenID)
+		}
+		if tx.Version > 0xFF {
+			return nil, fmt.Errorf("version %d exceeds byte max (0xFF)", tx.Version)
+		}
+		feeTokenID = uint16(tx.FeeTokenID)
+		feeLimit = tx.FeeLimit
+		version = byte(tx.Version)
+		reference = tx.Reference
+		memo = tx.Memo
+	}
 
 	msg := types.NewMessage(
 		from, to, tx.Nonce, value, gasLimit, gasPrice,
-		tx.MaxFeePerGas, tx.MaxPriorityFeePerGas,
-		tx.FeeTokenID, tx.FeeLimit, tx.Version, tx.Reference, tx.Memo,
-		data, accessList, nil, false,
+		gasFeeCap, gasTipCap,
+		feeTokenID, feeLimit, version, reference, memo,
+		data, accessList, tx.AuthorizationList, false,
 	)
 	return msg, nil
 }

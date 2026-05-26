@@ -1685,7 +1685,6 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
 	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
 	CheckExclusive(ctx, OverrideGenesisFlag, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
-	CheckExclusive(ctx, OverrideGenesisFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	CheckExclusive(ctx, RPCRangeLimitFlag, MaxBlockRangeFlag)
@@ -2008,6 +2007,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			Fatalf("Invalid genesis file: %v", err)
 		}
 		cfg.Genesis = genesis
+		if !ctx.GlobalIsSet(NetworkIdFlag.Name) && genesis.Config != nil && genesis.Config.ChainID != nil {
+			cfg.NetworkId = genesis.Config.ChainID.Uint64()
+		}
 	default:
 		if cfg.NetworkId == 1 {
 			SetDNSDiscoveryDefaults(cfg, params.MainnetGenesisHash)

@@ -128,13 +128,30 @@ func TestOverrideGenesisRejectsInvalidJSON(t *testing.T) {
 	expectGethFailure(t, geth, "Invalid genesis file")
 }
 
-func TestOverrideGenesisRejectsNetworkID(t *testing.T) {
+func TestOverrideGenesisNetworkIDDefaultsToChainID(t *testing.T) {
 	datadir := tmpdir(t)
 	defer os.RemoveAll(datadir)
 
-	json := writeOverrideGenesis(t, datadir, "genesis.json", "0x0000000000001338")
-	geth := runGeth(t, "--override.genesis", json, "--networkid", "1337", "--datadir", datadir, "--ipcdisable")
-	expectGethFailure(t, geth, "Flags --override.genesis, --networkid can't be used at the same time")
+	json := writeOverrideGenesisWithChainID(t, datadir, "genesis.json", "0x0000000000001338", "1338")
+	geth := runGeth(t, "--override.genesis", json, "--syncmode=full", "--snapshot=false", "--cache", "16",
+		"--datadir", datadir, "--maxpeers", "0", "--port", "0",
+		"--nodiscover", "--nat", "none", "--ipcdisable",
+		"--exec", "net.version", "console")
+	geth.ExpectRegexp("1338")
+	geth.ExpectExit()
+}
+
+func TestOverrideGenesisAllowsExplicitNetworkID(t *testing.T) {
+	datadir := tmpdir(t)
+	defer os.RemoveAll(datadir)
+
+	json := writeOverrideGenesisWithChainID(t, datadir, "genesis.json", "0x0000000000001338", "1338")
+	geth := runGeth(t, "--override.genesis", json, "--networkid", "1337", "--syncmode=full", "--snapshot=false", "--cache", "16",
+		"--datadir", datadir, "--maxpeers", "0", "--port", "0",
+		"--nodiscover", "--nat", "none", "--ipcdisable",
+		"--exec", "net.version", "console")
+	geth.ExpectRegexp("1337")
+	geth.ExpectExit()
 }
 
 func TestOverrideGenesisMismatchFails(t *testing.T) {
@@ -169,6 +186,16 @@ func TestOverrideGenesisDoesNotChangeInitCommand(t *testing.T) {
 
 func writeOverrideGenesis(t *testing.T, dir, name, nonce string) string {
 	t.Helper()
+	return writeOverrideGenesisWithChainID(t, dir, name, nonce, "")
+}
+
+func writeOverrideGenesisWithChainID(t *testing.T, dir, name, nonce, chainID string) string {
+	t.Helper()
+	chainConfig := `"terminalTotalDifficulty": 0`
+	if chainID != "" {
+		chainConfig = `"chainId": ` + chainID + `,
+			"terminalTotalDifficulty": 0`
+	}
 	genesis := `{
 		"alloc"      : {},
 		"coinbase"   : "0x0000000000000000000000000000000000000000",
@@ -180,7 +207,7 @@ func writeOverrideGenesis(t *testing.T, dir, name, nonce string) string {
 		"parentHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"timestamp"  : "0x00",
 		"config"     : {
-			"terminalTotalDifficulty": 0
+			` + chainConfig + `
 		}
 	}`
 	path := filepath.Join(dir, name)

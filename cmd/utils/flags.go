@@ -1790,6 +1790,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		}
 		cfg.LogQueryLimit = logQueryLimit
 	}
+	if cfg.LogQueryLimit < 0 {
+		Fatalf("LogQueryLimit must be non-negative")
+	}
 	if !ctx.Bool(SnapshotFlag.Name) {
 		// If snap-sync is requested, this flag is also required
 		if cfg.SyncMode == downloader.SnapSync {

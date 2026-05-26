@@ -173,13 +173,17 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 				// To keep the original behaviour, send a single tx hash in one notification.
 				// TODO(rjl493456442) Send a batch of tx hashes in one notification
 				latest := api.sys.backend.CurrentHeader()
+				sendFullTx := fullTx != nil && *fullTx
+				var l1BaseFee *big.Int
+				if sendFullTx {
+					var err error
+					l1BaseFee, err = api.pendingL1BaseFee(latest)
+					if err != nil {
+						continue
+					}
+				}
 				for _, tx := range txs {
-					if fullTx != nil && *fullTx {
-						stateDB, err := api.sys.backend.StateAt(latest.Root)
-						if err != nil {
-							continue
-						}
-						l1BaseFee := fees.GetL1BaseFee(stateDB)
+					if sendFullTx {
 						rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee)
 						notifier.Notify(rpcSub.ID, rpcTx)
 					} else {
@@ -546,12 +550,10 @@ func (api *FilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*types.Lo
 //
 // https://eth.wiki/json-rpc/API#eth_getfilterchanges
 func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
-	api.filtersMu.Lock()
-	defer api.filtersMu.Unlock()
-
 	chainConfig := api.sys.backend.ChainConfig()
 	latest := api.sys.backend.CurrentHeader()
 
+	api.filtersMu.Lock()
 	if f, found := api.filters[id]; found {
 		if !f.deadline.Stop() {
 			// timer expired but filter is not yet removed in timeout loop
@@ -564,36 +566,64 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 		case BlocksSubscription:
 			hashes := f.hashes
 			f.hashes = nil
+			api.filtersMu.Unlock()
 			return returnHashes(hashes), nil
 		case PendingTransactionsSubscription:
+			txs := f.txs
+			f.txs = nil
 			if f.fullTx {
-				stateDB, err := api.sys.backend.StateAt(latest.Root)
+				api.filtersMu.Unlock()
+				l1BaseFee, err := api.pendingL1BaseFee(latest)
 				if err != nil {
+					api.filtersMu.Lock()
+					if current, found := api.filters[id]; found && current == f {
+						current.txs = append(txs, current.txs...)
+					}
+					api.filtersMu.Unlock()
 					return nil, err
 				}
-				l1BaseFee := fees.GetL1BaseFee(stateDB)
-				txs := make([]*ethapi.RPCTransaction, 0, len(f.txs))
-				for _, tx := range f.txs {
-					txs = append(txs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
+				rpcTxs := make([]*ethapi.RPCTransaction, 0, len(txs))
+				for _, tx := range txs {
+					rpcTxs = append(rpcTxs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
 				}
-				f.txs = nil
-				return txs, nil
+				return rpcTxs, nil
 			} else {
-				hashes := make([]common.Hash, 0, len(f.txs))
-				for _, tx := range f.txs {
+				hashes := make([]common.Hash, 0, len(txs))
+				for _, tx := range txs {
 					hashes = append(hashes, tx.Hash())
 				}
-				f.txs = nil
+				api.filtersMu.Unlock()
 				return hashes, nil
 			}
 		case LogsSubscription, MinedAndPendingLogsSubscription:
 			logs := f.logs
 			f.logs = nil
+			api.filtersMu.Unlock()
 			return returnLogs(logs), nil
 		}
 	}
+	api.filtersMu.Unlock()
 
 	return []interface{}{}, fmt.Errorf("filter not found")
+}
+
+func (api *FilterAPI) pendingL1BaseFee(latest *types.Header) (*big.Int, error) {
+	if latest == nil {
+		err := errors.New("State not found: latest header is nil")
+		log.Error("State not found", "err", err)
+		return nil, err
+	}
+	stateDB, err := api.sys.backend.StateAt(latest.Root)
+	if err != nil {
+		log.Error("State not found", "number", latest.Number, "hash", latest.Hash().Hex(), "state", stateDB, "err", err)
+		return nil, fmt.Errorf("State not found: %w", err)
+	}
+	if stateDB == nil {
+		err := errors.New("State not found")
+		log.Error("State not found", "number", latest.Number, "hash", latest.Hash().Hex(), "state", stateDB, "err", err)
+		return nil, err
+	}
+	return fees.GetL1BaseFee(stateDB), nil
 }
 
 // returnHashes is a helper that will return an empty hash array case the given hash array is nil,

@@ -2008,7 +2008,15 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		}
 		cfg.Genesis = genesis
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) && genesis.Config != nil && genesis.Config.ChainID != nil {
-			cfg.NetworkId = genesis.Config.ChainID.Uint64()
+			chainID := genesis.Config.ChainID
+			// (*big.Int).Uint64() silently returns the low 64 bits of the absolute
+			// value for negative or oversized inputs, which would derive a wrong
+			// NetworkId from a user-supplied genesis JSON. Reject such values
+			// explicitly before assigning to cfg.NetworkId.
+			if chainID.Sign() < 0 || chainID.BitLen() > 64 {
+				Fatalf("Invalid chain ID in genesis file: %s (must be a non-negative integer that fits in uint64)", chainID.String())
+			}
+			cfg.NetworkId = chainID.Uint64()
 		}
 	default:
 		if cfg.NetworkId == 1 {

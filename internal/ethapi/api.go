@@ -2356,7 +2356,7 @@ func (s *PublicTransactionPoolAPI) getTransactionReceiptFallback(ctx context.Con
 	receipt, err := s.GetTransactionReceipt(ctx, hash)
 	if err != nil {
 		log.Debug("Failed to retrieve transaction receipt during chain event fallback", "hash", hash, "err", err)
-		return nil, nil
+		return nil, err
 	}
 	return receipt, nil
 }

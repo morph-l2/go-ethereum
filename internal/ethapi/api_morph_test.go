@@ -933,6 +933,22 @@ func TestSendRawTransactionSyncFastReceiptErrorFallsBackToEvent(t *testing.T) {
 	}
 }
 
+func TestReceiptFromChainEventFallbackPropagatesReceiptError(t *testing.T) {
+	_, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.mineOnSend = true
+	if err := backend.SendTx(context.Background(), tx); err != nil {
+		t.Fatalf("failed to mine test transaction: %v", err)
+	}
+	backend.failHeaderByHash = true
+	api := NewPublicTransactionPoolAPI(backend, nil)
+
+	_, err := api.receiptFromChainEvent(context.Background(), core.ChainEvent{}, tx.Hash())
+	if err == nil || err.Error() != "header temporarily unavailable" {
+		t.Fatalf("unexpected fallback error: %v", err)
+	}
+}
+
 func TestSendRawTransactionSyncTimeout(t *testing.T) {
 	raw, tx := makeTxSyncRaw(t)
 	backend := newTxSyncTestBackend(false)

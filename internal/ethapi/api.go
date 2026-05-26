@@ -56,6 +56,8 @@ import (
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
+var errSubClosed = errors.New("chain subscription closed")
+
 // PublicEthereumAPI provides an API to access Ethereum related information.
 // It offers only methods that operate on public data that is freely available to anyone.
 type PublicEthereumAPI struct {
@@ -1065,6 +1067,13 @@ func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map
 
 // GetBlockReceipts returns the block receipts for the given block hash or number or tag.
 func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) ([]map[string]interface{}, error) {
+	if number, ok := blockNrOrHash.Number(); ok && number == rpc.PendingBlockNumber {
+		block, receipts, _ := s.b.Pending()
+		if block == nil || receipts == nil {
+			return nil, errors.New("pending receipts is not available")
+		}
+		return s.marshalBlockReceipts(ctx, block, receipts)
+	}
 	block, err := s.b.BlockByNumberOrHash(ctx, blockNrOrHash)
 	if block == nil || err != nil {
 		// When the block doesn't exist, the RPC method should return JSON null
@@ -1075,6 +1084,10 @@ func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHas
 	if err != nil {
 		return nil, err
 	}
+	return s.marshalBlockReceipts(ctx, block, receipts)
+}
+
+func (s *PublicBlockChainAPI) marshalBlockReceipts(ctx context.Context, block *types.Block, receipts types.Receipts) ([]map[string]interface{}, error) {
 	txs := block.Transactions()
 	if len(txs) != len(receipts) {
 		return nil, fmt.Errorf("receipts length mismatch: %d vs %d", len(txs), len(receipts))
@@ -1084,10 +1097,7 @@ func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHas
 
 	result := make([]map[string]interface{}, len(receipts))
 	for i, receipt := range receipts {
-		blockNumber := block.NumberU64()
-		bigblock := new(big.Int).SetUint64(blockNumber)
-		signer := types.MakeSigner(s.b.ChainConfig(), bigblock, block.Time())
-		res, err := marshalReceipt(ctx, s.b, receipt, bigblock, block.Hash(), blockNumber, signer, txs[i], i)
+		res, err := marshalReceiptForTx(ctx, s.b, block, receipt, txs[i], i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal receipt %d: %w", i, err)
 		}
@@ -1268,6 +1278,11 @@ type revertError struct {
 	reason string // revert reason hex encoded
 }
 
+type txSyncTimeoutError struct {
+	msg  string
+	hash common.Hash
+}
+
 // ErrorCode returns the JSON error code for a revertal.
 // See: https://github.com/ethereum/wiki/wiki/JSON-RPC-Error-Codes-Improvement-Proposal
 func (e *revertError) ErrorCode() int {
@@ -1278,6 +1293,10 @@ func (e *revertError) ErrorCode() int {
 func (e *revertError) ErrorData() interface{} {
 	return e.reason
 }
+
+func (e *txSyncTimeoutError) Error() string          { return e.msg }
+func (e *txSyncTimeoutError) ErrorCode() int         { return 4 }
+func (e *txSyncTimeoutError) ErrorData() interface{} { return e.hash.Hex() }
 
 // Call executes the given transaction on the state for the given block number.
 //
@@ -2043,11 +2062,36 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 		return nil, err
 	}
 	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, header.Time)
-	return marshalReceipt(ctx, s.b, receipt, bigblock, blockHash, blockNumber, signer, tx, int(index))
+	return marshalReceiptWithHeader(ctx, s.b, receipt, bigblock, blockHash, blockNumber, header, signer, tx, int(index))
+}
+
+func marshalReceiptForTx(ctx context.Context, b Backend, block *types.Block, receipt *types.Receipt, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	blockNumber := block.NumberU64()
+	bigblock := new(big.Int).SetUint64(blockNumber)
+	header := block.Header()
+	signer := types.MakeSigner(b.ChainConfig(), bigblock, header.Time)
+	return marshalReceiptWithHeader(ctx, b, receipt, bigblock, block.Hash(), blockNumber, header, signer, tx, txIndex)
 }
 
 // marshalReceipt marshals a transaction receipt into a JSON object.
 func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	return marshalReceiptWithHeader(ctx, b, receipt, bigblock, blockHash, blockNumber, nil, signer, tx, txIndex)
+}
+
+func marshalReceiptWithHeader(ctx context.Context, b Backend, receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, header *types.Header, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	if b.ChainConfig().IsCurie(bigblock) && header == nil {
+		var err error
+		header, err = b.HeaderByHash(ctx, blockHash)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return MarshalReceipt(receipt, bigblock, blockHash, blockNumber, header, b.ChainConfig(), signer, tx, txIndex)
+}
+
+// MarshalReceipt marshals a transaction receipt into the same JSON object shape
+// used by eth_getTransactionReceipt while preserving Morph-specific fields.
+func MarshalReceipt(receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, header *types.Header, chainConfig *params.ChainConfig, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
 	from, _ := types.Sender(signer, tx)
 
 	fields := map[string]interface{}{
@@ -2074,12 +2118,11 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 	}
 
 	// Assign the effective gas price paid
-	if !b.ChainConfig().IsCurie(bigblock) {
+	if !chainConfig.IsCurie(bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
 	} else {
-		header, err := b.HeaderByHash(ctx, blockHash)
-		if err != nil {
-			return nil, err
+		if header == nil {
+			return nil, errors.New("missing header for Curie receipt")
 		}
 
 		baseFee := header.BaseFee
@@ -2206,6 +2249,122 @@ func (s *PublicTransactionPoolAPI) SendRawTransaction(ctx context.Context, input
 		return common.Hash{}, err
 	}
 	return SubmitTransaction(ctx, s.b, tx)
+}
+
+// SendRawTransactionSync adds the signed transaction to the transaction pool and
+// waits until it has a receipt or the configured server-side timeout expires.
+func (s *PublicTransactionPoolAPI) SendRawTransactionSync(ctx context.Context, input hexutil.Bytes, timeoutMs *hexutil.Uint64) (map[string]interface{}, error) {
+	if !s.b.RPCTxSyncEnabled() {
+		return nil, errors.New("eth_sendRawTransactionSync is disabled")
+	}
+	tx := new(types.Transaction)
+	if err := tx.UnmarshalBinary(input); err != nil {
+		return nil, err
+	}
+
+	timeout := s.b.RPCTxSyncDefaultTimeout()
+	if timeoutMs != nil && *timeoutMs > 0 {
+		const maxMs = uint64(time.Duration(math.MaxInt64) / time.Millisecond)
+		ms := uint64(*timeoutMs)
+		if ms > maxMs {
+			return nil, errors.New("transaction sync timeout too large")
+		}
+		requested := time.Duration(ms) * time.Millisecond
+		if max := s.b.RPCTxSyncMaxTimeout(); max > 0 && requested > max {
+			timeout = max
+		} else {
+			timeout = requested
+		}
+	}
+
+	ch := make(chan core.ChainEvent, 128)
+	sub := s.b.SubscribeChainEvent(ch)
+	if sub == nil {
+		return nil, errSubClosed
+	}
+	defer sub.Unsubscribe()
+
+	hash, err := SubmitTransaction(ctx, s.b, tx)
+	if err != nil {
+		return nil, err
+	}
+
+	receiptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if receipt, err := s.GetTransactionReceipt(receiptCtx, hash); err == nil && receipt != nil {
+		return receipt, nil
+	}
+
+	for {
+		select {
+		case <-receiptCtx.Done():
+			if errors.Is(receiptCtx.Err(), context.DeadlineExceeded) {
+				return nil, &txSyncTimeoutError{
+					msg:  fmt.Sprintf("The transaction was added to the transaction pool but wasn't processed in %v", timeout),
+					hash: hash,
+				}
+			}
+			return nil, receiptCtx.Err()
+		case err, ok := <-sub.Err():
+			if !ok {
+				return nil, errSubClosed
+			}
+			return nil, err
+		case ev, ok := <-ch:
+			if !ok {
+				return nil, errSubClosed
+			}
+			receipt, err := s.receiptFromChainEvent(receiptCtx, ev, hash)
+			if err != nil {
+				return nil, err
+			}
+			if receipt != nil {
+				return receipt, nil
+			}
+		}
+	}
+}
+
+func (s *PublicTransactionPoolAPI) receiptFromChainEvent(ctx context.Context, ev core.ChainEvent, hash common.Hash) (map[string]interface{}, error) {
+	rs, txs := ev.Receipts, ev.Transactions
+	if len(rs) != len(txs) {
+		log.Debug("Falling back for chain event with mismatched receipts and transactions", "hash", ev.Hash, "receipts", len(rs), "transactions", len(txs))
+		return s.getTransactionReceiptFallback(ctx, hash)
+	}
+	if len(rs) == 0 {
+		return s.getTransactionReceiptFallback(ctx, hash)
+	}
+	header := ev.Header
+	if header == nil && ev.Block != nil {
+		header = ev.Block.Header()
+	}
+	if header == nil {
+		return s.getTransactionReceiptFallback(ctx, hash)
+	}
+	blockHash := ev.Hash
+	if blockHash == (common.Hash{}) {
+		blockHash = header.Hash()
+	}
+	blockNumber := header.Number.Uint64()
+	bigblock := new(big.Int).SetUint64(blockNumber)
+	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, header.Time)
+	for i, receipt := range rs {
+		if receipt.TxHash != hash && txs[i].Hash() != hash {
+			continue
+		}
+		return marshalReceiptWithHeader(ctx, s.b, receipt, bigblock, blockHash, blockNumber, header, signer, txs[i], i)
+	}
+	return nil, nil
+}
+
+func (s *PublicTransactionPoolAPI) getTransactionReceiptFallback(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
+	receipt, err := s.GetTransactionReceipt(ctx, hash)
+	if err != nil {
+		log.Debug("Failed to retrieve transaction receipt during chain event fallback", "hash", hash, "err", err)
+		return nil, err
+	}
+	return receipt, nil
 }
 
 // Sign calculates an ECDSA signature for:

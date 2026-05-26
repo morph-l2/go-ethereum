@@ -36,6 +36,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/eth/ethconfig"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
@@ -241,6 +242,246 @@ func TestBlockSubscription(t *testing.T) {
 
 	<-sub0.Err()
 	<-sub1.Err()
+}
+
+func TestTransactionReceiptsSubscription(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tx1 := types.NewTransaction(0, common.HexToAddress("0x1000000000000000000000000000000000000001"), big.NewInt(1), 21000, big.NewInt(1), nil)
+	tx2 := types.NewTransaction(1, common.HexToAddress("0x2000000000000000000000000000000000000002"), big.NewInt(2), 21000, big.NewInt(1), nil)
+	header := &types.Header{Number: big.NewInt(1), Time: 1}
+	ev := core.ChainEvent{
+		Hash:         header.Hash(),
+		Header:       header,
+		Receipts:     types.Receipts{{TxHash: tx1.Hash(), Status: types.ReceiptStatusSuccessful}, {TxHash: tx2.Hash(), Status: types.ReceiptStatusSuccessful}},
+		Transactions: types.Transactions{tx1, tx2},
+	}
+
+	allCh := make(chan []*ReceiptWithTx, 1)
+	allSub := api.events.SubscribeTransactionReceipts(nil, allCh)
+	defer allSub.Unsubscribe()
+	filteredCh := make(chan []*ReceiptWithTx, 1)
+	filteredSub := api.events.SubscribeTransactionReceipts([]common.Hash{tx2.Hash()}, filteredCh)
+	defer filteredSub.Unsubscribe()
+	multiCh := make(chan []*ReceiptWithTx, 1)
+	multiSub := api.events.SubscribeTransactionReceipts([]common.Hash{tx1.Hash(), tx2.Hash()}, multiCh)
+	defer multiSub.Unsubscribe()
+	unmatchedCh := make(chan []*ReceiptWithTx, 1)
+	unmatchedSub := api.events.SubscribeTransactionReceipts([]common.Hash{common.HexToHash("0xff")}, unmatchedCh)
+	defer unmatchedSub.Unsubscribe()
+
+	backend.chainFeed.Send(ev)
+	select {
+	case receipts := <-allCh:
+		if len(receipts) != 2 {
+			t.Fatalf("expected 2 receipts, got %d", len(receipts))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for all receipts")
+	}
+	select {
+	case receipts := <-filteredCh:
+		if len(receipts) != 1 || receipts[0].Transaction.Hash() != tx2.Hash() {
+			t.Fatalf("unexpected filtered receipts: %#v", receipts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for filtered receipt")
+	}
+	select {
+	case receipts := <-multiCh:
+		if len(receipts) != 2 {
+			t.Fatalf("expected 2 multi-filtered receipts, got %d", len(receipts))
+		}
+		got := map[common.Hash]bool{
+			receipts[0].Transaction.Hash(): true,
+			receipts[1].Transaction.Hash(): true,
+		}
+		if !got[tx1.Hash()] || !got[tx2.Hash()] {
+			t.Fatalf("unexpected multi-filtered receipts: %#v", receipts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for multi-filtered receipts")
+	}
+	select {
+	case receipts := <-unmatchedCh:
+		t.Fatalf("unexpected empty/non-matching notification: %#v", receipts)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	missingMetaCh := make(chan []*ReceiptWithTx, 1)
+	missingMetaSub := api.events.SubscribeTransactionReceipts(nil, missingMetaCh)
+	defer missingMetaSub.Unsubscribe()
+	backend.chainFeed.Send(core.ChainEvent{Header: header, Transactions: types.Transactions{tx1}})
+	select {
+	case receipts := <-missingMetaCh:
+		t.Fatalf("unexpected notification for event without receipts: %#v", receipts)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestTransactionReceiptsSlowConsumerDoesNotBlockEventLoop(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tx := types.NewTransaction(0, common.HexToAddress("0x1000000000000000000000000000000000000001"), big.NewInt(1), 21000, big.NewInt(1), nil)
+	header1 := &types.Header{Number: big.NewInt(1), Time: 1}
+	header2 := &types.Header{Number: big.NewInt(2), Time: 2}
+
+	// Intentionally never read from receiptCh. The receipt subscription must not
+	// be able to block the shared event loop.
+	receiptCh := make(chan []*ReceiptWithTx)
+	receiptSub := api.events.SubscribeTransactionReceipts(nil, receiptCh)
+	defer receiptSub.Unsubscribe()
+
+	headerCh := make(chan *types.Header, 2)
+	headerSub := api.events.SubscribeNewHeads(headerCh)
+	defer headerSub.Unsubscribe()
+
+	backend.chainFeed.Send(core.ChainEvent{
+		Hash:         header1.Hash(),
+		Header:       header1,
+		Receipts:     types.Receipts{{TxHash: tx.Hash(), Status: types.ReceiptStatusSuccessful}},
+		Transactions: types.Transactions{tx},
+	})
+	select {
+	case got := <-headerCh:
+		if got.Hash() != header1.Hash() {
+			t.Fatalf("unexpected first header: have %s, want %s", got.Hash(), header1.Hash())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first header")
+	}
+	select {
+	case <-receiptSub.Err():
+	case <-time.After(time.Second):
+		t.Fatal("slow receipt subscription was not closed")
+	}
+
+	backend.chainFeed.Send(core.ChainEvent{Hash: header2.Hash(), Header: header2})
+	select {
+	case got := <-headerCh:
+		if got.Hash() != header2.Hash() {
+			t.Fatalf("unexpected second header: have %s, want %s", got.Hash(), header2.Hash())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("receipt subscription blocked the event loop")
+	}
+}
+
+func TestEventSystemStopClosesInstalledSubscriptions(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	receiptCh := make(chan []*ReceiptWithTx)
+	receiptSub := api.events.SubscribeTransactionReceipts(nil, receiptCh)
+	headerSub := api.events.SubscribeNewHeads(make(chan *types.Header))
+
+	api.events.chainSub.Unsubscribe()
+
+	for name, errCh := range map[string]<-chan error{
+		"receipt": receiptSub.Err(),
+		"header":  headerSub.Err(),
+	} {
+		select {
+		case <-errCh:
+		case <-time.After(time.Second):
+			t.Fatalf("%s subscription err channel was not closed", name)
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		receiptSub.Unsubscribe()
+		headerSub.Unsubscribe()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe blocked after event system stopped")
+	}
+}
+
+func TestTransactionReceiptsSubscriptionGeneratedChain(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	to := common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268")
+	signer := types.NewLondonSigner(big.NewInt(1))
+	genesis := &core.Genesis{
+		Config:  params.TestChainConfig,
+		BaseFee: big.NewInt(params.InitialBaseFee),
+		Alloc:   core.GenesisAlloc{from: {Balance: big.NewInt(1_000_000_000_000_000_000)}},
+	}
+	_, chain, receipts := core.GenerateChainWithGenesis(genesis, ethash.NewFaker(), db, 1, func(i int, gen *core.BlockGen) {
+		for nonce := uint64(0); nonce < 4; nonce++ {
+			tx, err := types.SignTx(types.NewTx(&types.LegacyTx{
+				Nonce:    nonce,
+				GasPrice: gen.BaseFee(),
+				Gas:      21000,
+				To:       &to,
+				Value:    big.NewInt(1),
+			}), signer, key)
+			if err != nil {
+				t.Fatalf("failed to sign tx: %v", err)
+			}
+			gen.AddTx(tx)
+		}
+	})
+	if len(chain) != 1 || len(receipts) != 1 || len(receipts[0]) != 4 {
+		t.Fatalf("unexpected generated chain receipts: blocks=%d receipt batches=%d receipts=%d", len(chain), len(receipts), len(receipts[0]))
+	}
+
+	txHashes := []common.Hash{chain[0].Transactions()[1].Hash(), chain[0].Transactions()[3].Hash()}
+	receiptCh := make(chan []*ReceiptWithTx, 1)
+	sub := api.events.SubscribeTransactionReceipts(txHashes, receiptCh)
+	defer sub.Unsubscribe()
+
+	backend.chainFeed.Send(core.ChainEvent{
+		Hash:         chain[0].Hash(),
+		Header:       chain[0].Header(),
+		Receipts:     receipts[0],
+		Transactions: chain[0].Transactions(),
+	})
+	select {
+	case got := <-receiptCh:
+		if len(got) != len(txHashes) {
+			t.Fatalf("expected %d receipts, got %d", len(txHashes), len(got))
+		}
+		matches := make(map[common.Hash]bool, len(got))
+		for _, receipt := range got {
+			matches[receipt.Receipt.TxHash] = true
+		}
+		for _, hash := range txHashes {
+			if !matches[hash] {
+				t.Fatalf("missing receipt for tx %s in %#v", hash, got)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for generated-chain receipts")
+	}
+}
+
+func TestTransactionReceiptsRejectsTooManyHashes(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	hashes := make([]common.Hash, maxTxHashes+1)
+	_, err := api.TransactionReceipts(context.Background(), &TransactionReceiptsQuery{TransactionHashes: hashes})
+	if !errors.Is(err, errExceedMaxTxHashes) {
+		t.Fatalf("unexpected error: got %v want %v", err, errExceedMaxTxHashes)
+	}
 }
 
 // TestPendingTxFilter tests whether pending tx filters retrieve all pending transactions that are posted to the event mux.

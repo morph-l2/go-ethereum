@@ -19,11 +19,14 @@ package rpc
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"io/ioutil"
 	"net"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -110,6 +113,116 @@ func runTestScript(t *testing.T, file string) {
 			panic("invalid line in test script: " + line)
 		}
 	}
+}
+
+func TestServerWebsocketReadLimit(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		readLimit  int64
+		testSize   int
+		shouldFail bool
+	}{
+		{
+			name:       "limit with small request",
+			readLimit:  4096,
+			testSize:   256,
+			shouldFail: false,
+		},
+		{
+			name:       "limit with large request",
+			readLimit:  256,
+			testSize:   1024,
+			shouldFail: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newTestServer()
+			srv.SetWebsocketReadLimit(tc.readLimit)
+			defer srv.Stop()
+
+			httpsrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+			defer httpsrv.Close()
+
+			wsURL := "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+			client, err := DialOptions(context.Background(), wsURL)
+			if err != nil {
+				t.Fatalf("can't dial: %v", err)
+			}
+			defer client.Close()
+
+			var result echoResult
+			err = client.Call(&result, "test_echo", strings.Repeat("A", tc.testSize), 42, &echoArgs{S: "test"})
+			if tc.shouldFail && err == nil {
+				t.Fatalf("expected error for request size %d with limit %d", tc.testSize, tc.readLimit)
+			}
+			if !tc.shouldFail && err != nil {
+				t.Fatalf("unexpected error for request size %d with limit %d: %v", tc.testSize, tc.readLimit, err)
+			}
+		})
+	}
+}
+
+func TestServerWebsocketDefaultReadLimit(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer()
+	if err := srv.RegisterName("sink", new(wsReadLimitSinkService)); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+
+	httpsrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+	defer httpsrv.Close()
+
+	wsURL := "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+	client, err := DialOptions(context.Background(), wsURL)
+	if err != nil {
+		t.Fatalf("can't dial: %v", err)
+	}
+	defer client.Close()
+
+	var result bool
+	err = client.Call(&result, "sink_accept", strings.Repeat("A", wsDefaultReadLimit+1024))
+	if err == nil {
+		t.Fatalf("expected default websocket read limit to reject request larger than %d bytes", wsDefaultReadLimit)
+	}
+}
+
+func TestServerWebsocketReadLimitConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer()
+	defer srv.Stop()
+
+	httpsrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+	defer httpsrv.Close()
+
+	var stop atomic.Bool
+	defer stop.Store(true)
+	go func() {
+		for i := int64(1); !stop.Load(); i++ {
+			srv.SetWebsocketReadLimit(i)
+		}
+	}()
+
+	wsURL := "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+	for i := 0; i < 100; i++ {
+		client, err := DialWebsocket(context.Background(), wsURL, "")
+		if err != nil {
+			t.Fatalf("can't dial: %v", err)
+		}
+		client.Close()
+	}
+}
+
+type wsReadLimitSinkService struct{}
+
+func (wsReadLimitSinkService) Accept(_ string) bool {
+	return true
 }
 
 // This test checks that responses are delivered for very short-lived connections that

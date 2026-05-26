@@ -83,6 +83,7 @@ var Defaults = Config{
 	TrieTimeout:             60 * time.Minute,
 	SnapshotCache:           102,
 	FilterLogCacheSize:      32,
+	LogQueryLimit:           1000,
 	Miner:                   miner.DefaultConfig,
 	TxPool:                  core.DefaultTxPoolConfig,
 	RPCGasCap:               50000000,
@@ -168,6 +169,9 @@ type Config struct {
 
 	// This is the number of blocks for which logs will be cached in the filter system.
 	FilterLogCacheSize int
+
+	// This is the maximum number of addresses or topics allowed in filter criteria.
+	LogQueryLimit int
 
 	// Mining options
 	Miner miner.Config

@@ -18,6 +18,7 @@ package filters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -355,6 +356,68 @@ func TestPendingTxFilterFullTx(t *testing.T) {
 	}
 }
 
+func TestPollingFilterErrCleanup(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tests := []struct {
+		name   string
+		create func(t *testing.T) rpc.ID
+	}{
+		{
+			name: "pending transactions",
+			create: func(t *testing.T) rpc.ID {
+				return api.NewPendingTransactionFilter(nil)
+			},
+		},
+		{
+			name: "blocks",
+			create: func(t *testing.T) rpc.ID {
+				return api.NewBlockFilter()
+			},
+		},
+		{
+			name: "logs",
+			create: func(t *testing.T) rpc.ID {
+				id, err := api.NewFilter(FilterCriteria{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return id
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id := tt.create(t)
+
+			api.filtersMu.Lock()
+			f := api.filters[id]
+			api.filtersMu.Unlock()
+			if f == nil {
+				t.Fatalf("filter %s was not installed", id)
+			}
+
+			f.s.Unsubscribe()
+			deadline := time.Now().Add(time.Second)
+			for {
+				api.filtersMu.Lock()
+				_, exists := api.filters[id]
+				api.filtersMu.Unlock()
+				if !exists {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("filter %s was not cleaned up", id)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}
+
 // TestLogFilterCreation test whether a given filter criteria makes sense.
 // If not it must return an error.
 func TestLogFilterCreation(t *testing.T) {
@@ -445,6 +508,105 @@ func TestInvalidGetLogsRequest(t *testing.T) {
 	}
 }
 
+func TestExceedLogQueryLimit(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: 1})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	addr1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	addr2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	topic1 := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+	topic2 := common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")
+
+	for _, tt := range []struct {
+		name string
+		crit FilterCriteria
+		want error
+	}{
+		{
+			name: "addresses",
+			crit: FilterCriteria{Addresses: []common.Address{
+				addr1,
+				addr2,
+			}},
+			want: errExceedLogQueryLimit,
+		},
+		{
+			name: "topic alternatives",
+			crit: FilterCriteria{Topics: [][]common.Hash{{
+				topic1,
+				topic2,
+			}}},
+			want: errExceedLogQueryLimit,
+		},
+		{
+			name: "topic positions",
+			crit: FilterCriteria{Topics: make([][]common.Hash, maxTopics+1)},
+			want: errExceedMaxTopics,
+		},
+	} {
+		t.Run(tt.name+"/getLogs", func(t *testing.T) {
+			if _, err := api.GetLogs(context.Background(), tt.crit); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+		t.Run(tt.name+"/newFilter", func(t *testing.T) {
+			if _, err := api.NewFilter(tt.crit); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+		t.Run(tt.name+"/subscribeLogs", func(t *testing.T) {
+			logs := make(chan []*types.Log)
+			if _, err := api.events.SubscribeLogs(ethereum.FilterQuery(tt.crit), logs); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogQueryLimitZeroDisablesWidthLimit(t *testing.T) {
+	testLogQueryLimitDisablesWidthLimit(t, 0)
+}
+
+func TestLogQueryLimitNegativeDisablesWidthLimit(t *testing.T) {
+	testLogQueryLimitDisablesWidthLimit(t, -1)
+}
+
+func testLogQueryLimitDisablesWidthLimit(t *testing.T, logQueryLimit int) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: logQueryLimit})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	crit := FilterCriteria{
+		Addresses: []common.Address{
+			common.HexToAddress("0x1111111111111111111111111111111111111111"),
+			common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		},
+		Topics: [][]common.Hash{{
+			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+			common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+		}},
+	}
+
+	id, err := api.NewFilter(crit)
+	if err != nil {
+		t.Fatalf("NewFilter rejected unlimited-width criteria: %v", err)
+	}
+	api.UninstallFilter(id)
+
+	logs := make(chan []*types.Log)
+	sub, err := api.events.SubscribeLogs(ethereum.FilterQuery(crit), logs)
+	if err != nil {
+		t.Fatalf("SubscribeLogs rejected unlimited-width criteria: %v", err)
+	}
+	sub.Unsubscribe()
+
+	tooManyPositions := FilterCriteria{Topics: make([][]common.Hash, maxTopics+1)}
+	if _, err := api.NewFilter(tooManyPositions); !errors.Is(err, errExceedMaxTopics) {
+		t.Fatalf("topic position limit mismatch: got %v, want %v", err, errExceedMaxTopics)
+	}
+}
+
 func TestGetLogsRange(t *testing.T) {
 	var (
 		db     = rawdb.NewMemoryDatabase()
@@ -472,6 +634,15 @@ func TestGetLogsRange(t *testing.T) {
 		if _, err := api.GetLogs(context.Background(), test); err == nil {
 			t.Errorf("Expected Logs for failing case #%d to fail", i)
 		}
+		id, err := api.NewFilter(test)
+		if err != nil {
+			t.Errorf("Expected filter creation for failing case #%d not to fail: %v", i, err)
+			continue
+		}
+		if _, err := api.GetFilterLogs(context.Background(), id); err == nil {
+			t.Errorf("Expected FilterLogs for failing case #%d to fail", i)
+		}
+		api.UninstallFilter(id)
 	}
 
 	okTestCases := []FilterCriteria{
@@ -486,6 +657,15 @@ func TestGetLogsRange(t *testing.T) {
 		if _, err := api.GetLogs(context.Background(), test); err != nil {
 			t.Errorf("Expected Logs for ok case #%d not to fail", i)
 		}
+		id, err := api.NewFilter(test)
+		if err != nil {
+			t.Errorf("Expected filter creation for ok case #%d not to fail: %v", i, err)
+			continue
+		}
+		if _, err := api.GetFilterLogs(context.Background(), id); err != nil {
+			t.Errorf("Expected FilterLogs for ok case #%d not to fail: %v", i, err)
+		}
+		api.UninstallFilter(id)
 	}
 }
 

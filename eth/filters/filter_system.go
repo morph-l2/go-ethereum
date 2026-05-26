@@ -487,7 +487,9 @@ func (es *EventSystem) handleChainEvent(filters filterIndex, ev core.ChainEvent)
 			select {
 			case f.receipts <- matchedReceipts:
 			default:
-				log.Warn("Dropping transaction receipts for slow subscription", "id", f.id, "receipts", len(matchedReceipts))
+				log.Warn("Uninstalling slow transaction receipts subscription", "id", f.id, "receipts", len(matchedReceipts))
+				delete(filters[TransactionReceiptsSubscription], f.id)
+				closeSubscriptionErr(f)
 			}
 		}
 	}

@@ -354,6 +354,11 @@ func TestTransactionReceiptsSlowConsumerDoesNotBlockEventLoop(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for first header")
 	}
+	select {
+	case <-receiptSub.Err():
+	case <-time.After(time.Second):
+		t.Fatal("slow receipt subscription was not closed")
+	}
 
 	backend.chainFeed.Send(core.ChainEvent{Hash: header2.Hash(), Header: header2})
 	select {

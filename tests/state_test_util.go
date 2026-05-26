@@ -114,9 +114,12 @@ type stTransaction struct {
 	Value                []string            `json:"value"`
 	PrivateKey           []byte              `json:"secretKey"`
 
-	FeeTokenID uint16            `json:"feeTokenID,omitempty"`
+	// FeeTokenID and Version are wider than the underlying MorphTx fields
+	// (uint16/byte) so the codec can round-trip arbitrary fixture values
+	// without silent truncation. Bounds-checked in toMessage at use time.
+	FeeTokenID uint64            `json:"feeTokenID,omitempty"`
 	FeeLimit   *big.Int          `json:"feeLimit,omitempty"`
-	Version    byte              `json:"version,omitempty"`
+	Version    uint64            `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
 	Memo       *[]byte           `json:"memo,omitempty"`
 
@@ -124,12 +127,17 @@ type stTransaction struct {
 }
 
 type stTransactionMarshaling struct {
+	Type                 *math.HexOrDecimal64
 	GasPrice             *math.HexOrDecimal256
 	MaxFeePerGas         *math.HexOrDecimal256
 	MaxPriorityFeePerGas *math.HexOrDecimal256
 	Nonce                math.HexOrDecimal64
 	GasLimit             []math.HexOrDecimal64
 	PrivateKey           hexutil.Bytes
+	FeeTokenID           math.HexOrDecimal64
+	FeeLimit             *math.HexOrDecimal256
+	Version              math.HexOrDecimal64
+	Memo                 *hexutil.Bytes
 }
 
 // GetChainConfig takes a fork definition and returns a chain config.
@@ -478,9 +486,15 @@ func (tx *stTransaction) toMessage(ps stPostState, baseFee *big.Int) (core.Messa
 		memo       *[]byte
 	)
 	if tx.Type != nil && *tx.Type == types.MorphTxType {
-		feeTokenID = tx.FeeTokenID
+		if tx.FeeTokenID > 0xFFFF {
+			return nil, fmt.Errorf("feeTokenID %d exceeds uint16 max (0xFFFF)", tx.FeeTokenID)
+		}
+		if tx.Version > 0xFF {
+			return nil, fmt.Errorf("version %d exceeds byte max (0xFF)", tx.Version)
+		}
+		feeTokenID = uint16(tx.FeeTokenID)
 		feeLimit = tx.FeeLimit
-		version = tx.Version
+		version = byte(tx.Version)
 		reference = tx.Reference
 		memo = tx.Memo
 	}

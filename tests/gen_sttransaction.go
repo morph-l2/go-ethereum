@@ -36,10 +36,7 @@ func (s stTransaction) MarshalJSON() ([]byte, error) {
 		AuthorizationList    []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	}
 	var enc stTransaction
-	if s.Type != nil {
-		typ := math.HexOrDecimal64(*s.Type)
-		enc.Type = &typ
-	}
+	enc.Type = (*math.HexOrDecimal64)(s.Type)
 	enc.GasPrice = (*math.HexOrDecimal256)(s.GasPrice)
 	enc.MaxFeePerGas = (*math.HexOrDecimal256)(s.MaxFeePerGas)
 	enc.MaxPriorityFeePerGas = (*math.HexOrDecimal256)(s.MaxPriorityFeePerGas)
@@ -59,10 +56,7 @@ func (s stTransaction) MarshalJSON() ([]byte, error) {
 	enc.FeeLimit = (*math.HexOrDecimal256)(s.FeeLimit)
 	enc.Version = math.HexOrDecimal64(s.Version)
 	enc.Reference = s.Reference
-	if s.Memo != nil {
-		memo := hexutil.Bytes(*s.Memo)
-		enc.Memo = &memo
-	}
+	enc.Memo = (*hexutil.Bytes)(s.Memo)
 	enc.AuthorizationList = s.AuthorizationList
 	return json.Marshal(&enc)
 }
@@ -93,8 +87,7 @@ func (s *stTransaction) UnmarshalJSON(input []byte) error {
 		return err
 	}
 	if dec.Type != nil {
-		typ := uint64(*dec.Type)
-		s.Type = &typ
+		s.Type = (*uint64)(dec.Type)
 	}
 	if dec.GasPrice != nil {
 		s.GasPrice = (*big.Int)(dec.GasPrice)
@@ -130,20 +123,19 @@ func (s *stTransaction) UnmarshalJSON(input []byte) error {
 		s.PrivateKey = *dec.PrivateKey
 	}
 	if dec.FeeTokenID != nil {
-		s.FeeTokenID = uint16(*dec.FeeTokenID)
+		s.FeeTokenID = uint64(*dec.FeeTokenID)
 	}
 	if dec.FeeLimit != nil {
 		s.FeeLimit = (*big.Int)(dec.FeeLimit)
 	}
 	if dec.Version != nil {
-		s.Version = byte(*dec.Version)
+		s.Version = uint64(*dec.Version)
 	}
 	if dec.Reference != nil {
 		s.Reference = dec.Reference
 	}
 	if dec.Memo != nil {
-		memo := []byte(*dec.Memo)
-		s.Memo = &memo
+		s.Memo = (*[]byte)(dec.Memo)
 	}
 	if dec.AuthorizationList != nil {
 		s.AuthorizationList = dec.AuthorizationList

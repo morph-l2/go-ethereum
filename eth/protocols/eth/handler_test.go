@@ -17,10 +17,12 @@
 package eth
 
 import (
+	"errors"
 	"math"
 	"math/big"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
@@ -105,6 +107,83 @@ func (b *testBackend) AcceptTxs() bool {
 }
 func (b *testBackend) Handle(*Peer, Packet) error {
 	panic("data processing tests should be done in the handler package")
+}
+
+type duplicateTxBackend struct {
+	handled bool
+}
+
+func (b *duplicateTxBackend) Chain() *core.BlockChain { panic("not implemented") }
+func (b *duplicateTxBackend) TxPool() TxPool          { panic("not implemented") }
+func (b *duplicateTxBackend) AcceptTxs() bool         { return true }
+func (b *duplicateTxBackend) RunPeer(*Peer, Handler) error {
+	panic("not implemented")
+}
+func (b *duplicateTxBackend) PeerInfo(enode.ID) interface{} { panic("not implemented") }
+func (b *duplicateTxBackend) Handle(*Peer, Packet) error {
+	b.handled = true
+	return nil
+}
+
+type duplicateTxDecoder struct {
+	packet interface{}
+}
+
+func (d duplicateTxDecoder) Decode(val interface{}) error {
+	switch out := val.(type) {
+	case *TransactionsPacket:
+		*out = d.packet.(TransactionsPacket)
+	case *PooledTransactionsPacket66:
+		*out = d.packet.(PooledTransactionsPacket66)
+	default:
+		panic("unexpected decode target")
+	}
+	return nil
+}
+
+func (d duplicateTxDecoder) Time() time.Time { return time.Now() }
+
+func newDuplicateTxTestPeer() *Peer {
+	return &Peer{
+		id:       "duplicate-tx-test-peer",
+		version:  ETH66,
+		knownTxs: newKnownCache(maxKnownTxs),
+	}
+}
+
+func TestHandleTransactionsDuplicate(t *testing.T) {
+	tx := types.NewTransaction(0, common.Address{1}, big.NewInt(1), 21000, big.NewInt(1), nil)
+	backend := new(duplicateTxBackend)
+	peer := newDuplicateTxTestPeer()
+
+	err := handleTransactions(backend, duplicateTxDecoder{
+		packet: TransactionsPacket{tx, tx},
+	}, peer)
+	if !errors.Is(err, errDecode) {
+		t.Fatalf("error mismatch: got %v, want %v", err, errDecode)
+	}
+	if backend.handled {
+		t.Fatal("duplicate transaction packet was forwarded to backend")
+	}
+}
+
+func TestHandlePooledTransactions66Duplicate(t *testing.T) {
+	tx := types.NewTransaction(0, common.Address{1}, big.NewInt(1), 21000, big.NewInt(1), nil)
+	backend := new(duplicateTxBackend)
+	peer := newDuplicateTxTestPeer()
+
+	err := handlePooledTransactions66(backend, duplicateTxDecoder{
+		packet: PooledTransactionsPacket66{
+			RequestId:                1,
+			PooledTransactionsPacket: PooledTransactionsPacket{tx, tx},
+		},
+	}, peer)
+	if !errors.Is(err, errDecode) {
+		t.Fatalf("error mismatch: got %v, want %v", err, errDecode)
+	}
+	if backend.handled {
+		t.Fatal("duplicate pooled transaction packet was forwarded to backend")
+	}
 }
 
 // Tests that block headers can be retrieved from a remote chain based on user queries.

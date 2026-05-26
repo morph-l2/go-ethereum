@@ -174,7 +174,13 @@ func (s *hookedStateDB) SetCode(address common.Address, code []byte) []byte {
 		if len(prev) != 0 {
 			prevHash = crypto.Keccak256Hash(prev)
 		}
-		s.hooks.OnCodeChange(address, prevHash, prev, crypto.Keccak256Hash(code), code)
+		newHash := codehash.EmptyKeccakCodeHash
+		if len(code) != 0 {
+			newHash = crypto.Keccak256Hash(code)
+		}
+		if prevHash != newHash {
+			s.hooks.OnCodeChange(address, prevHash, prev, newHash, code)
+		}
 	}
 	return prev
 }

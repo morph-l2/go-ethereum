@@ -19,13 +19,17 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 
+	"golang.org/x/crypto/sha3"
+
+	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/log"
+	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/tests"
 
 	"gopkg.in/urfave/cli.v1"
@@ -40,12 +44,30 @@ var stateTestCommand = cli.Command{
 
 // StatetestResult contains the execution status after running a state test, any
 // error that might have occurred and a dump of the final state if requested.
+//
+// When run with the global --json (MachineFlag), the post-execution roots and
+// returndata/gas are carried here as proper result fields so they are emitted
+// on stdout, 0x-prefixed (common.Hash / hexutil.Bytes marshalling), and on the
+// same stream as the rest of the result. This matches morph-reth's
+// `morph-statetest` output and lets the cross-client diff harness read a single
+// JSON object per subtest instead of scraping a hand-rolled stderr line.
+//
+// stateRoot/logsRoot/postLogsHash use pointer types and output/gasUsed are
+// pointers so a non-MachineFlag run omits them entirely, while a MachineFlag run
+// still emits an empty returndata ("0x") and a zero gasUsed (0) — one-sided
+// absence of these fields is a real signal for the harness, so a legitimate
+// empty/zero value must not be silently dropped by omitempty.
 type StatetestResult struct {
-	Name  string      `json:"name"`
-	Pass  bool        `json:"pass"`
-	Fork  string      `json:"fork"`
-	Error string      `json:"error,omitempty"`
-	State *state.Dump `json:"state,omitempty"`
+	Name         string         `json:"name"`
+	Pass         bool           `json:"pass"`
+	Root         *common.Hash   `json:"stateRoot,omitempty"`
+	LogsRoot     *common.Hash   `json:"logsRoot,omitempty"`
+	PostLogsHash *common.Hash   `json:"postLogsHash,omitempty"`
+	Output       *hexutil.Bytes `json:"output,omitempty"`
+	GasUsed      *uint64        `json:"gasUsed,omitempty"`
+	Fork         string         `json:"fork"`
+	Error        string         `json:"error,omitempty"`
+	State        *state.Dump    `json:"state,omitempty"`
 }
 
 func stateTestCmd(ctx *cli.Context) error {
@@ -74,10 +96,33 @@ func stateTestCmd(ctx *cli.Context) error {
 		for _, st := range test.Subtests() {
 			// Run the test and aggregate the result
 			result := &StatetestResult{Name: key, Fork: st.Fork, Pass: true}
-			_, s, err := test.Run(st, cfg, false)
-			// print state root for evmlab tracing
+			_, s, root, evmResult, err := test.RunWithResult(st, cfg, false)
+			// Carry stateRoot + logsRoot + postLogsHash + returndata/gas as
+			// result fields for evmlab tracing and cross-client diff harnesses.
+			// stateRoot is the same value RunWithResult used for post-state
+			// verification (see its doc comment) — emitting it directly here
+			// keeps the cross-client output guaranteed-consistent with the
+			// pass/fail signal even if state mutations were ever introduced
+			// between the two IntermediateRoot points.
+			// logsRoot and postLogsHash are identical here (both are
+			// keccak256(rlp(stateDB.Logs()))) and emitted under both keys so
+			// consumers tracking either convention pick them up. gasUsed is the
+			// EVM-only gas from ApplyMessage; harnesses can normalize runner
+			// convention skew against clients that report total tx gas.
 			if ctx.GlobalBool(MachineFlag.Name) && s != nil {
-				fmt.Fprintf(os.Stderr, "{\"stateRoot\": \"%x\"}\n", s.IntermediateRoot(false))
+				logsHash := rlpHash(s.Logs())
+				rootCopy := root
+				result.Root = &rootCopy
+				result.LogsRoot = &logsHash
+				result.PostLogsHash = &logsHash
+				output := hexutil.Bytes{}
+				var gasUsed uint64
+				if evmResult != nil {
+					output = evmResult.ReturnData
+					gasUsed = evmResult.GasUsed
+				}
+				result.Output = &output
+				result.GasUsed = &gasUsed
 			}
 			if err != nil {
 				// Test failed, mark as so and dump any state to aid debugging
@@ -91,7 +136,25 @@ func stateTestCmd(ctx *cli.Context) error {
 			results = append(results, *result)
 		}
 	}
-	out, _ := json.MarshalIndent(results, "", "  ")
-	fmt.Println(string(out))
+	// Emit one JSON object per subtest (JSON Lines) on stdout so each result —
+	// including the 0x-prefixed roots above — is independently parseable by the
+	// cross-client diff harness, matching morph-reth's `morph-statetest` output.
+	enc := json.NewEncoder(os.Stdout)
+	for i := range results {
+		if err := enc.Encode(results[i]); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// rlpHash returns the keccak256 hash of the RLP encoding of x. Used to
+// derive the post-execution logs root in the same way tests/state_test_util.go
+// does so the MachineFlag-mode output matches what the cross-client diff
+// harness expects.
+func rlpHash(x interface{}) (h common.Hash) {
+	hw := sha3.NewLegacyKeccak256()
+	rlp.Encode(hw, x)
+	hw.Sum(h[:0])
+	return h
 }

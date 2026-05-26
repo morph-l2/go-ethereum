@@ -18,6 +18,7 @@ package filters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -35,6 +36,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
+	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/eth/ethconfig"
 	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
@@ -246,6 +248,246 @@ func TestBlockSubscription(t *testing.T) {
 	<-sub1.Err()
 }
 
+func TestTransactionReceiptsSubscription(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tx1 := types.NewTransaction(0, common.HexToAddress("0x1000000000000000000000000000000000000001"), big.NewInt(1), 21000, big.NewInt(1), nil)
+	tx2 := types.NewTransaction(1, common.HexToAddress("0x2000000000000000000000000000000000000002"), big.NewInt(2), 21000, big.NewInt(1), nil)
+	header := &types.Header{Number: big.NewInt(1), Time: 1}
+	ev := core.ChainEvent{
+		Hash:         header.Hash(),
+		Header:       header,
+		Receipts:     types.Receipts{{TxHash: tx1.Hash(), Status: types.ReceiptStatusSuccessful}, {TxHash: tx2.Hash(), Status: types.ReceiptStatusSuccessful}},
+		Transactions: types.Transactions{tx1, tx2},
+	}
+
+	allCh := make(chan []*ReceiptWithTx, 1)
+	allSub := api.events.SubscribeTransactionReceipts(nil, allCh)
+	defer allSub.Unsubscribe()
+	filteredCh := make(chan []*ReceiptWithTx, 1)
+	filteredSub := api.events.SubscribeTransactionReceipts([]common.Hash{tx2.Hash()}, filteredCh)
+	defer filteredSub.Unsubscribe()
+	multiCh := make(chan []*ReceiptWithTx, 1)
+	multiSub := api.events.SubscribeTransactionReceipts([]common.Hash{tx1.Hash(), tx2.Hash()}, multiCh)
+	defer multiSub.Unsubscribe()
+	unmatchedCh := make(chan []*ReceiptWithTx, 1)
+	unmatchedSub := api.events.SubscribeTransactionReceipts([]common.Hash{common.HexToHash("0xff")}, unmatchedCh)
+	defer unmatchedSub.Unsubscribe()
+
+	backend.chainFeed.Send(ev)
+	select {
+	case receipts := <-allCh:
+		if len(receipts) != 2 {
+			t.Fatalf("expected 2 receipts, got %d", len(receipts))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for all receipts")
+	}
+	select {
+	case receipts := <-filteredCh:
+		if len(receipts) != 1 || receipts[0].Transaction.Hash() != tx2.Hash() {
+			t.Fatalf("unexpected filtered receipts: %#v", receipts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for filtered receipt")
+	}
+	select {
+	case receipts := <-multiCh:
+		if len(receipts) != 2 {
+			t.Fatalf("expected 2 multi-filtered receipts, got %d", len(receipts))
+		}
+		got := map[common.Hash]bool{
+			receipts[0].Transaction.Hash(): true,
+			receipts[1].Transaction.Hash(): true,
+		}
+		if !got[tx1.Hash()] || !got[tx2.Hash()] {
+			t.Fatalf("unexpected multi-filtered receipts: %#v", receipts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for multi-filtered receipts")
+	}
+	select {
+	case receipts := <-unmatchedCh:
+		t.Fatalf("unexpected empty/non-matching notification: %#v", receipts)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	missingMetaCh := make(chan []*ReceiptWithTx, 1)
+	missingMetaSub := api.events.SubscribeTransactionReceipts(nil, missingMetaCh)
+	defer missingMetaSub.Unsubscribe()
+	backend.chainFeed.Send(core.ChainEvent{Header: header, Transactions: types.Transactions{tx1}})
+	select {
+	case receipts := <-missingMetaCh:
+		t.Fatalf("unexpected notification for event without receipts: %#v", receipts)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestTransactionReceiptsSlowConsumerDoesNotBlockEventLoop(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tx := types.NewTransaction(0, common.HexToAddress("0x1000000000000000000000000000000000000001"), big.NewInt(1), 21000, big.NewInt(1), nil)
+	header1 := &types.Header{Number: big.NewInt(1), Time: 1}
+	header2 := &types.Header{Number: big.NewInt(2), Time: 2}
+
+	// Intentionally never read from receiptCh. The receipt subscription must not
+	// be able to block the shared event loop.
+	receiptCh := make(chan []*ReceiptWithTx)
+	receiptSub := api.events.SubscribeTransactionReceipts(nil, receiptCh)
+	defer receiptSub.Unsubscribe()
+
+	headerCh := make(chan *types.Header, 2)
+	headerSub := api.events.SubscribeNewHeads(headerCh)
+	defer headerSub.Unsubscribe()
+
+	backend.chainFeed.Send(core.ChainEvent{
+		Hash:         header1.Hash(),
+		Header:       header1,
+		Receipts:     types.Receipts{{TxHash: tx.Hash(), Status: types.ReceiptStatusSuccessful}},
+		Transactions: types.Transactions{tx},
+	})
+	select {
+	case got := <-headerCh:
+		if got.Hash() != header1.Hash() {
+			t.Fatalf("unexpected first header: have %s, want %s", got.Hash(), header1.Hash())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first header")
+	}
+	select {
+	case <-receiptSub.Err():
+	case <-time.After(time.Second):
+		t.Fatal("slow receipt subscription was not closed")
+	}
+
+	backend.chainFeed.Send(core.ChainEvent{Hash: header2.Hash(), Header: header2})
+	select {
+	case got := <-headerCh:
+		if got.Hash() != header2.Hash() {
+			t.Fatalf("unexpected second header: have %s, want %s", got.Hash(), header2.Hash())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("receipt subscription blocked the event loop")
+	}
+}
+
+func TestEventSystemStopClosesInstalledSubscriptions(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	receiptCh := make(chan []*ReceiptWithTx)
+	receiptSub := api.events.SubscribeTransactionReceipts(nil, receiptCh)
+	headerSub := api.events.SubscribeNewHeads(make(chan *types.Header))
+
+	api.events.chainSub.Unsubscribe()
+
+	for name, errCh := range map[string]<-chan error{
+		"receipt": receiptSub.Err(),
+		"header":  headerSub.Err(),
+	} {
+		select {
+		case <-errCh:
+		case <-time.After(time.Second):
+			t.Fatalf("%s subscription err channel was not closed", name)
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		receiptSub.Unsubscribe()
+		headerSub.Unsubscribe()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe blocked after event system stopped")
+	}
+}
+
+func TestTransactionReceiptsSubscriptionGeneratedChain(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	backend, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	to := common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268")
+	signer := types.NewLondonSigner(big.NewInt(1))
+	genesis := &core.Genesis{
+		Config:  params.TestChainConfig,
+		BaseFee: big.NewInt(params.InitialBaseFee),
+		Alloc:   core.GenesisAlloc{from: {Balance: big.NewInt(1_000_000_000_000_000_000)}},
+	}
+	_, chain, receipts := core.GenerateChainWithGenesis(genesis, ethash.NewFaker(), db, 1, func(i int, gen *core.BlockGen) {
+		for nonce := uint64(0); nonce < 4; nonce++ {
+			tx, err := types.SignTx(types.NewTx(&types.LegacyTx{
+				Nonce:    nonce,
+				GasPrice: gen.BaseFee(),
+				Gas:      21000,
+				To:       &to,
+				Value:    big.NewInt(1),
+			}), signer, key)
+			if err != nil {
+				t.Fatalf("failed to sign tx: %v", err)
+			}
+			gen.AddTx(tx)
+		}
+	})
+	if len(chain) != 1 || len(receipts) != 1 || len(receipts[0]) != 4 {
+		t.Fatalf("unexpected generated chain receipts: blocks=%d receipt batches=%d receipts=%d", len(chain), len(receipts), len(receipts[0]))
+	}
+
+	txHashes := []common.Hash{chain[0].Transactions()[1].Hash(), chain[0].Transactions()[3].Hash()}
+	receiptCh := make(chan []*ReceiptWithTx, 1)
+	sub := api.events.SubscribeTransactionReceipts(txHashes, receiptCh)
+	defer sub.Unsubscribe()
+
+	backend.chainFeed.Send(core.ChainEvent{
+		Hash:         chain[0].Hash(),
+		Header:       chain[0].Header(),
+		Receipts:     receipts[0],
+		Transactions: chain[0].Transactions(),
+	})
+	select {
+	case got := <-receiptCh:
+		if len(got) != len(txHashes) {
+			t.Fatalf("expected %d receipts, got %d", len(txHashes), len(got))
+		}
+		matches := make(map[common.Hash]bool, len(got))
+		for _, receipt := range got {
+			matches[receipt.Receipt.TxHash] = true
+		}
+		for _, hash := range txHashes {
+			if !matches[hash] {
+				t.Fatalf("missing receipt for tx %s in %#v", hash, got)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for generated-chain receipts")
+	}
+}
+
+func TestTransactionReceiptsRejectsTooManyHashes(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	hashes := make([]common.Hash, maxTxHashes+1)
+	_, err := api.TransactionReceipts(context.Background(), &TransactionReceiptsQuery{TransactionHashes: hashes})
+	if !errors.Is(err, errExceedMaxTxHashes) {
+		t.Fatalf("unexpected error: got %v want %v", err, errExceedMaxTxHashes)
+	}
+}
+
 // TestPendingTxFilter tests whether pending tx filters retrieve all pending transactions that are posted to the event mux.
 func TestPendingTxFilter(t *testing.T) {
 	t.Parallel()
@@ -415,6 +657,68 @@ func TestGetFilterChangesFullTxStateAtDoesNotHoldFiltersMu(t *testing.T) {
 	}
 }
 
+func TestPollingFilterErrCleanup(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	tests := []struct {
+		name   string
+		create func(t *testing.T) rpc.ID
+	}{
+		{
+			name: "pending transactions",
+			create: func(t *testing.T) rpc.ID {
+				return api.NewPendingTransactionFilter(nil)
+			},
+		},
+		{
+			name: "blocks",
+			create: func(t *testing.T) rpc.ID {
+				return api.NewBlockFilter()
+			},
+		},
+		{
+			name: "logs",
+			create: func(t *testing.T) rpc.ID {
+				id, err := api.NewFilter(FilterCriteria{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return id
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id := tt.create(t)
+
+			api.filtersMu.Lock()
+			f := api.filters[id]
+			api.filtersMu.Unlock()
+			if f == nil {
+				t.Fatalf("filter %s was not installed", id)
+			}
+
+			f.s.Unsubscribe()
+			deadline := time.Now().Add(time.Second)
+			for {
+				api.filtersMu.Lock()
+				_, exists := api.filters[id]
+				api.filtersMu.Unlock()
+				if !exists {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("filter %s was not cleaned up", id)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}
+
 // TestLogFilterCreation test whether a given filter criteria makes sense.
 // If not it must return an error.
 func TestLogFilterCreation(t *testing.T) {
@@ -505,6 +809,105 @@ func TestInvalidGetLogsRequest(t *testing.T) {
 	}
 }
 
+func TestExceedLogQueryLimit(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: 1})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	addr1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	addr2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	topic1 := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+	topic2 := common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")
+
+	for _, tt := range []struct {
+		name string
+		crit FilterCriteria
+		want error
+	}{
+		{
+			name: "addresses",
+			crit: FilterCriteria{Addresses: []common.Address{
+				addr1,
+				addr2,
+			}},
+			want: errExceedLogQueryLimit,
+		},
+		{
+			name: "topic alternatives",
+			crit: FilterCriteria{Topics: [][]common.Hash{{
+				topic1,
+				topic2,
+			}}},
+			want: errExceedLogQueryLimit,
+		},
+		{
+			name: "topic positions",
+			crit: FilterCriteria{Topics: make([][]common.Hash, maxTopics+1)},
+			want: errExceedMaxTopics,
+		},
+	} {
+		t.Run(tt.name+"/getLogs", func(t *testing.T) {
+			if _, err := api.GetLogs(context.Background(), tt.crit); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+		t.Run(tt.name+"/newFilter", func(t *testing.T) {
+			if _, err := api.NewFilter(tt.crit); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+		t.Run(tt.name+"/subscribeLogs", func(t *testing.T) {
+			logs := make(chan []*types.Log)
+			if _, err := api.events.SubscribeLogs(ethereum.FilterQuery(tt.crit), logs); !errors.Is(err, tt.want) {
+				t.Fatalf("error mismatch: got %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogQueryLimitZeroDisablesWidthLimit(t *testing.T) {
+	testLogQueryLimitDisablesWidthLimit(t, 0)
+}
+
+func TestLogQueryLimitNegativeDisablesWidthLimit(t *testing.T) {
+	testLogQueryLimitDisablesWidthLimit(t, -1)
+}
+
+func testLogQueryLimitDisablesWidthLimit(t *testing.T, logQueryLimit int) {
+	db := rawdb.NewMemoryDatabase()
+	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: logQueryLimit})
+	api := NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+
+	crit := FilterCriteria{
+		Addresses: []common.Address{
+			common.HexToAddress("0x1111111111111111111111111111111111111111"),
+			common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		},
+		Topics: [][]common.Hash{{
+			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+			common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+		}},
+	}
+
+	id, err := api.NewFilter(crit)
+	if err != nil {
+		t.Fatalf("NewFilter rejected unlimited-width criteria: %v", err)
+	}
+	api.UninstallFilter(id)
+
+	logs := make(chan []*types.Log)
+	sub, err := api.events.SubscribeLogs(ethereum.FilterQuery(crit), logs)
+	if err != nil {
+		t.Fatalf("SubscribeLogs rejected unlimited-width criteria: %v", err)
+	}
+	sub.Unsubscribe()
+
+	tooManyPositions := FilterCriteria{Topics: make([][]common.Hash, maxTopics+1)}
+	if _, err := api.NewFilter(tooManyPositions); !errors.Is(err, errExceedMaxTopics) {
+		t.Fatalf("topic position limit mismatch: got %v, want %v", err, errExceedMaxTopics)
+	}
+}
+
 func TestGetLogsRange(t *testing.T) {
 	var (
 		db     = rawdb.NewMemoryDatabase()
@@ -532,6 +935,15 @@ func TestGetLogsRange(t *testing.T) {
 		if _, err := api.GetLogs(context.Background(), test); err == nil {
 			t.Errorf("Expected Logs for failing case #%d to fail", i)
 		}
+		id, err := api.NewFilter(test)
+		if err != nil {
+			t.Errorf("Expected filter creation for failing case #%d not to fail: %v", i, err)
+			continue
+		}
+		if _, err := api.GetFilterLogs(context.Background(), id); err == nil {
+			t.Errorf("Expected FilterLogs for failing case #%d to fail", i)
+		}
+		api.UninstallFilter(id)
 	}
 
 	okTestCases := []FilterCriteria{
@@ -546,6 +958,15 @@ func TestGetLogsRange(t *testing.T) {
 		if _, err := api.GetLogs(context.Background(), test); err != nil {
 			t.Errorf("Expected Logs for ok case #%d not to fail", i)
 		}
+		id, err := api.NewFilter(test)
+		if err != nil {
+			t.Errorf("Expected filter creation for ok case #%d not to fail: %v", i, err)
+			continue
+		}
+		if _, err := api.GetFilterLogs(context.Background(), id); err != nil {
+			t.Errorf("Expected FilterLogs for ok case #%d not to fail: %v", i, err)
+		}
+		api.UninstallFilter(id)
 	}
 }
 

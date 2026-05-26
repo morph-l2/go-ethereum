@@ -35,6 +35,15 @@ import (
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
+const maxTxHashes = 200
+const maxTopics = 4
+
+var (
+  errExceedMaxTxHashes   = errors.New("exceed maximum transaction hash count")
+	errExceedMaxTopics     = errors.New("exceed max topics")
+	errExceedLogQueryLimit = errors.New("exceed max addresses or topics per search position")
+)
+
 // filter is a helper struct that holds meta information over the filter type
 // and associated subscription in the event system.
 type filter struct {
@@ -57,6 +66,7 @@ type FilterAPI struct {
 	filters       map[rpc.ID]*filter
 	timeout       time.Duration
 	maxBlockRange int64
+	logQueryLimit int
 }
 
 // NewFilterAPI returns a new FilterAPI instance.
@@ -67,6 +77,7 @@ func NewFilterAPI(system *FilterSystem, lightMode bool, maxBlockRange int64) *Fi
 		filters:       make(map[rpc.ID]*filter),
 		timeout:       system.cfg.Timeout,
 		maxBlockRange: maxBlockRange,
+		logQueryLimit: system.cfg.LogQueryLimit,
 	}
 	go api.timeoutLoop(system.cfg.Timeout)
 
@@ -119,6 +130,7 @@ func (api *FilterAPI) NewPendingTransactionFilter(fullTx *bool) rpc.ID {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer pendingTxSub.Unsubscribe()
 		for {
 			select {
 			case pTx := <-pendingTxs:
@@ -206,6 +218,7 @@ func (api *FilterAPI) NewBlockFilter() rpc.ID {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer headerSub.Unsubscribe()
 		for {
 			select {
 			case h := <-headers:
@@ -294,6 +307,86 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 	return rpcSub, nil
 }
 
+// TransactionReceiptsQuery defines criteria for transaction receipts subscription.
+// Same as ethereum.TransactionReceiptsQuery but with UnmarshalJSON.
+type TransactionReceiptsQuery ethereum.TransactionReceiptsQuery
+
+// UnmarshalJSON sets receipt query fields with the given data.
+func (args *TransactionReceiptsQuery) UnmarshalJSON(data []byte) error {
+	type input struct {
+		TransactionHashes []common.Hash `json:"transactionHashes"`
+	}
+	var raw input
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	args.TransactionHashes = raw.TransactionHashes
+	return nil
+}
+
+// TransactionReceipts creates a subscription that sends receipt batches when
+// transactions are included in blocks.
+func (api *FilterAPI) TransactionReceipts(ctx context.Context, filter *TransactionReceiptsQuery) (*rpc.Subscription, error) {
+	if filter != nil && len(filter.TransactionHashes) > maxTxHashes {
+		return nil, errExceedMaxTxHashes
+	}
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	var txHashes []common.Hash
+	if filter != nil {
+		txHashes = filter.TransactionHashes
+	}
+	rpcSub := notifier.CreateSubscription()
+	matchedReceipts := make(chan []*ReceiptWithTx, txReceiptsChanSize)
+	receiptsSub := api.events.SubscribeTransactionReceipts(txHashes, matchedReceipts)
+
+	go func() {
+		defer receiptsSub.Unsubscribe()
+		chainConfig := api.sys.backend.ChainConfig()
+		for {
+			select {
+			case receiptsWithTxs := <-matchedReceipts:
+				marshaledReceipts := make([]map[string]interface{}, 0, len(receiptsWithTxs))
+				for _, receiptWithTx := range receiptsWithTxs {
+					blockNumber := receiptWithTx.Header.Number.Uint64()
+					bigblock := new(big.Int).SetUint64(blockNumber)
+					signer := types.MakeSigner(chainConfig, bigblock, receiptWithTx.Header.Time)
+					marshaled, err := ethapi.MarshalReceipt(
+						receiptWithTx.Receipt,
+						bigblock,
+						receiptWithTx.BlockHash,
+						blockNumber,
+						receiptWithTx.Header,
+						chainConfig,
+						signer,
+						receiptWithTx.Transaction,
+						receiptWithTx.TxIndex,
+					)
+					if err == nil {
+						marshaledReceipts = append(marshaledReceipts, marshaled)
+					} else {
+						log.Warn("Failed to marshal transaction receipt for subscription", "hash", receiptWithTx.Receipt.TxHash, "err", err)
+					}
+				}
+				if len(marshaledReceipts) > 0 {
+					notifier.Notify(rpcSub.ID, marshaledReceipts)
+				}
+			case <-rpcSub.Err():
+				return
+			case <-notifier.Closed():
+				return
+			case <-receiptsSub.Err():
+				return
+			}
+		}
+	}()
+
+	return rpcSub, nil
+}
+
 // FilterCriteria represents a request to create a new filter.
 // Same as ethereum.FilterQuery but with UnmarshalJSON() method.
 type FilterCriteria ethereum.FilterQuery
@@ -323,6 +416,7 @@ func (api *FilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer logsSub.Unsubscribe()
 		for {
 			select {
 			case l := <-logs:
@@ -347,6 +441,9 @@ func (api *FilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 //
 // https://eth.wiki/json-rpc/API#eth_getlogs
 func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*types.Log, error) {
+	if err := validateLogQuery(ethereum.FilterQuery(crit), api.logQueryLimit); err != nil {
+		return nil, err
+	}
 	var filter *Filter
 	if crit.BlockHash != nil {
 		// Block filter requested, construct a single-shot filter
@@ -370,6 +467,24 @@ func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*type
 		return nil, err
 	}
 	return returnLogs(logs), err
+}
+
+func validateLogQuery(crit ethereum.FilterQuery, logQueryLimit int) error {
+	if len(crit.Topics) > maxTopics {
+		return errExceedMaxTopics
+	}
+	if logQueryLimit <= 0 {
+		return nil
+	}
+	if len(crit.Addresses) > logQueryLimit {
+		return errExceedLogQueryLimit
+	}
+	for _, topics := range crit.Topics {
+		if len(topics) > logQueryLimit {
+			return errExceedLogQueryLimit
+		}
+	}
+	return nil
 }
 
 // UninstallFilter removes the filter with the given filter id.
@@ -417,7 +532,7 @@ func (api *FilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*types.Lo
 			end = f.crit.ToBlock.Int64()
 		}
 		// Construct the range filter
-		filter = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics)
+		filter = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics, api.maxBlockRange)
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)
@@ -591,6 +706,9 @@ func (args *FilterCriteria) UnmarshalJSON(data []byte) error {
 	// topics is an array consisting of strings and/or arrays of strings.
 	// JSON null values are converted to common.Hash{} and ignored by the filter manager.
 	if len(raw.Topics) > 0 {
+		if len(raw.Topics) > maxTopics {
+			return errExceedMaxTopics
+		}
 		args.Topics = make([][]common.Hash, len(raw.Topics))
 		for i, t := range raw.Topics {
 			switch topic := t.(type) {

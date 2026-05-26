@@ -608,6 +608,10 @@ func (srv *Server) setupDiscovery() error {
 			srv.DiscV5, err = discover.ListenV5(conn, srv.localnode, cfg)
 		}
 		if err != nil {
+			if srv.ntab != nil {
+				srv.ntab.Close()
+				srv.ntab = nil
+			}
 			return err
 		}
 	}
@@ -868,7 +872,9 @@ func (srv *Server) listenLoop() {
 				time.Sleep(time.Millisecond * 200)
 				continue
 			} else if err != nil {
-				srv.log.Debug("Read error", "err", err)
+				if !errors.Is(err, net.ErrClosed) {
+					srv.log.Debug("Read error", "err", err)
+				}
 				slots <- struct{}{}
 				return
 			}

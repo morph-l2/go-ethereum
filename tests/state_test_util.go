@@ -179,7 +179,7 @@ func (t *StateTest) Subtests() []StateSubtest {
 
 // Run executes a specific subtest and verifies the post-state and logs
 func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config, snapshotter bool) (*snapshot.Tree, *state.StateDB, error) {
-	snaps, statedb, _, err := t.RunWithResult(subtest, vmconfig, snapshotter)
+	snaps, statedb, _, _, err := t.RunWithResult(subtest, vmconfig, snapshotter)
 	return snaps, statedb, err
 }
 
@@ -192,22 +192,27 @@ type StateTestRunResult struct {
 }
 
 // RunWithResult executes a specific subtest, verifies the post-state/logs, and
-// returns returndata plus EVM-only gasUsed in addition to the final state.
-func (t *StateTest) RunWithResult(subtest StateSubtest, vmconfig vm.Config, snapshotter bool) (*snapshot.Tree, *state.StateDB, *StateTestRunResult, error) {
+// returns the post-state root, returndata, plus EVM-only gasUsed in addition
+// to the final state. The returned root is the same value used for
+// post-state verification, so callers (e.g. cmd/evm/staterunner.go's JSON
+// output path) can emit it directly without recomputing — recomputation with
+// a different EIP-158 flag would silently diverge once any state mutation
+// is introduced between this point and the second IntermediateRoot call.
+func (t *StateTest) RunWithResult(subtest StateSubtest, vmconfig vm.Config, snapshotter bool) (*snapshot.Tree, *state.StateDB, common.Hash, *StateTestRunResult, error) {
 	snaps, statedb, root, result, err := t.RunNoVerifyWithResult(subtest, vmconfig, snapshotter)
 	if err != nil {
-		return snaps, statedb, result, err
+		return snaps, statedb, root, result, err
 	}
 	post := t.json.Post[subtest.Fork][subtest.Index]
 	// N.B: We need to do this in a two-step process, because the first Commit takes care
 	// of suicides, and we need to touch the coinbase _after_ it has potentially suicided.
 	if root != common.Hash(post.Root) {
-		return snaps, statedb, result, fmt.Errorf("post state root mismatch: got %x, want %x", root, post.Root)
+		return snaps, statedb, root, result, fmt.Errorf("post state root mismatch: got %x, want %x", root, post.Root)
 	}
 	if logs := rlpHash(statedb.Logs()); logs != common.Hash(post.Logs) {
-		return snaps, statedb, result, fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
+		return snaps, statedb, root, result, fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
 	}
-	return snaps, statedb, result, nil
+	return snaps, statedb, root, result, nil
 }
 
 // RunNoVerify runs a specific subtest and returns the statedb and post-state root

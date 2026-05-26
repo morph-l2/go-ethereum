@@ -96,18 +96,23 @@ func stateTestCmd(ctx *cli.Context) error {
 		for _, st := range test.Subtests() {
 			// Run the test and aggregate the result
 			result := &StatetestResult{Name: key, Fork: st.Fork, Pass: true}
-			_, s, evmResult, err := test.RunWithResult(st, cfg, false)
+			_, s, root, evmResult, err := test.RunWithResult(st, cfg, false)
 			// Carry stateRoot + logsRoot + postLogsHash + returndata/gas as
 			// result fields for evmlab tracing and cross-client diff harnesses.
+			// stateRoot is the same value RunWithResult used for post-state
+			// verification (see its doc comment) — emitting it directly here
+			// keeps the cross-client output guaranteed-consistent with the
+			// pass/fail signal even if state mutations were ever introduced
+			// between the two IntermediateRoot points.
 			// logsRoot and postLogsHash are identical here (both are
 			// keccak256(rlp(stateDB.Logs()))) and emitted under both keys so
 			// consumers tracking either convention pick them up. gasUsed is the
 			// EVM-only gas from ApplyMessage; harnesses can normalize runner
 			// convention skew against clients that report total tx gas.
 			if ctx.GlobalBool(MachineFlag.Name) && s != nil {
-				root := s.IntermediateRoot(false)
 				logsHash := rlpHash(s.Logs())
-				result.Root = &root
+				rootCopy := root
+				result.Root = &rootCopy
 				result.LogsRoot = &logsHash
 				result.PostLogsHash = &logsHash
 				output := hexutil.Bytes{}

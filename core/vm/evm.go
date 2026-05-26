@@ -500,7 +500,9 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	if err == nil {
 		createDataGas := uint64(len(ret)) * params.CreateDataGas
 		if contract.UseGas(createDataGas, evm.Config.Tracer, tracing.GasChangeCallCodeStorage) {
-			evm.StateDB.SetCode(address, ret)
+			if len(ret) > 0 {
+				evm.StateDB.SetCode(address, ret)
+			}
 		} else {
 			err = ErrCodeStoreOutOfGas
 		}

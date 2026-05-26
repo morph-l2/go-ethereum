@@ -17,6 +17,7 @@
 package graphql
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"math/big"
@@ -54,8 +55,84 @@ func TestBuildSchema(t *testing.T) {
 		t.Fatalf("could not create new node: %v", err)
 	}
 	// Make sure the schema can be parsed and matched up to the object model.
-	if err := newHandler(stack, nil, nil, []string{}, []string{}); err != nil {
+	if _, err := newHandler(stack, nil, nil, []string{}, []string{}); err != nil {
 		t.Errorf("Could not construct GraphQL handler: %v", err)
+	}
+}
+
+func TestGraphQLMaxDepth(t *testing.T) {
+	ddir, err := ioutil.TempDir("", "graphql-maxdepth")
+	if err != nil {
+		t.Fatalf("failed to create temporary datadir: %v", err)
+	}
+	conf := node.DefaultConfig
+	conf.DataDir = ddir
+	stack, err := node.New(&conf)
+	if err != nil {
+		t.Fatalf("could not create new node: %v", err)
+	}
+	h, err := newHandler(stack, nil, nil, []string{}, []string{})
+	if err != nil {
+		t.Fatalf("could not construct GraphQL handler: %v", err)
+	}
+
+	introspectionQueryWithOfTypes := func(ofTypes int) string {
+		var b strings.Builder
+		b.WriteString(`{__type(name:"Block"){fields{type{`)
+		for i := 0; i < ofTypes; i++ {
+			b.WriteString("ofType{")
+		}
+		b.WriteString("name")
+		for i := 0; i < ofTypes; i++ {
+			b.WriteString("}")
+		}
+		b.WriteString("}}}}")
+		return b.String()
+	}
+
+	// __type -> fields -> type -> ofType... -> name places the leaf field at maxQueryDepth.
+	res := h.Schema.Exec(context.Background(), introspectionQueryWithOfTypes(maxQueryDepth-4), "", nil)
+	if len(res.Errors) != 0 {
+		t.Fatalf("expected query at max depth to succeed, got %v", res.Errors)
+	}
+
+	res = h.Schema.Exec(context.Background(), introspectionQueryWithOfTypes(maxQueryDepth-3), "", nil)
+	for _, err := range res.Errors {
+		if err.Rule == "MaxDepthExceeded" {
+			return
+		}
+	}
+	t.Fatalf("expected max depth exceeded error, got %v", res.Errors)
+}
+
+func TestGraphQLUIRegisteredWithTrailingSlash(t *testing.T) {
+	ddir, err := ioutil.TempDir("", "graphql-ui")
+	if err != nil {
+		t.Fatalf("failed to create temporary datadir: %v", err)
+	}
+	stack, err := node.New(&node.Config{
+		DataDir:      ddir,
+		HTTPHost:     "127.0.0.1",
+		HTTPPort:     0,
+		HTTPTimeouts: node.DefaultConfig.HTTPTimeouts,
+	})
+	if err != nil {
+		t.Fatalf("could not create node: %v", err)
+	}
+	defer stack.Close()
+	if _, err := newHandler(stack, nil, nil, []string{}, []string{}); err != nil {
+		t.Fatalf("could not construct GraphQL handler: %v", err)
+	}
+	if err := stack.Start(); err != nil {
+		t.Fatalf("could not start node: %v", err)
+	}
+	resp, err := http.Get(fmt.Sprintf("%s/graphql/ui/", stack.HTTPEndpoint()))
+	if err != nil {
+		t.Fatalf("could not get GraphQL UI: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status for /graphql/ui/: got %d want %d", resp.StatusCode, http.StatusOK)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,100 @@ func makeTestRef(b byte) common.Reference {
 	var ref common.Reference
 	ref[0] = b
 	return ref
+}
+
+func TestDecodeHash(t *testing.T) {
+	valid64 := strings.Repeat("1", 64)
+	for _, tt := range []struct {
+		name    string
+		input   string
+		want    common.Hash
+		wantErr string
+	}{
+		{
+			name:  "64 hex",
+			input: valid64,
+			want:  common.HexToHash("0x" + valid64),
+		},
+		{
+			name:    "65 hex",
+			input:   strings.Repeat("1", 65),
+			wantErr: "hex string too long, want at most 32 bytes",
+		},
+		{
+			name:    "66 hex",
+			input:   strings.Repeat("1", 66),
+			wantErr: "hex string too long, want at most 32 bytes",
+		},
+		{
+			name:    "0x plus 65 hex",
+			input:   "0x" + strings.Repeat("1", 65),
+			wantErr: "hex string too long, want at most 32 bytes",
+		},
+		{
+			name:  "odd legal input",
+			input: "abc",
+			want:  common.HexToHash("0x0abc"),
+		},
+		{
+			name:    "short invalid hex",
+			input:   "zz",
+			wantErr: "hex string invalid",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decodeHash(tt.input)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error %q", tt.wantErr)
+				}
+				if err.Error() != tt.wantErr {
+					t.Fatalf("error mismatch: got %q, want %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("hash mismatch: got %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+type proofStorageKeyDecodeBackend struct {
+	Backend
+	stateCalls int
+}
+
+func (m *proofStorageKeyDecodeBackend) StateAndHeaderByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*state.StateDB, *types.Header, error) {
+	m.stateCalls++
+	return nil, nil, nil
+}
+
+func TestGetProofInvalidStorageKeyBeforeStateAccess(t *testing.T) {
+	backend := new(proofStorageKeyDecodeBackend)
+	api := &PublicBlockChainAPI{b: backend}
+
+	_, err := api.GetProof(
+		context.Background(),
+		common.Address{},
+		[]string{
+			strings.Repeat("0", 64),
+			strings.Repeat("1", 65),
+		},
+		rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber),
+	)
+	if err == nil {
+		t.Fatal("expected storage key decode error")
+	}
+	if err.Error() != "hex string too long, want at most 32 bytes" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if backend.stateCalls != 0 {
+		t.Fatalf("state accessed before storage key validation: %d calls", backend.stateCalls)
+	}
 }
 
 func uint64Ptr(v uint64) *hexutil.Uint64 {

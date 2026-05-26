@@ -197,6 +197,7 @@ var (
 		utils.RPCTxSyncDefaultTimeoutFlag,
 		utils.RPCTxSyncMaxTimeoutFlag,
 		utils.RPCTxSyncEnabledFlag,
+		utils.RPCGlobalLogQueryLimit,
 		utils.AllowUnprotectedTxs,
 		utils.MaxBlockRangeFlag,
 		utils.RPCRangeLimitFlag,

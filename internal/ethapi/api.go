@@ -785,6 +785,15 @@ type StorageResult struct {
 
 // GetProof returns the Merkle-proof for a given account and optionally some storage keys.
 func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (*AccountResult, error) {
+	keys := make([]common.Hash, len(storageKeys))
+	for i, hexKey := range storageKeys {
+		key, err := decodeHash(hexKey)
+		if err != nil {
+			return nil, err
+		}
+		keys[i] = key
+	}
+
 	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if state == nil || err != nil {
 		return nil, err
@@ -812,10 +821,7 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 
 	// create the proof for the storageKeys
 	for i, hexKey := range storageKeys {
-		key, err := decodeHash(hexKey)
-		if err != nil {
-			return nil, err
-		}
+		key := keys[i]
 		if storageTrie != nil {
 			proof, storageError := state.GetStorageProof(address, key)
 			if storageError != nil {
@@ -855,12 +861,12 @@ func decodeHash(s string) (common.Hash, error) {
 	if (len(s) & 1) > 0 {
 		s = "0" + s
 	}
+	if len(s) > 64 {
+		return common.Hash{}, fmt.Errorf("hex string too long, want at most 32 bytes")
+	}
 	b, err := hex.DecodeString(s)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("hex string invalid")
-	}
-	if len(b) > 32 {
-		return common.Hash{}, fmt.Errorf("hex string too long, want at most 32 bytes")
 	}
 	return common.BytesToHash(b), nil
 }
@@ -986,13 +992,13 @@ func (s *PublicBlockChainAPI) GetCode(ctx context.Context, address common.Addres
 // block number. The rpc.LatestBlockNumber and rpc.PendingBlockNumber meta block
 // numbers are also allowed.
 func (s *PublicBlockChainAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
-	if state == nil || err != nil {
-		return nil, err
-	}
 	key, err := decodeHash(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode storage key: %s", err)
+	}
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, err
 	}
 	res := state.GetState(address, key)
 	return res[:], state.Error()

@@ -300,6 +300,26 @@ func TestStartRPC(t *testing.T) {
 	}
 }
 
+func TestStartHTTPVhosts(t *testing.T) {
+	config := Config{P2P: DefaultConfig.P2P}
+	config.P2P.NoDiscovery = true
+	config.HTTPTimeouts = rpc.DefaultHTTPTimeouts
+
+	stack, err := New(&config)
+	if err != nil {
+		t.Fatal("can't create node:", err)
+	}
+	defer stack.Close()
+	if err := stack.Start(); err != nil {
+		t.Fatal("can't start node:", err)
+	}
+
+	vhosts := "foo.example, bar.example"
+	_, err = (&privateAdminAPI{stack}).StartHTTP(sp("127.0.0.1"), ip(0), nil, nil, &vhosts)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"foo.example", "bar.example"}, stack.http.httpConfig.Vhosts)
+}
+
 // checkReachable checks if the TCP endpoint in rawurl is open.
 func checkReachable(rawurl string) bool {
 	u, err := url.Parse(rawurl)

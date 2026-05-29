@@ -41,8 +41,10 @@ jobs:
           TAG="${{ inputs.tag || github.ref_name }}"
           VERSION=$(echo "$TAG" | sed -e 's/^morph-v//')
           COMMIT=$(git rev-parse HEAD)
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "build_time=${BUILD_TIME}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -57,5 +59,6 @@ jobs:
           build-args: |
             COMMIT=${{ steps.meta.outputs.commit }}
             VERSION=${{ steps.meta.outputs.version }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

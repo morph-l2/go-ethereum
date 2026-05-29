@@ -51,6 +51,11 @@ const (
 )
 
 var (
+	// Version information set via linker flags.
+	Version   = "dev"
+	GitCommit = "unknown"
+	BuildTime = "unknown"
+
 	// Git SHA1 commit hash of the release (set via linker flags)
 	gitCommit = ""
 	gitDate   = ""

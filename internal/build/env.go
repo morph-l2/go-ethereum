@@ -31,6 +31,8 @@ var (
 	GitCommitFlag   = flag.String("git-commit", "", `Overrides git commit hash embedded into executables`)
 	GitBranchFlag   = flag.String("git-branch", "", `Overrides git branch being built`)
 	GitTagFlag      = flag.String("git-tag", "", `Overrides git tag being built`)
+	VersionFlag     = flag.String("version", "", `Overrides version embedded into executables`)
+	BuildTimeFlag   = flag.String("build-time", "", `Overrides build time embedded into executables`)
 	BuildnumFlag    = flag.String("buildnum", "", `Overrides CI build number`)
 	PullRequestFlag = flag.Bool("pull-request", false, `Overrides pull request status of the build`)
 	CronJobFlag     = flag.Bool("cron-job", false, `Overrides cron job status of the build`)
@@ -42,14 +44,15 @@ type Environment struct {
 	Name                      string // name of the environment
 	Repo                      string // name of GitHub repo
 	Commit, Date, Branch, Tag string // Git info
+	Version, BuildTime        string // Build metadata
 	Buildnum                  string
 	IsPullRequest             bool
 	IsCronJob                 bool
 }
 
 func (env Environment) String() string {
-	return fmt.Sprintf("%s env (commit:%s date:%s branch:%s tag:%s buildnum:%s pr:%t)",
-		env.Name, env.Commit, env.Date, env.Branch, env.Tag, env.Buildnum, env.IsPullRequest)
+	return fmt.Sprintf("%s env (commit:%s date:%s branch:%s tag:%s version:%s buildtime:%s buildnum:%s pr:%t)",
+		env.Name, env.Commit, env.Date, env.Branch, env.Tag, env.Version, env.BuildTime, env.Buildnum, env.IsPullRequest)
 }
 
 // Env returns metadata about the current CI environment, falling back to LocalEnv
@@ -158,6 +161,12 @@ func applyEnvFlags(env Environment) Environment {
 	}
 	if *GitTagFlag != "" {
 		env.Tag = *GitTagFlag
+	}
+	if *VersionFlag != "" {
+		env.Version = *VersionFlag
+	}
+	if *BuildTimeFlag != "" {
+		env.BuildTime = *BuildTimeFlag
 	}
 	if *BuildnumFlag != "" {
 		env.Buildnum = *BuildnumFlag

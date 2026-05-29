@@ -7,9 +7,13 @@
 GOBIN = ./build/bin
 GO ?= latest
 GORUN = env GO111MODULE=on go run
+GITCOMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+GETH_BUILD_FLAGS = -git-commit=$(GITCOMMIT) -version=$(VERSION) -build-time=$(BUILD_TIME)
 
 geth:
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(GETH_BUILD_FLAGS) ./cmd/geth
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/geth\" to launch geth."
 
@@ -78,8 +82,8 @@ testnet-clean:
 .PHONY: testnet-clean
 
 image:
-	docker build -f Dockerfile -t morph-geth:latest .
+	docker build --build-arg COMMIT=$(GITCOMMIT) --build-arg VERSION=$(VERSION) --build-arg BUILD_TIME=$(BUILD_TIME) -f Dockerfile -t morph-geth:latest .
 
 docker:
-	docker build -t morph/l2geth:latest ./ -f Dockerfile
+	docker build --build-arg COMMIT=$(GITCOMMIT) --build-arg VERSION=$(VERSION) --build-arg BUILD_TIME=$(BUILD_TIME) -t morph/l2geth:latest ./ -f Dockerfile
 

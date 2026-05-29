@@ -18,10 +18,8 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 	"strconv"
-	"strings"
 
 	"gopkg.in/urfave/cli.v1"
 
@@ -72,7 +70,8 @@ Regular users do not need to execute it.
 	versionCommand = cli.Command{
 		Action:    utils.MigrateFlags(version),
 		Name:      "version",
-		Usage:     "Print version numbers",
+		Aliases:   []string{"v"},
+		Usage:     "show version information",
 		ArgsUsage: " ",
 		Category:  "MISCELLANEOUS COMMANDS",
 		Description: `
@@ -134,19 +133,11 @@ func makedag(ctx *cli.Context) error {
 }
 
 func version(ctx *cli.Context) error {
-	fmt.Println(strings.Title(clientIdentifier))
-	fmt.Println("Version:", params.VersionWithMeta)
-	if gitCommit != "" {
-		fmt.Println("Git Commit:", gitCommit)
-	}
-	if gitDate != "" {
-		fmt.Println("Git Commit Date:", gitDate)
-	}
-	fmt.Println("Architecture:", runtime.GOARCH)
-	fmt.Println("Go Version:", runtime.Version())
-	fmt.Println("Operating System:", runtime.GOOS)
-	fmt.Printf("GOPATH=%s\n", os.Getenv("GOPATH"))
-	fmt.Printf("GOROOT=%s\n", runtime.GOROOT())
+	fmt.Printf("%s %s\n", clientIdentifier, Version)
+	fmt.Printf("Git Commit: %s\n", GitCommit)
+	fmt.Printf("Build Time: %s\n", BuildTime)
+	fmt.Printf("Go Version: %s\n", runtime.Version())
+	fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	return nil
 }
 

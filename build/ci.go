@@ -252,7 +252,19 @@ func doInstall(cmdline []string) {
 // buildFlags returns the go tool flags for building.
 func buildFlags(env build.Environment) (flags []string) {
 	var ld []string
+
+	version := env.Version
+	if version == "" {
+		version = params.VersionWithMeta
+	}
+	buildTime := env.BuildTime
+	if buildTime == "" {
+		buildTime = time.Now().UTC().Format(time.RFC3339)
+	}
+	ld = append(ld, "-X", "main.Version="+version)
+	ld = append(ld, "-X", "main.BuildTime="+buildTime)
 	if env.Commit != "" {
+		ld = append(ld, "-X", "main.GitCommit="+env.Commit)
 		ld = append(ld, "-X", "main.gitCommit="+env.Commit)
 		ld = append(ld, "-X", "main.gitDate="+env.Date)
 	}

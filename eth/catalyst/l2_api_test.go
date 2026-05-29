@@ -300,7 +300,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			LogsBloom:    ret.Block.Bloom().Bytes(),
 		}
 
-		err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data, false)
 		require.NoError(t, err)
 		require.EqualValues(t, num+1, bc.CurrentBlock().NumberU64())
 	})
@@ -311,7 +311,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			ParentHash: common.HexToHash("0xdeadbeef"),
 			Number:     999,
 		}
-		err := api.NewL2BlockV2(data, false)
+		_, err := api.NewL2BlockV2(data, false)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "parent block not found")
 	})
@@ -322,7 +322,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			ParentHash: bc.CurrentBlock().Hash(),
 			Number:     999, // wrong
 		}
-		err := api.NewL2BlockV2(data, false)
+		_, err := api.NewL2BlockV2(data, false)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "wrong block number")
 	})
@@ -356,7 +356,7 @@ func TestNewL2BlockV2(t *testing.T) {
 		}
 
 		// Apply the reorg block via NewL2BlockV2
-		err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data, false)
 		require.NoError(t, err)
 
 		// Verify chain head is now at height 8
@@ -407,7 +407,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			NextL1MessageIndex: 99, // tampered
 		}
 
-		err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data, false)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, core.ErrInvalidNextL1MsgIndex),
 			"expected ErrInvalidNextL1MsgIndex, got: %v", err)
@@ -442,7 +442,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			NextL1MessageIndex: ret.Block.Header().NextL1MsgIndex, // honest
 		}
 
-		err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data, false)
 		require.NoError(t, err)
 		require.Equal(t, numberBefore+1, bc.CurrentBlock().NumberU64())
 	})
@@ -470,7 +470,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			LogsBloom:    newBlock.Bloom().Bytes(),
 		}
 
-		err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data, false)
 		require.NoError(t, err)
 		require.EqualValues(t, 6, bc.CurrentBlock().NumberU64())
 
@@ -502,7 +502,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			LogsBloom:    newBlock.Bloom().Bytes(),
 		}
 
-		err = api.NewL2BlockV2(data, true)
+		_, err = api.NewL2BlockV2(data, true)
 		require.NoError(t, err)
 	})
 }

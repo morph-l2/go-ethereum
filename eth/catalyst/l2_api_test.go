@@ -300,7 +300,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			LogsBloom:    ret.Block.Bloom().Bytes(),
 		}
 
-		_, err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data)
 		require.NoError(t, err)
 		require.EqualValues(t, num+1, bc.CurrentBlock().NumberU64())
 	})
@@ -311,7 +311,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			ParentHash: common.HexToHash("0xdeadbeef"),
 			Number:     999,
 		}
-		_, err := api.NewL2BlockV2(data, false)
+		_, err := api.NewL2BlockV2(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "parent block not found")
 	})
@@ -322,7 +322,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			ParentHash: bc.CurrentBlock().Hash(),
 			Number:     999, // wrong
 		}
-		_, err := api.NewL2BlockV2(data, false)
+		_, err := api.NewL2BlockV2(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "wrong block number")
 	})
@@ -356,7 +356,7 @@ func TestNewL2BlockV2(t *testing.T) {
 		}
 
 		// Apply the reorg block via NewL2BlockV2
-		_, err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data)
 		require.NoError(t, err)
 
 		// Verify chain head is now at height 8
@@ -407,7 +407,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			NextL1MessageIndex: 99, // tampered
 		}
 
-		_, err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, core.ErrInvalidNextL1MsgIndex),
 			"expected ErrInvalidNextL1MsgIndex, got: %v", err)
@@ -442,7 +442,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			NextL1MessageIndex: ret.Block.Header().NextL1MsgIndex, // honest
 		}
 
-		_, err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data)
 		require.NoError(t, err)
 		require.Equal(t, numberBefore+1, bc.CurrentBlock().NumberU64())
 	})
@@ -470,7 +470,7 @@ func TestNewL2BlockV2(t *testing.T) {
 			LogsBloom:    newBlock.Bloom().Bytes(),
 		}
 
-		_, err = api.NewL2BlockV2(data, false)
+		_, err = api.NewL2BlockV2(data)
 		require.NoError(t, err)
 		require.EqualValues(t, 6, bc.CurrentBlock().NumberU64())
 
@@ -481,30 +481,9 @@ func TestNewL2BlockV2(t *testing.T) {
 		}
 	})
 
-	// TC-05: isSafe=true path
-	t.Run("SafeBlock", func(t *testing.T) {
-		currentHash := bc.CurrentBlock().Hash()
-		ret, err := ethService.Miner().BuildBlock(currentHash, time.Now(), nil)
-		require.NoError(t, err)
-		newBlock := ret.Block
-
-		data := ExecutableL2Data{
-			ParentHash:   newBlock.ParentHash(),
-			Number:       newBlock.NumberU64(),
-			Miner:        newBlock.Coinbase(),
-			Timestamp:    newBlock.Time(),
-			GasLimit:     newBlock.GasLimit(),
-			BaseFee:      newBlock.BaseFee(),
-			Transactions: encodeTransactions(newBlock.Transactions()),
-			StateRoot:    newBlock.Root(),
-			GasUsed:      newBlock.GasUsed(),
-			ReceiptRoot:  newBlock.ReceiptHash(),
-			LogsBloom:    newBlock.Bloom().Bytes(),
-		}
-
-		_, err = api.NewL2BlockV2(data, true)
-		require.NoError(t, err)
-	})
+	// (TC-05 removed: the isSafe=true path of NewL2BlockV2 has been
+	// consolidated into NewSafeL2Block, which has its own dedicated test
+	// TestNewSafeL2Block. NewL2BlockV2 is now sequencer-signed-only.)
 }
 
 func sendTransfer(config params.ChainConfig, ethService *eth.Ethereum) error {

@@ -230,18 +230,42 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 }
 
 func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Header, err error) {
-	parent := api.eth.BlockChain().CurrentBlock()
-	expectedBlockNumber := parent.NumberU64() + 1
-	if params.Number != expectedBlockNumber {
-		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
-		return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+	bc := api.eth.BlockChain()
+
+	// Parent selection: caller-pinned (reorg path) or currentHead (legacy
+	// sequential path). When ParentHash is supplied, the parent is looked
+	// up by hash and the block number must match parent+1; SetCanonical
+	// inside WriteStateAndSetHead handles the chain switchover when this
+	// parent isn't currentHead. When ParentHash is nil, fall back to the
+	// strict currentHead+1 invariant for callers that don't track parent.
+	var parent *types.Block
+	if params.ParentHash != nil {
+		parentHeader := bc.GetHeaderByHash(*params.ParentHash)
+		if parentHeader == nil {
+			return nil, fmt.Errorf("parent block not found: %s", params.ParentHash.Hex())
+		}
+		if params.Number != parentHeader.Number.Uint64()+1 {
+			return nil, fmt.Errorf("wrong block number: expected %d, got %d",
+				parentHeader.Number.Uint64()+1, params.Number)
+		}
+		parent = bc.GetBlock(parentHeader.Hash(), parentHeader.Number.Uint64())
+		if parent == nil {
+			return nil, fmt.Errorf("parent block body not found: %s", params.ParentHash.Hex())
+		}
+	} else {
+		parent = bc.CurrentBlock()
+		expectedBlockNumber := parent.NumberU64() + 1
+		if params.Number != expectedBlockNumber {
+			log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
+			return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+		}
 	}
 
 	block, err := api.safeDataToBlock(params)
 	if err != nil {
 		return nil, err
 	}
-	stateDB, receipts, usedGas, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), true)
+	stateDB, receipts, usedGas, procTime, err := bc.ProcessBlock(block, parent.Header(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +295,7 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Head
 			txLog.BlockHash = block.Hash()
 		}
 	}
-	return header, api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
+	return header, bc.WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
 func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, error) {
@@ -456,11 +480,7 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 	}, nil
 }
 
-// NewL2BlockV2 commits a block with reorg support.
-// Unlike NewL2Block, it only requires the parent to exist (not be currentHead).
-// SetCanonical internally detects parentHash != currentHead and triggers reorg automatically.
-// isSafe=true skips verifyBlock and ValidateState (for L1-confirmed blocks).
-func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data, isSafe bool) (header *types.Header, err error) {
+func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data) (header *types.Header, err error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
@@ -480,16 +500,6 @@ func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data, isSafe bool) (h
 		return nil, err
 	}
 
-	// isSafe=true means the block originates from a canonical L1 batch, so
-	// the L1 message stream is the source of truth for NextL1MsgIndex.
-	if isSafe {
-		if qi := rawdb.ReadFirstQueueIndexNotInL2Block(api.eth.ChainDb(), block.ParentHash()); qi != nil {
-			h := block.Header()
-			h.NextL1MsgIndex = *qi + uint64(block.NumL1MessagesProcessed(*qi))
-			block = types.NewBlockWithHeader(h).WithBody(block.Transactions(), block.Uncles())
-		}
-	}
-
 	defer func() {
 		if err == nil {
 			api.verified = make(map[common.Hash]executionResult)
@@ -501,28 +511,26 @@ func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data, isSafe bool) (h
 		return nil, bc.WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
 
-	if !isSafe {
-		// Defense against signature-replay: ensure the declared block hash matches the
-		// hash recomputed from the canonical fields. Without this check, an attacker
-		// could keep params.Hash from a legitimately signed block while tampering with
-		// other content fields, and have the signature verification on the consensus
-		// side accept the tampered body. This is the last line of defense before the
-		// block is committed to the chain; the tendermint side performs the same check
-		// earlier in VerifyBlockSignature to reject tampered blocks before propagation.
-		if (params.Hash != common.Hash{}) && block.Hash() != params.Hash {
-			log.Error("NewL2BlockV2 hash mismatch (signature replay or tampering)",
-				"declared", params.Hash.Hex(), "computed", block.Hash().Hex(), "number", params.Number)
-			return nil, fmt.Errorf("block hash mismatch: declared %s, computed %s",
-				params.Hash.Hex(), block.Hash().Hex())
-		}
-
-		if err = api.verifyBlock(block); err != nil {
-			log.Error("failed to verify block", "error", err)
-			return nil, err
-		}
+	// Defense against signature-replay: ensure the declared block hash matches the
+	// hash recomputed from the canonical fields. Without this check, an attacker
+	// could keep params.Hash from a legitimately signed block while tampering with
+	// other content fields, and have the signature verification on the consensus
+	// side accept the tampered body. This is the last line of defense before the
+	// block is committed to the chain; the tendermint side performs the same check
+	// earlier in VerifyBlockSignature to reject tampered blocks before propagation.
+	if (params.Hash != common.Hash{}) && block.Hash() != params.Hash {
+		log.Error("NewL2BlockV2 hash mismatch (signature replay or tampering)",
+			"declared", params.Hash.Hex(), "computed", block.Hash().Hex(), "number", params.Number)
+		return nil, fmt.Errorf("block hash mismatch: declared %s, computed %s",
+			params.Hash.Hex(), block.Hash().Hex())
 	}
 
-	stateDB, receipts, _, procTime, err := bc.ProcessBlock(block, parentHeader, isSafe)
+	if err = api.verifyBlock(block); err != nil {
+		log.Error("failed to verify block", "error", err)
+		return nil, err
+	}
+
+	stateDB, receipts, _, procTime, err := bc.ProcessBlock(block, parentHeader, false)
 	if err != nil {
 		return nil, err
 	}

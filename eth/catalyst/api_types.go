@@ -133,6 +133,12 @@ type SafeL2Data struct {
 	Timestamp    uint64       `json:"timestamp"      gencodec:"required"`
 	Transactions [][]byte     `json:"transactions"   gencodec:"required"`
 	BatchHash    *common.Hash `json:"batchHash"`
+	// ParentHash, when non-nil, pins the block's parent. Used by the
+	// derivation reorg path (deriveForce) to apply L1-canonical blocks on
+	// top of a non-currentHead parent; SetCanonical detects the divergence
+	// and reorgs automatically. When nil, NewSafeL2Block falls back to
+	// the legacy "extend currentHead by one" semantics.
+	ParentHash *common.Hash `json:"parentHash"`
 }
 
 // JSON type overrides for SafeL2Data.

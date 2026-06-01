@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -38,13 +39,13 @@ jobs:
       - name: Extract version and commit
         id: meta
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
-          VERSION=$(echo "$TAG" | sed -e 's/^morph-v//')
+          VERSION=$(git describe --tags --always --dirty)
           COMMIT=$(git rev-parse HEAD)
           BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
           echo "build_time=${BUILD_TIME}" >> "$GITHUB_OUTPUT"
+          echo "buildnum=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -60,5 +61,6 @@ jobs:
             COMMIT=${{ steps.meta.outputs.commit }}
             VERSION=${{ steps.meta.outputs.version }}
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            BUILDNUM=${{ steps.meta.outputs.buildnum }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

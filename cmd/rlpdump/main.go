@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	"github.com/morph-l2/go-ethereum/common"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	"github.com/morph-l2/go-ethereum/rlp"
 )
 
@@ -37,6 +38,7 @@ var (
 	reverseMode = flag.Bool("reverse", false, "convert ASCII to rlp")
 	noASCII     = flag.Bool("noascii", false, "don't print ASCII strings readably")
 	single      = flag.Bool("single", false, "print only the first element, discard the rest")
+	showVersion = flag.Bool("version", false, "show version information")
 )
 
 func init() {
@@ -51,6 +53,9 @@ If the filename is omitted, data is read from stdin.`)
 
 func main() {
 	flag.Parse()
+	if buildversion.PrintIfRequested(showVersion, "rlpdump") {
+		return
+	}
 
 	var r io.Reader
 	switch {
@@ -130,7 +135,7 @@ func dump(s *rlp.Stream, depth int, out io.Writer) error {
 		s.List()
 		defer s.ListEnd()
 		if size == 0 {
-			fmt.Fprintf(out, ws(depth)+"[]")
+			fmt.Fprint(out, ws(depth)+"[]")
 		} else {
 			fmt.Fprintln(out, ws(depth)+"[")
 			for i := 0; ; i++ {

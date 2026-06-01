@@ -30,6 +30,7 @@ import (
 	"github.com/morph-l2/go-ethereum/ethclient"
 	"github.com/morph-l2/go-ethereum/ethstats"
 	"github.com/morph-l2/go-ethereum/internal/debug"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	"github.com/morph-l2/go-ethereum/les"
 	"github.com/morph-l2/go-ethereum/node"
 	"github.com/morph-l2/go-ethereum/p2p"
@@ -131,7 +132,7 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 	// Create the empty networking stack
 	nodeConf := &node.Config{
 		Name:        clientIdentifier,
-		Version:     params.VersionWithMeta,
+		Version:     buildversion.Version,
 		DataDir:     datadir,
 		KeyStoreDir: filepath.Join(datadir, "keystore"), // Mobile should never use internal keystores!
 		P2P: p2p.Config{

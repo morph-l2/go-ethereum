@@ -26,6 +26,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/cmd/utils"
 	"github.com/morph-l2/go-ethereum/crypto"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/p2p/discover"
 	"github.com/morph-l2/go-ethereum/p2p/enode"
@@ -45,11 +46,15 @@ func main() {
 		runv5       = flag.Bool("v5", false, "run a v5 topic discovery bootnode")
 		verbosity   = flag.Int("verbosity", int(log.LvlInfo), "log verbosity (0-5)")
 		vmodule     = flag.String("vmodule", "", "log verbosity pattern")
+		showVersion = flag.Bool("version", false, "show version information")
 
 		nodeKey *ecdsa.PrivateKey
 		err     error
 	)
 	flag.Parse()
+	if buildversion.PrintIfRequested(showVersion, "bootnode") {
+		return
+	}
 
 	glogger := log.NewGlogHandler(log.StreamHandler(os.Stderr, log.TerminalFormat(false)))
 	glogger.Verbosity(log.Lvl(*verbosity))

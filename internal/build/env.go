@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -64,7 +65,7 @@ func Env() Environment {
 		if commit == "" {
 			commit = os.Getenv("TRAVIS_COMMIT")
 		}
-		return Environment{
+		return finalizeEnv(applyEnvFlags(Environment{
 			CI:            true,
 			Name:          "travis",
 			Repo:          os.Getenv("TRAVIS_REPO_SLUG"),
@@ -75,13 +76,13 @@ func Env() Environment {
 			Buildnum:      os.Getenv("TRAVIS_BUILD_NUMBER"),
 			IsPullRequest: os.Getenv("TRAVIS_PULL_REQUEST") != "false",
 			IsCronJob:     os.Getenv("TRAVIS_EVENT_TYPE") == "cron",
-		}
+		}))
 	case os.Getenv("CI") == "True" && os.Getenv("APPVEYOR") == "True":
 		commit := os.Getenv("APPVEYOR_PULL_REQUEST_HEAD_COMMIT")
 		if commit == "" {
 			commit = os.Getenv("APPVEYOR_REPO_COMMIT")
 		}
-		return Environment{
+		return finalizeEnv(applyEnvFlags(Environment{
 			CI:            true,
 			Name:          "appveyor",
 			Repo:          os.Getenv("APPVEYOR_REPO_NAME"),
@@ -92,7 +93,26 @@ func Env() Environment {
 			Buildnum:      os.Getenv("APPVEYOR_BUILD_NUMBER"),
 			IsPullRequest: os.Getenv("APPVEYOR_PULL_REQUEST_NUMBER") != "",
 			IsCronJob:     os.Getenv("APPVEYOR_SCHEDULED_BUILD") == "True",
+		}))
+	case os.Getenv("CI") == "true" && os.Getenv("GITHUB_ACTIONS") == "true":
+		refType := os.Getenv("GITHUB_REF_TYPE")
+		refName := os.Getenv("GITHUB_REF_NAME")
+		env := Environment{
+			CI:            true,
+			Name:          "github",
+			Repo:          os.Getenv("GITHUB_REPOSITORY"),
+			Commit:        os.Getenv("GITHUB_SHA"),
+			Branch:        refName,
+			Buildnum:      os.Getenv("GITHUB_RUN_NUMBER"),
+			IsPullRequest: os.Getenv("GITHUB_EVENT_NAME") == "pull_request",
+			IsCronJob:     os.Getenv("GITHUB_EVENT_NAME") == "schedule",
 		}
+		if refType == "tag" {
+			env.Tag = refName
+			env.Branch = ""
+		}
+		env.Date = getDate(env.Commit)
+		return finalizeEnv(applyEnvFlags(env))
 	default:
 		return LocalEnv()
 	}
@@ -113,7 +133,7 @@ func LocalEnv() Environment {
 		if commit := commitRe.FindString(head); commit != "" && env.Commit == "" {
 			env.Commit = commit
 		}
-		return env
+		return finalizeEnv(env)
 	}
 	if env.Commit == "" {
 		env.Commit = readGitFile(head)
@@ -127,7 +147,7 @@ func LocalEnv() Environment {
 	if info, err := os.Stat(".git/objects"); err == nil && info.IsDir() && env.Tag == "" {
 		env.Tag = firstLine(RunGit("tag", "-l", "--points-at", "HEAD"))
 	}
-	return env
+	return finalizeEnv(env)
 }
 
 func firstLine(s string) string {
@@ -178,4 +198,34 @@ func applyEnvFlags(env Environment) Environment {
 		env.IsCronJob = true
 	}
 	return env
+}
+
+func finalizeEnv(env Environment) Environment {
+	if env.Version == "" {
+		env.Version = firstLine(tryGit("describe", "--tags", "--always", "--dirty"))
+	}
+	if env.Version == "" {
+		env.Version = "dev"
+	}
+	if env.BuildTime == "" {
+		env.BuildTime = time.Now().UTC().Format(time.RFC3339)
+	}
+	if env.Commit == "" {
+		env.Commit = firstLine(tryGit("rev-parse", "HEAD"))
+	}
+	if env.Commit == "" {
+		env.Commit = "unknown"
+	}
+	if env.Date == "" && env.Commit != "unknown" {
+		env.Date = getDate(env.Commit)
+	}
+	return env
+}
+
+func tryGit(args ...string) string {
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

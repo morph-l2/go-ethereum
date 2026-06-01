@@ -53,6 +53,7 @@ import (
 	"github.com/morph-l2/go-ethereum/eth/ethconfig"
 	"github.com/morph-l2/go-ethereum/ethclient"
 	"github.com/morph-l2/go-ethereum/ethstats"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	"github.com/morph-l2/go-ethereum/les"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/node"
@@ -89,20 +90,17 @@ var (
 
 	goerliFlag  = flag.Bool("goerli", false, "Initializes the faucet with Görli network config")
 	rinkebyFlag = flag.Bool("rinkeby", false, "Initializes the faucet with Rinkeby network config")
+	showVersion = flag.Bool("version", false, "show version information")
 )
 
-var (
-	ether = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
-)
-
-var (
-	gitCommit = "" // Git SHA1 commit hash of the release (set via linker flags)
-	gitDate   = "" // Git commit date YYYYMMDD of the release (set via linker flags)
-)
+var ether = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 
 func main() {
 	// Parse the flags and set up the logger to print everything requested
 	flag.Parse()
+	if buildversion.PrintIfRequested(showVersion, "faucet") {
+		return
+	}
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*logFlag), log.StreamHandler(os.Stderr, log.TerminalFormat(true))))
 
 	// Construct the payout tiers
@@ -232,7 +230,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 	// Assemble the raw devp2p protocol stack
 	stack, err := node.New(&node.Config{
 		Name:    "geth",
-		Version: params.VersionWithCommit(gitCommit, gitDate),
+		Version: buildversion.Version,
 		DataDir: filepath.Join(os.Getenv("HOME"), ".faucet"),
 		P2P: p2p.Config{
 			NAT:              nat.Any(),

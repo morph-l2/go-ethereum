@@ -3,18 +3,22 @@
 # don't need to bother with make.
 
 GORUN = env GO111MODULE=on go run
+GITCOMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_FLAGS = -git-commit=$(GITCOMMIT) -version=$(VERSION) -build-time=$(BUILD_TIME)
 
 # in go-ethereum repo
 build-bk-prod-morph-prod-mainnet-to-morph-geth:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	cp build/bin/geth dist/
 	tar -czvf morph-geth.tar.gz dist
 	aws s3 cp morph-geth.tar.gz s3://morph-0582-morph-technical-department-mainnet-data/morph-setup/morph-geth.tar.gz
 
 build-bk-prod-morph-prod-mainnet-to-morph-nccc-geth:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
 	tar -czvf morph-nccc-geth.tar.gz dist
@@ -24,14 +28,14 @@ build-bk-prod-morph-prod-mainnet-to-morph-nccc-geth:
 # build for holesky
 build-bk-prod-morph-prod-testnet-to-morph-geth-holesky:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	cp build/bin/geth dist/
 	tar -czvf morph-geth.tar.gz dist
 	aws s3 cp morph-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/testnet/holesky/morph-setup/morph-geth.tar.gz
 
 build-bk-prod-morph-prod-testnet-to-morph-nccc-geth-holesky:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
 	tar -czvf morph-nccc-geth.tar.gz dist
@@ -41,14 +45,14 @@ build-bk-prod-morph-prod-testnet-to-morph-nccc-geth-holesky:
 # build for hoodi
 build-bk-prod-morph-prod-testnet-to-morph-geth-hoodi:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	cp build/bin/geth dist/
 	tar -czvf morph-geth.tar.gz dist
 	aws s3 cp morph-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/testnet/hoodi/morph-setup/morph-geth.tar.gz
 
 build-bk-prod-morph-prod-testnet-to-morph-nccc-geth-hoodi:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
 	tar -czvf morph-nccc-geth.tar.gz dist
@@ -57,7 +61,7 @@ build-bk-prod-morph-prod-testnet-to-morph-nccc-geth-hoodi:
 # build for qanet
 build-bk-test-morph-test-qanet-to-morph-geth-qanet:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
 	tar -czvf morph-geth.tar.gz dist
@@ -65,7 +69,7 @@ build-bk-test-morph-test-qanet-to-morph-geth-qanet:
 
 build-bk-test-morph-test-qanet-to-morph-nccc-geth-qanet:
 	if [ ! -d dist ]; then mkdir -p dist; fi
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
 	tar -czvf morph-nccc-geth.tar.gz dist

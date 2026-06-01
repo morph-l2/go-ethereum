@@ -35,10 +35,10 @@ import (
 	"github.com/morph-l2/go-ethereum/cmd/utils"
 	"github.com/morph-l2/go-ethereum/eth/ethconfig"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/metrics"
 	"github.com/morph-l2/go-ethereum/node"
-	"github.com/morph-l2/go-ethereum/params"
 )
 
 var (
@@ -109,7 +109,7 @@ func loadConfig(file string, cfg *gethConfig) error {
 func defaultNodeConfig() node.Config {
 	cfg := node.DefaultConfig
 	cfg.Name = clientIdentifier
-	cfg.Version = params.VersionWithCommit(gitCommit, gitDate)
+	cfg.Version = buildversion.Version
 	cfg.HTTPModules = append(cfg.HTTPModules, "eth")
 	cfg.WSModules = append(cfg.WSModules, "eth")
 	cfg.IPCPath = "geth.ipc"

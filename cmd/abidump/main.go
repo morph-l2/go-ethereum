@@ -23,9 +23,12 @@ import (
 	"os"
 	"strings"
 
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	"github.com/morph-l2/go-ethereum/signer/core/apitypes"
 	"github.com/morph-l2/go-ethereum/signer/fourbyte"
 )
+
+var showVersion = flag.Bool("version", false, "show version information")
 
 func init() {
 	flag.Usage = func() {
@@ -52,6 +55,9 @@ func parse(data []byte) {
 // ./abidump a9059cbb000000000000000000000000ea0e2dc7d65a50e77fc7e84bff3fd2a9e781ff5c0000000000000000000000000000000000000000000000015af1d78b58c40000
 func main() {
 	flag.Parse()
+	if buildversion.PrintIfRequested(showVersion, "abidump") {
+		return
+	}
 
 	switch {
 	case flag.NArg() == 1:

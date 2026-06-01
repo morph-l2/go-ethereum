@@ -29,16 +29,10 @@ import (
 	"github.com/morph-l2/go-ethereum/log"
 )
 
-var (
-	// Git SHA1 commit hash of the release (set via linker flags)
-	gitCommit = ""
-	gitDate   = ""
-)
-
 var app *cli.App
 
 func init() {
-	app = flags.NewApp(gitCommit, gitDate, "ethereum checkpoint helper tool")
+	app = flags.NewApp("ethereum checkpoint helper tool")
 	app.Commands = []cli.Command{
 		commandStatus,
 		commandDeploy,

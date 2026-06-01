@@ -22,7 +22,7 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
-	"github.com/morph-l2/go-ethereum/params"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 )
 
 var (
@@ -142,12 +142,20 @@ func FlagCategory(flag cli.Flag, flagGroups []FlagGroup) string {
 }
 
 // NewApp creates an app with sane defaults.
-func NewApp(gitCommit, gitDate, usage string) *cli.App {
+func NewApp(usage string) *cli.App {
 	app := cli.NewApp()
 	app.Name = filepath.Base(os.Args[0])
 	app.Author = ""
 	app.Email = ""
-	app.Version = params.VersionWithCommit(gitCommit, gitDate)
+	ConfigureVersion(app)
 	app.Usage = usage
 	return app
+}
+
+// ConfigureVersion wires an urfave/cli app to the shared Morph version output.
+func ConfigureVersion(app *cli.App) {
+	app.Version = buildversion.Version
+	cli.VersionPrinter = func(ctx *cli.Context) {
+		buildversion.Print(ctx.App.Writer, ctx.App.Name)
+	}
 }

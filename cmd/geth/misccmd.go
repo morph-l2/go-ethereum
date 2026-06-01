@@ -25,7 +25,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/cmd/utils"
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
-	"github.com/morph-l2/go-ethereum/params"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 )
 
 var (
@@ -38,7 +38,7 @@ var (
 		Name:  "check.version",
 		Usage: "Version to check",
 		Value: fmt.Sprintf("Geth/v%v/%v-%v/%v",
-			params.VersionWithCommit(gitCommit, gitDate),
+			buildversion.BaseSemverFor(buildversion.Version),
 			runtime.GOOS, runtime.GOARCH, runtime.Version()),
 	}
 	makecacheCommand = cli.Command{
@@ -133,11 +133,7 @@ func makedag(ctx *cli.Context) error {
 }
 
 func version(ctx *cli.Context) error {
-	fmt.Printf("%s %s\n", clientIdentifier, Version)
-	fmt.Printf("Git Commit: %s\n", GitCommit)
-	fmt.Printf("Build Time: %s\n", BuildTime)
-	fmt.Printf("Go Version: %s\n", runtime.Version())
-	fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	buildversion.Print(ctx.App.Writer, clientIdentifier)
 	return nil
 }
 

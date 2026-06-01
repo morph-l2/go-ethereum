@@ -15,6 +15,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb/leveldb"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	"github.com/morph-l2/go-ethereum/rlp"
 	"github.com/morph-l2/go-ethereum/trie"
 	"github.com/schollz/progressbar/v3"
@@ -37,13 +38,17 @@ type dbs struct {
 
 func main() {
 	var (
-		mptDbPath = flag.String("mpt-db", "", "path to the MPT node DB")
-		zkDbPath  = flag.String("zk-db", "", "path to the ZK node DB")
-		mptRoot   = flag.String("mpt-root", "", "root hash of the MPT node")
-		zkRoot    = flag.String("zk-root", "", "root hash of the ZK node")
-		paranoid  = flag.Bool("paranoid", false, "verifies all node contents against their expected hash")
+		mptDbPath   = flag.String("mpt-db", "", "path to the MPT node DB")
+		zkDbPath    = flag.String("zk-db", "", "path to the ZK node DB")
+		mptRoot     = flag.String("mpt-root", "", "root hash of the MPT node")
+		zkRoot      = flag.String("zk-root", "", "root hash of the ZK node")
+		paranoid    = flag.Bool("paranoid", false, "verifies all node contents against their expected hash")
+		showVersion = flag.Bool("version", false, "show version information")
 	)
 	flag.Parse()
+	if buildversion.PrintIfRequested(showVersion, "migration-checker") {
+		return
+	}
 
 	if *zkDbPath == "" || *mptDbPath == "" || *zkRoot == "" || *mptRoot == "" {
 		fmt.Println("Error: all flags are required")

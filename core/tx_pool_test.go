@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"math/big"
 	"math/rand"
 	"os"
@@ -505,6 +506,24 @@ func TestTxPoolDropsOversizedGasOnAmsterdamActivation(t *testing.T) {
 	}
 	if pool.Get(tx.Hash()) != nil {
 		t.Fatalf("expected oversized tx to be purged on Amsterdam activation")
+	}
+}
+
+func TestValidateTxNonceMax(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPoolWithConfig(noL1feeConfig)
+	defer pool.Stop()
+
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	testAddBalance(pool, from, big.NewInt(1000000000000000000))
+	testSetNonce(pool, from, math.MaxUint64-2)
+
+	if err := pool.validateTx(transaction(math.MaxUint64, 100000, key), false); !errors.Is(err, ErrNonceMax) {
+		t.Fatalf("expected %v for max nonce, got %v", ErrNonceMax, err)
+	}
+	if err := pool.validateTx(transaction(math.MaxUint64-1, 100000, key), false); err != nil {
+		t.Fatalf("expected max-1 nonce to pass validation, got %v", err)
 	}
 }
 

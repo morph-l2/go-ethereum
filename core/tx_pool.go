@@ -724,6 +724,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if err != nil {
 		return ErrInvalidSender
 	}
+	// Limit nonce to 2^64-1 per EIP-2681.
+	if tx.Nonce()+1 < tx.Nonce() {
+		return ErrNonceMax
+	}
 	if pool.blacklist != nil && !pool.blacklist.Validate(tx) {
 		return ErrTxNotAllowed
 	}
@@ -957,8 +961,11 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		pool.queueTxEvent(tx)
 		log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
 
-		// Successful promotion, bump the heartbeat
-		pool.beats[from] = time.Now()
+		// Successful replacement. If the sender already has queued non-executable
+		// transactions, bump the heartbeat to give them more time before lifetime
+		// eviction. Otherwise leave the beats map untouched so pending-only
+		// senders do not retain stale heartbeats.
+		pool.bumpBeats(from)
 		return old != nil, nil
 	}
 	// New transaction isn't replacing a pending one, push into queue
@@ -1015,8 +1022,13 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 		pool.all.Add(tx, local)
 		pool.priced.Put(tx, local)
 	}
-	// If we never record the heartbeat, do it right now.
-	if _, exist := pool.beats[from]; !exist {
+	// Refresh the heartbeat only for external activity (addAll=true).
+	// Internal reshuffles such as demoteUnexecutables and removeTx pass
+	// addAll=false; they must not extend an existing queue lifetime, but
+	// still need a baseline timestamp if they just created the queue.
+	if addAll {
+		pool.beats[from] = time.Now()
+	} else if _, ok := pool.beats[from]; !ok {
 		pool.beats[from] = time.Now()
 	}
 	return old != nil, nil
@@ -1065,9 +1077,26 @@ func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.T
 	// Set the potentially new pending nonce and notify any subsystems of the new tx
 	pool.pendingNonces.set(addr, tx.Nonce()+1)
 
-	// Successful promotion, bump the heartbeat
-	pool.beats[addr] = time.Now()
+	// Successful promotion, bump the heartbeat only if the sender still has
+	// queued non-executable transactions. The caller (promoteExecutables)
+	// will clear pool.beats[addr] once the future queue drains, so we must
+	// not resurrect a heartbeat for an account that has nothing left in the
+	// queue.
+	pool.bumpBeats(addr)
 	return true
+}
+
+// bumpBeats refreshes the heartbeat for addr, but only if an entry already
+// exists. This mirrors upstream go-ethereum PR #33704: heartbeats track the
+// age of queued (non-executable) transactions; writing the beat for an
+// account without queued entries would pollute the Lifetime bookkeeping and
+// keep stale entries alive across reorg/truncation boundaries.
+//
+// Note: this method assumes the pool lock is held by the caller.
+func (pool *TxPool) bumpBeats(addr common.Address) {
+	if _, ok := pool.beats[addr]; ok {
+		pool.beats[addr] = time.Now()
+	}
 }
 
 // AddLocals enqueues a batch of transactions into the pool if they are valid, marking the

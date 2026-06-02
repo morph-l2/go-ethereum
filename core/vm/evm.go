@@ -138,13 +138,17 @@ type EVM struct {
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
 // only ever be used *once*.
 func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig *params.ChainConfig, config Config) *EVM {
+	blockTime := uint64(0)
+	if blockCtx.Time != nil {
+		blockTime = blockCtx.Time.Uint64()
+	}
 	evm := &EVM{
 		Context:     blockCtx,
 		TxContext:   txCtx,
 		StateDB:     statedb,
 		Config:      config,
 		chainConfig: chainConfig,
-		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockCtx.Time.Uint64()),
+		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockTime),
 	}
 	evm.interpreter = NewEVMInterpreter(evm, config)
 	return evm
@@ -500,7 +504,9 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	if err == nil {
 		createDataGas := uint64(len(ret)) * params.CreateDataGas
 		if contract.UseGas(createDataGas, evm.Config.Tracer, tracing.GasChangeCallCodeStorage) {
-			evm.StateDB.SetCode(address, ret)
+			if len(ret) > 0 {
+				evm.StateDB.SetCode(address, ret)
+			}
 		} else {
 			err = ErrCodeStoreOutOfGas
 		}
@@ -601,11 +607,18 @@ func (evm *EVM) captureEnd(depth int, startGas uint64, leftOverGas uint64, ret [
 // GetVMContext provides context about the block being executed as well as state
 // to the tracers.
 func (evm *EVM) GetVMContext() *tracing.VMContext {
+	if evm == nil {
+		return &tracing.VMContext{}
+	}
+	blockTime := uint64(0)
+	if evm.Context.Time != nil {
+		blockTime = evm.Context.Time.Uint64()
+	}
 	return &tracing.VMContext{
 		To:          evm.To,
 		Coinbase:    evm.Context.Coinbase,
 		BlockNumber: evm.Context.BlockNumber,
-		Time:        evm.Context.Time.Uint64(),
+		Time:        blockTime,
 		BaseFee:     evm.Context.BaseFee,
 		StateDB:     evm.StateDB,
 	}

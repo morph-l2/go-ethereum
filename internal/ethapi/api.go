@@ -56,6 +56,8 @@ import (
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
+var errSubClosed = errors.New("chain subscription closed")
+
 // PublicEthereumAPI provides an API to access Ethereum related information.
 // It offers only methods that operate on public data that is freely available to anyone.
 type PublicEthereumAPI struct {
@@ -783,6 +785,15 @@ type StorageResult struct {
 
 // GetProof returns the Merkle-proof for a given account and optionally some storage keys.
 func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (*AccountResult, error) {
+	keys := make([]common.Hash, len(storageKeys))
+	for i, hexKey := range storageKeys {
+		key, err := decodeHash(hexKey)
+		if err != nil {
+			return nil, err
+		}
+		keys[i] = key
+	}
+
 	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if state == nil || err != nil {
 		return nil, err
@@ -810,10 +821,7 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 
 	// create the proof for the storageKeys
 	for i, hexKey := range storageKeys {
-		key, err := decodeHash(hexKey)
-		if err != nil {
-			return nil, err
-		}
+		key := keys[i]
 		if storageTrie != nil {
 			proof, storageError := state.GetStorageProof(address, key)
 			if storageError != nil {
@@ -853,12 +861,12 @@ func decodeHash(s string) (common.Hash, error) {
 	if (len(s) & 1) > 0 {
 		s = "0" + s
 	}
+	if len(s) > 64 {
+		return common.Hash{}, fmt.Errorf("hex string too long, want at most 32 bytes")
+	}
 	b, err := hex.DecodeString(s)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("hex string invalid")
-	}
-	if len(b) > 32 {
-		return common.Hash{}, fmt.Errorf("hex string too long, want at most 32 bytes")
 	}
 	return common.BytesToHash(b), nil
 }
@@ -984,20 +992,84 @@ func (s *PublicBlockChainAPI) GetCode(ctx context.Context, address common.Addres
 // block number. The rpc.LatestBlockNumber and rpc.PendingBlockNumber meta block
 // numbers are also allowed.
 func (s *PublicBlockChainAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
-	if state == nil || err != nil {
-		return nil, err
-	}
 	key, err := decodeHash(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode storage key: %s", err)
+	}
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, err
 	}
 	res := state.GetState(address, key)
 	return res[:], state.Error()
 }
 
+// maxGetStorageSlots caps the total number of storage slots that
+// eth_getStorageValues will read per request. The value mirrors upstream
+// go-ethereum PR #32591 and prevents a single oversized RPC call from
+// pinning a state snapshot for an unbounded amount of time.
+const maxGetStorageSlots = 1024
+
+// GetStorageValues returns multiple storage slot values for multiple accounts
+// at the given block, following upstream go-ethereum PR #32591. Compared to
+// issuing many eth_getStorageAt calls, this batches the state snapshot
+// lookup so every slot is read against the same consistent view.
+//
+// The returned map preserves the input per-address slot ordering; slots that
+// are not set resolve to the all-zero hash.
+//
+// Errors:
+//   - empty request is rejected with a parameter error,
+//   - total requested slot count must not exceed maxGetStorageSlots.
+func (s *PublicBlockChainAPI) GetStorageValues(ctx context.Context, requests map[common.Address][]common.Hash, blockNrOrHash rpc.BlockNumberOrHash) (map[common.Address][]hexutil.Bytes, error) {
+	if len(requests) == 0 {
+		return nil, &invalidParamsError{message: "empty request"}
+	}
+	var totalSlots int
+	for _, keys := range requests {
+		totalSlots += len(keys)
+		if totalSlots > maxGetStorageSlots {
+			return nil, &clientLimitExceededError{message: fmt.Sprintf("too many slots (max %d)", maxGetStorageSlots)}
+		}
+	}
+	if totalSlots == 0 {
+		return nil, &invalidParamsError{message: "empty request"}
+	}
+
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, err
+	}
+
+	result := make(map[common.Address][]hexutil.Bytes, len(requests))
+	for addr, keys := range requests {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		vals := make([]hexutil.Bytes, len(keys))
+		for i, key := range keys {
+			v := state.GetState(addr, key)
+			vals[i] = v[:]
+		}
+		if err := state.Error(); err != nil {
+			return nil, err
+		}
+		result[addr] = vals
+	}
+	return result, nil
+}
+
 // GetBlockReceipts returns the block receipts for the given block hash or number or tag.
 func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) ([]map[string]interface{}, error) {
+	if number, ok := blockNrOrHash.Number(); ok && number == rpc.PendingBlockNumber {
+		block, receipts, _ := s.b.Pending()
+		if block == nil || receipts == nil {
+			return nil, errors.New("pending receipts is not available")
+		}
+		return s.marshalBlockReceipts(ctx, block, receipts)
+	}
 	block, err := s.b.BlockByNumberOrHash(ctx, blockNrOrHash)
 	if block == nil || err != nil {
 		// When the block doesn't exist, the RPC method should return JSON null
@@ -1008,6 +1080,10 @@ func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHas
 	if err != nil {
 		return nil, err
 	}
+	return s.marshalBlockReceipts(ctx, block, receipts)
+}
+
+func (s *PublicBlockChainAPI) marshalBlockReceipts(ctx context.Context, block *types.Block, receipts types.Receipts) ([]map[string]interface{}, error) {
 	txs := block.Transactions()
 	if len(txs) != len(receipts) {
 		return nil, fmt.Errorf("receipts length mismatch: %d vs %d", len(txs), len(receipts))
@@ -1017,10 +1093,7 @@ func (s *PublicBlockChainAPI) GetBlockReceipts(ctx context.Context, blockNrOrHas
 
 	result := make([]map[string]interface{}, len(receipts))
 	for i, receipt := range receipts {
-		blockNumber := block.NumberU64()
-		bigblock := new(big.Int).SetUint64(blockNumber)
-		signer := types.MakeSigner(s.b.ChainConfig(), bigblock, block.Time())
-		res, err := marshalReceipt(ctx, s.b, receipt, bigblock, block.Hash(), blockNumber, signer, txs[i], i)
+		res, err := marshalReceiptForTx(ctx, s.b, block, receipt, txs[i], i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal receipt %d: %w", i, err)
 		}
@@ -1201,6 +1274,11 @@ type revertError struct {
 	reason string // revert reason hex encoded
 }
 
+type txSyncTimeoutError struct {
+	msg  string
+	hash common.Hash
+}
+
 // ErrorCode returns the JSON error code for a revertal.
 // See: https://github.com/ethereum/wiki/wiki/JSON-RPC-Error-Codes-Improvement-Proposal
 func (e *revertError) ErrorCode() int {
@@ -1211,6 +1289,10 @@ func (e *revertError) ErrorCode() int {
 func (e *revertError) ErrorData() interface{} {
 	return e.reason
 }
+
+func (e *txSyncTimeoutError) Error() string          { return e.msg }
+func (e *txSyncTimeoutError) ErrorCode() int         { return 4 }
+func (e *txSyncTimeoutError) ErrorData() interface{} { return e.hash.Hex() }
 
 // Call executes the given transaction on the state for the given block number.
 //
@@ -1526,6 +1608,7 @@ func (s *PublicBlockChainAPI) rpcMarshalBlock(ctx context.Context, b *types.Bloc
 type RPCTransaction struct {
 	BlockHash         *common.Hash                 `json:"blockHash"`
 	BlockNumber       *hexutil.Big                 `json:"blockNumber"`
+	BlockTimestamp    *hexutil.Uint64              `json:"blockTimestamp"`
 	From              common.Address               `json:"from"`
 	Gas               hexutil.Uint64               `json:"gas"`
 	GasPrice          *hexutil.Big                 `json:"gasPrice"`
@@ -1581,6 +1664,7 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 	if blockHash != (common.Hash{}) {
 		result.BlockHash = &blockHash
 		result.BlockNumber = (*hexutil.Big)(new(big.Int).SetUint64(blockNumber))
+		result.BlockTimestamp = (*hexutil.Uint64)(&blockTime)
 		result.TransactionIndex = (*hexutil.Uint64)(&index)
 	}
 	switch tx.Type() {
@@ -1982,11 +2066,36 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 		return nil, err
 	}
 	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, header.Time)
-	return marshalReceipt(ctx, s.b, receipt, bigblock, blockHash, blockNumber, signer, tx, int(index))
+	return marshalReceiptWithHeader(ctx, s.b, receipt, bigblock, blockHash, blockNumber, header, signer, tx, int(index))
+}
+
+func marshalReceiptForTx(ctx context.Context, b Backend, block *types.Block, receipt *types.Receipt, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	blockNumber := block.NumberU64()
+	bigblock := new(big.Int).SetUint64(blockNumber)
+	header := block.Header()
+	signer := types.MakeSigner(b.ChainConfig(), bigblock, header.Time)
+	return marshalReceiptWithHeader(ctx, b, receipt, bigblock, block.Hash(), blockNumber, header, signer, tx, txIndex)
 }
 
 // marshalReceipt marshals a transaction receipt into a JSON object.
 func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	return marshalReceiptWithHeader(ctx, b, receipt, bigblock, blockHash, blockNumber, nil, signer, tx, txIndex)
+}
+
+func marshalReceiptWithHeader(ctx context.Context, b Backend, receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, header *types.Header, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
+	if b.ChainConfig().IsCurie(bigblock) && header == nil {
+		var err error
+		header, err = b.HeaderByHash(ctx, blockHash)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return MarshalReceipt(receipt, bigblock, blockHash, blockNumber, header, b.ChainConfig(), signer, tx, txIndex)
+}
+
+// MarshalReceipt marshals a transaction receipt into the same JSON object shape
+// used by eth_getTransactionReceipt while preserving Morph-specific fields.
+func MarshalReceipt(receipt *types.Receipt, bigblock *big.Int, blockHash common.Hash, blockNumber uint64, header *types.Header, chainConfig *params.ChainConfig, signer types.Signer, tx *types.Transaction, txIndex int) (map[string]interface{}, error) {
 	from, _ := types.Sender(signer, tx)
 
 	fields := map[string]interface{}{
@@ -2013,12 +2122,11 @@ func marshalReceipt(ctx context.Context, b Backend, receipt *types.Receipt, bigb
 	}
 
 	// Assign the effective gas price paid
-	if !b.ChainConfig().IsCurie(bigblock) {
+	if !chainConfig.IsCurie(bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
 	} else {
-		header, err := b.HeaderByHash(ctx, blockHash)
-		if err != nil {
-			return nil, err
+		if header == nil {
+			return nil, errors.New("missing header for Curie receipt")
 		}
 
 		baseFee := header.BaseFee
@@ -2145,6 +2253,122 @@ func (s *PublicTransactionPoolAPI) SendRawTransaction(ctx context.Context, input
 		return common.Hash{}, err
 	}
 	return SubmitTransaction(ctx, s.b, tx)
+}
+
+// SendRawTransactionSync adds the signed transaction to the transaction pool and
+// waits until it has a receipt or the configured server-side timeout expires.
+func (s *PublicTransactionPoolAPI) SendRawTransactionSync(ctx context.Context, input hexutil.Bytes, timeoutMs *hexutil.Uint64) (map[string]interface{}, error) {
+	if !s.b.RPCTxSyncEnabled() {
+		return nil, errors.New("eth_sendRawTransactionSync is disabled")
+	}
+	tx := new(types.Transaction)
+	if err := tx.UnmarshalBinary(input); err != nil {
+		return nil, err
+	}
+
+	timeout := s.b.RPCTxSyncDefaultTimeout()
+	if timeoutMs != nil && *timeoutMs > 0 {
+		const maxMs = uint64(time.Duration(math.MaxInt64) / time.Millisecond)
+		ms := uint64(*timeoutMs)
+		if ms > maxMs {
+			return nil, errors.New("transaction sync timeout too large")
+		}
+		requested := time.Duration(ms) * time.Millisecond
+		if max := s.b.RPCTxSyncMaxTimeout(); max > 0 && requested > max {
+			timeout = max
+		} else {
+			timeout = requested
+		}
+	}
+
+	ch := make(chan core.ChainEvent, 128)
+	sub := s.b.SubscribeChainEvent(ch)
+	if sub == nil {
+		return nil, errSubClosed
+	}
+	defer sub.Unsubscribe()
+
+	hash, err := SubmitTransaction(ctx, s.b, tx)
+	if err != nil {
+		return nil, err
+	}
+
+	receiptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if receipt, err := s.GetTransactionReceipt(receiptCtx, hash); err == nil && receipt != nil {
+		return receipt, nil
+	}
+
+	for {
+		select {
+		case <-receiptCtx.Done():
+			if errors.Is(receiptCtx.Err(), context.DeadlineExceeded) {
+				return nil, &txSyncTimeoutError{
+					msg:  fmt.Sprintf("The transaction was added to the transaction pool but wasn't processed in %v", timeout),
+					hash: hash,
+				}
+			}
+			return nil, receiptCtx.Err()
+		case err, ok := <-sub.Err():
+			if !ok {
+				return nil, errSubClosed
+			}
+			return nil, err
+		case ev, ok := <-ch:
+			if !ok {
+				return nil, errSubClosed
+			}
+			receipt, err := s.receiptFromChainEvent(receiptCtx, ev, hash)
+			if err != nil {
+				return nil, err
+			}
+			if receipt != nil {
+				return receipt, nil
+			}
+		}
+	}
+}
+
+func (s *PublicTransactionPoolAPI) receiptFromChainEvent(ctx context.Context, ev core.ChainEvent, hash common.Hash) (map[string]interface{}, error) {
+	rs, txs := ev.Receipts, ev.Transactions
+	if len(rs) != len(txs) {
+		log.Debug("Falling back for chain event with mismatched receipts and transactions", "hash", ev.Hash, "receipts", len(rs), "transactions", len(txs))
+		return s.getTransactionReceiptFallback(ctx, hash)
+	}
+	if len(rs) == 0 {
+		return s.getTransactionReceiptFallback(ctx, hash)
+	}
+	header := ev.Header
+	if header == nil && ev.Block != nil {
+		header = ev.Block.Header()
+	}
+	if header == nil {
+		return s.getTransactionReceiptFallback(ctx, hash)
+	}
+	blockHash := ev.Hash
+	if blockHash == (common.Hash{}) {
+		blockHash = header.Hash()
+	}
+	blockNumber := header.Number.Uint64()
+	bigblock := new(big.Int).SetUint64(blockNumber)
+	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, header.Time)
+	for i, receipt := range rs {
+		if receipt.TxHash != hash && txs[i].Hash() != hash {
+			continue
+		}
+		return marshalReceiptWithHeader(ctx, s.b, receipt, bigblock, blockHash, blockNumber, header, signer, txs[i], i)
+	}
+	return nil, nil
+}
+
+func (s *PublicTransactionPoolAPI) getTransactionReceiptFallback(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
+	receipt, err := s.GetTransactionReceipt(ctx, hash)
+	if err != nil {
+		log.Debug("Failed to retrieve transaction receipt during chain event fallback", "hash", hash, "err", err)
+		return nil, err
+	}
+	return receipt, nil
 }
 
 // Sign calculates an ECDSA signature for:

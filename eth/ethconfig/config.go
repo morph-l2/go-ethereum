@@ -83,6 +83,7 @@ var Defaults = Config{
 	TrieTimeout:             60 * time.Minute,
 	SnapshotCache:           102,
 	FilterLogCacheSize:      32,
+	LogQueryLimit:           1000,
 	Miner:                   miner.DefaultConfig,
 	TxPool:                  core.DefaultTxPoolConfig,
 	RPCGasCap:               50000000,
@@ -90,6 +91,9 @@ var Defaults = Config{
 	GPO:                     FullNodeGPO,
 	RPCTxFeeCap:             1,  // 1 ether
 	MaxBlockRange:           -1, // Default unconfigured value: no block range limit for backward compatibility
+	TxSyncDefaultTimeout:    20 * time.Second,
+	TxSyncMaxTimeout:        29 * time.Second,
+	TxSyncEnabled:           true,
 }
 
 func init() {
@@ -169,6 +173,9 @@ type Config struct {
 	// This is the number of blocks for which logs will be cached in the filter system.
 	FilterLogCacheSize int
 
+	// This is the maximum number of addresses or topics allowed in filter criteria.
+	LogQueryLimit int
+
 	// Mining options
 	Miner miner.Config
 
@@ -200,6 +207,11 @@ type Config struct {
 	// RPCTxFeeCap is the global transaction fee(price * gaslimit) cap for
 	// send-transction variants. The unit is ether.
 	RPCTxFeeCap float64
+
+	// eth_sendRawTransactionSync timeout and gating options.
+	TxSyncDefaultTimeout time.Duration `toml:",omitempty"`
+	TxSyncMaxTimeout     time.Duration `toml:",omitempty"`
+	TxSyncEnabled        bool
 
 	// Checkpoint is a hardcoded checkpoint which can be nil.
 	Checkpoint *params.TrustedCheckpoint `toml:",omitempty"`

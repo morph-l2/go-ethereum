@@ -16,18 +16,24 @@
 
 package metrics
 
+import (
+	"fmt"
+	"time"
+)
+
 // Config contains the configuration for the metric collection.
 type Config struct {
-	Enabled          bool   `toml:",omitempty"`
-	EnabledExpensive bool   `toml:",omitempty"`
-	HTTP             string `toml:",omitempty"`
-	Port             int    `toml:",omitempty"`
-	EnableInfluxDB   bool   `toml:",omitempty"`
-	InfluxDBEndpoint string `toml:",omitempty"`
-	InfluxDBDatabase string `toml:",omitempty"`
-	InfluxDBUsername string `toml:",omitempty"`
-	InfluxDBPassword string `toml:",omitempty"`
-	InfluxDBTags     string `toml:",omitempty"`
+	Enabled          bool          `toml:",omitempty"`
+	EnabledExpensive bool          `toml:",omitempty"`
+	HTTP             string        `toml:",omitempty"`
+	Port             int           `toml:",omitempty"`
+	EnableInfluxDB   bool          `toml:",omitempty"`
+	InfluxDBEndpoint string        `toml:",omitempty"`
+	InfluxDBDatabase string        `toml:",omitempty"`
+	InfluxDBUsername string        `toml:",omitempty"`
+	InfluxDBPassword string        `toml:",omitempty"`
+	InfluxDBTags     string        `toml:",omitempty"`
+	InfluxDBInterval time.Duration `toml:",omitempty"`
 
 	EnableInfluxDBV2     bool   `toml:",omitempty"`
 	InfluxDBToken        string `toml:",omitempty"`
@@ -47,10 +53,20 @@ var DefaultConfig = Config{
 	InfluxDBUsername: "test",
 	InfluxDBPassword: "test",
 	InfluxDBTags:     "host=localhost",
+	InfluxDBInterval: 10 * time.Second,
 
 	// influxdbv2-specific flags
 	EnableInfluxDBV2:     false,
 	InfluxDBToken:        "test",
 	InfluxDBBucket:       "geth",
 	InfluxDBOrganization: "geth",
+}
+
+// ValidateInfluxDBInterval rejects non-positive reporting intervals before the
+// exporter reaches time.Tick, which would otherwise panic at runtime.
+func ValidateInfluxDBInterval(interval time.Duration) error {
+	if interval <= 0 {
+		return fmt.Errorf("invalid InfluxDB interval %v (must be > 0)", interval)
+	}
+	return nil
 }

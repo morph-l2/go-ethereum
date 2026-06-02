@@ -41,8 +41,9 @@ import (
 
 // Config represents the configuration of the filter system.
 type Config struct {
-	LogCacheSize int           // maximum number of cached blocks (default: 32)
-	Timeout      time.Duration // how long filters stay active (default: 5min)
+	LogCacheSize  int           // maximum number of cached blocks (default: 32)
+	Timeout       time.Duration // how long filters stay active (default: 5min)
+	LogQueryLimit int           // maximum number of addresses or topics allowed in filter criteria
 }
 
 func (cfg Config) withDefaults() Config {
@@ -133,6 +134,8 @@ const (
 	PendingTransactionsSubscription
 	// BlocksSubscription queries hashes for blocks that are imported
 	BlocksSubscription
+	// TransactionReceiptsSubscription queries receipts when transactions are included in blocks
+	TransactionReceiptsSubscription
 	// LastSubscription keeps track of the last index
 	LastIndexSubscription
 )
@@ -147,6 +150,8 @@ const (
 	logsChanSize = 10
 	// chainEvChanSize is the size of channel listening to ChainEvent.
 	chainEvChanSize = 10
+	// txReceiptsChanSize is the buffer for transaction receipt subscriptions.
+	txReceiptsChanSize = 1
 )
 
 type subscription struct {
@@ -157,6 +162,8 @@ type subscription struct {
 	logs      chan []*types.Log
 	txs       chan []*types.Transaction
 	headers   chan *types.Header
+	receipts  chan []*ReceiptWithTx
+	txHashes  map[common.Hash]bool
 	installed chan struct{} // closed when the filter is installed
 	err       chan error    // closed when the filter is uninstalled
 }
@@ -243,9 +250,12 @@ func (sub *Subscription) Unsubscribe() {
 			select {
 			case sub.es.uninstall <- sub.f:
 				break uninstallLoop
+			case <-sub.f.err:
+				return
 			case <-sub.f.logs:
 			case <-sub.f.txs:
 			case <-sub.f.headers:
+			case <-sub.f.receipts:
 			}
 		}
 
@@ -263,10 +273,21 @@ func (es *EventSystem) subscribe(sub *subscription) *Subscription {
 	return &Subscription{ID: sub.id, f: sub, es: es}
 }
 
+func closeSubscriptionErr(f *subscription) {
+	select {
+	case <-f.err:
+	default:
+		close(f.err)
+	}
+}
+
 // SubscribeLogs creates a subscription that will write all logs matching the
 // given criteria to the given logs channel. Default value for the from and to
 // block is "latest". If the fromBlock > toBlock an error is returned.
 func (es *EventSystem) SubscribeLogs(crit ethereum.FilterQuery, logs chan []*types.Log) (*Subscription, error) {
+	if err := validateLogQuery(crit, es.sys.cfg.LogQueryLimit); err != nil {
+		return nil, err
+	}
 	var from, to rpc.BlockNumber
 	if crit.FromBlock == nil {
 		from = rpc.LatestBlockNumber
@@ -313,6 +334,7 @@ func (es *EventSystem) subscribeMinedPendingLogs(crit ethereum.FilterQuery, logs
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -330,6 +352,7 @@ func (es *EventSystem) subscribeLogs(crit ethereum.FilterQuery, logs chan []*typ
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -347,6 +370,7 @@ func (es *EventSystem) subscribePendingLogs(crit ethereum.FilterQuery, logs chan
 		logs:      logs,
 		txs:       make(chan []*types.Transaction),
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -363,6 +387,7 @@ func (es *EventSystem) SubscribeNewHeads(headers chan *types.Header) *Subscripti
 		logs:      make(chan []*types.Log),
 		txs:       make(chan []*types.Transaction),
 		headers:   headers,
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -379,6 +404,29 @@ func (es *EventSystem) SubscribePendingTxs(txs chan []*types.Transaction) *Subsc
 		logs:      make(chan []*types.Log),
 		txs:       txs,
 		headers:   make(chan *types.Header),
+		receipts:  make(chan []*ReceiptWithTx, txReceiptsChanSize),
+		installed: make(chan struct{}),
+		err:       make(chan error),
+	}
+	return es.subscribe(sub)
+}
+
+// SubscribeTransactionReceipts creates a subscription that writes receipts for
+// transactions included in newly imported blocks.
+func (es *EventSystem) SubscribeTransactionReceipts(txHashes []common.Hash, receipts chan []*ReceiptWithTx) *Subscription {
+	hashSet := make(map[common.Hash]bool, len(txHashes))
+	for _, hash := range txHashes {
+		hashSet[hash] = true
+	}
+	sub := &subscription{
+		id:        rpc.NewID(),
+		typ:       TransactionReceiptsSubscription,
+		created:   time.Now(),
+		logs:      make(chan []*types.Log),
+		txs:       make(chan []*types.Transaction),
+		headers:   make(chan *types.Header),
+		receipts:  receipts,
+		txHashes:  hashSet,
 		installed: make(chan struct{}),
 		err:       make(chan error),
 	}
@@ -427,11 +475,30 @@ func (es *EventSystem) handleTxsEvent(filters filterIndex, ev core.NewTxsEvent) 
 }
 
 func (es *EventSystem) handleChainEvent(filters filterIndex, ev core.ChainEvent) {
+	header := ev.Header
+	if header == nil && ev.Block != nil {
+		header = ev.Block.Header()
+	}
+	if header == nil {
+		return
+	}
 	for _, f := range filters[BlocksSubscription] {
-		f.headers <- ev.Block.Header()
+		f.headers <- header
+	}
+	for _, f := range filters[TransactionReceiptsSubscription] {
+		matchedReceipts := filterReceipts(f.txHashes, ev)
+		if len(matchedReceipts) > 0 {
+			select {
+			case f.receipts <- matchedReceipts:
+			default:
+				log.Warn("Uninstalling slow transaction receipts subscription", "id", f.id, "receipts", len(matchedReceipts))
+				delete(filters[TransactionReceiptsSubscription], f.id)
+				closeSubscriptionErr(f)
+			}
+		}
 	}
 	if es.lightMode && len(filters[LogsSubscription]) > 0 {
-		es.lightFilterNewHead(ev.Block.Header(), func(header *types.Header, remove bool) {
+		es.lightFilterNewHead(header, func(header *types.Header, remove bool) {
 			for _, f := range filters[LogsSubscription] {
 				if matchedLogs := es.lightFilterLogs(header, f.logsCrit.Addresses, f.logsCrit.Topics, remove); len(matchedLogs) > 0 {
 					f.logs <- matchedLogs
@@ -516,18 +583,29 @@ func (es *EventSystem) lightFilterLogs(header *types.Header, addresses []common.
 
 // eventLoop (un)installs filters and processes mux events.
 func (es *EventSystem) eventLoop() {
+	index := make(filterIndex)
+	for i := UnknownSubscription; i < LastIndexSubscription; i++ {
+		index[i] = make(map[rpc.ID]*subscription)
+	}
+
 	// Ensure all subscriptions get cleaned up
 	defer func() {
 		es.txsSub.Unsubscribe()
 		es.logsSub.Unsubscribe()
 		es.rmLogsSub.Unsubscribe()
 		es.chainSub.Unsubscribe()
-	}()
 
-	index := make(filterIndex)
-	for i := UnknownSubscription; i < LastIndexSubscription; i++ {
-		index[i] = make(map[rpc.ID]*subscription)
-	}
+		closed := make(map[*subscription]struct{})
+		for _, filters := range index {
+			for _, f := range filters {
+				if _, ok := closed[f]; ok {
+					continue
+				}
+				closeSubscriptionErr(f)
+				closed[f] = struct{}{}
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -539,6 +617,15 @@ func (es *EventSystem) eventLoop() {
 			es.handleRemovedLogs(index, ev)
 		case ev := <-es.chainCh:
 			es.handleChainEvent(index, ev)
+			var headHash common.Hash
+			if ev.Block != nil {
+				headHash = ev.Block.Hash()
+			} else if ev.Header != nil {
+				headHash = ev.Header.Hash()
+			} else {
+				log.Warn("Dropping chain event with no block and no header")
+				continue
+			}
 			// If we have no pending log subscription,
 			// we don't need to collect any pending logs.
 			if len(index[PendingLogsSubscription]) == 0 {
@@ -550,7 +637,7 @@ func (es *EventSystem) eventLoop() {
 			if pendingBlock == nil || pendingReceipts == nil {
 				continue
 			}
-			if pendingBlock.ParentHash() != ev.Block.Hash() {
+			if pendingBlock.ParentHash() != headHash {
 				continue
 			}
 			var logs []*types.Log
@@ -579,7 +666,7 @@ func (es *EventSystem) eventLoop() {
 			} else {
 				delete(index[f.typ], f.id)
 			}
-			close(f.err)
+			closeSubscriptionErr(f)
 
 		// System stopped
 		case <-es.txsSub.Err():

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/common/math"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -16,18 +17,26 @@ var _ = (*stTransactionMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (s stTransaction) MarshalJSON() ([]byte, error) {
 	type stTransaction struct {
-		GasPrice             *math.HexOrDecimal256 `json:"gasPrice"`
-		MaxFeePerGas         *math.HexOrDecimal256 `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas *math.HexOrDecimal256 `json:"maxPriorityFeePerGas"`
-		Nonce                math.HexOrDecimal64   `json:"nonce"`
-		To                   string                `json:"to"`
-		Data                 []string              `json:"data"`
-		AccessLists          []*types.AccessList   `json:"accessLists,omitempty"`
-		GasLimit             []math.HexOrDecimal64 `json:"gasLimit"`
-		Value                []string              `json:"value"`
-		PrivateKey           hexutil.Bytes         `json:"secretKey"`
+		Type                 *math.HexOrDecimal64         `json:"type,omitempty"`
+		GasPrice             *math.HexOrDecimal256        `json:"gasPrice"`
+		MaxFeePerGas         *math.HexOrDecimal256        `json:"maxFeePerGas"`
+		MaxPriorityFeePerGas *math.HexOrDecimal256        `json:"maxPriorityFeePerGas"`
+		Nonce                math.HexOrDecimal64          `json:"nonce"`
+		To                   string                       `json:"to"`
+		Data                 []string                     `json:"data"`
+		AccessLists          []*types.AccessList          `json:"accessLists,omitempty"`
+		GasLimit             []math.HexOrDecimal64        `json:"gasLimit"`
+		Value                []string                     `json:"value"`
+		PrivateKey           hexutil.Bytes                `json:"secretKey"`
+		FeeTokenID           math.HexOrDecimal64          `json:"feeTokenID,omitempty"`
+		FeeLimit             *math.HexOrDecimal256        `json:"feeLimit,omitempty"`
+		Version              math.HexOrDecimal64          `json:"version,omitempty"`
+		Reference            *common.Reference            `json:"reference,omitempty"`
+		Memo                 *hexutil.Bytes               `json:"memo,omitempty"`
+		AuthorizationList    []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	}
 	var enc stTransaction
+	enc.Type = (*math.HexOrDecimal64)(s.Type)
 	enc.GasPrice = (*math.HexOrDecimal256)(s.GasPrice)
 	enc.MaxFeePerGas = (*math.HexOrDecimal256)(s.MaxFeePerGas)
 	enc.MaxPriorityFeePerGas = (*math.HexOrDecimal256)(s.MaxPriorityFeePerGas)
@@ -43,26 +52,42 @@ func (s stTransaction) MarshalJSON() ([]byte, error) {
 	}
 	enc.Value = s.Value
 	enc.PrivateKey = s.PrivateKey
+	enc.FeeTokenID = math.HexOrDecimal64(s.FeeTokenID)
+	enc.FeeLimit = (*math.HexOrDecimal256)(s.FeeLimit)
+	enc.Version = math.HexOrDecimal64(s.Version)
+	enc.Reference = s.Reference
+	enc.Memo = (*hexutil.Bytes)(s.Memo)
+	enc.AuthorizationList = s.AuthorizationList
 	return json.Marshal(&enc)
 }
 
 // UnmarshalJSON unmarshals from JSON.
 func (s *stTransaction) UnmarshalJSON(input []byte) error {
 	type stTransaction struct {
-		GasPrice             *math.HexOrDecimal256 `json:"gasPrice"`
-		MaxFeePerGas         *math.HexOrDecimal256 `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas *math.HexOrDecimal256 `json:"maxPriorityFeePerGas"`
-		Nonce                *math.HexOrDecimal64  `json:"nonce"`
-		To                   *string               `json:"to"`
-		Data                 []string              `json:"data"`
-		AccessLists          []*types.AccessList   `json:"accessLists,omitempty"`
-		GasLimit             []math.HexOrDecimal64 `json:"gasLimit"`
-		Value                []string              `json:"value"`
-		PrivateKey           *hexutil.Bytes        `json:"secretKey"`
+		Type                 *math.HexOrDecimal64         `json:"type,omitempty"`
+		GasPrice             *math.HexOrDecimal256        `json:"gasPrice"`
+		MaxFeePerGas         *math.HexOrDecimal256        `json:"maxFeePerGas"`
+		MaxPriorityFeePerGas *math.HexOrDecimal256        `json:"maxPriorityFeePerGas"`
+		Nonce                *math.HexOrDecimal64         `json:"nonce"`
+		To                   *string                      `json:"to"`
+		Data                 []string                     `json:"data"`
+		AccessLists          []*types.AccessList          `json:"accessLists,omitempty"`
+		GasLimit             []math.HexOrDecimal64        `json:"gasLimit"`
+		Value                []string                     `json:"value"`
+		PrivateKey           *hexutil.Bytes               `json:"secretKey"`
+		FeeTokenID           *math.HexOrDecimal64         `json:"feeTokenID,omitempty"`
+		FeeLimit             *math.HexOrDecimal256        `json:"feeLimit,omitempty"`
+		Version              *math.HexOrDecimal64         `json:"version,omitempty"`
+		Reference            *common.Reference            `json:"reference,omitempty"`
+		Memo                 *hexutil.Bytes               `json:"memo,omitempty"`
+		AuthorizationList    []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 	}
 	var dec stTransaction
 	if err := json.Unmarshal(input, &dec); err != nil {
 		return err
+	}
+	if dec.Type != nil {
+		s.Type = (*uint64)(dec.Type)
 	}
 	if dec.GasPrice != nil {
 		s.GasPrice = (*big.Int)(dec.GasPrice)
@@ -96,6 +121,24 @@ func (s *stTransaction) UnmarshalJSON(input []byte) error {
 	}
 	if dec.PrivateKey != nil {
 		s.PrivateKey = *dec.PrivateKey
+	}
+	if dec.FeeTokenID != nil {
+		s.FeeTokenID = uint64(*dec.FeeTokenID)
+	}
+	if dec.FeeLimit != nil {
+		s.FeeLimit = (*big.Int)(dec.FeeLimit)
+	}
+	if dec.Version != nil {
+		s.Version = uint64(*dec.Version)
+	}
+	if dec.Reference != nil {
+		s.Reference = dec.Reference
+	}
+	if dec.Memo != nil {
+		s.Memo = (*[]byte)(dec.Memo)
+	}
+	if dec.AuthorizationList != nil {
+		s.AuthorizationList = dec.AuthorizationList
 	}
 	return nil
 }

@@ -19,7 +19,9 @@ package utils
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 func Test_SplitTagsFlag(t *testing.T) {
@@ -58,6 +60,56 @@ func Test_SplitTagsFlag(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := SplitTagsFlag(tt.args); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("splitTagsFlag() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateTxSyncTimeouts(t *testing.T) {
+	tests := []struct {
+		name           string
+		defaultTimeout time.Duration
+		maxTimeout     time.Duration
+		wantErr        string
+	}{
+		{
+			name:           "valid",
+			defaultTimeout: 20 * time.Second,
+			maxTimeout:     time.Minute,
+		},
+		{
+			name:           "zero default",
+			defaultTimeout: 0,
+			maxTimeout:     time.Minute,
+			wantErr:        "--rpc.txsync.defaulttimeout must be positive",
+		},
+		{
+			name:           "negative max",
+			defaultTimeout: 20 * time.Second,
+			maxTimeout:     -time.Second,
+			wantErr:        "--rpc.txsync.maxtimeout must be positive",
+		},
+		{
+			name:           "default exceeds max",
+			defaultTimeout: 2 * time.Minute,
+			maxTimeout:     time.Minute,
+			wantErr:        "--rpc.txsync.defaulttimeout must be less than or equal to --rpc.txsync.maxtimeout",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateTxSyncTimeouts(tt.defaultTimeout, tt.maxTimeout)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
 			}
 		})
 	}

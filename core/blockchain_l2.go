@@ -115,18 +115,26 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 		// state (chain head, executor.nextL1MsgIndex, prover RPC) cannot read a
 		// tampered value from disk.
 		if block.Header().NextL1MsgIndex != newIndex {
-			log.Error(
-				"NextL1MsgIndex mismatch, refusing to write block (tampering or sequencer bug)",
-				"number", block.NumberU64(),
-				"hash", block.Hash().Hex(),
-				"header", block.Header().NextL1MsgIndex,
-				"computed", newIndex,
-				"parentQueueIndex", *queueIndex,
-				"numProcessed", numProcessed,
-			)
-			return fmt.Errorf("%w at #%d %s: header=%d, computed=%d (parent q=%d, processed=%d)",
-				ErrInvalidNextL1MsgIndex, block.NumberU64(), block.Hash().Hex(),
-				block.Header().NextL1MsgIndex, newIndex, *queueIndex, numProcessed)
+			if !bc.chainConfig.IsJadeFork(block.Time()) {
+				log.Warn("NextL1MsgIndex mismatch before Jade fork, skipped",
+					"number", block.NumberU64(),
+					"header", block.Header().NextL1MsgIndex,
+					"computed", newIndex,
+				)
+			} else {
+				log.Error(
+					"NextL1MsgIndex mismatch, refusing to write block (tampering or sequencer bug)",
+					"number", block.NumberU64(),
+					"hash", block.Hash().Hex(),
+					"header", block.Header().NextL1MsgIndex,
+					"computed", newIndex,
+					"parentQueueIndex", *queueIndex,
+					"numProcessed", numProcessed,
+				)
+				return fmt.Errorf("%w at #%d %s: header=%d, computed=%d (parent q=%d, processed=%d)",
+					ErrInvalidNextL1MsgIndex, block.NumberU64(), block.Hash().Hex(),
+					block.Header().NextL1MsgIndex, newIndex, *queueIndex, numProcessed)
+			}
 		}
 
 		log.Trace(

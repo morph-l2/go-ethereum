@@ -508,7 +508,7 @@ func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data) (header *types.
 
 	if bas, verified := api.isVerified(block.Hash()); verified {
 		bc.UpdateBlockProcessMetrics(bas.state, bas.procTime)
-		return nil, bc.WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
+		return block.Header(), bc.WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
 	}
 
 	// Defense against signature-replay: ensure the declared block hash matches the

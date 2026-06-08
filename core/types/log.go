@@ -47,6 +47,8 @@ type Log struct {
 	TxIndex uint `json:"transactionIndex"`
 	// hash of the block in which the transaction was included
 	BlockHash common.Hash `json:"blockHash"`
+	// timestamp of the block in which the transaction was included
+	BlockTimestamp uint64 `json:"blockTimestamp"`
 	// index of the log in the block
 	Index uint `json:"logIndex"`
 
@@ -56,10 +58,11 @@ type Log struct {
 }
 
 type logMarshaling struct {
-	Data        hexutil.Bytes
-	BlockNumber hexutil.Uint64
-	TxIndex     hexutil.Uint
-	Index       hexutil.Uint
+	Data           hexutil.Bytes
+	BlockNumber    hexutil.Uint64
+	TxIndex        hexutil.Uint
+	BlockTimestamp hexutil.Uint64
+	Index          hexutil.Uint
 }
 
 type rlpLog struct {

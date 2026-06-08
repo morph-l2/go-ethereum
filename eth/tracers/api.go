@@ -1279,7 +1279,7 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 
 	// Call Prepare to clear out the statedb access list
 	execState.SetTxContext(txctx.TxHash, txctx.TxIndex)
-	_, err = core.ApplyTransactionWithEVM(message, api.backend.ChainConfig(), new(core.GasPool).AddGas(message.Gas()), execState, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, vmenv)
+	_, err = core.ApplyTransactionWithEVM(message, api.backend.ChainConfig(), new(core.GasPool).AddGas(message.Gas()), execState, vmctx.BlockNumber, txctx.BlockHash, vmctx.Time.Uint64(), tx, &usedGas, vmenv)
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}

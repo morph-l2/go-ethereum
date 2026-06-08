@@ -420,20 +420,20 @@ func (api *l2ConsensusAPI) SetBlockTags(safeBlockHash common.Hash, finalizedBloc
 // AssembleL2BlockV2 assembles a new L2 block based on parent hash.
 // This differs from AssembleL2Block which uses block number.
 // Using parent hash allows building on any parent block, enabling future reorg support.
-func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *uint64, txs [][]byte) (*ExecutableL2Data, error) {
+func (api *l2ConsensusAPI) AssembleL2BlockV2(params AssembleL2BlockV2Params) (*ExecutableL2Data, error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
-	log.Info("AssembleL2BlockV2", "parentHash", parentHash.Hex())
+	log.Info("AssembleL2BlockV2", "parentHash", params.ParentHash.Hex())
 
 	// Get parent block by hash
-	if api.eth.BlockChain().GetHeaderByHash(parentHash) == nil {
-		return nil, fmt.Errorf("parent block not found: %s", parentHash.Hex())
+	if api.eth.BlockChain().GetHeaderByHash(params.ParentHash) == nil {
+		return nil, fmt.Errorf("parent block not found: %s", params.ParentHash.Hex())
 	}
 
 	// Decode transactions
-	transactions := make(types.Transactions, 0, len(txs))
-	for i, otx := range txs {
+	transactions := make(types.Transactions, 0, len(params.Transactions))
+	for i, otx := range params.Transactions {
 		var tx types.Transaction
 		if err := tx.UnmarshalBinary(otx); err != nil {
 			return nil, fmt.Errorf("transaction %d is not valid: %v", i, err)
@@ -443,8 +443,8 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 
 	start := time.Now()
 	ts := time.Now()
-	if timestamp != nil {
-		ts = time.Unix(int64(*timestamp), 0)
+	if params.Timestamp != nil {
+		ts = time.Unix(int64(*params.Timestamp), 0)
 	}
 
 	// Jade fork check: prevent building blocks with wrong storage format (MPT vs zkTrie)
@@ -452,7 +452,7 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 		return nil, fmt.Errorf("cannot assemble block for fork, useZKtrie: %v, please switch geth", api.eth.BlockChain().Config().Morph.UseZktrie)
 	}
 
-	newBlockResult, err := api.eth.Miner().BuildBlock(parentHash, ts, transactions)
+	newBlockResult, err := api.eth.Miner().BuildBlock(params.ParentHash, ts, transactions)
 	if err != nil {
 		return nil, err
 	}

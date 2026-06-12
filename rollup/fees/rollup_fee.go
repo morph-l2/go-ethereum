@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/big"
 
+	"github.com/holiman/uint256"
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/crypto"
@@ -34,6 +35,7 @@ type Message interface {
 	Nonce() uint64
 	Data() []byte
 	AccessList() types.AccessList
+	SetCodeAuthorizations() []types.SetCodeAuthorization
 	IsL1MessageTx() bool
 	FeeTokenID() uint16
 	FeeLimit() *big.Int
@@ -103,6 +105,11 @@ func asUnsignedTx(msg Message, baseFee, chainID *big.Int) *types.Transaction {
 		(msg.Memo() != nil && len(*msg.Memo()) > 0) {
 		return asUnsignedMorphTx(msg, chainID)
 	}
+	// EIP-7702: a SetCodeTx cannot have a nil destination (execution rejects it
+	// with ErrSetCodeTxCreate), so fall through to dynamic fee tx in that case.
+	if len(msg.SetCodeAuthorizations()) > 0 && msg.To() != nil {
+		return asUnsignedSetCodeTx(msg, chainID)
+	}
 
 	return asUnsignedDynamicTx(msg, chainID)
 }
@@ -143,6 +150,30 @@ func asUnsignedDynamicTx(msg Message, chainID *big.Int) *types.Transaction {
 		AccessList: msg.AccessList(),
 		ChainID:    chainID,
 	})
+}
+
+func asUnsignedSetCodeTx(msg Message, chainID *big.Int) *types.Transaction {
+	return types.NewTx(&types.SetCodeTx{
+		Nonce:      msg.Nonce(),
+		To:         *msg.To(),
+		Value:      u256(msg.Value()),
+		Gas:        msg.Gas(),
+		GasFeeCap:  u256(msg.GasFeeCap()),
+		GasTipCap:  u256(msg.GasTipCap()),
+		Data:       msg.Data(),
+		AccessList: msg.AccessList(),
+		AuthList:   msg.SetCodeAuthorizations(),
+		ChainID:    u256(chainID),
+	})
+}
+
+// u256 converts a big.Int into a uint256.Int, treating nil as zero.
+// RPC inputs are bounded to 256 bits by hexutil.Big, so overflow cannot occur.
+func u256(x *big.Int) *uint256.Int {
+	if x == nil {
+		return new(uint256.Int)
+	}
+	return uint256.MustFromBig(x)
 }
 
 func asUnsignedMorphTx(msg Message, chainID *big.Int) *types.Transaction {

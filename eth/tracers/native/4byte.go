@@ -93,7 +93,11 @@ func (t *fourByteTracer) store(id []byte, size int) {
 }
 
 func (t *fourByteTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from common.Address) {
-	// Update list of precompiles based on current block
+	if env.Precompiles != nil {
+		t.activePrecompiles = env.Precompiles
+		return
+	}
+	// Update list of precompiles based on current block.
 	rules := t.chainConfig.Rules(env.BlockNumber, env.Time)
 	t.activePrecompiles = vm.ActivePrecompiles(rules)
 }

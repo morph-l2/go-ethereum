@@ -17,8 +17,10 @@
 package vm
 
 import (
+	"math/big"
 	"testing"
 
+	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/params"
 )
 
@@ -37,5 +39,21 @@ func TestGetVMContextNilEVM(t *testing.T) {
 	ctx := evm.GetVMContext()
 	if ctx == nil {
 		t.Fatal("expected empty context")
+	}
+}
+
+func TestGetVMContextPrecompilesOnlyWhenCustom(t *testing.T) {
+	evm := NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
+	if ctx := evm.GetVMContext(); ctx.Precompiles != nil {
+		t.Fatalf("default EVM should not expose custom precompile set, got %v", ctx.Precompiles)
+	}
+
+	addr := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	precompiles := PrecompiledContracts{addr: PrecompiledContractsHomestead[common.BytesToAddress([]byte{0x01})]}
+	evm.SetPrecompiles(precompiles)
+
+	ctx := evm.GetVMContext()
+	if len(ctx.Precompiles) != 1 || ctx.Precompiles[0] != addr {
+		t.Fatalf("unexpected custom precompiles: got %v want [%s]", ctx.Precompiles, addr)
 	}
 }

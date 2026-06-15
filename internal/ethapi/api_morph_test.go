@@ -102,6 +102,106 @@ func TestDecodeHash(t *testing.T) {
 	}
 }
 
+func newOverrideTestState(t *testing.T) *state.StateDB {
+	t.Helper()
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state: %v", err)
+	}
+	return statedb
+}
+
+func TestStateOverrideMovePrecompile(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	dst := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	original := precompiles[src]
+	if original == nil {
+		t.Fatalf("missing source precompile %s", src)
+	}
+
+	overrides := &StateOverride{
+		src: {MovePrecompileTo: &dst},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed", src)
+	}
+	if got := precompiles[dst]; got != original {
+		t.Fatalf("moved precompile mismatch: got %T want %T", got, original)
+	}
+
+	fresh := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	if _, ok := fresh[src]; !ok {
+		t.Fatalf("source precompile was removed from fresh active map")
+	}
+	if _, ok := fresh[dst]; ok {
+		t.Fatalf("moved target leaked into fresh active map")
+	}
+}
+
+func TestStateOverridePrecompileDeleteAllowsCodeOverride(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	code := hexutil.Bytes{0x60, 0x00, 0x60, 0x00, 0xf3}
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+
+	overrides := &StateOverride{
+		src: {Code: &code},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed for code override", src)
+	}
+	if got := statedb.GetCode(src); string(got) != string(code) {
+		t.Fatalf("code override mismatch: got %x want %x", got, []byte(code))
+	}
+}
+
+func TestStateOverrideMovePrecompileRejectsInvalidTargets(t *testing.T) {
+	srcA := common.BytesToAddress([]byte{0x01})
+	srcB := common.BytesToAddress([]byte{0x02})
+	dst := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	rules := params.TestChainConfig.Rules(big.NewInt(0), 0)
+
+	t.Run("non precompile source", func(t *testing.T) {
+		overrides := &StateOverride{
+			dst: {MovePrecompileTo: &srcA},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "is not a precompile") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("target also overridden", func(t *testing.T) {
+		overrides := &StateOverride{
+			srcA: {MovePrecompileTo: &dst},
+			dst:  {},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "already overridden") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("duplicate destination", func(t *testing.T) {
+		overrides := &StateOverride{
+			srcA: {MovePrecompileTo: &dst},
+			srcB: {MovePrecompileTo: &dst},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "already been overridden by a precompile") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 type proofStorageKeyDecodeBackend struct {
 	Backend
 	stateCalls int

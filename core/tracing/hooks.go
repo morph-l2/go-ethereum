@@ -67,6 +67,7 @@ type VMContext struct {
 	Time        uint64
 	BaseFee     *big.Int
 	StateDB     StateDB
+	Precompiles []common.Address
 }
 
 // BlockEvent is emitted upon tracing an incoming block.

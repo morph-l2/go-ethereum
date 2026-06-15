@@ -46,24 +46,9 @@ type (
 )
 
 func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
-	var precompiles map[common.Address]PrecompiledContract
-	switch {
-	case evm.chainRules.IsEmerald:
-		precompiles = PrecompiledContractsEmerald
-	case evm.chainRules.IsMorph203:
-		precompiles = PrecompiledContractsMorph203
-	case evm.chainRules.IsBernoulli:
-		precompiles = PrecompiledContractsBernoulli
-	case evm.chainRules.IsArchimedes:
-		precompiles = PrecompiledContractsArchimedes
-	case evm.chainRules.IsBerlin:
-		precompiles = PrecompiledContractsBerlin
-	case evm.chainRules.IsIstanbul:
-		precompiles = PrecompiledContractsIstanbul
-	case evm.chainRules.IsByzantium:
-		precompiles = PrecompiledContractsByzantium
-	default:
-		precompiles = PrecompiledContractsHomestead
+	precompiles := activePrecompiledContracts(evm.chainRules)
+	if evm.customPrecompiles {
+		precompiles = evm.precompiles
 	}
 	p, ok := precompiles[addr]
 	return p, ok
@@ -133,6 +118,10 @@ type EVM struct {
 	// available gas is calculated in gasCall* according to the 63/64 rule and later
 	// applied in opCall*.
 	callGasTemp uint64
+
+	// precompiles holds the precompiled contracts for this EVM instance.
+	precompiles       PrecompiledContracts
+	customPrecompiles bool
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
@@ -150,8 +139,32 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 		chainConfig: chainConfig,
 		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockTime),
 	}
+	evm.precompiles = activePrecompiledContracts(evm.chainRules)
 	evm.interpreter = NewEVMInterpreter(evm, config)
 	return evm
+}
+
+// SetPrecompiles sets the precompiled contracts for the EVM.
+// This method is only used through RPC calls and is not thread-safe.
+func (evm *EVM) SetPrecompiles(precompiles PrecompiledContracts) {
+	evm.precompiles = precompiles
+	evm.customPrecompiles = true
+}
+
+// HasCustomPrecompiles returns whether RPC code overrode this EVM's precompile map.
+func (evm *EVM) HasCustomPrecompiles() bool {
+	return evm != nil && evm.customPrecompiles
+}
+
+// ActivePrecompiles returns the precompile addresses configured on this EVM instance.
+func (evm *EVM) ActivePrecompiles() []common.Address {
+	if evm == nil {
+		return nil
+	}
+	if !evm.customPrecompiles {
+		return ActivePrecompiles(evm.chainRules)
+	}
+	return PrecompileAddresses(evm.precompiles)
 }
 
 // Reset resets the EVM with a new transaction context.Reset
@@ -614,7 +627,7 @@ func (evm *EVM) GetVMContext() *tracing.VMContext {
 	if evm.Context.Time != nil {
 		blockTime = evm.Context.Time.Uint64()
 	}
-	return &tracing.VMContext{
+	ctx := &tracing.VMContext{
 		To:          evm.To,
 		Coinbase:    evm.Context.Coinbase,
 		BlockNumber: evm.Context.BlockNumber,
@@ -622,4 +635,8 @@ func (evm *EVM) GetVMContext() *tracing.VMContext {
 		BaseFee:     evm.Context.BaseFee,
 		StateDB:     evm.StateDB,
 	}
+	if evm.customPrecompiles {
+		ctx.Precompiles = PrecompileAddresses(evm.precompiles)
+	}
+	return ctx
 }

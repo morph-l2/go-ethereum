@@ -21,13 +21,11 @@ import (
 	"bytes"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/ethdb"
-	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rlp"
 )
 
@@ -46,7 +44,7 @@ func stackTrieFromPool(db ethdb.KeyValueWriter) *StackTrie {
 }
 
 func returnToPool(st *StackTrie) {
-	st.Reset()
+	st.reset(false)
 	stPool.Put(st)
 }
 
@@ -54,12 +52,14 @@ func returnToPool(st *StackTrie) {
 // in order. Once it determines that a subtree will no longer be inserted
 // into, it will hash it and free up the memory it uses.
 type StackTrie struct {
-	nodeType  uint8                // node type (as in branch, ext, leaf)
-	val       []byte               // value contained by this node if it's a leaf
-	key       []byte               // key chunk covered by this (full|ext) node
-	keyOffset int                  // offset of the key chunk inside a full key
-	children  [16]*StackTrie       // list of children (for fullnodes and exts)
-	db        ethdb.KeyValueWriter // Pointer to the commit db, can be nil
+	nodeType    uint8                // node type (as in branch, ext, leaf)
+	val         []byte               // value contained by this node if it's a leaf
+	key         []byte               // key chunk covered by this (full|ext) node
+	keyOffset   int                  // offset of the key chunk inside a full key
+	children    [16]*StackTrie       // list of children (for fullnodes and exts)
+	db          ethdb.KeyValueWriter // Pointer to the commit db, can be nil
+	vPool       *unsafeBytesPool     // Per-root pool for copied list values
+	valFromPool bool                 // Whether val must be returned to vPool
 }
 
 // NewStackTrie allocates and initializes an empty trie.
@@ -67,6 +67,7 @@ func NewStackTrie(db ethdb.KeyValueWriter) *StackTrie {
 	return &StackTrie{
 		nodeType: emptyNode,
 		db:       db,
+		vPool:    newUnsafeBytesPool(300, 20),
 	}
 }
 
@@ -76,6 +77,8 @@ func NewFromBinary(data []byte, db ethdb.KeyValueWriter) (*StackTrie, error) {
 	if err := st.UnmarshalBinary(data); err != nil {
 		return nil, err
 	}
+	st.vPool = newUnsafeBytesPool(300, 20)
+	st.setPool(st.vPool)
 	// If a database is used, we need to recursively add it to every child
 	if db != nil {
 		st.setDb(db)
@@ -133,7 +136,9 @@ func (st *StackTrie) unmarshalBinary(r io.Reader) error {
 	}
 	gob.NewDecoder(r).Decode(&dec)
 	st.nodeType = dec.Nodetype
+	st.releaseValue()
 	st.val = dec.Val
+	st.valFromPool = false
 	st.key = dec.Key
 	st.keyOffset = int(dec.KeyOffset)
 
@@ -160,17 +165,29 @@ func (st *StackTrie) setDb(db ethdb.KeyValueWriter) {
 	}
 }
 
-func newLeaf(ko int, key, val []byte, db ethdb.KeyValueWriter) *StackTrie {
+func (st *StackTrie) setPool(pool *unsafeBytesPool) {
+	st.vPool = pool
+	for _, child := range st.children {
+		if child != nil {
+			child.setPool(pool)
+		}
+	}
+}
+
+func newLeaf(ko int, key, val []byte, db ethdb.KeyValueWriter, pool *unsafeBytesPool, valFromPool bool) *StackTrie {
 	st := stackTrieFromPool(db)
+	st.vPool = pool
 	st.nodeType = leafNode
 	st.keyOffset = ko
 	st.key = append(st.key, key[ko:]...)
 	st.val = val
+	st.valFromPool = valFromPool
 	return st
 }
 
-func newExt(ko int, key []byte, child *StackTrie, db ethdb.KeyValueWriter) *StackTrie {
+func newExt(ko int, key []byte, child *StackTrie, db ethdb.KeyValueWriter, pool *unsafeBytesPool) *StackTrie {
 	st := stackTrieFromPool(db)
+	st.vPool = pool
 	st.nodeType = extNode
 	st.keyOffset = ko
 	st.key = append(st.key, key[ko:]...)
@@ -189,26 +206,66 @@ const (
 
 // TryUpdate inserts a (key, value) pair into the stack trie
 func (st *StackTrie) TryUpdate(key, value []byte) error {
-	k := keybytesToHex(key)
 	if len(value) == 0 {
-		panic("deletion not supported")
+		return errors.New("deletion not supported")
 	}
-	st.insert(k[:len(k)-1], value)
+	st.ensurePool()
+	k := keybytesToHex(key)
+	v, fromPool := st.copyValue(value)
+	st.insert(k[:len(k)-1], v, fromPool)
 	return nil
 }
 
-func (st *StackTrie) Update(key, value []byte) {
-	if err := st.TryUpdate(key, value); err != nil {
-		log.Error(fmt.Sprintf("Unhandled trie error: %v", err))
-	}
+func (st *StackTrie) Update(key, value []byte) error {
+	return st.TryUpdate(key, value)
 }
 
 func (st *StackTrie) Reset() {
+	st.reset(true)
+}
+
+func (st *StackTrie) ensurePool() {
+	if st.vPool == nil {
+		st.vPool = newUnsafeBytesPool(300, 20)
+	}
+}
+
+func (st *StackTrie) copyValue(value []byte) ([]byte, bool) {
+	if st.vPool == nil {
+		return common.CopyBytes(value), false
+	}
+	vBuf := st.vPool.get()
+	if cap(vBuf) < len(value) {
+		return common.CopyBytes(value), false
+	}
+	vBuf = vBuf[:len(value)]
+	copy(vBuf, value)
+	return vBuf, true
+}
+
+func (st *StackTrie) releaseValue() {
+	if st.valFromPool && st.vPool != nil {
+		st.vPool.put(st.val)
+	}
+	st.val = nil
+	st.valFromPool = false
+}
+
+func (st *StackTrie) reset(keepPool bool) {
+	for i, child := range st.children {
+		if child != nil {
+			child.reset(false)
+			stPool.Put(child)
+			st.children[i] = nil
+		}
+	}
+	st.releaseValue()
 	st.db = nil
 	st.key = st.key[:0]
-	st.val = nil
-	for i := range st.children {
-		st.children[i] = nil
+	if !keepPool {
+		st.vPool = nil
+	} else if st.vPool == nil {
+		st.vPool = newUnsafeBytesPool(300, 20)
 	}
 	st.nodeType = emptyNode
 	st.keyOffset = 0
@@ -226,7 +283,7 @@ func (st *StackTrie) getDiffIndex(key []byte) int {
 
 // Helper function to that inserts a (key, value) pair into
 // the trie.
-func (st *StackTrie) insert(key, value []byte) {
+func (st *StackTrie) insert(key, value []byte, valueFromPool bool) {
 	switch st.nodeType {
 	case branchNode: /* Branch */
 		idx := int(key[st.keyOffset])
@@ -242,9 +299,12 @@ func (st *StackTrie) insert(key, value []byte) {
 		// Add new child
 		if st.children[idx] == nil {
 			st.children[idx] = stackTrieFromPool(st.db)
+			st.children[idx].vPool = st.vPool
 			st.children[idx].keyOffset = st.keyOffset + 1
+		} else if st.children[idx].vPool == nil {
+			st.children[idx].setPool(st.vPool)
 		}
-		st.children[idx].insert(key, value)
+		st.children[idx].insert(key, value, valueFromPool)
 	case extNode: /* Ext */
 		// Compare both key chunks and see where they differ
 		diffidx := st.getDiffIndex(key)
@@ -257,7 +317,10 @@ func (st *StackTrie) insert(key, value []byte) {
 		if diffidx == len(st.key) {
 			// Ext key and key segment are identical, recurse into
 			// the child node.
-			st.children[0].insert(key, value)
+			if st.children[0].vPool == nil {
+				st.children[0].setPool(st.vPool)
+			}
+			st.children[0].insert(key, value, valueFromPool)
 			return
 		}
 		// Save the original part. Depending if the break is
@@ -266,7 +329,7 @@ func (st *StackTrie) insert(key, value []byte) {
 		// node directly.
 		var n *StackTrie
 		if diffidx < len(st.key)-1 {
-			n = newExt(diffidx+1, st.key, st.children[0], st.db)
+			n = newExt(diffidx+1, st.key, st.children[0], st.db, st.vPool)
 		} else {
 			// Break on the last byte, no need to insert
 			// an extension node: reuse the current node
@@ -287,12 +350,13 @@ func (st *StackTrie) insert(key, value []byte) {
 			// long, insert a new intermediate branch
 			// node.
 			st.children[0] = stackTrieFromPool(st.db)
+			st.children[0].vPool = st.vPool
 			st.children[0].nodeType = branchNode
 			st.children[0].keyOffset = st.keyOffset + diffidx
 			p = st.children[0]
 		}
 		// Create a leaf for the inserted part
-		o := newLeaf(st.keyOffset+diffidx+1, key, value, st.db)
+		o := newLeaf(st.keyOffset+diffidx+1, key, value, st.db, st.vPool, valueFromPool)
 
 		// Insert both child leaves where they belong:
 		origIdx := st.key[diffidx]
@@ -328,7 +392,8 @@ func (st *StackTrie) insert(key, value []byte) {
 			// Convert current node into an ext,
 			// and insert a child branch node.
 			st.nodeType = extNode
-			st.children[0] = NewStackTrie(st.db)
+			st.children[0] = stackTrieFromPool(st.db)
+			st.children[0].vPool = st.vPool
 			st.children[0].nodeType = branchNode
 			st.children[0].keyOffset = st.keyOffset + diffidx
 			p = st.children[0]
@@ -339,20 +404,22 @@ func (st *StackTrie) insert(key, value []byte) {
 		// The child leave will be hashed directly in order to
 		// free up some memory.
 		origIdx := st.key[diffidx]
-		p.children[origIdx] = newLeaf(diffidx+1, st.key, st.val, st.db)
+		p.children[origIdx] = newLeaf(diffidx+1, st.key, st.val, st.db, st.vPool, st.valFromPool)
+		st.val = nil
+		st.valFromPool = false
 		p.children[origIdx].hash()
 
 		newIdx := key[diffidx+st.keyOffset]
-		p.children[newIdx] = newLeaf(p.keyOffset+1, key, value, st.db)
+		p.children[newIdx] = newLeaf(p.keyOffset+1, key, value, st.db, st.vPool, valueFromPool)
 
 		// Finally, cut off the key part that has been passed
 		// over to the children.
 		st.key = st.key[:diffidx]
-		st.val = nil
 	case emptyNode: /* Empty */
 		st.nodeType = leafNode
 		st.key = key[st.keyOffset:]
 		st.val = value
+		st.valFromPool = valueFromPool
 	case hashedNode:
 		panic("trying to insert into hash")
 	default:
@@ -442,6 +509,7 @@ func (st *StackTrie) hash() {
 		}
 	case emptyNode:
 		st.val = emptyRoot.Bytes()
+		st.valFromPool = false
 		st.key = st.key[:0]
 		st.nodeType = hashedNode
 		return
@@ -450,20 +518,21 @@ func (st *StackTrie) hash() {
 	}
 	st.key = st.key[:0]
 	st.nodeType = hashedNode
+	st.releaseValue()
 	if len(h.tmp) < 32 {
 		st.val = common.CopyBytes(h.tmp)
+		st.valFromPool = false
 		return
 	}
 	// Write the hash to the 'val'. We allocate a new val here to not mutate
 	// input values
 	st.val = make([]byte, 32)
+	st.valFromPool = false
 	h.sha.Reset()
 	h.sha.Write(h.tmp)
 	h.sha.Read(st.val)
 	if st.db != nil {
-		// TODO! Is it safe to Put the slice here?
-		// Do all db implementations copy the value provided?
-		st.db.Put(st.val, h.tmp)
+		st.db.Put(st.val, common.CopyBytes(h.tmp))
 	}
 }
 
@@ -507,7 +576,7 @@ func (st *StackTrie) Commit() (common.Hash, error) {
 		h.sha.Reset()
 		h.sha.Write(st.val)
 		h.sha.Read(ret)
-		st.db.Put(ret, st.val)
+		st.db.Put(ret, common.CopyBytes(st.val))
 		return common.BytesToHash(ret), nil
 	}
 	return common.BytesToHash(st.val), nil

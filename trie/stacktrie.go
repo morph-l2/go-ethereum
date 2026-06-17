@@ -165,6 +165,8 @@ func (st *StackTrie) setDb(db ethdb.KeyValueWriter) {
 	}
 }
 
+// setPool recursively assigns the value pool to this node and all of its
+// children, so pooled values can later be released back to the correct pool.
 func (st *StackTrie) setPool(pool *unsafeBytesPool) {
 	st.vPool = pool
 	for _, child := range st.children {
@@ -174,6 +176,9 @@ func (st *StackTrie) setPool(pool *unsafeBytesPool) {
 	}
 }
 
+// newLeaf creates a leaf node holding val. valFromPool reports whether val was
+// obtained from the value pool and therefore must be returned to it when the
+// node is hashed or reset.
 func newLeaf(ko int, key, val []byte, db ethdb.KeyValueWriter, pool *unsafeBytesPool, valFromPool bool) *StackTrie {
 	st := stackTrieFromPool(db)
 	st.vPool = pool
@@ -185,6 +190,7 @@ func newLeaf(ko int, key, val []byte, db ethdb.KeyValueWriter, pool *unsafeBytes
 	return st
 }
 
+// newExt creates an extension node covering the given key chunk.
 func newExt(ko int, key []byte, child *StackTrie, db ethdb.KeyValueWriter, pool *unsafeBytesPool) *StackTrie {
 	st := stackTrieFromPool(db)
 	st.vPool = pool
@@ -216,20 +222,29 @@ func (st *StackTrie) TryUpdate(key, value []byte) error {
 	return nil
 }
 
+// Update inserts a (key, value) pair into the stack trie. The value is copied
+// internally, so the caller is free to reuse or modify it after this returns.
 func (st *StackTrie) Update(key, value []byte) error {
 	return st.TryUpdate(key, value)
 }
 
+// Reset clears the trie state so the instance can be reused as a list hasher,
+// releasing any pooled values while retaining the value pool for later inserts.
 func (st *StackTrie) Reset() {
 	st.reset(true)
 }
 
+// ensurePool lazily initializes the per-trie value pool used to copy inserted
+// values without allocating a fresh buffer for each item.
 func (st *StackTrie) ensurePool() {
 	if st.vPool == nil {
 		st.vPool = newUnsafeBytesPool(300, 20)
 	}
 }
 
+// copyValue copies value into a buffer owned by the trie. The boolean return
+// reports whether the buffer came from the pool and must therefore be released
+// back to the pool once the owning node is hashed or reset.
 func (st *StackTrie) copyValue(value []byte) ([]byte, bool) {
 	if st.vPool == nil {
 		return common.CopyBytes(value), false
@@ -243,6 +258,8 @@ func (st *StackTrie) copyValue(value []byte) ([]byte, bool) {
 	return vBuf, true
 }
 
+// releaseValue returns a pooled value buffer to the pool (when owned) and clears
+// the node's value reference so it is no longer aliased.
 func (st *StackTrie) releaseValue() {
 	if st.valFromPool && st.vPool != nil {
 		st.vPool.put(st.val)
@@ -251,6 +268,9 @@ func (st *StackTrie) releaseValue() {
 	st.valFromPool = false
 }
 
+// reset recursively clears this node and returns its children to the node pool.
+// When keepPool is false the value pool reference is dropped as well; otherwise
+// it is preserved (or lazily recreated) so the trie can be reused.
 func (st *StackTrie) reset(keepPool bool) {
 	for i, child := range st.children {
 		if child != nil {

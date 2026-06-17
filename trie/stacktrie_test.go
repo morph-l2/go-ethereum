@@ -451,7 +451,9 @@ func TestStacktrieSerialization(t *testing.T) {
 		keyDelta.Add(keyDelta, common.Big1)
 	}
 	for i, k := range keys {
-		nt.TryUpdate(k, vals[i])
+		if err := nt.TryUpdate(k, vals[i]); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	for i, k := range keys {
@@ -464,7 +466,9 @@ func TestStacktrieSerialization(t *testing.T) {
 			t.Fatal(err)
 		}
 		st = newSt
-		st.TryUpdate(k, vals[i])
+		if err := st.TryUpdate(k, vals[i]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if have, want := st.Hash(), nt.Hash(); have != want {
 		t.Fatalf("have %#x want %#x", have, want)

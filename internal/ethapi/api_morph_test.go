@@ -394,6 +394,61 @@ func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
 	}
 }
 
+// TestDoEstimateGasMorphTxFeeTokenIDZero is a regression test for the bug where
+// gas estimation rejected an explicit feeTokenID=0 (ETH payment, valid for
+// MorphTx v1) with "invalid token". DoEstimateGas used to gate the alt-fee-token
+// branch on the pointer (args.FeeTokenID != nil) instead of the value, so an
+// explicit zero entered IsTokenActive(state, 0) which rejects token id 0.
+func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	backend := newEstimateGasBackend(t, sender)
+
+	nonce := hexutil.Uint64(0)
+	maxFee := (*hexutil.Big)(big.NewInt(10)) // non-zero feeCap triggers the balance-recap path
+	tip := (*hexutil.Big)(big.NewInt(1))
+	feeTokenZero := hexutil.Uint16(0)
+	feeTokenOne := hexutil.Uint16(1)
+	v1 := uint16VersionPtr(types.MorphTxVersion1)
+
+	blockNr := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	t.Run("v1 explicit feeTokenID=0 estimates as ETH transfer", func(t *testing.T) {
+		args := TransactionArgs{
+			From:                 &sender,
+			To:                   &to,
+			Nonce:                &nonce,
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: tip,
+			Version:              v1,
+			FeeTokenID:           &feeTokenZero,
+		}
+		gas, err := DoEstimateGas(context.Background(), backend, args, blockNr, backend.gasCap)
+		if err != nil {
+			t.Fatalf("DoEstimateGas with feeTokenID=0 failed: %v", err)
+		}
+		if uint64(gas) != params.TxGas {
+			t.Fatalf("estimated gas mismatch: have %d want %d", uint64(gas), params.TxGas)
+		}
+	})
+
+	t.Run("explicit non-zero feeTokenID still validates token", func(t *testing.T) {
+		args := TransactionArgs{
+			From:                 &sender,
+			To:                   &to,
+			Nonce:                &nonce,
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: tip,
+			Version:              v1,
+			FeeTokenID:           &feeTokenOne, // not registered in the in-memory state
+		}
+		_, err := DoEstimateGas(context.Background(), backend, args, blockNr, backend.gasCap)
+		if err == nil || !strings.Contains(err.Error(), "invalid token") {
+			t.Fatalf("expected 'invalid token' for unregistered feeTokenID, got %v", err)
+		}
+	})
+}
+
 // TestSetDefaults_MorphTxVersionHeuristic tests the heuristic version defaulting logic
 // in TransactionArgs.setDefaults():
 //   - Version == nil + no V1 fields → V0

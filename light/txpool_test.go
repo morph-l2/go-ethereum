@@ -18,6 +18,7 @@ package light
 
 import (
 	"context"
+	"errors"
 	"math"
 	"math/big"
 	"testing"
@@ -142,5 +143,115 @@ func TestTxPool(t *testing.T) {
 				t.Errorf("relay.Discard expected len = %d, got %d", exp, got)
 			}
 		}
+	}
+}
+
+func setupLightTxPoolWithConfigAndGasLimit(t *testing.T, config *params.ChainConfig, gasLimit uint64) (*TxPool, *LightChain, *core.BlockChain, *types.Block, *testTxRelay, *testOdr) {
+	t.Helper()
+
+	sdb := rawdb.NewMemoryDatabase()
+	ldb := rawdb.NewMemoryDatabase()
+	gspec := core.Genesis{
+		Config:   config,
+		Alloc:    core.GenesisAlloc{testBankAddress: {Balance: testBankFunds}},
+		BaseFee:  big.NewInt(params.InitialBaseFee),
+		GasLimit: gasLimit,
+	}
+	genesis := gspec.MustCommit(sdb)
+	gspec.MustCommit(ldb)
+
+	blockchain, err := core.NewBlockChain(sdb, nil, config, ethash.NewFullFaker(), vm.Config{}, nil, nil)
+	if err != nil {
+		t.Fatalf("create blockchain: %v", err)
+	}
+	odr := &testOdr{sdb: sdb, ldb: ldb, indexerConfig: TestClientIndexerConfig}
+	relay := &testTxRelay{
+		send:    make(chan int, 10),
+		discard: make(chan int, 10),
+		mined:   make(chan int, 10),
+	}
+	lightchain, err := NewLightChain(odr, config, ethash.NewFullFaker(), nil)
+	if err != nil {
+		t.Fatalf("create light chain: %v", err)
+	}
+	pool := NewTxPool(config, lightchain, relay)
+	t.Cleanup(func() {
+		pool.Stop()
+		lightchain.Stop()
+		blockchain.Stop()
+	})
+	return pool, lightchain, blockchain, genesis, relay, odr
+}
+
+func lightPoolTransaction(nonce uint64, gasLimit uint64) *types.Transaction {
+	tx, _ := types.SignTx(
+		types.NewTransaction(nonce, acc1Addr, big.NewInt(10000), gasLimit, big.NewInt(1), nil),
+		types.HomesteadSigner{},
+		testBankKey,
+	)
+	return tx
+}
+
+func TestLightTxPoolRejectsOversizedGasPostAmsterdam(t *testing.T) {
+	cfg := *params.TestNoL1DataFeeChainConfig
+	cfg.AmsterdamTime = params.NewUint64(0)
+
+	pool, _, _, _, _, _ := setupLightTxPoolWithConfigAndGasLimit(t, &cfg, 30_000_000)
+	tx := lightPoolTransaction(0, params.MaxTxGas+1)
+
+	if err := pool.Add(context.Background(), tx); !errors.Is(err, core.ErrGasLimitTooHigh) {
+		t.Fatalf("expected ErrGasLimitTooHigh, got %v", err)
+	}
+}
+
+func TestLightTxPoolAllowsOversizedGasPreAmsterdam(t *testing.T) {
+	cfg := *params.TestNoL1DataFeeChainConfig
+	cfg.AmsterdamTime = params.NewUint64(11)
+
+	pool, _, _, _, _, _ := setupLightTxPoolWithConfigAndGasLimit(t, &cfg, 30_000_000)
+	tx := lightPoolTransaction(0, params.MaxTxGas+1)
+
+	if err := pool.Add(context.Background(), tx); err != nil {
+		t.Fatalf("pre-Amsterdam oversized tx must be accepted, got %v", err)
+	}
+	if pool.GetTransaction(tx.Hash()) == nil {
+		t.Fatalf("expected oversized tx to remain pending before Amsterdam activation")
+	}
+}
+
+func TestLightTxPoolDropsOversizedGasOnAmsterdamActivation(t *testing.T) {
+	cfg := *params.TestNoL1DataFeeChainConfig
+	cfg.AmsterdamTime = params.NewUint64(10)
+
+	pool, lightchain, blockchain, genesis, relay, odr := setupLightTxPoolWithConfigAndGasLimit(t, &cfg, 30_000_000)
+	tx := lightPoolTransaction(0, params.MaxTxGas+1)
+	if err := pool.Add(context.Background(), tx); err != nil {
+		t.Fatalf("failed adding oversized pre-Amsterdam tx: %v", err)
+	}
+	if pool.GetTransaction(tx.Hash()) == nil {
+		t.Fatalf("expected tx to be present before Amsterdam activation")
+	}
+
+	chain, _ := core.GenerateChain(&cfg, genesis, ethash.NewFaker(), odr.sdb, 1, nil)
+	if _, err := blockchain.InsertChain(chain); err != nil {
+		t.Fatalf("insert chain: %v", err)
+	}
+	if _, err := lightchain.InsertHeaderChain([]*types.Header{chain[0].Header()}, 1); err != nil {
+		t.Fatalf("insert header chain: %v", err)
+	}
+
+	select {
+	case got := <-relay.discard:
+		if got != 1 {
+			t.Fatalf("expected exactly one oversized tx discard, got %d", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for Amsterdam activation discard")
+	}
+	if !pool.amsterdam {
+		t.Fatalf("expected pool to switch to Amsterdam mode")
+	}
+	if pool.GetTransaction(tx.Hash()) != nil {
+		t.Fatalf("expected oversized tx to be purged on Amsterdam activation")
 	}
 }

@@ -78,9 +78,13 @@ func Transaction(ctx *cli.Context) error {
 	// Check if anything needs to be read from stdin
 	var (
 		txStr       = ctx.String(InputTxsFlag.Name)
+		envStr      string
 		inputData   = &input{}
 		chainConfig *params.ChainConfig
 	)
+	if ctx.IsSet(InputEnvFlag.Name) {
+		envStr = ctx.String(InputEnvFlag.Name)
+	}
 	// Construct the chainconfig
 	if cConf, _, err := tests.GetChainConfig(ctx.String(ForknameFlag.Name)); err != nil {
 		return NewError(ErrorConfig, fmt.Errorf("failed constructing chain configuration: %v", err))
@@ -90,13 +94,15 @@ func Transaction(ctx *cli.Context) error {
 	// Set the chain id
 	chainConfig.ChainID = big.NewInt(ctx.Int64(ChainIDFlag.Name))
 	var body hexutil.Bytes
-	if txStr == stdinSelector {
+	if txStr == stdinSelector || envStr == stdinSelector {
 		decoder := json.NewDecoder(os.Stdin)
 		if err := decoder.Decode(inputData); err != nil {
 			return NewError(ErrorJson, fmt.Errorf("failed unmarshaling stdin: %v", err))
 		}
-		// Decode the body of already signed transactions
-		body = common.FromHex(inputData.TxRlp)
+		if txStr == stdinSelector {
+			// Decode the body of already signed transactions
+			body = common.FromHex(inputData.TxRlp)
+		}
 	} else {
 		// Read input from file
 		inFile, err := os.Open(txStr)
@@ -113,7 +119,22 @@ func Transaction(ctx *cli.Context) error {
 			return NewError(ErrorIO, errors.New("only rlp supported"))
 		}
 	}
-	signer := types.MakeSigner(chainConfig, new(big.Int), 0)
+	if envStr != "" && envStr != stdinSelector {
+		var env stEnv
+		if err := readFile(envStr, "env", &env); err != nil {
+			return err
+		}
+		inputData.Env = &env
+	}
+	if chainConfig.AmsterdamTime != nil && inputData.Env == nil {
+		return NewError(ErrorConfig, errors.New("Amsterdam transaction validation requires --input.env with currentTimestamp"))
+	}
+	var timestamp uint64
+	if inputData.Env != nil {
+		timestamp = inputData.Env.Timestamp
+	}
+	isAmsterdam := chainConfig.IsAmsterdam(timestamp)
+	signer := types.MakeSigner(chainConfig, new(big.Int), timestamp)
 	// We now have the transactions in 'body', which is supposed to be an
 	// rlp list of transactions
 	it, err := rlp.NewListIterator([]byte(body))
@@ -139,9 +160,8 @@ func Transaction(ctx *cli.Context) error {
 		} else {
 			r.Address = sender
 		}
-		// Check intrinsic gas
 		if gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil,
-			chainConfig.IsHomestead(new(big.Int)), chainConfig.IsIstanbul(new(big.Int)), chainConfig.IsShanghai(new(big.Int))); err != nil {
+			chainConfig.IsHomestead(new(big.Int)), chainConfig.IsIstanbul(new(big.Int)), chainConfig.IsShanghai(new(big.Int)), isAmsterdam); err != nil {
 			r.Error = err
 			results = append(results, r)
 			continue
@@ -152,6 +172,11 @@ func Transaction(ctx *cli.Context) error {
 				results = append(results, r)
 				continue
 			}
+		}
+		if isAmsterdam && !tx.IsL1MessageTx() && tx.Gas() > params.MaxTxGas {
+			r.Error = fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+			results = append(results, r)
+			continue
 		}
 		// Validate <256bit fields
 		switch {

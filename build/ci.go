@@ -61,7 +61,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/crypto/signify"
 	"github.com/morph-l2/go-ethereum/internal/build"
-	"github.com/morph-l2/go-ethereum/params"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 )
 
 var (
@@ -118,7 +118,6 @@ var (
 	// A debian package is created for all executables listed here.
 	debEthereum = debPackage{
 		Name:        "ethereum",
-		Version:     params.Version,
 		Executables: debExecutables,
 	}
 
@@ -252,10 +251,10 @@ func doInstall(cmdline []string) {
 // buildFlags returns the go tool flags for building.
 func buildFlags(env build.Environment) (flags []string) {
 	var ld []string
-	if env.Commit != "" {
-		ld = append(ld, "-X", "main.gitCommit="+env.Commit)
-		ld = append(ld, "-X", "main.gitDate="+env.Date)
-	}
+
+	ld = append(ld, "-X", "github.com/morph-l2/go-ethereum/internal/version.Version="+env.Version)
+	ld = append(ld, "-X", "github.com/morph-l2/go-ethereum/internal/version.GitCommit="+env.Commit)
+	ld = append(ld, "-X", "github.com/morph-l2/go-ethereum/internal/version.BuildTime="+env.BuildTime)
 	// Strip DWARF on darwin. This used to be required for certain things,
 	// and there is no downside to this, so we just keep doing it.
 	if runtime.GOOS == "darwin" {
@@ -372,7 +371,7 @@ func doArchive(cmdline []string) {
 
 	var (
 		env      = build.Env()
-		basegeth = archiveBasename(*arch, params.ArchiveVersion(env.Commit))
+		basegeth = archiveBasename(*arch, env.Version)
 		geth     = "geth-" + basegeth + ext
 		alltools = "geth-alltools-" + basegeth + ext
 	)
@@ -454,7 +453,7 @@ func maybeSkipArchive(env build.Environment) {
 		log.Printf("skipping archive creation because this is a cron job")
 		os.Exit(0)
 	}
-	if env.Branch != "master" && !strings.HasPrefix(env.Tag, "v1.") {
+	if env.Branch != "master" && env.Branch != "main" && !strings.HasPrefix(env.Tag, "morph-v") {
 		log.Printf("skipping archive creation because branch %q, tag %q is not on the inclusion list", env.Branch, env.Tag)
 		os.Exit(0)
 	}
@@ -496,13 +495,15 @@ func doDocker(cmdline []string) {
 	switch {
 	case env.Branch == "master":
 		tags = []string{"latest"}
-	case strings.HasPrefix(env.Tag, "v1."):
-		tags = []string{"stable", fmt.Sprintf("release-1.%d", params.VersionMinor), "v" + params.Version}
+	case env.Branch == "main":
+		tags = []string{"latest"}
+	case strings.HasPrefix(env.Tag, "morph-v"):
+		tags = []string{"stable", env.Version}
 	}
 	// If architecture specific image builds are requested, build and push them
 	if *image {
-		build.MustRunCommand("docker", "build", "--build-arg", "COMMIT="+env.Commit, "--build-arg", "VERSION="+params.VersionWithMeta, "--build-arg", "BUILDNUM="+env.Buildnum, "--tag", fmt.Sprintf("%s:TAG", *upload), ".")
-		build.MustRunCommand("docker", "build", "--build-arg", "COMMIT="+env.Commit, "--build-arg", "VERSION="+params.VersionWithMeta, "--build-arg", "BUILDNUM="+env.Buildnum, "--tag", fmt.Sprintf("%s:alltools-TAG", *upload), "-f", "Dockerfile.alltools", ".")
+		build.MustRunCommand("docker", "build", "--build-arg", "COMMIT="+env.Commit, "--build-arg", "VERSION="+env.Version, "--build-arg", "BUILD_TIME="+env.BuildTime, "--build-arg", "BUILDNUM="+env.Buildnum, "--tag", fmt.Sprintf("%s:TAG", *upload), ".")
+		build.MustRunCommand("docker", "build", "--build-arg", "COMMIT="+env.Commit, "--build-arg", "VERSION="+env.Version, "--build-arg", "BUILD_TIME="+env.BuildTime, "--build-arg", "BUILDNUM="+env.Buildnum, "--tag", fmt.Sprintf("%s:alltools-TAG", *upload), "-f", "Dockerfile.alltools", ".")
 
 		// Tag and upload the images to Docker Hub
 		for _, tag := range tags {
@@ -665,7 +666,7 @@ func doDebianSource(cmdline []string) {
 	for _, pkg := range debPackages {
 		for distro, goboot := range debDistroGoBoots {
 			// Prepare the debian package with the go-ethereum sources.
-			meta := newDebMetadata(distro, goboot, *signer, env, now, pkg.Name, pkg.Version, pkg.Executables)
+			meta := newDebMetadata(distro, goboot, *signer, env, now, pkg.Name, buildversion.DebianVersionFor(env.Version), pkg.Executables)
 			pkgdir := stageDebianSource(*workdir, meta)
 
 			// Add Go source code
@@ -768,7 +769,6 @@ func isUnstableBuild(env build.Environment) bool {
 
 type debPackage struct {
 	Name        string          // the name of the Debian package to produce, e.g. "ethereum"
-	Version     string          // the clean version of the debPackage, e.g. 1.8.12, without any metadata
 	Executables []debExecutable // executables to be included in the package
 }
 
@@ -957,16 +957,13 @@ func doWindowsInstaller(cmdline []string) {
 	// Build the installer. This assumes that all the needed files have been previously
 	// built (don't mix building and packaging to keep cross compilation complexity to a
 	// minimum).
-	version := strings.Split(params.Version, ".")
-	if env.Commit != "" {
-		version[2] += "-" + env.Commit[:8]
-	}
-	installer, _ := filepath.Abs("geth-" + archiveBasename(*arch, params.ArchiveVersion(env.Commit)) + ".exe")
+	major, minor, patch := buildversion.NSISVersionPartsFor(env.Version)
+	installer, _ := filepath.Abs("geth-" + archiveBasename(*arch, env.Version) + ".exe")
 	build.MustRunCommand("makensis.exe",
 		"/DOUTPUTFILE="+installer,
-		"/DMAJORVERSION="+version[0],
-		"/DMINORVERSION="+version[1],
-		"/DBUILDVERSION="+version[2],
+		"/DMAJORVERSION="+major,
+		"/DMINORVERSION="+minor,
+		"/DBUILDVERSION="+patch,
 		"/DARCH="+*arch,
 		filepath.Join(*workdir, "geth.nsi"),
 	)
@@ -1020,7 +1017,7 @@ func doAndroidArchive(cmdline []string) {
 	maybeSkipArchive(env)
 
 	// Sign and upload the archive to Azure
-	archive := "geth-" + archiveBasename("android", params.ArchiveVersion(env.Commit)) + ".aar"
+	archive := "geth-" + archiveBasename("android", env.Version) + ".aar"
 	os.Rename("geth.aar", archive)
 
 	if err := archiveUpload(archive, *upload, *signer, *signify); err != nil {
@@ -1100,10 +1097,7 @@ func newMavenMetadata(env build.Environment) mavenMetadata {
 		}
 	}
 	// Render the version and package strings
-	version := params.Version
-	if isUnstableBuild(env) {
-		version += "-SNAPSHOT"
-	}
+	version := env.Version
 	return mavenMetadata{
 		Version:      version,
 		Package:      "geth-" + version,
@@ -1145,7 +1139,7 @@ func doXCodeFramework(cmdline []string) {
 
 	// Create the archive.
 	maybeSkipArchive(env)
-	archive := "geth-" + archiveBasename("ios", params.ArchiveVersion(env.Commit))
+	archive := "geth-" + archiveBasename("ios", env.Version)
 	if err := os.MkdirAll(archive, 0755); err != nil {
 		log.Fatal(err)
 	}
@@ -1198,13 +1192,9 @@ func newPodMetadata(env build.Environment, archive string) podMetadata {
 			}
 		}
 	}
-	version := params.Version
-	if isUnstableBuild(env) {
-		version += "-unstable." + env.Buildnum
-	}
 	return podMetadata{
 		Archive:      archive,
-		Version:      version,
+		Version:      env.Version,
 		Commit:       env.Commit,
 		Contributors: contribs,
 	}

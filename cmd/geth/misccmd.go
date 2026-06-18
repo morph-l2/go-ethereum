@@ -18,16 +18,14 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 	"strconv"
-	"strings"
 
 	"gopkg.in/urfave/cli.v1"
 
 	"github.com/morph-l2/go-ethereum/cmd/utils"
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
-	"github.com/morph-l2/go-ethereum/params"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 )
 
 var (
@@ -40,7 +38,7 @@ var (
 		Name:  "check.version",
 		Usage: "Version to check",
 		Value: fmt.Sprintf("Geth/v%v/%v-%v/%v",
-			params.VersionWithCommit(gitCommit, gitDate),
+			buildversion.BaseSemverFor(buildversion.Version),
 			runtime.GOOS, runtime.GOARCH, runtime.Version()),
 	}
 	makecacheCommand = cli.Command{
@@ -72,7 +70,8 @@ Regular users do not need to execute it.
 	versionCommand = cli.Command{
 		Action:    utils.MigrateFlags(version),
 		Name:      "version",
-		Usage:     "Print version numbers",
+		Aliases:   []string{"v"},
+		Usage:     "show version information",
 		ArgsUsage: " ",
 		Category:  "MISCELLANEOUS COMMANDS",
 		Description: `
@@ -134,19 +133,7 @@ func makedag(ctx *cli.Context) error {
 }
 
 func version(ctx *cli.Context) error {
-	fmt.Println(strings.Title(clientIdentifier))
-	fmt.Println("Version:", params.VersionWithMeta)
-	if gitCommit != "" {
-		fmt.Println("Git Commit:", gitCommit)
-	}
-	if gitDate != "" {
-		fmt.Println("Git Commit Date:", gitDate)
-	}
-	fmt.Println("Architecture:", runtime.GOARCH)
-	fmt.Println("Go Version:", runtime.Version())
-	fmt.Println("Operating System:", runtime.GOOS)
-	fmt.Printf("GOPATH=%s\n", os.Getenv("GOPATH"))
-	fmt.Printf("GOROOT=%s\n", runtime.GOROOT())
+	buildversion.Print(ctx.App.Writer, clientIdentifier)
 	return nil
 }
 

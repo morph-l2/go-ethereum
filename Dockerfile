@@ -1,6 +1,7 @@
 # Support setting various labels on the final image
 ARG COMMIT=""
 ARG VERSION=""
+ARG BUILD_TIME=""
 ARG BUILDNUM=""
 
 # Build Geth in a stock Go builder container
@@ -14,7 +15,10 @@ COPY go.sum /go-ethereum/
 RUN cd /go-ethereum && go mod download
 
 ADD . /go-ethereum
-RUN cd /go-ethereum && go run build/ci.go install ./cmd/geth
+ARG COMMIT=""
+ARG VERSION=""
+ARG BUILD_TIME=""
+RUN cd /go-ethereum && go run build/ci.go install -git-commit="${COMMIT}" -version="${VERSION}" -build-time="${BUILD_TIME}" ./cmd/geth
 
 # Pull Geth into a second stage deploy alpine container
 FROM alpine:latest
@@ -28,6 +32,7 @@ ENTRYPOINT ["geth"]
 # Add some metadata labels to help programmatic image consumption
 ARG COMMIT=""
 ARG VERSION=""
+ARG BUILD_TIME=""
 ARG BUILDNUM=""
 
-LABEL commit="$COMMIT" version="$VERSION" buildnum="$BUILDNUM"
+LABEL commit="$COMMIT" version="$VERSION" buildtime="$BUILD_TIME" buildnum="$BUILDNUM"

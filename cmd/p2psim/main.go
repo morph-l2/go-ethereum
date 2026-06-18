@@ -47,6 +47,7 @@ import (
 	"gopkg.in/urfave/cli.v1"
 
 	"github.com/morph-l2/go-ethereum/crypto"
+	cmdflags "github.com/morph-l2/go-ethereum/internal/flags"
 	"github.com/morph-l2/go-ethereum/p2p"
 	"github.com/morph-l2/go-ethereum/p2p/enode"
 	"github.com/morph-l2/go-ethereum/p2p/simulations"
@@ -59,6 +60,7 @@ var client *simulations.Client
 func main() {
 	app := cli.NewApp()
 	app.Usage = "devp2p simulation command-line client"
+	cmdflags.ConfigureVersion(app)
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:   "api",

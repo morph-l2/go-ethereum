@@ -15,6 +15,7 @@ import (
 	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/ethdb/leveldb"
+	buildversion "github.com/morph-l2/go-ethereum/internal/version"
 	zkt "github.com/scroll-tech/zktrie/types"
 )
 
@@ -24,8 +25,12 @@ func main() {
 		dbPath      = flag.String("db", "", "path to the ZK node chaindata directory")
 		dryRun      = flag.Bool("dry-run", false, "only show what would be imported without actually importing")
 		check       = flag.Bool("check", false, "check if preimages exist in the database")
+		showVersion = flag.Bool("version", false, "show version information")
 	)
 	flag.Parse()
+	if buildversion.PrintIfRequested(showVersion, "gen-preimages") {
+		return
+	}
 
 	// Check mode
 	if *check {

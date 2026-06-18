@@ -25,6 +25,7 @@ import (
 
 	"gopkg.in/urfave/cli.v1"
 
+	cmdflags "github.com/morph-l2/go-ethereum/internal/flags"
 	"github.com/morph-l2/go-ethereum/log"
 )
 
@@ -33,6 +34,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "puppeth"
 	app.Usage = "assemble and maintain private Ethereum networks"
+	cmdflags.ConfigureVersion(app)
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "network",

@@ -7,34 +7,38 @@
 GOBIN = ./build/bin
 GO ?= latest
 GORUN = env GO111MODULE=on go run
+GITCOMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_FLAGS = -git-commit=$(GITCOMMIT) -version=$(VERSION) -build-time=$(BUILD_TIME)
 
 geth:
-	$(GORUN) build/ci.go install ./cmd/geth
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/geth
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/geth\" to launch geth."
 
 migration-checker:
-	$(GORUN) build/ci.go install ./cmd/migration-checker
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/migration-checker
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/migration-checker\" to launch migration-checker."
 
 gen-preimages:
-	$(GORUN) build/ci.go install ./cmd/gen-preimages
+	$(GORUN) build/ci.go install $(BUILD_FLAGS) ./cmd/gen-preimages
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/gen-preimages\" to launch gen-preimages."
 
 all:
-	$(GORUN) build/ci.go install
+	$(GORUN) build/ci.go install $(BUILD_FLAGS)
 
 android:
-	$(GORUN) build/ci.go aar --local
+	$(GORUN) build/ci.go aar $(BUILD_FLAGS) --local
 	@echo "Done building."
 	@echo "Import \"$(GOBIN)/geth.aar\" to use the library."
 	@echo "Import \"$(GOBIN)/geth-sources.jar\" to add javadocs"
 	@echo "For more info see https://stackoverflow.com/questions/20994336/android-studio-how-to-attach-javadoc"
 
 ios:
-	$(GORUN) build/ci.go xcode --local
+	$(GORUN) build/ci.go xcode $(BUILD_FLAGS) --local
 	@echo "Done building."
 	@echo "Import \"$(GOBIN)/Geth.framework\" to use the library."
 
@@ -78,8 +82,8 @@ testnet-clean:
 .PHONY: testnet-clean
 
 image:
-	docker build -f Dockerfile -t morph-geth:latest .
+	docker build --build-arg COMMIT=$(GITCOMMIT) --build-arg VERSION=$(VERSION) --build-arg BUILD_TIME=$(BUILD_TIME) -f Dockerfile -t morph-geth:latest .
 
 docker:
-	docker build -t morph/l2geth:latest ./ -f Dockerfile
+	docker build --build-arg COMMIT=$(GITCOMMIT) --build-arg VERSION=$(VERSION) --build-arg BUILD_TIME=$(BUILD_TIME) -t morph/l2geth:latest ./ -f Dockerfile
 

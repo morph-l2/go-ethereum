@@ -249,8 +249,9 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 }
 
 func init() {
-	app.Name = "Clef"
+	app.Name = "clef"
 	app.Usage = "Manage Ethereum account operations"
+	flags.ConfigureVersion(app)
 	app.Flags = []cli.Flag{
 		logLevelFlag,
 		keystoreFlag,

@@ -25,25 +25,21 @@ import (
 	"gopkg.in/urfave/cli.v1"
 
 	"github.com/morph-l2/go-ethereum/internal/debug"
+	"github.com/morph-l2/go-ethereum/internal/flags"
 	"github.com/morph-l2/go-ethereum/p2p/enode"
-	"github.com/morph-l2/go-ethereum/params"
 )
 
 var (
-	// Git information set by linker when building with ci.go.
-	gitCommit string
-	gitDate   string
-	app       = &cli.App{
-		Name:        filepath.Base(os.Args[0]),
-		Usage:       "go-ethereum devp2p tool",
-		Version:     params.VersionWithCommit(gitCommit, gitDate),
-		Writer:      os.Stdout,
-		HideVersion: true,
+	app = &cli.App{
+		Name:   filepath.Base(os.Args[0]),
+		Usage:  "go-ethereum devp2p tool",
+		Writer: os.Stdout,
 	}
 )
 
 func init() {
 	// Set up the CLI app.
+	flags.ConfigureVersion(app)
 	app.Flags = append(app.Flags, debug.Flags...)
 	app.Before = func(ctx *cli.Context) error {
 		return debug.Setup(ctx)

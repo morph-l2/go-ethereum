@@ -31,11 +31,8 @@ import (
 	"github.com/morph-l2/go-ethereum/internal/flags"
 )
 
-var gitCommit = "" // Git SHA1 commit hash of the release (set via linker flags)
-var gitDate = ""
-
 var (
-	app = flags.NewApp(gitCommit, gitDate, "the evm command line interface")
+	app = flags.NewApp("the evm command line interface")
 
 	DebugFlag = cli.BoolFlag{
 		Name:  "debug",

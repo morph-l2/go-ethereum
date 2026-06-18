@@ -5,8 +5,6 @@ import (
 
 	zkt "github.com/scroll-tech/zktrie/types"
 
-	zktrie "github.com/morph-l2/go-ethereum/trie"
-
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb"
@@ -14,37 +12,6 @@ import (
 
 type TrieProve interface {
 	Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error
-}
-
-type ZktrieProofTracer struct {
-	*zktrie.ProofTracer
-}
-
-// MarkDeletion overwrite the underlayer method with secure key
-func (t ZktrieProofTracer) MarkDeletion(key common.Hash) {
-	key_s, _ := zkt.ToSecureKeyBytes(key.Bytes())
-	t.ProofTracer.MarkDeletion(key_s.Bytes())
-}
-
-// Merge overwrite underlayer method with proper argument
-func (t ZktrieProofTracer) Merge(another ZktrieProofTracer) {
-	t.ProofTracer.Merge(another.ProofTracer)
-}
-
-func (t ZktrieProofTracer) Available() bool {
-	return t.ProofTracer != nil
-}
-
-// NewProofTracer is not in Db interface and used explictily for reading proof in storage trie (not updated by the dirty value)
-func (s *StateDB) NewProofTracer(trieS Trie) ZktrieProofTracer {
-	if s.IsZktrie() {
-		zkTrie := trieS.(*zktrie.ZkTrie)
-		if zkTrie == nil {
-			panic("unexpected trie type for zktrie")
-		}
-		return ZktrieProofTracer{zkTrie.NewProofTracer()}
-	}
-	return ZktrieProofTracer{}
 }
 
 // GetStorageTrieForProof is not in Db interface and used explictily for reading proof in storage trie (not updated by the dirty value)

@@ -86,9 +86,9 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	if params.Timestamp != nil {
 		timestamp = time.Unix(int64(*params.Timestamp), 0)
 	}
-	if api.eth.BlockChain().Config().IsJadeFork(uint64(timestamp.Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
-		return nil, fmt.Errorf("cannot assemble block for fork, useZKtrie: %v, please switch geth", api.eth.BlockChain().Config().Morph.UseZktrie)
-	}
+	// zkTrie storage mode retired: state is always MPT in every epoch, so the
+	// former fork/format-coupling guard (which forced a binary switch at Jade)
+	// is no longer required.
 	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), timestamp, transactions)
 	if err != nil {
 		return nil, err
@@ -427,11 +427,9 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 		ts = time.Unix(int64(*timestamp), 0)
 	}
 
-	// Jade fork check: prevent building blocks with wrong storage format (MPT vs zkTrie)
-	if api.eth.BlockChain().Config().IsJadeFork(uint64(ts.Unix())) == api.eth.BlockChain().Config().Morph.UseZktrie {
-		return nil, fmt.Errorf("cannot assemble block for fork, useZKtrie: %v, please switch geth", api.eth.BlockChain().Config().Morph.UseZktrie)
-	}
-
+	// zkTrie storage mode retired: state is always MPT in every epoch, so the
+	// former fork/format-coupling guard (which forced a binary switch at Jade)
+	// is no longer required.
 	newBlockResult, err := api.eth.Miner().BuildBlock(parentHash, ts, transactions)
 	if err != nil {
 		return nil, err

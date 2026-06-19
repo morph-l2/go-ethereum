@@ -43,6 +43,12 @@ var (
 	MorphHoodiGenesisHash        = common.HexToHash("0x2cbcff7ec8d68255cb130d5274217cded0c83c417b9ed5e045e1ffcc3ebfc35c")
 	MorphMainnetGenesisStateRoot = common.HexToHash("0x09688bec5d876538664e62247c2f64fc7a02c54a3f898b42020730c7dd4933aa")
 	MorphHoodiGenesisStateRoot   = common.HexToHash("0x0a31941eb1853862c0c38f378eb0c519e9e66f0942e39b47dca38c0437ab6b3e")
+	// MorphHoleskyGenesisStateRoot is the legacy zkTrie genesis state root for Holesky.
+	// zkTrie storage mode is retired (state is now MPT), so this is pinned here to keep
+	// the Holesky genesis block hash unchanged: ToBlock writes it into the header and maps
+	// it to the computed MPT root via DiskStateRoot. Recovered from the pre-retirement
+	// zkTrie backend (DefaultMorphHoleskyGenesisBlock genesis state root).
+	MorphHoleskyGenesisStateRoot = common.HexToHash("0x1af89a4178937ff4e196b95cafc7d99eee5a25f5a8f4af98ef299b0d13dc5371")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -290,10 +296,12 @@ var (
 		Morph203Time:            NewUint64(1745388000),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
-			UseZktrie:                 true,
+			// zkTrie storage mode retired: state always uses MPT.
+			UseZktrie:                 false,
 			MaxTxPerBlock:             &MorphHoleskyMaxTxPerBlock,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphFeeVaultAddress,
+			GenesisStateRoot:          &MorphHoleskyGenesisStateRoot,
 		},
 	}
 
@@ -324,7 +332,8 @@ var (
 		JadeForkTime:            NewUint64(1774418400),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
-			UseZktrie:                 true,
+			// zkTrie storage mode retired: state always uses MPT.
+			UseZktrie:                 false,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphHoodiFeeVaultAddress,
 			GenesisStateRoot:          &MorphHoodiGenesisStateRoot,
@@ -357,7 +366,8 @@ var (
 		JadeForkTime:            NewUint64(1775628000),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
-			UseZktrie:                 true,
+			// zkTrie storage mode retired: state always uses MPT.
+			UseZktrie:                 false,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &rcfg.MorphFeeVaultAddress,
 			GenesisStateRoot:          &MorphMainnetGenesisStateRoot,

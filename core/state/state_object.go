@@ -554,10 +554,10 @@ func (s *stateObject) setNonce(nonce uint64) {
 }
 
 func (s *stateObject) PoseidonCodeHash() []byte {
-	if !s.db.IsZktrie() {
-		return nil
-	}
-	return s.data.PoseidonCodeHash
+	// zkTrie storage mode retired: state is always MPT, so the Poseidon code
+	// hash (a zkTrie-era proof artifact) is no longer surfaced here. The field
+	// itself is intentionally retained for a separate Poseidon-removal refactor.
+	return nil
 }
 
 func (s *stateObject) KeccakCodeHash() []byte {

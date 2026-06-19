@@ -24,8 +24,6 @@ import (
 	"sort"
 	"time"
 
-	zkt "github.com/scroll-tech/zktrie/types"
-
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state/snapshot"
@@ -190,10 +188,6 @@ func (s *StateDB) Error() error {
 	return s.dbErr
 }
 
-func (s *StateDB) IsZktrie() bool {
-	return s.db.TrieDB().Zktrie
-}
-
 func (s *StateDB) AddLog(log *types.Log) {
 	s.journal.append(addLogChange{txhash: s.thash})
 
@@ -330,10 +324,6 @@ func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 
 // GetProof returns the Merkle proof for a given account.
 func (s *StateDB) GetProof(addr common.Address) ([][]byte, error) {
-	if s.IsZktrie() {
-		addr_s, _ := zkt.ToSecureKeyBytes(addr.Bytes())
-		return s.GetProofByHash(common.BytesToHash(addr_s.Bytes()))
-	}
 	return s.GetProofByHash(crypto.Keccak256Hash(addr.Bytes()))
 }
 
@@ -616,12 +606,8 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 		if len(enc) == 0 {
 			return nil
 		}
-		if s.IsZktrie() {
-			data, err = types.UnmarshalStateAccount(enc)
-		} else {
-			data = new(types.StateAccount)
-			err = rlp.DecodeBytes(enc, data)
-		}
+		data = new(types.StateAccount)
+		err = rlp.DecodeBytes(enc, data)
 		if err != nil {
 			log.Error("Failed to decode state object", "addr", addr, "err", err)
 			return nil

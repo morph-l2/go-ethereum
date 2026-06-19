@@ -3,8 +3,6 @@ package state
 import (
 	"fmt"
 
-	zkt "github.com/scroll-tech/zktrie/types"
-
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb"
@@ -44,12 +42,6 @@ func (s *StateDB) GetStorageTrieForProof(addr common.Address) (Trie, error) {
 func (s *StateDB) GetSecureTrieProof(trieProve TrieProve, key common.Hash) ([][]byte, error) {
 
 	var proof proofList
-	var err error
-	if s.IsZktrie() {
-		key_s, _ := zkt.ToSecureKeyBytes(key.Bytes())
-		err = trieProve.Prove(key_s.Bytes(), 0, &proof)
-	} else {
-		err = trieProve.Prove(crypto.Keccak256(key.Bytes()), 0, &proof)
-	}
+	err := trieProve.Prove(crypto.Keccak256(key.Bytes()), 0, &proof)
 	return proof, err
 }

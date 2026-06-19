@@ -242,10 +242,11 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
-		// Detect trie format mismatch: e.g., DB has zkTrie state but node is configured
-		// for MPT (--morph-mpt). This happens when preparing for MPT fork by resyncing
-		// from genesis with a different trie format.
-		// GenesisStateRoot ensures block hash consistency across formats (see ToBlock()).
+		// Detect a legacy zkTrie database: zkTrie storage mode is retired and the
+		// node now always runs MPT, but an existing DB may still hold a stored
+		// chain config with UseZktrie=true (and a zkTrie genesis state root that
+		// cannot be opened as MPT). In that case re-commit genesis in MPT format;
+		// GenesisStateRoot keeps the genesis block hash consistent (see ToBlock()).
 		isTrieFormatMismatch := false
 		if genesis != nil {
 			storedcfg := rawdb.ReadChainConfig(db, stored)

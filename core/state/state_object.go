@@ -249,17 +249,14 @@ func (s *stateObject) GetCommittedState(db Database, key common.Hash) common.Has
 			return common.Hash{}
 		}
 	}
+	// State backend is always MPT (zkTrie storage mode retired): decode RLP-encoded storage value.
 	var value common.Hash
-	if db.TrieDB().Zktrie {
-		value = common.BytesToHash(enc)
-	} else {
-		if len(enc) > 0 {
-			_, content, _, err := rlp.Split(enc)
-			if err != nil {
-				s.setError(err)
-			}
-			value.SetBytes(content)
+	if len(enc) > 0 {
+		_, content, _, err := rlp.Split(enc)
+		if err != nil {
+			s.setError(err)
 		}
+		value.SetBytes(content)
 	}
 	s.originStorage[key] = value
 	return value
@@ -357,12 +354,9 @@ func (s *stateObject) updateTrie(db Database) Trie {
 			s.setError(tr.TryDelete(key[:]))
 			s.db.StorageDeleted += 1
 		} else {
-			if db.TrieDB().Zktrie {
-				v = common.CopyBytes(value[:])
-			} else {
-				// Encoding []byte cannot fail, ok to ignore the error.
-				v, _ = rlp.EncodeToBytes(common.TrimLeftZeroes(value[:]))
-			}
+			// State backend is always MPT (zkTrie storage mode retired): RLP-encode storage value.
+			// Encoding []byte cannot fail, ok to ignore the error.
+			v, _ = rlp.EncodeToBytes(common.TrimLeftZeroes(value[:]))
 			s.setError(tr.TryUpdate(key[:], v))
 			s.db.StorageUpdated += 1
 		}

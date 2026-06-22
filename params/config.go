@@ -562,7 +562,7 @@ type ChainConfig struct {
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
 	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
 	EmeraldTime         *uint64  `json:"emeraldTime,omitempty"`         // EmeraldTime switch time (nil = no fork, 0 = already on emerald)
-	JadeForkTime        *uint64  `json:"jadeForkTime,omitempty"`        // JadeForkTime switch time (nil = no fork, blocks use zkTrie format)
+	JadeForkTime        *uint64  `json:"jadeForkTime,omitempty"`        // JadeForkTime switch time (nil = no fork). State backend is always MPT; Jade is only a historical epoch boundary: pre-Jade headers carry legacy zkTrie state roots and skip state-root validation, post-Jade headers are native MPT.
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -578,12 +578,17 @@ type ChainConfig struct {
 }
 
 type MorphConfig struct {
-	// Use zktrie [optional]
+	// UseZktrie is a legacy epoch marker only [optional].
+	// The state backend is always MPT (zkTrie storage mode retired); this flag no
+	// longer selects a runnable storage mode. It is retained solely to identify
+	// legacy networks whose pre-Jade headers carry zkTrie-format state roots.
 	UseZktrie bool `json:"useZktrie,omitempty"`
 
-	// Genesis state root for MPT mode [optional]
-	// When UseZktrie=false (MPT mode), this specifies the zkTrie genesis root
-	// to maintain compatibility. The actual MPT root will be computed and mapped.
+	// GenesisStateRoot is the legacy zkTrie genesis state root [optional].
+	// The genesis state is always committed as MPT; when set, this pins the genesis
+	// header.Root to the historical zkTrie root for hash compatibility and records a
+	// DiskStateRoot(GenesisStateRoot -> mptRoot) mapping so the genesis state stays
+	// accessible via the legacy root (see Genesis.ToBlock).
 	GenesisStateRoot *common.Hash `json:"genesisStateRoot,omitempty"`
 
 	// Maximum number of transactions per block [optional]

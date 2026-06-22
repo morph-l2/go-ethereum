@@ -235,10 +235,12 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled()}
+			// State backend is always MPT (zkTrie storage mode retired).
+			trieCfg = &trie.Config{}
 		}
 	} else {
-		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled()}
+		// State backend is always MPT (zkTrie storage mode retired).
+		trieCfg = &trie.Config{}
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
@@ -381,7 +383,8 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled()}
+		// State backend is always MPT (zkTrie storage mode retired).
+		trieCfg = &trie.Config{}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)
 	if err != nil {

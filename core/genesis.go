@@ -366,8 +366,6 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return params.GoerliChainConfig
 	case ghash == params.MorphMainnetGenesisHash:
 		return params.MorphMainnetChainConfig
-	case ghash == params.MorphHoleskyGenesisHash:
-		return params.MorphHoleskyChainConfig
 	case ghash == params.MorphHoodiGenesisHash:
 		return params.MorphHoodiChainConfig
 	default:
@@ -551,18 +549,6 @@ func DefaultMorphMainnetGenesisBlock() *Genesis {
 		GasLimit:   30000000,
 		Difficulty: big.NewInt(0),
 		Alloc:      decodePrealloc(morphMainnetAllocData),
-	}
-}
-
-// DefaultMorphHoleskyGenesisBlock returns the Morph holesky genesis block.
-func DefaultMorphHoleskyGenesisBlock() *Genesis {
-	return &Genesis{
-		Config:     params.MorphHoleskyChainConfig,
-		Timestamp:  0x663050a0,
-		ExtraData:  []byte{},
-		GasLimit:   10000000,
-		Difficulty: big.NewInt(0),
-		Alloc:      decodePrealloc(morphHoleskyAllocData),
 	}
 }
 

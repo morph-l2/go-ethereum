@@ -173,7 +173,6 @@ func TestGenesisHashes(t *testing.T) {
 		// {DefaultRopstenGenesisBlock(), params.RopstenGenesisHash},
 		// {DefaultRinkebyGenesisBlock(), params.RinkebyGenesisHash},
 		// {DefaultSepoliaGenesisBlock(), params.SepoliaGenesisHash},
-		{DefaultMorphHoleskyGenesisBlock(), params.MorphHoleskyGenesisHash},
 		{DefaultMorphMainnetGenesisBlock(), params.MorphMainnetGenesisHash},
 		{DefaultMorphHoodiGenesisBlock(), params.MorphHoodiGenesisHash},
 	} {

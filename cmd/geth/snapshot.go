@@ -67,7 +67,6 @@ var (
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
 					utils.MorphFlag,
-					utils.MorphHoleskyFlag,
 					utils.MorphHoodiFlag,
 					utils.CacheTrieJournalFlag,
 					utils.BloomFilterSizeFlag,
@@ -101,7 +100,6 @@ the trie clean cache with default directory will be deleted.
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
 					utils.MorphFlag,
-					utils.MorphHoleskyFlag,
 					utils.MorphHoodiFlag,
 				},
 				Description: `
@@ -125,7 +123,6 @@ In other words, this command does the snapshot to trie conversion.
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
 					utils.MorphFlag,
-					utils.MorphHoleskyFlag,
 					utils.MorphHoodiFlag,
 				},
 				Description: `
@@ -151,7 +148,6 @@ It's also usable without snapshot enabled.
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
 					utils.MorphFlag,
-					utils.MorphHoleskyFlag,
 					utils.MorphHoodiFlag,
 				},
 				Description: `
@@ -178,7 +174,6 @@ It's also usable without snapshot enabled.
 					utils.RinkebyFlag,
 					utils.GoerliFlag,
 					utils.MorphFlag,
-					utils.MorphHoleskyFlag,
 					utils.MorphHoodiFlag,
 					utils.ExcludeCodeFlag,
 					utils.ExcludeStorageFlag,

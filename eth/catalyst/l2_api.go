@@ -206,7 +206,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 
 	defer func() {
 		if err == nil {
-			api.verified = make(map[common.Hash]executionResult) // clear cached pending block
+			api.clearVerified() // clear cached pending block
 		}
 	}()
 
@@ -230,6 +230,9 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 }
 
 func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Header, err error) {
+	api.newBlockLock.Lock()
+	defer api.newBlockLock.Unlock()
+
 	bc := api.eth.BlockChain()
 
 	// Parent selection: caller-pinned (reorg path) or currentHead (legacy
@@ -388,6 +391,15 @@ func (api *l2ConsensusAPI) isVerified(blockHash common.Hash) (executionResult, b
 	return er, found
 }
 
+// clearVerified resets the pending-block execution cache. The map pointer is
+// guarded by verifiedMapLock just like the per-entry access in writeVerified /
+// isVerified, so the reset stays synchronized with concurrent readers.
+func (api *l2ConsensusAPI) clearVerified() {
+	api.verifiedMapLock.Lock()
+	defer api.verifiedMapLock.Unlock()
+	api.verified = make(map[common.Hash]executionResult)
+}
+
 // SetBlockTags sets the safe and finalized block by hash.
 // This is called by the node layer when it determines the safe/finalized
 // status based on L1 batch information.
@@ -502,7 +514,7 @@ func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data) (header *types.
 
 	defer func() {
 		if err == nil {
-			api.verified = make(map[common.Hash]executionResult)
+			api.clearVerified()
 		}
 	}()
 

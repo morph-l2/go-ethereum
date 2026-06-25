@@ -311,7 +311,8 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 	// If there's an older better transaction, abort
 	old := l.txs.Get(tx.Nonce())
 	if old != nil {
-		if old.GasFeeCapCmp(tx) >= 0 || old.GasTipCapCmp(tx) >= 0 {
+		zeroTipReplacement := old.GasTipCap().Sign() == 0 && tx.GasTipCap().Sign() == 0
+		if old.GasFeeCapCmp(tx) >= 0 || (!zeroTipReplacement && old.GasTipCapCmp(tx) >= 0) {
 			return false, nil
 		}
 		// thresholdFeeCap = oldFC  * (100 + priceBump) / 100
@@ -327,7 +328,7 @@ func (l *txList) Add(tx *types.Transaction, state *state.StateDB, priceBump uint
 		// We have to ensure that both the new fee cap and tip are higher than the
 		// old ones as well as checking the percentage threshold to ensure that
 		// this is accurate for low (Wei-level) gas price replacements.
-		if tx.GasFeeCapIntCmp(thresholdFeeCap) < 0 || tx.GasTipCapIntCmp(thresholdTip) < 0 {
+		if tx.GasFeeCapIntCmp(thresholdFeeCap) < 0 || (!zeroTipReplacement && tx.GasTipCapIntCmp(thresholdTip) < 0) {
 			return false, nil
 		}
 	}

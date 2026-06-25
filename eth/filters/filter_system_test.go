@@ -809,6 +809,26 @@ func TestInvalidGetLogsRequest(t *testing.T) {
 	}
 }
 
+func TestInvalidGetRangeLogsRequest(t *testing.T) {
+	var (
+		db     = rawdb.NewMemoryDatabase()
+		_, sys = newTestFilterSystem(t, db, Config{})
+		api    = NewFilterAPI(sys, false, ethconfig.Defaults.MaxBlockRange)
+	)
+	crit := FilterCriteria{FromBlock: big.NewInt(2), ToBlock: big.NewInt(1)}
+
+	if _, err := api.GetLogs(context.Background(), crit); err != errInvalidBlockRange {
+		t.Fatalf("GetLogs error mismatch: have %v, want %v", err, errInvalidBlockRange)
+	} else if rpcErr, ok := err.(rpc.Error); !ok || rpcErr.ErrorCode() != -32602 {
+		t.Fatalf("GetLogs RPC error code mismatch: have %v, want -32602", err)
+	}
+
+	filter := api.sys.NewRangeFilter(2, 1, nil, nil, ethconfig.Defaults.MaxBlockRange)
+	if _, err := filter.Logs(context.Background()); err != errInvalidBlockRange {
+		t.Fatalf("Filter.Logs error mismatch: have %v, want %v", err, errInvalidBlockRange)
+	}
+}
+
 func TestExceedLogQueryLimit(t *testing.T) {
 	db := rawdb.NewMemoryDatabase()
 	_, sys := newTestFilterSystem(t, db, Config{LogQueryLimit: 1})

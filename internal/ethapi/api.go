@@ -1515,6 +1515,28 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 	if result != nil && result.UsedGas > lo {
 		lo = result.UsedGas - 1
 	}
+	// Optimistic probe: the true minimal gas limit is bounded by the gross gas
+	// (net used + refund) plus the call stipend, scaled by the 63/64 rule. A
+	// single execution at this guess collapses the search range dramatically
+	// for refund-heavy calls, where lo (net UsedGas-1) sits far below the real
+	// minimum. Mirrors upstream eth/gasestimator and morph-reth.
+	if result != nil {
+		optimisticGasLimit := (result.UsedGas + result.RefundedGas + params.CallStipend) * 64 / 63
+		if optimisticGasLimit < hi {
+			failed, _, err = executable(optimisticGasLimit)
+			if err != nil {
+				// This should not happen: the transaction already executed
+				// successfully at hi above, so a higher-or-equal limit cannot
+				// produce a consensus-level error.
+				return 0, err
+			}
+			if failed {
+				lo = optimisticGasLimit
+			} else {
+				hi = optimisticGasLimit
+			}
+		}
+	}
 	// Execute the binary search and hone in on an executable gas limit.
 	for lo+1 < hi {
 		// It is pointless to return a perfect estimation: changing network

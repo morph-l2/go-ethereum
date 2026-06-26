@@ -66,6 +66,17 @@ func EthToAlt(ethAmount, rate, tokenScale *big.Int) (*big.Int, error) {
 }
 
 // AltToEth ethAmount = altAmount * (tokenRate / tokenScale)
+//
+// Rounds DOWN (floor). AltToEth converts a user's token balance into the
+// ETH-equivalent budget used to cap the gas allowance in estimation
+// (eth_estimateGas / eth_call). Fees are actually charged at execution via
+// EthToAlt, which rounds UP: paying for G wei of gas costs
+// ceil(G*tokenScale/rate) tokens. The largest ETH fee a balance `a` can cover
+// is therefore exactly floor(a*rate/tokenScale) — the floor here is the exact
+// inverse of EthToAlt's ceiling. Rounding up would credit up to 1 wei more
+// than the user can actually pay, over-stating the allowance and producing
+// estimates that fail at execution. Floor also matches morph-reth's
+// token_amount_to_eth, keeping the two clients' estimates consistent.
 func AltToEth(erc20Amount, rate, tokenScale *big.Int) (*big.Int, error) {
 	if rate == nil || rate.Sign() <= 0 {
 		return nil, errors.New("invalid rate")
@@ -73,11 +84,5 @@ func AltToEth(erc20Amount, rate, tokenScale *big.Int) (*big.Int, error) {
 	if tokenScale == nil || tokenScale.Sign() <= 0 {
 		return nil, errors.New("invalid token scale")
 	}
-	ethAmount := new(big.Int)
-	remainder := new(big.Int)
-	ethAmount.QuoRem(new(big.Int).Mul(erc20Amount, rate), tokenScale, remainder)
-	if remainder.Sign() != 0 {
-		ethAmount.Add(ethAmount, big.NewInt(1))
-	}
-	return ethAmount, nil
+	return new(big.Int).Quo(new(big.Int).Mul(erc20Amount, rate), tokenScale), nil
 }

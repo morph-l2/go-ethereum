@@ -338,6 +338,9 @@ func traceERC20BalanceSlots(statedb *state.StateDB, evm *vm.EVM, tokenAddress, u
 	cfg := evm.Config
 	cfg.Tracer = &tracing.Hooks{OnOpcode: probeTracer.OnOpcode}
 	probeEVM := vm.NewEVM(evm.Context, evm.TxContext, statedb, evm.ChainConfig(), cfg)
+	if evm.HasCustomPrecompiles() {
+		probeEVM.SetPrecompiles(evm.CopyPrecompiles())
+	}
 	balance, err := core.GetAltTokenBalanceByEVM(probeEVM, tokenAddress, user)
 	if err != nil {
 		return nil, nil, err

@@ -57,3 +57,35 @@ func TestGetVMContextPrecompilesOnlyWhenCustom(t *testing.T) {
 		t.Fatalf("unexpected custom precompiles: got %v want [%s]", ctx.Precompiles, addr)
 	}
 }
+
+func TestCopyPrecompilesIsolatesInstanceMap(t *testing.T) {
+	evm := NewEVM(BlockContext{BlockNumber: big.NewInt(0)}, TxContext{}, nil, params.TestChainConfig, Config{})
+
+	src := common.BytesToAddress([]byte{0x01})
+	dst := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	evm.SetPrecompiles(PrecompiledContracts{dst: PrecompiledContractsHomestead[src]})
+
+	clone := evm.CopyPrecompiles()
+	if _, ok := clone[dst]; !ok {
+		t.Fatalf("clone missing precompile %s", dst)
+	}
+
+	// Mutating the clone must not leak back into the EVM instance map; this is
+	// what lets nested probe EVMs reuse the override safely.
+	extra := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	clone[extra] = PrecompiledContractsHomestead[src]
+	delete(clone, dst)
+	if _, ok := evm.precompiles[dst]; !ok {
+		t.Fatalf("instance precompile %s was dropped through clone mutation", dst)
+	}
+	if _, ok := evm.precompiles[extra]; ok {
+		t.Fatalf("instance precompile map gained entry %s through clone mutation", extra)
+	}
+}
+
+func TestCopyPrecompilesNilEVM(t *testing.T) {
+	var evm *EVM
+	if got := evm.CopyPrecompiles(); got != nil {
+		t.Fatalf("nil EVM should return nil precompiles, got %v", got)
+	}
+}

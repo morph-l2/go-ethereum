@@ -18,6 +18,7 @@ package vm
 
 import (
 	"errors"
+	"maps"
 	"math/big"
 	"sync/atomic"
 
@@ -165,6 +166,16 @@ func (evm *EVM) ActivePrecompiles() []common.Address {
 		return ActivePrecompiles(evm.chainRules)
 	}
 	return PrecompileAddresses(evm.precompiles)
+}
+
+// CopyPrecompiles returns a clone of the precompiled contracts configured on
+// this EVM instance. It lets RPC-only precompile overrides be propagated to
+// nested probe EVMs without exposing the instance's internal map.
+func (evm *EVM) CopyPrecompiles() PrecompiledContracts {
+	if evm == nil {
+		return nil
+	}
+	return maps.Clone(evm.precompiles)
 }
 
 // Reset resets the EVM with a new transaction context.Reset

@@ -1,0 +1,54 @@
+name: gencodec check
+
+# Guards that the hand-maintained gencodec output for types.Log stays in sync
+# with its source. gen_log_json.go is generated from log.go's
+#   //go:generate gencodec -type Log -field-override logMarshaling -out gen_log_json.go
+# directive; if a field is added to Log without regenerating, the JSON marshaling
+# (e.g. the blockTimestamp hex encoding) silently drifts from the struct.
+#
+# We regenerate only the Log type rather than running `go generate ./core/types/`:
+# other directives in that package use `go run github.com/fjl/gencodec`, which
+# resolves an older gencodec pinned against a golang.org/x/tools version that no
+# longer builds on current Go. Installing gencodec@latest and invoking it for the
+# Log type sidesteps that and keeps the check fast and deterministic.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "core/types/log.go"
+      - "core/types/gen_log_json.go"
+      - ".github/workflows/gencodec_check.yml"
+  push:
+    paths:
+      - "core/types/log.go"
+      - "core/types/gen_log_json.go"
+      - ".github/workflows/gencodec_check.yml"
+
+jobs:
+  gen-log-json:
+    runs-on: ubuntu-latest
+    name: gen_log_json.go is up to date
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install gencodec
+        run: go install github.com/fjl/gencodec@latest
+
+      - name: Regenerate gen_log_json.go
+        working-directory: core/types
+        run: gencodec -type Log -field-override logMarshaling -out gen_log_json.go
+
+      - name: Verify no diff
+        run: |
+          if ! git diff --exit-code -- core/types/gen_log_json.go; then
+            echo "::error::core/types/gen_log_json.go is out of date. Run 'go generate ./core/types/' (or regenerate the Log type) and commit the result."
+            exit 1
+          fi

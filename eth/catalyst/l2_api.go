@@ -9,6 +9,7 @@ import (
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/consensus/l2"
+	"github.com/morph-l2/go-ethereum/core/rawdb"
 	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/eth"
@@ -205,7 +206,7 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 
 	defer func() {
 		if err == nil {
-			api.verified = make(map[common.Hash]executionResult) // clear cached pending block
+			api.clearVerified() // clear cached pending block
 		}
 	}()
 
@@ -229,18 +230,45 @@ func (api *l2ConsensusAPI) NewL2Block(params ExecutableL2Data) (err error) {
 }
 
 func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Header, err error) {
-	parent := api.eth.BlockChain().CurrentBlock()
-	expectedBlockNumber := parent.NumberU64() + 1
-	if params.Number != expectedBlockNumber {
-		log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
-		return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+	api.newBlockLock.Lock()
+	defer api.newBlockLock.Unlock()
+
+	bc := api.eth.BlockChain()
+
+	// Parent selection: caller-pinned (reorg path) or currentHead (legacy
+	// sequential path). When ParentHash is supplied, the parent is looked
+	// up by hash and the block number must match parent+1; SetCanonical
+	// inside WriteStateAndSetHead handles the chain switchover when this
+	// parent isn't currentHead. When ParentHash is nil, fall back to the
+	// strict currentHead+1 invariant for callers that don't track parent.
+	var parent *types.Block
+	if params.ParentHash != nil {
+		parentHeader := bc.GetHeaderByHash(*params.ParentHash)
+		if parentHeader == nil {
+			return nil, fmt.Errorf("parent block not found: %s", params.ParentHash.Hex())
+		}
+		if params.Number != parentHeader.Number.Uint64()+1 {
+			return nil, fmt.Errorf("wrong block number: expected %d, got %d",
+				parentHeader.Number.Uint64()+1, params.Number)
+		}
+		parent = bc.GetBlock(parentHeader.Hash(), parentHeader.Number.Uint64())
+		if parent == nil {
+			return nil, fmt.Errorf("parent block body not found: %s", params.ParentHash.Hex())
+		}
+	} else {
+		parent = bc.CurrentBlock()
+		expectedBlockNumber := parent.NumberU64() + 1
+		if params.Number != expectedBlockNumber {
+			log.Warn("Cannot assemble block with discontinuous block number", "expected number", expectedBlockNumber, "actual number", params.Number)
+			return nil, fmt.Errorf("cannot assemble block with discontinuous block number %d, expected number is %d", params.Number, expectedBlockNumber)
+		}
 	}
 
 	block, err := api.safeDataToBlock(params)
 	if err != nil {
 		return nil, err
 	}
-	stateDB, receipts, usedGas, procTime, err := api.eth.BlockChain().ProcessBlock(block, parent.Header(), true)
+	stateDB, receipts, usedGas, procTime, err := bc.ProcessBlock(block, parent.Header(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +279,16 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Head
 	header.Bloom = types.CreateBloom(receipts)
 	header.ReceiptHash = types.DeriveSha(receipts, trie.NewStackTrie(nil))
 	header.Root = stateDB.IntermediateRoot(true)
+	// SafeL2Data does not carry NextL1MsgIndex (the L1 batch only records the
+	// parent batch's totalL1MessagePopped, not per-block running totals), so
+	// derive it from the canonical L1 message stream. Identical formula to
+	// writeBlockStateWithoutHead's anti-tampering gate, which keeps validating
+	// the value as defense in depth. Skipped when no queue index is yet
+	// recorded for the parent (early chain init); the gate also skips in that
+	// case so the two stay symmetric.
+	if qi := rawdb.ReadFirstQueueIndexNotInL2Block(api.eth.ChainDb(), parent.Hash()); qi != nil {
+		header.NextL1MsgIndex = *qi + uint64(block.NumL1MessagesProcessed(*qi))
+	}
 	block = types.NewBlockWithHeader(header).WithBody(block.Transactions(), nil)
 
 	// refill the receipts with real block hash
@@ -260,7 +298,7 @@ func (api *l2ConsensusAPI) NewSafeL2Block(params SafeL2Data) (header *types.Head
 			txLog.BlockHash = block.Hash()
 		}
 	}
-	return header, api.eth.BlockChain().WriteStateAndSetHead(block, receipts, stateDB, procTime)
+	return header, bc.WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }
 
 func (api *l2ConsensusAPI) safeDataToBlock(params SafeL2Data) (*types.Block, error) {
@@ -353,6 +391,15 @@ func (api *l2ConsensusAPI) isVerified(blockHash common.Hash) (executionResult, b
 	return er, found
 }
 
+// clearVerified resets the pending-block execution cache. The map pointer is
+// guarded by verifiedMapLock just like the per-entry access in writeVerified /
+// isVerified, so the reset stays synchronized with concurrent readers.
+func (api *l2ConsensusAPI) clearVerified() {
+	api.verifiedMapLock.Lock()
+	defer api.verifiedMapLock.Unlock()
+	api.verified = make(map[common.Hash]executionResult)
+}
+
 // SetBlockTags sets the safe and finalized block by hash.
 // This is called by the node layer when it determines the safe/finalized
 // status based on L1 batch information.
@@ -385,20 +432,20 @@ func (api *l2ConsensusAPI) SetBlockTags(safeBlockHash common.Hash, finalizedBloc
 // AssembleL2BlockV2 assembles a new L2 block based on parent hash.
 // This differs from AssembleL2Block which uses block number.
 // Using parent hash allows building on any parent block, enabling future reorg support.
-func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *uint64, txs [][]byte) (*ExecutableL2Data, error) {
+func (api *l2ConsensusAPI) AssembleL2BlockV2(params AssembleL2BlockV2Params) (*ExecutableL2Data, error) {
 	api.newBlockLock.Lock()
 	defer api.newBlockLock.Unlock()
 
-	log.Info("AssembleL2BlockV2", "parentHash", parentHash.Hex())
+	log.Info("AssembleL2BlockV2", "parentHash", params.ParentHash.Hex())
 
 	// Get parent block by hash
-	if api.eth.BlockChain().GetHeaderByHash(parentHash) == nil {
-		return nil, fmt.Errorf("parent block not found: %s", parentHash.Hex())
+	if api.eth.BlockChain().GetHeaderByHash(params.ParentHash) == nil {
+		return nil, fmt.Errorf("parent block not found: %s", params.ParentHash.Hex())
 	}
 
 	// Decode transactions
-	transactions := make(types.Transactions, 0, len(txs))
-	for i, otx := range txs {
+	transactions := make(types.Transactions, 0, len(params.Transactions))
+	for i, otx := range params.Transactions {
 		var tx types.Transaction
 		if err := tx.UnmarshalBinary(otx); err != nil {
 			return nil, fmt.Errorf("transaction %d is not valid: %v", i, err)
@@ -408,8 +455,8 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 
 	start := time.Now()
 	ts := time.Now()
-	if timestamp != nil {
-		ts = time.Unix(int64(*timestamp), 0)
+	if params.Timestamp != nil {
+		ts = time.Unix(int64(*params.Timestamp), 0)
 	}
 
 	// Jade fork check: prevent building blocks with wrong storage format (MPT vs zkTrie)
@@ -417,7 +464,7 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 		return nil, fmt.Errorf("cannot assemble block for fork, useZKtrie: %v, please switch geth", api.eth.BlockChain().Config().Morph.UseZktrie)
 	}
 
-	newBlockResult, err := api.eth.Miner().BuildBlock(parentHash, ts, transactions)
+	newBlockResult, err := api.eth.Miner().BuildBlock(params.ParentHash, ts, transactions)
 	if err != nil {
 		return nil, err
 	}
@@ -443,4 +490,62 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(parentHash common.Hash, timestamp *
 
 		Hash: newBlockResult.Block.Hash(),
 	}, nil
+}
+
+func (api *l2ConsensusAPI) NewL2BlockV2(params ExecutableL2Data) (header *types.Header, err error) {
+	api.newBlockLock.Lock()
+	defer api.newBlockLock.Unlock()
+
+	bc := api.eth.BlockChain()
+
+	parentHeader := bc.GetHeaderByHash(params.ParentHash)
+	if parentHeader == nil {
+		return nil, fmt.Errorf("parent block not found: %s", params.ParentHash.Hex())
+	}
+	if params.Number != parentHeader.Number.Uint64()+1 {
+		return nil, fmt.Errorf("wrong block number: expected %d, got %d",
+			parentHeader.Number.Uint64()+1, params.Number)
+	}
+
+	block, err := api.executableDataToBlock(params)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if err == nil {
+			api.clearVerified()
+		}
+	}()
+
+	if bas, verified := api.isVerified(block.Hash()); verified {
+		bc.UpdateBlockProcessMetrics(bas.state, bas.procTime)
+		return block.Header(), bc.WriteStateAndSetHead(block, bas.receipts, bas.state, bas.procTime)
+	}
+
+	// Defense against signature-replay: ensure the declared block hash matches the
+	// hash recomputed from the canonical fields. Without this check, an attacker
+	// could keep params.Hash from a legitimately signed block while tampering with
+	// other content fields, and have the signature verification on the consensus
+	// side accept the tampered body. This is the last line of defense before the
+	// block is committed to the chain; the tendermint side performs the same check
+	// earlier in VerifyBlockSignature to reject tampered blocks before propagation.
+	if (params.Hash != common.Hash{}) && block.Hash() != params.Hash {
+		log.Error("NewL2BlockV2 hash mismatch (signature replay or tampering)",
+			"declared", params.Hash.Hex(), "computed", block.Hash().Hex(), "number", params.Number)
+		return nil, fmt.Errorf("block hash mismatch: declared %s, computed %s",
+			params.Hash.Hex(), block.Hash().Hex())
+	}
+
+	if err = api.verifyBlock(block); err != nil {
+		log.Error("failed to verify block", "error", err)
+		return nil, err
+	}
+
+	stateDB, receipts, _, procTime, err := bc.ProcessBlock(block, parentHeader, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return block.Header(), bc.WriteStateAndSetHead(block, receipts, stateDB, procTime)
 }

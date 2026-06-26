@@ -140,6 +140,12 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 		chainConfig: chainConfig,
 		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockTime),
 	}
+	// Seed the instance precompile map with the chain-rule defaults. While
+	// customPrecompiles stays false, precompile() ignores this field and reads
+	// the global map directly (zero overhead for normal transactions); the
+	// seeded map is only consumed by CopyPrecompiles/ActivePrecompiles so that
+	// RPC-only overrides and nested probe EVMs have a concrete map to clone
+	// from even before SetPrecompiles flips customPrecompiles to true.
 	evm.precompiles = activePrecompiledContracts(evm.chainRules)
 	evm.interpreter = NewEVMInterpreter(evm, config)
 	return evm

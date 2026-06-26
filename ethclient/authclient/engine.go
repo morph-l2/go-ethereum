@@ -42,6 +42,12 @@ func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.Exe
 	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data)
 }
 
+func (ec *Client) NewL2BlockV2(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data) (*types.Header, error) {
+	var header *types.Header
+	err := ec.c.CallContext(ctx, &header, "engine_newL2BlockV2", executableL2Data)
+	return header, err
+}
+
 // NewSafeL2Block executes a safe L2 Block, and set the block to chain
 func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL2Data) (*types.Header, error) {
 	var header types.Header
@@ -67,6 +73,10 @@ func (ec *Client) AssembleL2BlockV2(ctx context.Context, parentHash common.Hash,
 		txs = append(txs, bz)
 	}
 	var result *catalyst.ExecutableL2Data
-	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", parentHash, timestamp, txs)
+	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", &catalyst.AssembleL2BlockV2Params{
+		ParentHash:   parentHash,
+		Transactions: txs,
+		Timestamp:    timestamp,
+	})
 	return result, err
 }

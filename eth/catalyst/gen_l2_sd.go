@@ -22,6 +22,7 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 		Timestamp    hexutil.Uint64  `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
 		BatchHash    *common.Hash    `json:"batchHash"`
+		ParentHash   *common.Hash    `json:"parentHash"`
 	}
 	var enc SafeL2Data
 	enc.Number = hexutil.Uint64(s.Number)
@@ -35,6 +36,7 @@ func (s SafeL2Data) MarshalJSON() ([]byte, error) {
 		}
 	}
 	enc.BatchHash = s.BatchHash
+	enc.ParentHash = s.ParentHash
 	return json.Marshal(&enc)
 }
 
@@ -47,6 +49,7 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 		Timestamp    *hexutil.Uint64 `json:"timestamp"      gencodec:"required"`
 		Transactions []hexutil.Bytes `json:"transactions"   gencodec:"required"`
 		BatchHash    *common.Hash    `json:"batchHash"`
+		ParentHash   *common.Hash    `json:"parentHash"`
 	}
 	var dec SafeL2Data
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -76,6 +79,9 @@ func (s *SafeL2Data) UnmarshalJSON(input []byte) error {
 	}
 	if dec.BatchHash != nil {
 		s.BatchHash = dec.BatchHash
+	}
+	if dec.ParentHash != nil {
+		s.ParentHash = dec.ParentHash
 	}
 	return nil
 }

@@ -167,11 +167,13 @@ func asUnsignedSetCodeTx(msg Message, chainID *big.Int) *types.Transaction {
 	})
 }
 
-// u256 converts a big.Int into a uint256.Int, treating nil as zero.
-// RPC inputs are bounded to 256 bits by hexutil.Big, so overflow cannot occur.
+// u256 converts a non-negative big.Int into a uint256.Int, treating nil as zero.
 func u256(x *big.Int) *uint256.Int {
 	if x == nil {
 		return new(uint256.Int)
+	}
+	if x.Sign() < 0 {
+		panic("cannot convert negative big.Int to uint256.Int")
 	}
 	return uint256.MustFromBig(x)
 }

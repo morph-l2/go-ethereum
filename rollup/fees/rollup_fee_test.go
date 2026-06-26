@@ -138,6 +138,28 @@ func TestAsUnsignedTxPreservesAuthList(t *testing.T) {
 		"encoded SetCodeTx must include authorization list bytes")
 }
 
+func TestU256RejectsNegativeInput(t *testing.T) {
+	assert.PanicsWithValue(t, "cannot convert negative big.Int to uint256.Int", func() {
+		u256(big.NewInt(-1))
+	})
+}
+
+func TestEstimateL1DataFeeSetCodeBeforeViridianReturnsUnsupportedType(t *testing.T) {
+	config := params.TestChainConfig
+	state := &mockStateDB{}
+	authList := testAuthList(config.ChainID)
+
+	_, err := EstimateL1DataFeeForMessage(
+		newTestMessage(&testTo, nil, authList, 0),
+		big.NewInt(1),
+		config,
+		types.NewLondonSigner(config.ChainID),
+		state,
+		big.NewInt(1),
+	)
+	assert.ErrorIs(t, err, types.ErrTxTypeNotSupported)
+}
+
 func TestEstimateL1DataFeeIncludesSetCodeAuthorizations(t *testing.T) {
 	config := params.TestChainConfig
 	chainID := config.ChainID

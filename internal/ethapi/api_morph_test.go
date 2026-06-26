@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -391,7 +392,7 @@ func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
 			// terminate the binary search early (aligned with upstream geth /
 			// morph-reth). Assert the estimate is no lower than the true minimum
 			// and no higher than the allowed 1.5% overestimation.
-			upper := uint64(float64(tt.want) * (1 + estimateGasErrorRatio))
+			upper := uint64(math.Ceil(float64(tt.want) * (1 + estimateGasErrorRatio)))
 			if have := uint64(*args.Gas); have < tt.want || have > upper {
 				t.Fatalf("estimated gas out of range: have %d want [%d, %d]", have, tt.want, upper)
 			}

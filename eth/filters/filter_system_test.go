@@ -823,6 +823,16 @@ func TestInvalidGetRangeLogsRequest(t *testing.T) {
 		t.Fatalf("GetLogs RPC error code mismatch: have %v, want -32602", err)
 	}
 
+	// toBlock=0 (earliest) bypasses the `begin > 0 && end > 0` early-exit (kept
+	// verbatim with upstream geth), but the inverted range must still be rejected
+	// by the low-level range check with the same -32602 error.
+	critZeroTo := FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(0)}
+	if _, err := api.GetLogs(context.Background(), critZeroTo); err != errInvalidBlockRange {
+		t.Fatalf("GetLogs(from=1,to=0) error mismatch: have %v, want %v", err, errInvalidBlockRange)
+	} else if rpcErr, ok := err.(rpc.Error); !ok || rpcErr.ErrorCode() != -32602 {
+		t.Fatalf("GetLogs(from=1,to=0) RPC error code mismatch: have %v, want -32602", err)
+	}
+
 	filter := api.sys.NewRangeFilter(2, 1, nil, nil, ethconfig.Defaults.MaxBlockRange)
 	if _, err := filter.Logs(context.Background()); err != errInvalidBlockRange {
 		t.Fatalf("Filter.Logs error mismatch: have %v, want %v", err, errInvalidBlockRange)

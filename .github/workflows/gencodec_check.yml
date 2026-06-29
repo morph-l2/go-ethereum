@@ -9,8 +9,9 @@ name: gencodec check
 # We regenerate only the Log type rather than running `go generate ./core/types/`:
 # other directives in that package use `go run github.com/fjl/gencodec`, which
 # resolves an older gencodec pinned against a golang.org/x/tools version that no
-# longer builds on current Go. Installing gencodec@latest and invoking it for the
-# Log type sidesteps that and keeps the check fast and deterministic.
+# longer builds on current Go. Installing a fixed gencodec release (v0.1.2) and
+# invoking it for the Log type sidesteps that and keeps the check reproducible:
+# bump the pinned version intentionally when the generator behavior changes.
 
 on:
   pull_request:
@@ -43,7 +44,7 @@ jobs:
           go-version: "1.24"
 
       - name: Install gencodec
-        run: go install github.com/fjl/gencodec@latest
+        run: go install github.com/fjl/gencodec@v0.1.2
 
       - name: Regenerate gen_log_json.go
         working-directory: core/types
@@ -52,6 +53,6 @@ jobs:
       - name: Verify no diff
         run: |
           if ! git diff --exit-code -- core/types/gen_log_json.go; then
-            echo "::error::core/types/gen_log_json.go is out of date. Run 'go generate ./core/types/' (or regenerate the Log type) and commit the result."
+            echo "::error::core/types/gen_log_json.go is out of date. Run 'cd core/types && gencodec -type Log -field-override logMarshaling -out gen_log_json.go' and commit the result."
             exit 1
           fi

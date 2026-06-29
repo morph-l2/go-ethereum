@@ -39,10 +39,27 @@ const maxTxHashes = 200
 const maxTopics = 4
 
 var (
-  errExceedMaxTxHashes   = errors.New("exceed maximum transaction hash count")
+	errInvalidBlockRange   = invalidParamsErr("invalid block range params")
+	errExceedMaxTxHashes   = errors.New("exceed maximum transaction hash count")
 	errExceedMaxTopics     = errors.New("exceed max topics")
 	errExceedLogQueryLimit = errors.New("exceed max addresses or topics per search position")
 )
+
+type invalidParamsError struct {
+	err error
+}
+
+func invalidParamsErr(msg string) invalidParamsError {
+	return invalidParamsError{err: errors.New(msg)}
+}
+
+func (e invalidParamsError) Error() string {
+	return e.err.Error()
+}
+
+func (e invalidParamsError) ErrorCode() int {
+	return -32602
+}
 
 // filter is a helper struct that holds meta information over the filter type
 // and associated subscription in the event system.
@@ -457,6 +474,10 @@ func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*type
 		end := rpc.LatestBlockNumber.Int64()
 		if crit.ToBlock != nil {
 			end = crit.ToBlock.Int64()
+		}
+		// Block numbers below 0 are special cases.
+		if begin > 0 && end > 0 && begin > end {
+			return nil, errInvalidBlockRange
 		}
 		// Construct the range filter
 		filter = api.sys.NewRangeFilter(begin, end, crit.Addresses, crit.Topics, api.maxBlockRange)

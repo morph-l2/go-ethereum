@@ -21,10 +21,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/params"
 )
 
 // precompiledTest defines the input/output pairs for precompiled contract tests.
@@ -67,6 +69,22 @@ var allPrecompiles = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{0x0f, 0x10}): &bls12381MapG2{},
 
 	common.BytesToAddress([]byte{0x0b}): &p256Verify{},
+}
+
+func TestActivePrecompiledContractsReturnsClone(t *testing.T) {
+	rules := params.TestChainConfig.Rules(big.NewInt(0), 0)
+	addr := common.BytesToAddress([]byte{0x01})
+
+	first := ActivePrecompiledContracts(rules)
+	if _, ok := first[addr]; !ok {
+		t.Fatalf("expected precompile %s in first map", addr)
+	}
+	delete(first, addr)
+
+	second := ActivePrecompiledContracts(rules)
+	if _, ok := second[addr]; !ok {
+		t.Fatalf("mutating returned precompile map leaked into subsequent calls")
+	}
 }
 
 // EIP-152 test vectors

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -97,6 +98,187 @@ func TestDecodeHash(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Fatalf("hash mismatch: got %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func newOverrideTestState(t *testing.T) *state.StateDB {
+	t.Helper()
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state: %v", err)
+	}
+	return statedb
+}
+
+func TestStateOverrideMovePrecompile(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	dst := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	original := precompiles[src]
+	if original == nil {
+		t.Fatalf("missing source precompile %s", src)
+	}
+
+	overrides := &StateOverride{
+		src: {MovePrecompileTo: &dst},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed", src)
+	}
+	if got := precompiles[dst]; got != original {
+		t.Fatalf("moved precompile mismatch: got %T want %T", got, original)
+	}
+
+	fresh := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	if _, ok := fresh[src]; !ok {
+		t.Fatalf("source precompile was removed from fresh active map")
+	}
+	if _, ok := fresh[dst]; ok {
+		t.Fatalf("moved target leaked into fresh active map")
+	}
+}
+
+func TestStateOverridePrecompileDeleteAllowsCodeOverride(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	code := hexutil.Bytes{0x60, 0x00, 0x60, 0x00, 0xf3}
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+
+	overrides := &StateOverride{
+		src: {Code: &code},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed for code override", src)
+	}
+	if got := statedb.GetCode(src); string(got) != string(code) {
+		t.Fatalf("code override mismatch: got %x want %x", got, []byte(code))
+	}
+}
+
+func TestStateOverrideMovePrecompileRejectsInvalidTargets(t *testing.T) {
+	srcA := common.BytesToAddress([]byte{0x01})
+	srcB := common.BytesToAddress([]byte{0x02})
+	dst := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	rules := params.TestChainConfig.Rules(big.NewInt(0), 0)
+
+	t.Run("non precompile source", func(t *testing.T) {
+		overrides := &StateOverride{
+			dst: {MovePrecompileTo: &srcA},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "is not a precompile") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("target also overridden", func(t *testing.T) {
+		overrides := &StateOverride{
+			srcA: {MovePrecompileTo: &dst},
+			dst:  {},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "already overridden") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("duplicate destination", func(t *testing.T) {
+		overrides := &StateOverride{
+			srcA: {MovePrecompileTo: &dst},
+			srcB: {MovePrecompileTo: &dst},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "already been overridden by a precompile") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestStateOverrideMoveToExistingPrecompile(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	dst := common.BytesToAddress([]byte{0x02})
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	original := precompiles[src]
+	replaced := precompiles[dst]
+	if original == nil || replaced == nil {
+		t.Fatalf("missing source or destination precompile")
+	}
+
+	overrides := &StateOverride{
+		src: {MovePrecompileTo: &dst},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed", src)
+	}
+	if got := precompiles[dst]; got != original {
+		t.Fatalf("destination precompile was not replaced: got %T want %T", got, original)
+	}
+	if precompiles[dst] == replaced {
+		t.Fatalf("destination still points to the pre-existing precompile")
+	}
+}
+
+func TestMorphForkDisabledPrecompileMove(t *testing.T) {
+	archimedes := params.TestChainConfig.Clone()
+	archimedes.BernoulliBlock = nil
+	archimedes.CurieBlock = nil
+	archimedes.Morph203Time = nil
+	archimedes.ViridianTime = nil
+	archimedes.EmeraldTime = nil
+
+	bernoulli := params.TestChainConfig.Clone()
+	bernoulli.CurieBlock = nil
+	bernoulli.Morph203Time = nil
+	bernoulli.ViridianTime = nil
+	bernoulli.EmeraldTime = nil
+
+	tests := []struct {
+		name string
+		cfg  *params.ChainConfig
+		src  common.Address
+		want string
+	}{
+		{"archimedes sha256 disabled", archimedes, common.BytesToAddress([]byte{0x02}), "SHA256_DISABLED"},
+		{"archimedes ripemd160 disabled", archimedes, common.BytesToAddress([]byte{0x03}), "RIPEMD160_DISABLED"},
+		{"archimedes blake2f disabled", archimedes, common.BytesToAddress([]byte{0x09}), "BLAKE2F_DISABLED"},
+		{"bernoulli ripemd160 disabled", bernoulli, common.BytesToAddress([]byte{0x03}), "RIPEMD160_DISABLED"},
+		{"bernoulli blake2f disabled", bernoulli, common.BytesToAddress([]byte{0x09}), "BLAKE2F_DISABLED"},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := common.BytesToAddress([]byte{0xaa, byte(i)})
+			precompiles := vm.ActivePrecompiledContracts(tt.cfg.Rules(big.NewInt(0), 0))
+			original := precompiles[tt.src]
+			if original == nil {
+				t.Fatalf("missing disabled precompile %s", tt.src)
+			}
+			if original.Name() != tt.want {
+				t.Fatalf("precompile %s name = %q, want %q", tt.src, original.Name(), tt.want)
+			}
+			overrides := &StateOverride{
+				tt.src: {MovePrecompileTo: &dst},
+			}
+			if err := overrides.Apply(newOverrideTestState(t), precompiles); err != nil {
+				t.Fatalf("apply failed: %v", err)
+			}
+			if _, ok := precompiles[tt.src]; ok {
+				t.Fatalf("disabled source precompile %s was not removed", tt.src)
+			}
+			if got := precompiles[dst]; got != original {
+				t.Fatalf("disabled precompile was not moved: got %T want %T", got, original)
 			}
 		})
 	}
@@ -316,6 +498,8 @@ func (m *estimateGasBackend) ChainConfig() *params.ChainConfig { return m.chainC
 
 func (m *estimateGasBackend) RPCGasCap() uint64 { return m.gasCap }
 
+func (m *estimateGasBackend) RPCEVMTimeout() time.Duration { return 0 }
+
 func (m *estimateGasBackend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*types.Block, error) {
 	return m.block, nil
 }
@@ -340,6 +524,108 @@ func makeAuthorizationList(count int) []types.SetCodeAuthorization {
 		}
 	}
 	return auths
+}
+
+func movedIdentityPrecompileOverrides(target common.Address) *StateOverride {
+	identity := common.BytesToAddress([]byte{0x04})
+	return &StateOverride{
+		identity: {MovePrecompileTo: &target},
+	}
+}
+
+func movedIdentityCallArgs(sender, target common.Address, input hexutil.Bytes) TransactionArgs {
+	gas := hexutil.Uint64(100_000)
+	return TransactionArgs{
+		From:  &sender,
+		To:    &target,
+		Gas:   &gas,
+		Input: &input,
+	}
+}
+
+func TestEthCallMovePrecompileMatchesOverride(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	target := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	input := hexutil.Bytes{0xde, 0xad, 0xbe, 0xef}
+	backend := newEstimateGasBackend(t, sender)
+	api := &PublicBlockChainAPI{b: backend}
+
+	got, err := api.Call(context.Background(), movedIdentityCallArgs(sender, target, input), rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), movedIdentityPrecompileOverrides(target))
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+	if string(got) != string(input) {
+		t.Fatalf("Call output mismatch: got %x want %x", []byte(got), []byte(input))
+	}
+}
+
+func TestEstimateGasMovePrecompile(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	target := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	input := hexutil.Bytes{0xde, 0xad, 0xbe, 0xef}
+	backend := newEstimateGasBackend(t, sender)
+	blockNr := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	gas, err := DoEstimateGas(context.Background(), backend, movedIdentityCallArgs(sender, target, input), blockNr, movedIdentityPrecompileOverrides(target), backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoEstimateGas failed: %v", err)
+	}
+	args := movedIdentityCallArgs(sender, target, input)
+	args.Gas = &gas
+	result, err := DoCall(context.Background(), backend, args, blockNr, movedIdentityPrecompileOverrides(target), 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall with estimated gas failed: %v", err)
+	}
+	if result.Failed() {
+		t.Fatalf("DoCall with estimated gas failed in EVM: %v", result.Err)
+	}
+	if string(result.Return()) != string(input) {
+		t.Fatalf("DoCall output mismatch: got %x want %x", result.Return(), []byte(input))
+	}
+}
+
+func TestCreateAccessListMovePrecompile(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x3000000000000000000000000000000000000003")
+	target := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	backend := newEstimateGasBackend(t, sender)
+	backend.state.SetCode(contract, []byte{
+		0x60, 0x00, // out size
+		0x60, 0x00, // out offset
+		0x60, 0x00, // in size
+		0x60, 0x00, // in offset
+		0x60, 0x00, // value
+		0x60, 0xaa, // moved identity precompile address
+		0x5a, // gas
+		0xf1, // call
+		0x50, // pop success flag
+		0x00, // stop
+	})
+
+	gas := hexutil.Uint64(100_000)
+	nonce := hexutil.Uint64(0)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	args := TransactionArgs{
+		From:                 &sender,
+		To:                   &contract,
+		Gas:                  &gas,
+		Nonce:                &nonce,
+		MaxFeePerGas:         maxFee,
+		MaxPriorityFeePerGas: tip,
+	}
+	acl, _, vmErr, err := AccessList(context.Background(), backend, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), args, movedIdentityPrecompileOverrides(target))
+	if err != nil {
+		t.Fatalf("AccessList failed: %v", err)
+	}
+	if vmErr != nil {
+		t.Fatalf("AccessList EVM error: %v", vmErr)
+	}
+	for _, tuple := range acl {
+		if tuple.Address == target {
+			t.Fatalf("moved precompile target %s should be excluded from access list", target)
+		}
+	}
 }
 
 func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
@@ -387,8 +673,13 @@ func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
 			if args.Gas == nil {
 				t.Fatal("expected gas to be populated")
 			}
-			if have := uint64(*args.Gas); have != tt.want {
-				t.Fatalf("estimated gas mismatch: have %d want %d", have, tt.want)
+			// DoEstimateGas may overestimate by up to estimateGasErrorRatio to
+			// terminate the binary search early (aligned with upstream geth /
+			// morph-reth). Assert the estimate is no lower than the true minimum
+			// and no higher than the allowed 1.5% overestimation.
+			upper := uint64(math.Ceil(float64(tt.want) * (1 + estimateGasErrorRatio)))
+			if have := uint64(*args.Gas); have < tt.want || have > upper {
+				t.Fatalf("estimated gas out of range: have %d want [%d, %d]", have, tt.want, upper)
 			}
 		})
 	}
@@ -423,7 +714,7 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 			Version:              v1,
 			FeeTokenID:           &feeTokenZero,
 		}
-		gas, err := DoEstimateGas(context.Background(), backend, args, blockNr, backend.gasCap)
+		gas, err := DoEstimateGas(context.Background(), backend, args, blockNr, nil, backend.gasCap)
 		if err != nil {
 			t.Fatalf("DoEstimateGas with feeTokenID=0 failed: %v", err)
 		}
@@ -442,7 +733,7 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 			Version:              v1,
 			FeeTokenID:           &feeTokenOne, // not registered in the in-memory state
 		}
-		_, err := DoEstimateGas(context.Background(), backend, args, blockNr, backend.gasCap)
+		_, err := DoEstimateGas(context.Background(), backend, args, blockNr, nil, backend.gasCap)
 		if err == nil || !strings.Contains(err.Error(), "invalid token") {
 			t.Fatalf("expected 'invalid token' for unregistered feeTokenID, got %v", err)
 		}
@@ -454,6 +745,99 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 //   - Version == nil + no V1 fields → V0
 //   - Version == nil + Reference or Memo present → V1
 //   - Explicit Version → use as-is
+// deployStorageClearContract installs a contract whose body clears storage
+// slot 0 via SSTORE (non-zero -> zero), which credits a gas refund. The slot is
+// committed non-zero first so the EVM accounts it as a clearing operation.
+//   bytecode: PUSH1 0x00 (value) PUSH1 0x00 (key) SSTORE STOP
+func deployStorageClearContract(t *testing.T, backend *estimateGasBackend, contract common.Address) {
+	t.Helper()
+	backend.state.SetCode(contract, []byte{0x60, 0x00, 0x60, 0x00, 0x55, 0x00})
+	backend.state.SetState(contract, common.Hash{}, common.HexToHash("0x01"))
+	root, err := backend.state.Commit(false)
+	if err != nil {
+		t.Fatalf("commit state: %v", err)
+	}
+	reopened, err := state.New(root, backend.state.Database(), nil)
+	if err != nil {
+		t.Fatalf("reopen state: %v", err)
+	}
+	backend.state = reopened
+}
+
+// TestDoCallPopulatesRefundedGas verifies that ExecutionResult.RefundedGas is
+// filled in from the state transition's applied refund. This is the field the
+// optimistic gas-limit guess in DoEstimateGas relies on.
+func TestDoCallPopulatesRefundedGas(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x00000000000000000000000000000000000000c0")
+	backend := newEstimateGasBackend(t, sender)
+	deployStorageClearContract(t, backend, contract)
+
+	gas := hexutil.Uint64(backend.gasCap)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	// Calling the storage-clearing contract must produce a non-zero refund.
+	callArgs := TransactionArgs{From: &sender, To: &contract, Gas: &gas, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+	res, err := DoCall(context.Background(), backend, callArgs, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall (contract): %v", err)
+	}
+	if res.Failed() {
+		t.Fatalf("contract call failed: %v", res.Err)
+	}
+	if res.RefundedGas == 0 {
+		t.Fatal("expected non-zero RefundedGas for a storage-clearing call, got 0")
+	}
+
+	// A plain transfer performs no refundable operation -> RefundedGas == 0.
+	eoa := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	plainArgs := TransactionArgs{From: &sender, To: &eoa, Gas: &gas, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+	res2, err := DoCall(context.Background(), backend, plainArgs, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall (transfer): %v", err)
+	}
+	if res2.RefundedGas != 0 {
+		t.Fatalf("expected zero RefundedGas for plain transfer, got %d", res2.RefundedGas)
+	}
+}
+
+// TestEstimateGasOptimisticRefundHeavyCall checks that the optimistic gas-limit
+// probe leaves DoEstimateGas correct on a refund-heavy call: the estimate must
+// converge below the cap and be executable (never an under-estimate).
+func TestEstimateGasOptimisticRefundHeavyCall(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x00000000000000000000000000000000000000c0")
+	backend := newEstimateGasBackend(t, sender)
+	deployStorageClearContract(t, backend, contract)
+
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	args := TransactionArgs{From: &sender, To: &contract, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+
+	est, err := DoEstimateGas(context.Background(), backend, args, blockNrOrHash, nil, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoEstimateGas: %v", err)
+	}
+	estimate := uint64(est)
+	if estimate >= backend.gasCap {
+		t.Fatalf("estimate did not converge below cap: got %d, cap %d", estimate, backend.gasCap)
+	}
+	// The estimate must be executable: running the call at exactly `estimate`
+	// gas must succeed, otherwise the estimator under-reported.
+	gas := hexutil.Uint64(estimate)
+	args.Gas = &gas
+	res, err := DoCall(context.Background(), backend, args, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall at estimate: %v", err)
+	}
+	if res.Failed() {
+		t.Fatalf("estimate %d is not executable: %v", estimate, res.Err)
+	}
+}
+
 //   - Before jade fork: V1-specific fields rejected; default is V0
 //   - After jade fork: V1 fields allowed; heuristic picks V1 when present
 func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"maps"
 	"math/big"
 	"math/bits"
 
@@ -55,9 +56,12 @@ type PrecompiledContract interface {
 	Name() string                     // Name returns the name of the precompiled contract
 }
 
+// PrecompiledContracts contains the precompiled contracts supported at the given fork.
+type PrecompiledContracts map[common.Address]PrecompiledContract
+
 // PrecompiledContractsHomestead contains the default set of pre-compiled Ethereum
 // contracts used in the Frontier and Homestead releases.
-var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
+var PrecompiledContractsHomestead = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hash{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hash{},
@@ -66,7 +70,7 @@ var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
 
 // PrecompiledContractsByzantium contains the default set of pre-compiled Ethereum
 // contracts used in the Byzantium release.
-var PrecompiledContractsByzantium = map[common.Address]PrecompiledContract{
+var PrecompiledContractsByzantium = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hash{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hash{},
@@ -79,7 +83,7 @@ var PrecompiledContractsByzantium = map[common.Address]PrecompiledContract{
 
 // PrecompiledContractsIstanbul contains the default set of pre-compiled Ethereum
 // contracts used in the Istanbul release.
-var PrecompiledContractsIstanbul = map[common.Address]PrecompiledContract{
+var PrecompiledContractsIstanbul = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hash{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hash{},
@@ -93,7 +97,7 @@ var PrecompiledContractsIstanbul = map[common.Address]PrecompiledContract{
 
 // PrecompiledContractsBerlin contains the default set of pre-compiled Ethereum
 // contracts used in the Berlin release.
-var PrecompiledContractsBerlin = map[common.Address]PrecompiledContract{
+var PrecompiledContractsBerlin = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hash{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hash{},
@@ -107,7 +111,7 @@ var PrecompiledContractsBerlin = map[common.Address]PrecompiledContract{
 
 // PrecompiledContractsArchimedes contains the default set of pre-compiled Ethereum
 // contracts used in the Archimedes release. Same as Berlin but without sha2, blake2f, ripemd160
-var PrecompiledContractsArchimedes = map[common.Address]PrecompiledContract{
+var PrecompiledContractsArchimedes = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hashDisabled{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hashDisabled{},
@@ -121,7 +125,7 @@ var PrecompiledContractsArchimedes = map[common.Address]PrecompiledContract{
 
 // PrecompiledContractsBernoulli contains the default set of pre-compiled Ethereum
 // contracts used in the Bernoulli release. Same as Archimedes but with sha256hash enabled again
-var PrecompiledContractsBernoulli = map[common.Address]PrecompiledContract{
+var PrecompiledContractsBernoulli = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hash{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hashDisabled{},
@@ -135,7 +139,7 @@ var PrecompiledContractsBernoulli = map[common.Address]PrecompiledContract{
 
 // PrecompiledContractsMorph203 contains the default set of pre-compiled Ethereum
 // contracts used in the Morph203 release.
-var PrecompiledContractsMorph203 = map[common.Address]PrecompiledContract{
+var PrecompiledContractsMorph203 = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hash{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hash{},
@@ -149,7 +153,7 @@ var PrecompiledContractsMorph203 = map[common.Address]PrecompiledContract{
 
 // PrecompiledContractsEmerald contains the default set of pre-compiled Ethereum
 // contracts used in the Emerald release.
-var PrecompiledContractsEmerald = map[common.Address]PrecompiledContract{
+var PrecompiledContractsEmerald = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x01}): &ecrecover{},
 	common.BytesToAddress([]byte{0x02}): &sha256hash{},
 	common.BytesToAddress([]byte{0x03}): &ripemd160hash{},
@@ -232,7 +236,11 @@ func ActivePrecompiles(rules params.Rules) []common.Address {
 
 // ActivePrecompiledContracts returns a map of precompiled contract address to contract
 // enabled with the current configuration.
-func ActivePrecompiledContracts(rules params.Rules) map[common.Address]PrecompiledContract {
+func ActivePrecompiledContracts(rules params.Rules) PrecompiledContracts {
+	return maps.Clone(activePrecompiledContracts(rules))
+}
+
+func activePrecompiledContracts(rules params.Rules) PrecompiledContracts {
 	switch {
 	case rules.IsEmerald:
 		return PrecompiledContractsEmerald
@@ -251,6 +259,18 @@ func ActivePrecompiledContracts(rules params.Rules) map[common.Address]Precompil
 	default:
 		return PrecompiledContractsHomestead
 	}
+}
+
+// PrecompileAddresses returns the addresses present in the given precompile map.
+func PrecompileAddresses(precompiles PrecompiledContracts) []common.Address {
+	if precompiles == nil {
+		return nil
+	}
+	addresses := make([]common.Address, 0, len(precompiles))
+	for addr := range precompiles {
+		addresses = append(addresses, addr)
+	}
+	return addresses
 }
 
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.

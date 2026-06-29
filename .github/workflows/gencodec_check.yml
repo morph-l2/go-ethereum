@@ -26,6 +26,9 @@ on:
       - "core/types/gen_log_json.go"
       - ".github/workflows/gencodec_check.yml"
 
+permissions:
+  contents: read
+
 jobs:
   gen-log-json:
     runs-on: ubuntu-latest

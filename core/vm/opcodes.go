@@ -289,11 +289,7 @@ var opCodeToString = map[OpCode]string{
 	GASLIMIT:    "GASLIMIT",
 	CHAINID:     "CHAINID",
 	SELFBALANCE: "SELFBALANCE",
-
-	// we temporarily comment this out, since ccc expects
-	// the "opcode 0x%x not defined" string in the traces,
-	// should uncomment once ccc supports the string version.
-	// BASEFEE:     "BASEFEE",
+	BASEFEE:     "BASEFEE",
 
 	// 0x50 range - 'storage' and execution.
 	POP: "POP",
@@ -310,13 +306,9 @@ var opCodeToString = map[OpCode]string{
 	MSIZE:    "MSIZE",
 	GAS:      "GAS",
 	JUMPDEST: "JUMPDEST",
-
-	// we temporarily comment these out, since ccc expects
-	// the "opcode 0x%x not defined" string in the traces,
-	// should uncomment once ccc supports the string version.
-	// TLOAD:    "TLOAD",
-	// TSTORE:   "TSTORE",
-	// MCOPY:    "MCOPY",
+	TLOAD:    "TLOAD",
+	TSTORE:   "TSTORE",
+	MCOPY:    "MCOPY",
 
 	PUSH0: "PUSH0",
 

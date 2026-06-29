@@ -1416,7 +1416,12 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			return 0, err
 		}
 		balance := state.GetBalance(*args.From) // from can't be nil
-		if args.FeeTokenID != nil {
+		// Use the alt-fee-token branch only when a non-zero token is requested.
+		// FeeTokenID == 0 means ETH payment (valid for MorphTx v1), matching the
+		// value-based checks in state_transition.go and the tx pool. Guarding on
+		// the pointer alone would route an explicit feeTokenID=0 into IsTokenActive,
+		// which rejects token id 0 as "invalid token".
+		if args.FeeTokenID != nil && uint16(*args.FeeTokenID) != 0 {
 			// account for tx value: in token-fee mode ETH only needs to cover
 			// `value` (gas and L1 fee are paid in tokens), so value == balance is
 			// affordable. Aligns with morph-reth token path (`eth_balance < value`).

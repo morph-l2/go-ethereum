@@ -216,7 +216,7 @@ func (f *Filter) Logs(ctx context.Context) ([]*types.Log, error) {
 	}
 
 	if begin > end {
-		return nil, nil
+		return nil, errInvalidBlockRange
 	}
 	f.begin = int64(begin)
 	f.end = int64(end)

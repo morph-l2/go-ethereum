@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -672,8 +673,13 @@ func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
 			if args.Gas == nil {
 				t.Fatal("expected gas to be populated")
 			}
-			if have := uint64(*args.Gas); have != tt.want {
-				t.Fatalf("estimated gas mismatch: have %d want %d", have, tt.want)
+			// DoEstimateGas may overestimate by up to estimateGasErrorRatio to
+			// terminate the binary search early (aligned with upstream geth /
+			// morph-reth). Assert the estimate is no lower than the true minimum
+			// and no higher than the allowed 1.5% overestimation.
+			upper := uint64(math.Ceil(float64(tt.want) * (1 + estimateGasErrorRatio)))
+			if have := uint64(*args.Gas); have < tt.want || have > upper {
+				t.Fatalf("estimated gas out of range: have %d want [%d, %d]", have, tt.want, upper)
 			}
 		})
 	}
@@ -684,6 +690,99 @@ func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
 //   - Version == nil + no V1 fields → V0
 //   - Version == nil + Reference or Memo present → V1
 //   - Explicit Version → use as-is
+// deployStorageClearContract installs a contract whose body clears storage
+// slot 0 via SSTORE (non-zero -> zero), which credits a gas refund. The slot is
+// committed non-zero first so the EVM accounts it as a clearing operation.
+//   bytecode: PUSH1 0x00 (value) PUSH1 0x00 (key) SSTORE STOP
+func deployStorageClearContract(t *testing.T, backend *estimateGasBackend, contract common.Address) {
+	t.Helper()
+	backend.state.SetCode(contract, []byte{0x60, 0x00, 0x60, 0x00, 0x55, 0x00})
+	backend.state.SetState(contract, common.Hash{}, common.HexToHash("0x01"))
+	root, err := backend.state.Commit(false)
+	if err != nil {
+		t.Fatalf("commit state: %v", err)
+	}
+	reopened, err := state.New(root, backend.state.Database(), nil)
+	if err != nil {
+		t.Fatalf("reopen state: %v", err)
+	}
+	backend.state = reopened
+}
+
+// TestDoCallPopulatesRefundedGas verifies that ExecutionResult.RefundedGas is
+// filled in from the state transition's applied refund. This is the field the
+// optimistic gas-limit guess in DoEstimateGas relies on.
+func TestDoCallPopulatesRefundedGas(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x00000000000000000000000000000000000000c0")
+	backend := newEstimateGasBackend(t, sender)
+	deployStorageClearContract(t, backend, contract)
+
+	gas := hexutil.Uint64(backend.gasCap)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	// Calling the storage-clearing contract must produce a non-zero refund.
+	callArgs := TransactionArgs{From: &sender, To: &contract, Gas: &gas, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+	res, err := DoCall(context.Background(), backend, callArgs, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall (contract): %v", err)
+	}
+	if res.Failed() {
+		t.Fatalf("contract call failed: %v", res.Err)
+	}
+	if res.RefundedGas == 0 {
+		t.Fatal("expected non-zero RefundedGas for a storage-clearing call, got 0")
+	}
+
+	// A plain transfer performs no refundable operation -> RefundedGas == 0.
+	eoa := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	plainArgs := TransactionArgs{From: &sender, To: &eoa, Gas: &gas, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+	res2, err := DoCall(context.Background(), backend, plainArgs, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall (transfer): %v", err)
+	}
+	if res2.RefundedGas != 0 {
+		t.Fatalf("expected zero RefundedGas for plain transfer, got %d", res2.RefundedGas)
+	}
+}
+
+// TestEstimateGasOptimisticRefundHeavyCall checks that the optimistic gas-limit
+// probe leaves DoEstimateGas correct on a refund-heavy call: the estimate must
+// converge below the cap and be executable (never an under-estimate).
+func TestEstimateGasOptimisticRefundHeavyCall(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x00000000000000000000000000000000000000c0")
+	backend := newEstimateGasBackend(t, sender)
+	deployStorageClearContract(t, backend, contract)
+
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	args := TransactionArgs{From: &sender, To: &contract, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+
+	est, err := DoEstimateGas(context.Background(), backend, args, blockNrOrHash, nil, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoEstimateGas: %v", err)
+	}
+	estimate := uint64(est)
+	if estimate >= backend.gasCap {
+		t.Fatalf("estimate did not converge below cap: got %d, cap %d", estimate, backend.gasCap)
+	}
+	// The estimate must be executable: running the call at exactly `estimate`
+	// gas must succeed, otherwise the estimator under-reported.
+	gas := hexutil.Uint64(estimate)
+	args.Gas = &gas
+	res, err := DoCall(context.Background(), backend, args, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall at estimate: %v", err)
+	}
+	if res.Failed() {
+		t.Fatalf("estimate %d is not executable: %v", estimate, res.Err)
+	}
+}
+
 //   - Before jade fork: V1-specific fields rejected; default is V0
 //   - After jade fork: V1 fields allowed; heuristic picks V1 when present
 func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {

@@ -70,10 +70,14 @@ type StateTransition struct {
 	gasFeeCap  *big.Int
 	gasTipCap  *big.Int
 	initialGas uint64
-	value      *big.Int
-	data       []byte
-	state      vm.StateDB
-	evm        *vm.EVM
+	// gasRefunded records the gas units returned by refundGas, so DoEstimateGas
+	// can recover the gross consumption (UsedGas+gasRefunded) for its optimistic
+	// gas-limit guess. Not consensus-relevant; never enters receipts or traces.
+	gasRefunded uint64
+	value       *big.Int
+	data        []byte
+	state       vm.StateDB
+	evm         *vm.EVM
 
 	l1DataFee *big.Int
 
@@ -108,12 +112,13 @@ type Message interface {
 // ExecutionResult includes all output after executing given evm
 // message no matter the execution itself is successful or not.
 type ExecutionResult struct {
-	L1DataFee  *big.Int
-	FeeRate    *big.Int
-	TokenScale *big.Int
-	UsedGas    uint64 // Total used gas but include the refunded gas
-	Err        error  // Any error encountered during the execution(listed in core/vm/errors.go)
-	ReturnData []byte // Returned data from evm(function result or data supplied with revert opcode)
+	L1DataFee   *big.Int
+	FeeRate     *big.Int
+	TokenScale  *big.Int
+	UsedGas     uint64 // Net gas used by the state transition (gross consumed minus refund applied)
+	RefundedGas uint64 // Gas refunded at settlement; UsedGas+RefundedGas equals the gross peak consumption
+	Err         error  // Any error encountered during the execution(listed in core/vm/errors.go)
+	ReturnData  []byte // Returned data from evm(function result or data supplied with revert opcode)
 }
 
 // Unwrap returns the internal evm error which allows us for further
@@ -590,10 +595,11 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 
 	result := &ExecutionResult{
-		L1DataFee:  st.l1DataFee,
-		UsedGas:    st.gasUsed(),
-		Err:        vmerr,
-		ReturnData: ret,
+		L1DataFee:   st.l1DataFee,
+		UsedGas:     st.gasUsed(),
+		RefundedGas: st.gasRefunded,
+		Err:         vmerr,
+		ReturnData:  ret,
 	}
 	if st.msg.FeeTokenID() != 0 {
 		result.FeeRate = st.feeRate
@@ -670,6 +676,9 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && refund > 0 {
 		st.evm.Config.Tracer.OnGasChange(st.gas, st.gas+refund, tracing.GasChangeTxRefunds)
 	}
+	// Record the finalized refund (gas units) for DoEstimateGas's optimistic
+	// guess. This does not alter the refund value, st.gas, or any balance below.
+	st.gasRefunded = refund
 	st.gas += refund
 
 	// Return remaining gas to the block gas counter at the end, regardless of refund success

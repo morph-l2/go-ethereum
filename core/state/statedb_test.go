@@ -475,9 +475,9 @@ func (test *snapshotTest) checkEqual(state, checkstate *StateDB) error {
 		return fmt.Errorf("got GetRefund() == %d, want GetRefund() == %d",
 			state.GetRefund(), checkstate.GetRefund())
 	}
-	if !reflect.DeepEqual(state.GetLogs(common.Hash{}, common.Hash{}), checkstate.GetLogs(common.Hash{}, common.Hash{})) {
+	if !reflect.DeepEqual(state.GetLogs(common.Hash{}, common.Hash{}, 0), checkstate.GetLogs(common.Hash{}, common.Hash{}, 0)) {
 		return fmt.Errorf("got GetLogs(common.Hash{}) == %v, want GetLogs(common.Hash{}) == %v",
-			state.GetLogs(common.Hash{}, common.Hash{}), checkstate.GetLogs(common.Hash{}, common.Hash{}))
+			state.GetLogs(common.Hash{}, common.Hash{}, 0), checkstate.GetLogs(common.Hash{}, common.Hash{}, 0))
 	}
 	return nil
 }
@@ -497,6 +497,44 @@ func TestTouchDelete(t *testing.T) {
 	s.state.RevertToSnapshot(snapshot)
 	if len(s.state.journal.dirties) != 0 {
 		t.Fatal("expected no dirty state object")
+	}
+}
+
+// TestGetLogsStampsBlockTimestamp covers the execution/pending-block derive
+// path: logs accumulated during transaction execution receive their block
+// hash and blockTimestamp from StateDB.GetLogs (threaded through
+// ApplyTransactionWithEVM with the pending header time). This is the path
+// that pending logs flow through before a block is sealed, so it is stamped
+// from the pending header rather than rawdb. Re-stamping with a new time
+// (pending -> mined) must overwrite the previous value.
+func TestGetLogsStampsBlockTimestamp(t *testing.T) {
+	s := newStateTest()
+	txHash := common.HexToHash("0x01")
+	s.state.SetTxContext(txHash, 0)
+	s.state.AddLog(&types.Log{Address: common.HexToAddress("0xaa")})
+	s.state.AddLog(&types.Log{Address: common.HexToAddress("0xbb")})
+
+	blockHash := common.HexToHash("0xdead")
+	const blockTime = uint64(1234567890)
+	logs := s.state.GetLogs(txHash, blockHash, blockTime)
+	if len(logs) != 2 {
+		t.Fatalf("got %d logs, want 2", len(logs))
+	}
+	for i, l := range logs {
+		if l.BlockHash != blockHash {
+			t.Errorf("log %d: BlockHash = %x, want %x", i, l.BlockHash, blockHash)
+		}
+		if l.BlockTimestamp != blockTime {
+			t.Errorf("log %d: BlockTimestamp = %d, want %d", i, l.BlockTimestamp, blockTime)
+		}
+	}
+
+	// A later derive (e.g. pending -> mined) must overwrite the timestamp.
+	const minedTime = uint64(1234567999)
+	for _, l := range s.state.GetLogs(txHash, blockHash, minedTime) {
+		if l.BlockTimestamp != minedTime {
+			t.Errorf("re-stamped BlockTimestamp = %d, want %d", l.BlockTimestamp, minedTime)
+		}
 	}
 }
 

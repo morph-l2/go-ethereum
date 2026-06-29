@@ -563,6 +563,20 @@ func TestTracingWithOverrides(t *testing.T) {
 			},
 			want: `{"gas":23347,"failed":false,"returnValue":"000000000000000000000000000000000000000000000000000000000000007b"}`,
 		},
+		{
+			blockNumber: rpc.PendingBlockNumber,
+			call: ethapi.TransactionArgs{
+				From: &randomAccounts[0].addr,
+				To:   &randomAccounts[2].addr,
+				Data: newRPCBytes(common.Hex2Bytes("deadbeef")),
+			},
+			config: &TraceCallConfig{
+				StateOverrides: &ethapi.StateOverride{
+					common.BytesToAddress([]byte{0x04}): ethapi.OverrideAccount{MovePrecompileTo: &randomAccounts[2].addr},
+				},
+			},
+			want: `{"gas":21082,"failed":false,"returnValue":"deadbeef"}`,
+		},
 	}
 	for i, tc := range testSuite {
 		result, err := api.TraceCall(context.Background(), tc.call, rpc.BlockNumberOrHash{BlockNumber: &tc.blockNumber}, tc.config)

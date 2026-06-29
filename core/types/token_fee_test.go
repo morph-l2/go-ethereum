@@ -27,7 +27,7 @@ func TestAltToEthFloorRounding(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := AltToEth(big.NewInt(c.erc20), big.NewInt(c.rate), big.NewInt(c.scale))
 			require.NoError(t, err)
-			require.Equal(t, big.NewInt(c.want), got)
+			require.Zerof(t, got.Cmp(big.NewInt(c.want)), "got %s, want %d", got, c.want)
 		})
 	}
 }
@@ -48,7 +48,7 @@ func TestEthToAltCeilRounding(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := EthToAlt(big.NewInt(c.eth), big.NewInt(c.rate), big.NewInt(c.scale))
 			require.NoError(t, err)
-			require.Equal(t, big.NewInt(c.want), got)
+			require.Zerof(t, got.Cmp(big.NewInt(c.want)), "got %s, want %d", got, c.want)
 		})
 	}
 }

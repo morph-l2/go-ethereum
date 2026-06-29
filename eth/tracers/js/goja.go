@@ -258,9 +258,13 @@ func (t *jsTracer) OnTxStart(env *tracing.VMContext, tx *types.Transaction, from
 	// Need statedb access for db object
 	db := &dbObj{db: env.StateDB, vm: t.vm, toBig: t.toBig, toBuf: t.toBuf, fromBuf: t.fromBuf}
 	t.dbValue = db.setupObject()
-	// Update list of precompiles based on current block
-	rules := t.chainConfig.Rules(env.BlockNumber, env.Time)
-	t.activePrecompiles = vm.ActivePrecompiles(rules)
+	if env.Precompiles != nil {
+		t.activePrecompiles = env.Precompiles
+	} else {
+		// Update list of precompiles based on current block.
+		rules := t.chainConfig.Rules(env.BlockNumber, env.Time)
+		t.activePrecompiles = vm.ActivePrecompiles(rules)
+	}
 	t.ctx["block"] = t.vm.ToValue(t.env.BlockNumber.Uint64())
 	t.ctx["gas"] = t.vm.ToValue(tx.Gas())
 	gasTip, _ := tx.EffectiveGasTip(env.BaseFee)

@@ -107,12 +107,14 @@ func TestTransitionDbNextForkFloorDataGasUsed(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name     string
-		nextFork bool
-		wantGas  uint64
+		name      string
+		nextFork  bool
+		l1Message bool
+		wantGas   uint64
 	}{
 		{name: "pre next fork keeps legacy gas used", wantGas: legacyGas},
 		{name: "next fork clamps gas used to floor", nextFork: true, wantGas: floorGas},
+		{name: "next fork exempts l1 message from floor", nextFork: true, l1Message: true, wantGas: legacyGas},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := params.TestNoL1DataFeeChainConfig.Clone()
@@ -148,7 +150,23 @@ func TestTransitionDbNextForkFloorDataGasUsed(t *testing.T) {
 				To:       &to,
 				GasPrice: gasPrice,
 			}, statedb, cfg, vm.Config{})
-			msg := types.NewMessage(from, &to, 0, big.NewInt(0), gasLimit, gasPrice, gasPrice, gasPrice, 0, nil, 0, nil, nil, data, nil, nil, false)
+			var msg Message
+			if tt.l1Message {
+				tx := types.NewTx(&types.L1MessageTx{
+					QueueIndex: 1,
+					Gas:        gasLimit,
+					To:         &to,
+					Value:      big.NewInt(0),
+					Data:       data,
+					Sender:     from,
+				})
+				msg, err = tx.AsMessage(types.LatestSignerForChainID(cfg.ChainID), common.Big0)
+				if err != nil {
+					t.Fatalf("failed to convert L1 message tx: %v", err)
+				}
+			} else {
+				msg = types.NewMessage(from, &to, 0, big.NewInt(0), gasLimit, gasPrice, gasPrice, gasPrice, 0, nil, 0, nil, nil, data, nil, nil, false)
+			}
 			gp := new(GasPool).AddGas(gasLimit)
 			result, err := NewStateTransition(evm, msg, gp, big.NewInt(0)).TransitionDb()
 			if err != nil {
@@ -158,5 +176,49 @@ func TestTransitionDbNextForkFloorDataGasUsed(t *testing.T) {
 				t.Fatalf("UsedGas mismatch: got %d, want %d", result.UsedGas, tt.wantGas)
 			}
 		})
+	}
+}
+
+func TestRefundGasRecordsActualRefundAfterFloorClamp(t *testing.T) {
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := common.HexToAddress("0x1000000000000000000000000000000000000000")
+	to := common.HexToAddress("0x2000000000000000000000000000000000000000")
+	cfg := params.TestNoL1DataFeeChainConfig.Clone()
+	evm := vm.NewEVM(vm.BlockContext{
+		CanTransfer: CanTransfer,
+		Transfer:    Transfer,
+		GetHash:     func(uint64) common.Hash { return common.Hash{} },
+		BlockNumber: common.Big0,
+		Time:        common.Big0,
+		BaseFee:     common.Big0,
+	}, vm.TxContext{
+		Origin:   from,
+		To:       &to,
+		GasPrice: big.NewInt(1),
+	}, statedb, cfg, vm.Config{})
+	msg := types.NewMessage(from, &to, 0, big.NewInt(0), 100000, big.NewInt(1), big.NewInt(1), big.NewInt(1), 0, nil, 0, nil, nil, nil, nil, nil, false)
+
+	st := &StateTransition{
+		gp:           new(GasPool),
+		msg:          msg,
+		gas:          59000,
+		gasPrice:     big.NewInt(1),
+		initialGas:   100000,
+		floorDataGas: 71000,
+		state:        statedb,
+		evm:          evm,
+	}
+	st.state.AddRefund(10000)
+
+	st.refundGas(params.RefundQuotientEIP3529)
+
+	if st.gas != 29000 {
+		t.Fatalf("gas after floor clamp mismatch: got %d, want %d", st.gas, 29000)
+	}
+	if st.gasRefunded != 0 {
+		t.Fatalf("gasRefunded mismatch after floor clamp: got %d, want 0", st.gasRefunded)
 	}
 }

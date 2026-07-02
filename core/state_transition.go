@@ -70,9 +70,9 @@ type StateTransition struct {
 	gasFeeCap  *big.Int
 	gasTipCap  *big.Int
 	initialGas uint64
-	// gasRefunded records the gas units returned by refundGas, so DoEstimateGas
-	// can recover the gross consumption (UsedGas+gasRefunded) for its optimistic
-	// gas-limit guess. Not consensus-relevant; never enters receipts or traces.
+	// gasRefunded records the gas units actually returned by refundGas after
+	// any settlement-time floors are applied. DoEstimateGas uses it for an
+	// optimistic gas-limit guess; it is not consensus-relevant.
 	gasRefunded  uint64
 	value        *big.Int
 	data         []byte
@@ -117,7 +117,7 @@ type ExecutionResult struct {
 	FeeRate     *big.Int
 	TokenScale  *big.Int
 	UsedGas     uint64 // Net gas used by the state transition (gross consumed minus refund applied)
-	RefundedGas uint64 // Gas refunded at settlement; UsedGas+RefundedGas equals the gross peak consumption
+	RefundedGas uint64 // Gas actually refunded at settlement after settlement-time floors
 	Err         error  // Any error encountered during the execution(listed in core/vm/errors.go)
 	ReturnData  []byte // Returned data from evm(function result or data supplied with revert opcode)
 }
@@ -699,16 +699,17 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 		refund = st.state.GetRefund()
 	}
 
-	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && refund > 0 {
-		st.evm.Config.Tracer.OnGasChange(st.gas, st.gas+refund, tracing.GasChangeTxRefunds)
-	}
-	// Record the finalized refund (gas units) for DoEstimateGas's optimistic
-	// guess. This does not alter the refund value, st.gas, or any balance below.
-	st.gasRefunded = refund
+	preRefundGas := st.gas
 	st.gas += refund
 
 	if st.floorDataGas > 0 && st.gasUsed() < st.floorDataGas {
 		st.gas = st.initialGas - st.floorDataGas
+	}
+	if st.gas > preRefundGas {
+		st.gasRefunded = st.gas - preRefundGas
+	}
+	if st.evm.Config.Tracer != nil && st.evm.Config.Tracer.OnGasChange != nil && st.gasRefunded > 0 {
+		st.evm.Config.Tracer.OnGasChange(preRefundGas, preRefundGas+st.gasRefunded, tracing.GasChangeTxRefunds)
 	}
 
 	// Return remaining gas to the block gas counter at the end, regardless of refund success

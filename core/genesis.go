@@ -235,17 +235,20 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			trieCfg = &trie.Config{Zktrie: storedcfg.Morph.ZktrieEnabled()}
+			// State backend is always MPT (zkTrie storage mode retired).
+			trieCfg = &trie.Config{}
 		}
 	} else {
-		trieCfg = &trie.Config{Zktrie: genesis.Config.Morph.ZktrieEnabled()}
+		// State backend is always MPT (zkTrie storage mode retired).
+		trieCfg = &trie.Config{}
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
-		// Detect trie format mismatch: e.g., DB has zkTrie state but node is configured
-		// for MPT (--morph-mpt). This happens when preparing for MPT fork by resyncing
-		// from genesis with a different trie format.
-		// GenesisStateRoot ensures block hash consistency across formats (see ToBlock()).
+		// Detect a legacy zkTrie database: zkTrie storage mode is retired and the
+		// node now always runs MPT, but an existing DB may still hold a stored
+		// chain config with UseZktrie=true (and a zkTrie genesis state root that
+		// cannot be opened as MPT). In that case re-commit genesis in MPT format;
+		// GenesisStateRoot keeps the genesis block hash consistent (see ToBlock()).
 		isTrieFormatMismatch := false
 		if genesis != nil {
 			storedcfg := rawdb.ReadChainConfig(db, stored)
@@ -365,8 +368,6 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return params.GoerliChainConfig
 	case ghash == params.MorphMainnetGenesisHash:
 		return params.MorphMainnetChainConfig
-	case ghash == params.MorphHoleskyGenesisHash:
-		return params.MorphHoleskyChainConfig
 	case ghash == params.MorphHoodiGenesisHash:
 		return params.MorphHoodiChainConfig
 	default:
@@ -382,7 +383,8 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		trieCfg = &trie.Config{Zktrie: g.Config.Morph.ZktrieEnabled()}
+		// State backend is always MPT (zkTrie storage mode retired).
+		trieCfg = &trie.Config{}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)
 	if err != nil {
@@ -550,18 +552,6 @@ func DefaultMorphMainnetGenesisBlock() *Genesis {
 		GasLimit:   30000000,
 		Difficulty: big.NewInt(0),
 		Alloc:      decodePrealloc(morphMainnetAllocData),
-	}
-}
-
-// DefaultMorphHoleskyGenesisBlock returns the Morph holesky genesis block.
-func DefaultMorphHoleskyGenesisBlock() *Genesis {
-	return &Genesis{
-		Config:     params.MorphHoleskyChainConfig,
-		Timestamp:  0x663050a0,
-		ExtraData:  []byte{},
-		GasLimit:   10000000,
-		Difficulty: big.NewInt(0),
-		Alloc:      decodePrealloc(morphHoleskyAllocData),
 	}
 }
 

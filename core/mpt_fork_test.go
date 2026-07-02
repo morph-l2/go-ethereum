@@ -23,6 +23,7 @@ import (
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/consensus/ethash"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
@@ -111,8 +112,8 @@ func TestDiskStateRootInBlockProcessing(t *testing.T) {
 			genesisOverride: false,
 			expectMapping:   false,
 		},
-		// Note: Cross-format block mapping requires syncing blocks from different format
-		// This scenario is tested separately in TestMPTNodeSyncsZkTrieBlocks
+		// Note: Cross-format (zkTrie<->MPT) block sync was removed together with the
+		// retirement of the zkTrie storage mode; only same-format MPT mapping remains.
 	}
 
 	for _, tt := range tests {
@@ -179,237 +180,132 @@ func TestDiskStateRootInBlockProcessing(t *testing.T) {
 	}
 }
 
-// TestMPTNodeSyncsZkTrieBlocks tests MPT node syncing zkTrie blocks after fork:
-// 1. Generate zkTrie blocks (pre-fork)
-// 2. MPT node syncs these blocks via InsertChain
-// 3. Verify mappings created automatically (zkTrie header root → MPT disk root)
-// 4. Verify state accessible via zkTrie header roots
-func TestMPTNodeSyncsZkTrieBlocks(t *testing.T) {
-	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	address := crypto.PubkeyToAddress(key.PublicKey)
-	funds := big.NewInt(1000000000000000)
+// TestValidateStateRootGateAcrossJade verifies the state-root validation gate that
+// replaces the retired zkTrie storage mode: state is always MPT, so a header whose
+// (legacy zkTrie) state root differs from the locally computed MPT root must be
+// ACCEPTED before the Jade fork (gate skips validation) and REJECTED at/after it.
+func TestValidateStateRootGateAcrossJade(t *testing.T) {
+	jadeTime := uint64(1000)
 
-	// Phase 1: Generate zkTrie chain
-	zkTrieDB := rawdb.NewMemoryDatabase()
-	zkTrieConfig := params.TestChainConfig.Clone()
-	zkTrieConfig.Morph.UseZktrie = true
+	// Build a chain config with Jade at jadeTime. State backend is always MPT.
+	config := params.TestChainConfig.Clone()
+	config.Morph.UseZktrie = false
+	config.JadeForkTime = &jadeTime
 
-	zkGspec := &Genesis{
-		Config:  zkTrieConfig,
-		Alloc:   GenesisAlloc{address: {Balance: funds}},
+	db := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config:  config,
 		BaseFee: big.NewInt(params.InitialBaseFee),
 	}
-	zkGenesis := zkGspec.MustCommit(zkTrieDB)
-	signer := types.LatestSigner(zkTrieConfig)
+	genesis := gspec.MustCommit(db)
 
-	// Generate zkTrie blocks with transactions
-	zkTrieBlocks, _ := GenerateChain(zkTrieConfig, zkGenesis, ethash.NewFaker(), zkTrieDB, 3, func(i int, b *BlockGen) {
-		recipient := common.Address{byte(i + 0x80)}
-		tx, _ := types.SignTx(
-			types.NewTransaction(
-				b.TxNonce(address),
-				recipient,
-				big.NewInt(int64((i+1)*5000)),
-				21000,
-				b.header.BaseFee,
-				nil,
-			),
-			signer,
-			key,
-		)
-		b.AddTx(tx)
+	// One empty block so its receipts/bloom are trivially valid; we only tamper Root.
+	blocks, _ := GenerateChain(config, genesis, ethash.NewFaker(), db, 1, nil)
+	block := blocks[0]
+
+	bc, err := NewBlockChain(db, nil, config, ethash.NewFaker(), vm.Config{}, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create blockchain: %v", err)
+	}
+	defer bc.Stop()
+
+	// A fresh, empty MPT state. Its IntermediateRoot is the MPT empty root, which we
+	// force to differ from the (mismatched) header root below.
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("failed to create state: %v", err)
+	}
+	localRoot := statedb.IntermediateRoot(config.IsEIP158(block.Number()))
+
+	// Forge a header whose state root deliberately does NOT match the local MPT root,
+	// emulating a legacy zkTrie-format root carried in a pre-Jade header.
+	mismatchedRoot := common.HexToHash("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if mismatchedRoot == localRoot {
+		t.Fatal("test setup: mismatched root unexpectedly equals local root")
+	}
+
+	makeBlock := func(blockTime uint64) *types.Block {
+		h := block.Header()
+		h.Time = blockTime
+		h.Root = mismatchedRoot
+		return block.WithSeal(h)
+	}
+
+	validator := bc.Validator()
+
+	t.Run("pre-Jade accepts mismatched root", func(t *testing.T) {
+		preJade := makeBlock(jadeTime - 1)
+		if config.IsJadeFork(preJade.Time()) {
+			t.Fatal("test setup: block should be pre-Jade")
+		}
+		// Empty block: nil receipts produce the empty bloom/receipt root carried in
+		// the header, so only the state-root gate is exercised.
+		if err := validator.ValidateState(preJade, statedb, nil, preJade.GasUsed()); err != nil {
+			t.Fatalf("pre-Jade block with mismatched state root should be accepted, got: %v", err)
+		}
 	})
 
-	// Phase 2: MPT node with zkTrie genesis root
-	mptDB := rawdb.NewMemoryDatabase()
-	mptConfig := params.TestChainConfig.Clone()
-	mptConfig.Morph.UseZktrie = false
-	zkGenesisRoot := zkGenesis.Root()
-	mptConfig.Morph.GenesisStateRoot = &zkGenesisRoot
-
-	mptGspec := &Genesis{
-		Config:  mptConfig,
-		Alloc:   GenesisAlloc{address: {Balance: funds}},
-		BaseFee: big.NewInt(params.InitialBaseFee),
-	}
-
-	_, err := mptGspec.Commit(mptDB)
-	if err != nil {
-		t.Fatalf("Failed to commit MPT genesis: %v", err)
-	}
-
-	// Verify genesis mapping
-	if _, err := rawdb.ReadDiskStateRoot(mptDB, zkGenesisRoot); err != nil {
-		t.Fatalf("Genesis mapping not created: %v", err)
-	}
-
-	// Create MPT blockchain (disable snapshot for cross-format)
-	cacheConfig := &CacheConfig{
-		TrieCleanLimit: 256,
-		TrieDirtyLimit: 256,
-		SnapshotLimit:  0,
-	}
-	mptChain, err := NewBlockChain(mptDB, cacheConfig, mptConfig, ethash.NewFaker(), vm.Config{}, nil, nil)
-	if err != nil {
-		t.Fatalf("Failed to create MPT blockchain: %v", err)
-	}
-	defer mptChain.Stop()
-
-	// Phase 3: Sync zkTrie blocks (creates mappings automatically)
-	n, err := mptChain.InsertChain(zkTrieBlocks)
-	if err != nil {
-		t.Fatalf("Failed to insert zkTrie blocks: inserted %d, error: %v", n, err)
-	}
-
-	// Phase 4: Verify mappings and state access
-	for i, block := range zkTrieBlocks {
-		zkHeaderRoot := block.Root()
-		recipient := common.Address{byte(i + 0x80)}
-		expectedBalance := big.NewInt(int64((i + 1) * 5000))
-
-		// Verify mapping exists
-		mptDiskRoot, err := rawdb.ReadDiskStateRoot(mptDB, zkHeaderRoot)
-		if err != nil {
-			t.Errorf("Block %d: No mapping for zkTrie root %x", i+1, zkHeaderRoot[:8])
-			continue
+	t.Run("post-Jade rejects mismatched root", func(t *testing.T) {
+		postJade := makeBlock(jadeTime)
+		if !config.IsJadeFork(postJade.Time()) {
+			t.Fatal("test setup: block should be post-Jade")
 		}
-		if zkHeaderRoot == mptDiskRoot {
-			t.Errorf("Block %d: Roots are same (expected different)", i+1)
-			continue
+		if err := validator.ValidateState(postJade, statedb, nil, postJade.GasUsed()); err == nil {
+			t.Fatal("post-Jade block with mismatched state root should be rejected, got nil error")
 		}
-
-		// Verify mpt state access via zkTrie root
-		state, err := mptChain.StateAt(zkHeaderRoot)
-		if err != nil {
-			t.Errorf("Block %d: Failed to access state: %v", i+1, err)
-			continue
-		}
-
-		actualBalance := state.GetBalance(recipient)
-		if actualBalance.Cmp(expectedBalance) != 0 {
-			t.Errorf("Block %d: Balance mismatch: expected %v, got %v", i+1, expectedBalance, actualBalance)
-		}
-	}
+	})
 }
 
-// TestZkTrieNodeSyncsMPTBlocks tests zkTrie node syncing MPT blocks after fork:
-// This simulates old zkTrie node continuing to run after fork and syncing new MPT blocks
-// 1. Start with shared zkTrie genesis
-// 2. Generate MPT blocks from another MPT node (post-fork)
-// 3. zkTrie node syncs these MPT blocks via InsertChain
-// 4. Verify mappings created and state accessible
-func TestZkTrieNodeSyncsMPTBlocks(t *testing.T) {
+// TestGenesisStateRootMappingAccess verifies that when GenesisStateRoot pins the
+// genesis header.Root to a legacy (zkTrie) root, the genesis state committed in MPT
+// is still reachable via StateAt(headerRoot) through the DiskStateRoot mapping.
+func TestGenesisStateRootMappingAccess(t *testing.T) {
 	key, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	address := crypto.PubkeyToAddress(key.PublicKey)
 	funds := big.NewInt(1000000000000000)
 
-	// Phase 1: Create shared zkTrie genesis (pre-fork state)
-	zkGenesisDB := rawdb.NewMemoryDatabase()
-	zkGenesisConfig := params.TestChainConfig.Clone()
-	zkGenesisConfig.Morph.UseZktrie = true
+	db := rawdb.NewMemoryDatabase()
+	config := params.TestChainConfig.Clone()
+	config.Morph.UseZktrie = false
 
-	zkGspec := &Genesis{
-		Config:  zkGenesisConfig,
+	// Pin genesis header.Root to a legacy root distinct from the real MPT root.
+	legacyRoot := common.HexToHash("0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe")
+	config.Morph.GenesisStateRoot = &legacyRoot
+
+	gspec := &Genesis{
+		Config:  config,
 		Alloc:   GenesisAlloc{address: {Balance: funds}},
 		BaseFee: big.NewInt(params.InitialBaseFee),
 	}
-	sharedGenesis := zkGspec.MustCommit(zkGenesisDB)
+	genesisBlock := gspec.MustCommit(db)
 
-	// Phase 2: MPT node (post-fork) generates MPT blocks using zkTrie genesis root
-	mptDB := rawdb.NewMemoryDatabase()
-	mptConfig := params.TestChainConfig.Clone()
-	mptConfig.Morph.UseZktrie = false
-	zkGenesisRoot := sharedGenesis.Root()
-	mptConfig.Morph.GenesisStateRoot = &zkGenesisRoot
-
-	mptGspec := &Genesis{
-		Config:  mptConfig,
-		Alloc:   GenesisAlloc{address: {Balance: funds}},
-		BaseFee: big.NewInt(params.InitialBaseFee),
+	// The genesis block hash/root must be pinned to the configured legacy root.
+	if genesisBlock.Root() != legacyRoot {
+		t.Fatalf("expected genesis root pinned to legacy root %x, got %x", legacyRoot, genesisBlock.Root())
 	}
-	_, err := mptGspec.Commit(mptDB)
+
+	// A DiskStateRoot(legacyRoot -> mptRoot) mapping must have been recorded.
+	mptRoot, err := rawdb.ReadDiskStateRoot(db, legacyRoot)
 	if err != nil {
-		t.Fatalf("Failed to commit MPT genesis: %v", err)
+		t.Fatalf("expected DiskStateRoot mapping for legacy genesis root: %v", err)
+	}
+	if mptRoot == legacyRoot {
+		t.Fatal("mapped MPT root should differ from the legacy genesis root")
 	}
 
-	// MPT node generates blocks (post-fork blocks with MPT state roots)
-	signer := types.LatestSigner(mptConfig)
-	mptBlocks, _ := GenerateChain(mptConfig, sharedGenesis, ethash.NewFaker(), mptDB, 3, func(i int, b *BlockGen) {
-		recipient := common.Address{byte(i + 0x90)}
-		tx, _ := types.SignTx(
-			types.NewTransaction(
-				b.TxNonce(address),
-				recipient,
-				big.NewInt(int64((i+1)*6000)),
-				21000,
-				b.header.BaseFee,
-				nil,
-			),
-			signer,
-			key,
-		)
-		b.AddTx(tx)
-	})
-
-	// Phase 3: Old zkTrie node syncs these MPT blocks
-	zkTrieDB := rawdb.NewMemoryDatabase()
-	forkTime := uint64(10)
-	zkTrieConfig := params.TestChainConfig.Clone()
-	zkTrieConfig.Morph.UseZktrie = true
-	zkTrieConfig.JadeForkTime = &forkTime // Enable cross-format validation skipping
-
-	// zkTrie node uses same zkTrie genesis (no GenesisStateRoot override)
-	zkGspec2 := &Genesis{
-		Config:  zkTrieConfig,
-		Alloc:   GenesisAlloc{address: {Balance: funds}},
-		BaseFee: big.NewInt(params.InitialBaseFee),
-	}
-	zkGspec2.MustCommit(zkTrieDB)
-
-	cacheConfig := &CacheConfig{
-		TrieCleanLimit: 256,
-		TrieDirtyLimit: 256,
-		SnapshotLimit:  0,
-	}
-	zkChain, err := NewBlockChain(zkTrieDB, cacheConfig, zkTrieConfig, ethash.NewFaker(), vm.Config{}, nil, nil)
+	bc, err := NewBlockChain(db, nil, config, ethash.NewFaker(), vm.Config{}, nil, nil)
 	if err != nil {
-		t.Fatalf("Failed to create zkTrie blockchain: %v", err)
+		t.Fatalf("failed to create blockchain: %v", err)
 	}
-	defer zkChain.Stop()
+	defer bc.Stop()
 
-	// Sync MPT blocks (block headers have MPT roots)
-	n, err := zkChain.InsertChain(mptBlocks)
+	// StateAt(headerRoot) must resolve the legacy root via the mapping and expose
+	// the genesis allocation committed in MPT.
+	st, err := bc.StateAt(genesisBlock.Root())
 	if err != nil {
-		t.Fatalf("Failed to insert MPT blocks: inserted %d, error: %v", n, err)
+		t.Fatalf("StateAt(genesis header root) failed: %v", err)
 	}
-
-	// Phase 4: Verify mappings and state access
-	for i, block := range mptBlocks {
-		mptHeaderRoot := block.Root()
-		recipient := common.Address{byte(i + 0x90)}
-		expectedBalance := big.NewInt(int64((i + 1) * 6000))
-
-		// Verify mapping exists (MPT header root → zkTrie disk root)
-		zkDiskRoot, err := rawdb.ReadDiskStateRoot(zkTrieDB, mptHeaderRoot)
-		if err != nil {
-			t.Errorf("Block %d: No mapping for MPT root %x", i+1, mptHeaderRoot[:8])
-			continue
-		}
-		if mptHeaderRoot == zkDiskRoot {
-			t.Errorf("Block %d: Roots are same (expected different)", i+1)
-			continue
-		}
-
-		// Verify state access via MPT header root
-		state, err := zkChain.StateAt(mptHeaderRoot)
-		if err != nil {
-			t.Errorf("Block %d: Failed to access state: %v", i+1, err)
-			continue
-		}
-
-		actualBalance := state.GetBalance(recipient)
-		if actualBalance.Cmp(expectedBalance) != 0 {
-			t.Errorf("Block %d: Balance mismatch: expected %v, got %v", i+1, expectedBalance, actualBalance)
-		}
+	if got := st.GetBalance(address); got.Cmp(funds) != 0 {
+		t.Fatalf("genesis balance mismatch via legacy root: got %v, want %v", got, funds)
 	}
 }

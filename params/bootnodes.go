@@ -86,13 +86,6 @@ var MorphBootnodes = []string{
 	"enode://abc60fccd847e9d9d9e5865aa69cef051239f01fa1108ba6a68082d5942f52e560452aeeffbe1aeca88a33afc5a0d97da9ba2111eb825c92cdd5d38727d36e1e@18.199.61.121:30303",
 }
 
-// MorphHoleskyBootnodes are the enode URLs of the P2P bootstrap nodes running on the Morph Holesky test network.
-var MorphHoleskyBootnodes = []string{
-	"enode://8c400a01a9457ab99219bb7d87677ecdd4638ccf6a5f81c8bcf89abcd59cca91bd27b82071760e7f7d8ef043ca6817278495509197a3fc4ed2fd34fd67fb123b@52.69.21.155:30303",
-	"enode://8eba7278fcb84a7b836a684fd4b62526af775633297974bf2b48584ea2f831a65a7ae7d914198f66b94820348cdad37533fc7336688b139ca27d30a7713867ab@35.76.156.3:30303",
-	"enode://588b64f887745a2f53a92312926c9d5ae03c64412860889a9c605570d7b71522a0774d254311752ac2cd44c68c3282ea125874f66ef7e65548573420d6cd98e2@35.78.13.184:30303",
-}
-
 // MorphHoodiBootnodes are the enode URLs of the P2P bootstrap nodes running on the Morph Hoodi test network.
 var MorphHoodiBootnodes = []string{
 	"enode://8efa3da017d3eeb9db761e17c10121ee3ee6d258045ac4fba42549552376547f818a31e933b9dd904528aaadc9b6b457e9d1970e3cbbad42d7a0171686cbd994@13.159.40.158:30303",

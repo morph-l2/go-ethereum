@@ -151,7 +151,6 @@ var (
 		utils.RinkebyFlag,
 		utils.GoerliFlag,
 		utils.MorphFlag,
-		utils.MorphHoleskyFlag,
 		utils.MorphHoodiFlag,
 		utils.MorphMPTFlag,
 		utils.VMEnableDebugFlag,

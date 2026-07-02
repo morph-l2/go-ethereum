@@ -70,8 +70,6 @@ var (
 type Database struct {
 	diskdb ethdb.KeyValueStore // Persistent storage for matured trie nodes
 
-	// zktrie related stuff
-	Zktrie bool
 	// TODO: It's a quick&dirty implementation. FIXME later.
 	rawDirties KvMap
 
@@ -281,7 +279,7 @@ type Config struct {
 	Cache     int    // Memory allowance (MB) to use for caching trie nodes in memory
 	Journal   string // Journal of clean cache to survive node restarts
 	Preimages bool   // Flag whether the preimage of trie key is recorded
-	Zktrie    bool   // use zktrie
+	Zktrie    bool   // Deprecated: inert. State backend is always MPT (zkTrie storage mode retired); this flag no longer has any runtime effect.
 }
 
 // NewDatabase creates a new trie database to store ephemeral trie content before
@@ -857,12 +855,8 @@ func (db *Database) SaveCachePeriodically(dir string, interval time.Duration, st
 	}
 }
 
-// EmptyRoot indicate what root is for an empty trie, it depends on its underlying implement (zktrie or common trie)
+// EmptyRoot is the root of an empty trie. The state backend is always MPT
+// (zkTrie storage mode retired), so this is unconditionally the MPT empty root.
 func (db *Database) EmptyRoot() common.Hash {
-
-	if db.Zktrie {
-		return common.Hash{}
-	} else {
-		return emptyRoot
-	}
+	return emptyRoot
 }

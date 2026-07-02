@@ -73,11 +73,12 @@ type StateTransition struct {
 	// gasRefunded records the gas units returned by refundGas, so DoEstimateGas
 	// can recover the gross consumption (UsedGas+gasRefunded) for its optimistic
 	// gas-limit guess. Not consensus-relevant; never enters receipts or traces.
-	gasRefunded uint64
-	value       *big.Int
-	data        []byte
-	state       vm.StateDB
-	evm         *vm.EVM
+	gasRefunded  uint64
+	value        *big.Int
+	data         []byte
+	floorDataGas uint64
+	state        vm.StateDB
+	evm          *vm.EVM
 
 	l1DataFee *big.Int
 
@@ -199,6 +200,22 @@ func IntrinsicGas(data []byte, accessList types.AccessList, authList []types.Set
 		gas += uint64(len(authList)) * params.CallNewAccountGas
 	}
 	return gas, nil
+}
+
+// FloorDataGas computes the EIP-7623 calldata floor gas for a message.
+func FloorDataGas(data []byte) (uint64, error) {
+	var (
+		z  = uint64(bytes.Count(data, []byte{0}))
+		nz = uint64(len(data)) - z
+	)
+	if (math.MaxUint64-z)/params.TxTokenPerNonZeroByte < nz {
+		return 0, ErrGasUintOverflow
+	}
+	tokens := nz*params.TxTokenPerNonZeroByte + z
+	if (math.MaxUint64-params.TxGas)/params.TxCostFloorPerToken < tokens {
+		return 0, ErrGasUintOverflow
+	}
+	return params.TxGas + tokens*params.TxCostFloorPerToken, nil
 }
 
 // toWordSize returns the ceiled word size required for init code payment calculation.
@@ -494,6 +511,12 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if rules.IsNextFork && !st.msg.IsL1MessageTx() {
+		st.floorDataGas, err = FloorDataGas(st.data)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if st.gas < gas {
 		// Allow L1 message transactions to be included in the block but fail during execution,
 		// instead of rejecting them outright at this point.
@@ -502,6 +525,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		} else {
 			return nil, fmt.Errorf("%w: have %d, want %d", ErrIntrinsicGas, st.gas, gas)
 		}
+	}
+	if st.floorDataGas > 0 && st.gas < st.floorDataGas {
+		return nil, fmt.Errorf("%w: have %d, want %d", ErrFloorDataGas, st.gas, st.floorDataGas)
 	}
 	if t := st.evm.Config.Tracer; t != nil && t.OnGasChange != nil {
 		t.OnGasChange(st.gas, st.gas-gas, tracing.GasChangeTxIntrinsicGas)
@@ -680,6 +706,10 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	// guess. This does not alter the refund value, st.gas, or any balance below.
 	st.gasRefunded = refund
 	st.gas += refund
+
+	if st.floorDataGas > 0 && st.gasUsed() < st.floorDataGas {
+		st.gas = st.initialGas - st.floorDataGas
+	}
 
 	// Return remaining gas to the block gas counter at the end, regardless of refund success
 	defer func() {

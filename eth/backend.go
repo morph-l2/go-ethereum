@@ -139,6 +139,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if config.OverrideJadeForkTime != nil {
 		overrides.JadeForkTime = config.OverrideJadeForkTime
 	}
+	if config.OverrideNextForkTime != nil {
+		overrides.NextForkTime = config.OverrideNextForkTime
+	}
 	chainConfig, genesisHash, genesisErr := core.SetupGenesisBlockWithOverride(chainDb, config.Genesis, &overrides)
 	if _, ok := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !ok {
 		return nil, genesisErr

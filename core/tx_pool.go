@@ -258,6 +258,7 @@ type TxPool struct {
 	shanghai bool // Fork indicator whether we are in the Shanghai stage.
 	eip7702  bool // Fork indicator whether we are in the Morph 3.0.0 stage.
 	jade     bool // Fork indicator whether we are in the Jade stage.
+	nextFork bool // Fork indicator whether we are in the NextFork stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	currentHead   *big.Int       // Current blockchain head
@@ -807,6 +808,15 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai)
 	if err != nil {
 		return err
+	}
+	if pool.nextFork {
+		floorGas, err := FloorDataGas(tx.Data())
+		if err != nil {
+			return err
+		}
+		if floorGas > intrGas {
+			intrGas = floorGas
+		}
 	}
 	if tx.Gas() < intrGas {
 		return ErrIntrinsicGas
@@ -1590,6 +1600,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.shanghai = pool.chainconfig.IsShanghai(next)
 	pool.eip7702 = pool.chainconfig.IsViridian(next, newHead.Time)
 	pool.jade = pool.chainconfig.IsJadeFork(newHead.Time)
+	pool.nextFork = pool.chainconfig.IsNextFork(newHead.Time)
 
 	// Remove MorphTx V1 transactions if jade fork is not active (e.g. after reorg)
 	if !pool.jade {

@@ -48,7 +48,7 @@ const morphMinimalStateTest = `{
 }`
 
 func TestMorphForkNamesAreAvailableForStateTests(t *testing.T) {
-	for _, fork := range []string{"Bernoulli", "Curie", "Morph203", "Viridian", "Emerald", "Jade"} {
+	for _, fork := range []string{"Bernoulli", "Curie", "Morph203", "Viridian", "Emerald", "Jade", "NextFork"} {
 		if _, _, err := GetChainConfig(fork); err != nil {
 			t.Fatalf("expected fork %s to be available: %v", fork, err)
 		}

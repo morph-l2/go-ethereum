@@ -1,6 +1,7 @@
 package catalyst
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -27,10 +28,26 @@ func l2ChainConfig() params.ChainConfig {
 	return config
 }
 
+// l2ChainConfigPostJade mirrors how the V2 sequencer runs in production: Jade
+// fork active (IsJadeFork == true) with MPT storage (UseZktrie == false). This
+// is required for the NextL1MsgIndex anti-tamper gate in
+// writeBlockStateWithoutHead to actually reject mismatches (it is a no-op before
+// Jade) while still validating state roots (block_validator only validates when
+// UseZktrie != IsJadeFork).
+func l2ChainConfigPostJade() params.ChainConfig {
+	config := l2ChainConfig()
+	config.Morph.UseZktrie = false
+	config.JadeForkTime = new(uint64) // active from genesis (== 0)
+	return config
+}
+
 func generateTestL2Chain(n int) (*core.Genesis, []*types.Block) {
+	return generateTestL2ChainWithConfig(n, l2ChainConfig())
+}
+
+func generateTestL2ChainWithConfig(n int, config params.ChainConfig) (*core.Genesis, []*types.Block) {
 	testNonce = 0
 	db := rawdb.NewMemoryDatabase()
-	config := l2ChainConfig()
 	engine := l2.New(nil, params.TestChainConfig)
 	genesis := &core.Genesis{
 		Config:     &config,
@@ -188,7 +205,7 @@ func TestNewL2Block(t *testing.T) {
 		LogsBloom:   block.Bloom().Bytes(),
 	}
 
-	err = api.NewL2Block(l2Data, nil)
+	err = api.NewL2Block(l2Data)
 	require.NoError(t, err)
 
 	currentState, err := ethService.BlockChain().State()
@@ -205,7 +222,7 @@ func TestNewL2Block(t *testing.T) {
 	validResp, err := api.ValidateL2Block(*resp)
 	require.NoError(t, err)
 	require.True(t, validResp.Success)
-	err = api.NewL2Block(*resp, nil)
+	err = api.NewL2Block(*resp)
 	require.NoError(t, err)
 	currentState, err = ethService.BlockChain().State()
 	require.NoError(t, err)
@@ -239,6 +256,92 @@ func TestNewSafeL2Block(t *testing.T) {
 	require.EqualValues(t, block.Root().String(), header.Root.String())
 }
 
+// TestNewSafeL2BlockWithParentHash covers the ParentHash != nil branch of
+// NewSafeL2Block (the derivation/reorg path). TestNewSafeL2Block above only
+// exercises ParentHash == nil (legacy currentHead+1 sequential path); this
+// test pins the parent by hash, including a reorg onto a non-head parent.
+func TestNewSafeL2BlockWithParentHash(t *testing.T) {
+	num := 10
+	genesis, blocks := generateTestL2Chain(num)
+	n, ethService := startEthService(t, genesis, blocks)
+	defer n.Close()
+
+	// writeBlockStateWithoutHead derives/validates NextL1MsgIndex from the
+	// parent's FirstQueueIndexNotInL2Block, so it must be recorded for every block.
+	genesisBlock := ethService.BlockChain().GetBlockByNumber(0)
+	rawdb.WriteFirstQueueIndexNotInL2Block(ethService.ChainDb(), genesisBlock.Hash(), 0)
+	for _, block := range blocks {
+		rawdb.WriteFirstQueueIndexNotInL2Block(ethService.ChainDb(), block.Hash(), 0)
+	}
+
+	api := newL2ConsensusAPI(ethService)
+	bc := ethService.BlockChain()
+
+	// Pinned parent that does not exist → "parent block not found".
+	t.Run("ParentNotFound", func(t *testing.T) {
+		missing := common.HexToHash("0xdeadbeef")
+		_, err := api.NewSafeL2Block(SafeL2Data{
+			ParentHash: &missing,
+			Number:     999,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "parent block not found")
+	})
+
+	// Pinned parent valid but Number != parent+1 → "wrong block number".
+	t.Run("WrongBlockNumber", func(t *testing.T) {
+		parentHash := bc.CurrentBlock().Hash()
+		_, err := api.NewSafeL2Block(SafeL2Data{
+			ParentHash: &parentHash,
+			Number:     999,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "wrong block number")
+	})
+
+	// Pin an old (non-head) parent and apply its child → chain reorgs to it.
+	t.Run("Reorg", func(t *testing.T) {
+		headBefore := bc.CurrentBlock().NumberU64()
+		require.EqualValues(t, num, headBefore)
+
+		block7 := bc.GetBlockByNumber(7)
+		require.NotNil(t, block7)
+		parentHash := block7.Hash()
+
+		ret, err := ethService.Miner().BuildBlock(parentHash, time.Now(), nil)
+		require.NoError(t, err)
+		newBlock := ret.Block
+		require.EqualValues(t, 8, newBlock.NumberU64())
+
+		header, err := api.NewSafeL2Block(SafeL2Data{
+			ParentHash:   &parentHash,
+			Number:       newBlock.NumberU64(),
+			Timestamp:    newBlock.Time(),
+			GasLimit:     newBlock.GasLimit(),
+			BaseFee:      newBlock.BaseFee(),
+			Transactions: encodeTransactions(newBlock.Transactions()),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, header)
+
+		// Re-executed state root matches the miner block built on the same parent,
+		// and the parent is the pinned old block (not the previous head).
+		require.EqualValues(t, newBlock.Root().String(), header.Root.String())
+		require.Equal(t, parentHash, header.ParentHash)
+
+		// Head reorged to height 8 with the new block canonical there.
+		require.EqualValues(t, 8, bc.CurrentBlock().NumberU64())
+		require.Equal(t, header.Hash(), bc.CurrentBlock().Hash())
+		require.Equal(t, header.Hash(), rawdb.ReadCanonicalHash(ethService.ChainDb(), 8))
+
+		// Stale canonical hashes above the reorg point are cleared.
+		for h := headBefore; h > 8; h-- {
+			require.Equal(t, common.Hash{}, rawdb.ReadCanonicalHash(ethService.ChainDb(), h),
+				"canonical hash at height %d should be empty after reorg", h)
+		}
+	})
+}
+
 func makeL1Txs(fromIndex, count int) (types.Transactions, []types.L1MessageTx) {
 	receiver := common.BigToAddress(big.NewInt(1111))
 	l1Txs := make([]*types.Transaction, count)
@@ -256,6 +359,236 @@ func makeL1Txs(fromIndex, count int) (types.Transactions, []types.L1MessageTx) {
 		l1Messages[i] = l1Message
 	}
 	return l1Txs, l1Messages
+}
+
+func TestNewL2BlockV2(t *testing.T) {
+	// Build a chain of 10 blocks for reorg testing. Use the post-Jade (MPT)
+	// config so the NextL1MsgIndex anti-tamper gate is enforced; before the Jade
+	// fork the gate only logs a warning, which is why TamperedNextL1MessageIndex
+	// would otherwise see a nil error.
+	num := 10
+	genesis, blocks := generateTestL2ChainWithConfig(num, l2ChainConfigPostJade())
+	n, ethService := startEthService(t, genesis, blocks)
+	defer n.Close()
+
+	// Write FirstQueueIndexNotInL2Block for all blocks (required by writeBlockStateWithoutHead)
+	genesisBlock := ethService.BlockChain().GetBlockByNumber(0)
+	rawdb.WriteFirstQueueIndexNotInL2Block(ethService.ChainDb(), genesisBlock.Hash(), 0)
+	for _, block := range blocks {
+		rawdb.WriteFirstQueueIndexNotInL2Block(ethService.ChainDb(), block.Hash(), 0)
+	}
+
+	api := newL2ConsensusAPI(ethService)
+	config := l2ChainConfigPostJade()
+	bc := ethService.BlockChain()
+
+	// TC-01: Normal sequential block (parent == currentHead)
+	t.Run("NormalSequentialBlock", func(t *testing.T) {
+		err := sendTransfer(config, ethService)
+		require.NoError(t, err)
+
+		currentHash := bc.CurrentBlock().Hash()
+		ret, err := ethService.Miner().BuildBlock(currentHash, time.Now(), nil)
+		require.NoError(t, err)
+
+		data := ExecutableL2Data{
+			ParentHash:   ret.Block.ParentHash(),
+			Number:       ret.Block.NumberU64(),
+			Miner:        ret.Block.Coinbase(),
+			Timestamp:    ret.Block.Time(),
+			GasLimit:     ret.Block.GasLimit(),
+			BaseFee:      ret.Block.BaseFee(),
+			Transactions: encodeTransactions(ret.Block.Transactions()),
+			StateRoot:    ret.Block.Root(),
+			GasUsed:      ret.Block.GasUsed(),
+			ReceiptRoot:  ret.Block.ReceiptHash(),
+			LogsBloom:    ret.Block.Bloom().Bytes(),
+		}
+
+		_, err = api.NewL2BlockV2(data)
+		require.NoError(t, err)
+		require.EqualValues(t, num+1, bc.CurrentBlock().NumberU64())
+	})
+
+	// TC-03: Parent not found
+	t.Run("ParentNotFound", func(t *testing.T) {
+		data := ExecutableL2Data{
+			ParentHash: common.HexToHash("0xdeadbeef"),
+			Number:     999,
+		}
+		_, err := api.NewL2BlockV2(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "parent block not found")
+	})
+
+	// TC-04: Wrong block number (not parent+1)
+	t.Run("WrongBlockNumber", func(t *testing.T) {
+		data := ExecutableL2Data{
+			ParentHash: bc.CurrentBlock().Hash(),
+			Number:     999, // wrong
+		}
+		_, err := api.NewL2BlockV2(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "wrong block number")
+	})
+
+	// TC-02 + TC-06: Reorg from height 11 to build on block 7
+	t.Run("Reorg", func(t *testing.T) {
+		currentHead := bc.CurrentBlock().NumberU64() // should be 11 after TC-01
+		require.True(t, currentHead >= 10, "chain must be at least 10 blocks")
+
+		// Get block 7 as reorg parent
+		block7 := bc.GetBlockByNumber(7)
+		require.NotNil(t, block7)
+
+		// Build a new block on top of block 7
+		ret, err := ethService.Miner().BuildBlock(block7.Hash(), time.Now(), nil)
+		require.NoError(t, err)
+		newBlock := ret.Block
+
+		data := ExecutableL2Data{
+			ParentHash:   newBlock.ParentHash(),
+			Number:       newBlock.NumberU64(),
+			Miner:        newBlock.Coinbase(),
+			Timestamp:    newBlock.Time(),
+			GasLimit:     newBlock.GasLimit(),
+			BaseFee:      newBlock.BaseFee(),
+			Transactions: encodeTransactions(newBlock.Transactions()),
+			StateRoot:    newBlock.Root(),
+			GasUsed:      newBlock.GasUsed(),
+			ReceiptRoot:  newBlock.ReceiptHash(),
+			LogsBloom:    newBlock.Bloom().Bytes(),
+		}
+
+		// Apply the reorg block via NewL2BlockV2
+		_, err = api.NewL2BlockV2(data)
+		require.NoError(t, err)
+
+		// Verify chain head is now at height 8
+		require.EqualValues(t, 8, bc.CurrentBlock().NumberU64())
+
+		// TC-06: Verify stale canonical hashes are cleaned
+		for h := uint64(9); h <= currentHead; h++ {
+			hash := rawdb.ReadCanonicalHash(ethService.ChainDb(), h)
+			require.Equal(t, common.Hash{}, hash, "canonical hash at height %d should be empty after reorg", h)
+		}
+
+		// Verify new block is canonical at height 8
+		canonicalHash8 := rawdb.ReadCanonicalHash(ethService.ChainDb(), 8)
+		require.NotEqual(t, common.Hash{}, canonicalHash8)
+	})
+
+	// TC-07: header.NextL1MsgIndex must match the value derived from the
+	// canonical L1 message stream. This field is not covered by Header.Hash(),
+	// so a signature-replay attacker could otherwise set it freely. The check
+	// in writeBlockStateWithoutHead must reject the block before it is
+	// persisted, leaving the chain head untouched.
+	t.Run("TamperedNextL1MessageIndex", func(t *testing.T) {
+		headBefore := bc.CurrentBlock().Hash()
+		numberBefore := bc.CurrentBlock().NumberU64()
+
+		ret, err := ethService.Miner().BuildBlock(headBefore, time.Now(), nil)
+		require.NoError(t, err)
+
+		// The honest miner produces a block with NextL1MsgIndex == 0 here
+		// (no L1 messages in the test setup). Tampering it to a non-zero
+		// value mimics an attacker who replays a legitimate signature while
+		// flipping bits in fields not bound to the block hash.
+		require.EqualValues(t, 0, ret.Block.Header().NextL1MsgIndex,
+			"sanity: honest block should have NextL1MsgIndex = 0 in this test setup")
+
+		data := ExecutableL2Data{
+			ParentHash:         ret.Block.ParentHash(),
+			Number:             ret.Block.NumberU64(),
+			Miner:              ret.Block.Coinbase(),
+			Timestamp:          ret.Block.Time(),
+			GasLimit:           ret.Block.GasLimit(),
+			BaseFee:            ret.Block.BaseFee(),
+			Transactions:       encodeTransactions(ret.Block.Transactions()),
+			StateRoot:          ret.Block.Root(),
+			GasUsed:            ret.Block.GasUsed(),
+			ReceiptRoot:        ret.Block.ReceiptHash(),
+			LogsBloom:          ret.Block.Bloom().Bytes(),
+			NextL1MessageIndex: 99, // tampered
+		}
+
+		_, err = api.NewL2BlockV2(data)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrInvalidNextL1MsgIndex),
+			"expected ErrInvalidNextL1MsgIndex, got: %v", err)
+
+		// Chain head must not have advanced.
+		require.Equal(t, headBefore, bc.CurrentBlock().Hash(),
+			"head must not move when block is rejected")
+		require.Equal(t, numberBefore, bc.CurrentBlock().NumberU64())
+	})
+
+	// TC-08: Honest NextL1MsgIndex on the same parent should still apply
+	// cleanly, proving the check does not over-reject after TC-07.
+	t.Run("HonestNextL1MessageIndexAfterTampered", func(t *testing.T) {
+		headBefore := bc.CurrentBlock().Hash()
+		numberBefore := bc.CurrentBlock().NumberU64()
+
+		ret, err := ethService.Miner().BuildBlock(headBefore, time.Now(), nil)
+		require.NoError(t, err)
+
+		data := ExecutableL2Data{
+			ParentHash:         ret.Block.ParentHash(),
+			Number:             ret.Block.NumberU64(),
+			Miner:              ret.Block.Coinbase(),
+			Timestamp:          ret.Block.Time(),
+			GasLimit:           ret.Block.GasLimit(),
+			BaseFee:            ret.Block.BaseFee(),
+			Transactions:       encodeTransactions(ret.Block.Transactions()),
+			StateRoot:          ret.Block.Root(),
+			GasUsed:            ret.Block.GasUsed(),
+			ReceiptRoot:        ret.Block.ReceiptHash(),
+			LogsBloom:          ret.Block.Bloom().Bytes(),
+			NextL1MessageIndex: ret.Block.Header().NextL1MsgIndex, // honest
+		}
+
+		_, err = api.NewL2BlockV2(data)
+		require.NoError(t, err)
+		require.Equal(t, numberBefore+1, bc.CurrentBlock().NumberU64())
+	})
+
+	// TC-07: Consecutive reorg - now at height 8, reorg to build on block 5
+	t.Run("ConsecutiveReorg", func(t *testing.T) {
+		block5 := bc.GetBlockByNumber(5)
+		require.NotNil(t, block5)
+
+		ret, err := ethService.Miner().BuildBlock(block5.Hash(), time.Now(), nil)
+		require.NoError(t, err)
+		newBlock := ret.Block
+
+		data := ExecutableL2Data{
+			ParentHash:   newBlock.ParentHash(),
+			Number:       newBlock.NumberU64(),
+			Miner:        newBlock.Coinbase(),
+			Timestamp:    newBlock.Time(),
+			GasLimit:     newBlock.GasLimit(),
+			BaseFee:      newBlock.BaseFee(),
+			Transactions: encodeTransactions(newBlock.Transactions()),
+			StateRoot:    newBlock.Root(),
+			GasUsed:      newBlock.GasUsed(),
+			ReceiptRoot:  newBlock.ReceiptHash(),
+			LogsBloom:    newBlock.Bloom().Bytes(),
+		}
+
+		_, err = api.NewL2BlockV2(data)
+		require.NoError(t, err)
+		require.EqualValues(t, 6, bc.CurrentBlock().NumberU64())
+
+		// Stale canonical hashes at 7, 8 should be empty
+		for h := uint64(7); h <= 8; h++ {
+			hash := rawdb.ReadCanonicalHash(ethService.ChainDb(), h)
+			require.Equal(t, common.Hash{}, hash, "height %d should be empty", h)
+		}
+	})
+
+	// (TC-05 removed: the isSafe=true path of NewL2BlockV2 has been
+	// consolidated into NewSafeL2Block, which has its own dedicated test
+	// TestNewSafeL2Block. NewL2BlockV2 is now sequencer-signed-only.)
 }
 
 func sendTransfer(config params.ChainConfig, ethService *eth.Ethereum) error {

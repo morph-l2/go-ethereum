@@ -51,6 +51,25 @@ type assembleL2BlockParamsMarshaling struct {
 	Timestamp    *hexutil.Uint64
 }
 
+//go:generate go run github.com/fjl/gencodec -type AssembleL2BlockV2Params -field-override assembleL2BlockV2ParamsMarshaling -out gen_l2blockv2params.go
+
+// AssembleL2BlockV2Params is the request payload for engine_assembleL2BlockV2.
+// Mirrors AssembleL2BlockParams but pins the parent by hash instead of by
+// number, so the caller can build on any parent block (enables future
+// reorg-aware sequencing).
+type AssembleL2BlockV2Params struct {
+	ParentHash   common.Hash `json:"parentHash"    gencodec:"required"`
+	Transactions [][]byte    `json:"transactions"`
+	Timestamp    *uint64     `json:"timestamp"`
+}
+
+// JSON type overrides for AssembleL2BlockV2Params: produce 0x-prefixed
+// Ethereum-style hex on the wire instead of decimal/base64.
+type assembleL2BlockV2ParamsMarshaling struct {
+	Transactions []hexutil.Bytes
+	Timestamp    *hexutil.Uint64
+}
+
 //go:generate go run github.com/fjl/gencodec -type executableData -field-override executableDataMarshaling -out gen_ed.go
 
 // Structure described at https://notes.ethereum.org/@n0ble/rayonism-the-merge-spec#Parameters1
@@ -133,6 +152,12 @@ type SafeL2Data struct {
 	Timestamp    uint64       `json:"timestamp"      gencodec:"required"`
 	Transactions [][]byte     `json:"transactions"   gencodec:"required"`
 	BatchHash    *common.Hash `json:"batchHash"`
+	// ParentHash, when non-nil, pins the block's parent. Used by the
+	// derivation reorg path (deriveForce) to apply L1-canonical blocks on
+	// top of a non-currentHead parent; SetCanonical detects the divergence
+	// and reorgs automatically. When nil, NewSafeL2Block falls back to
+	// the legacy "extend currentHead by one" semantics.
+	ParentHash *common.Hash `json:"parentHash"`
 }
 
 // JSON type overrides for SafeL2Data.

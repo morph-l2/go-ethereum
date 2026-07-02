@@ -38,8 +38,14 @@ func (ec *Client) ValidateL2Block(ctx context.Context, executableL2Data *catalys
 }
 
 // NewL2Block executes L2 Block, and set the block to chain
-func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data, batchHash *common.Hash) error {
-	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data, batchHash)
+func (ec *Client) NewL2Block(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data) error {
+	return ec.c.CallContext(ctx, nil, "engine_newL2Block", executableL2Data)
+}
+
+func (ec *Client) NewL2BlockV2(ctx context.Context, executableL2Data *catalyst.ExecutableL2Data) (*types.Header, error) {
+	var header *types.Header
+	err := ec.c.CallContext(ctx, &header, "engine_newL2BlockV2", executableL2Data)
+	return header, err
 }
 
 // NewSafeL2Block executes a safe L2 Block, and set the block to chain
@@ -47,16 +53,6 @@ func (ec *Client) NewSafeL2Block(ctx context.Context, safeL2Data *catalyst.SafeL
 	var header types.Header
 	err := ec.c.CallContext(ctx, &header, "engine_newSafeL2Block", safeL2Data)
 	return &header, err
-}
-
-// CommitBatch commit the batch, with the signatures
-func (ec *Client) CommitBatch(ctx context.Context, batch *types.RollupBatch, signatures []types.BatchSignature) error {
-	return ec.c.CallContext(ctx, nil, "engine_commitBatch", batch, signatures)
-}
-
-// AppendBlsSignature append a new bls signature to the batch
-func (ec *Client) AppendBlsSignature(ctx context.Context, batchHash common.Hash, signature types.BatchSignature) error {
-	return ec.c.CallContext(ctx, nil, "engine_appendBatchSignature", batchHash, signature)
 }
 
 // SetBlockTags sets the safe and finalized block by hash
@@ -77,7 +73,10 @@ func (ec *Client) AssembleL2BlockV2(ctx context.Context, parentHash common.Hash,
 		txs = append(txs, bz)
 	}
 	var result *catalyst.ExecutableL2Data
-	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", parentHash, timestamp, txs)
+	err := ec.c.CallContext(ctx, &result, "engine_assembleL2BlockV2", &catalyst.AssembleL2BlockV2Params{
+		ParentHash:   parentHash,
+		Transactions: txs,
+		Timestamp:    timestamp,
+	})
 	return result, err
 }
-

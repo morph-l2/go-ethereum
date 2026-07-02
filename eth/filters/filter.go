@@ -23,8 +23,10 @@ import (
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/bloombits"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
@@ -41,6 +43,53 @@ type Filter struct {
 	matcher *bloombits.Matcher
 
 	maxBlockRange int64
+}
+
+// ReceiptWithTx keeps a receipt paired with the transaction and block metadata
+// needed to marshal the same JSON shape as eth_getTransactionReceipt.
+type ReceiptWithTx struct {
+	Receipt     *types.Receipt
+	Transaction *types.Transaction
+	Header      *types.Header
+	BlockHash   common.Hash
+	TxIndex     int
+}
+
+func filterReceipts(txHashes map[common.Hash]bool, ev core.ChainEvent) []*ReceiptWithTx {
+	receipts, txs := ev.Receipts, ev.Transactions
+	if len(receipts) != len(txs) {
+		log.Debug("Skipping chain event with mismatched receipts and transactions", "hash", ev.Hash, "receipts", len(receipts), "transactions", len(txs))
+		return nil
+	}
+	if len(receipts) == 0 {
+		return nil
+	}
+	header := ev.Header
+	if header == nil && ev.Block != nil {
+		header = ev.Block.Header()
+	}
+	if header == nil {
+		return nil
+	}
+	blockHash := ev.Hash
+	if blockHash == (common.Hash{}) {
+		blockHash = header.Hash()
+	}
+	matched := make([]*ReceiptWithTx, 0, len(receipts))
+	for i, receipt := range receipts {
+		txHash := txs[i].Hash()
+		if len(txHashes) > 0 && !txHashes[txHash] && !txHashes[receipt.TxHash] {
+			continue
+		}
+		matched = append(matched, &ReceiptWithTx{
+			Receipt:     receipt,
+			Transaction: txs[i],
+			Header:      header,
+			BlockHash:   blockHash,
+			TxIndex:     i,
+		})
+	}
+	return matched
 }
 
 // NewRangeFilter creates a new filter which uses a bloom filter on blocks to
@@ -167,7 +216,7 @@ func (f *Filter) Logs(ctx context.Context) ([]*types.Log, error) {
 	}
 
 	if begin > end {
-		return nil, nil
+		return nil, errInvalidBlockRange
 	}
 	f.begin = int64(begin)
 	f.end = int64(end)

@@ -18,6 +18,7 @@ package vm
 
 import (
 	"errors"
+	"maps"
 	"math/big"
 	"sync/atomic"
 
@@ -46,24 +47,9 @@ type (
 )
 
 func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
-	var precompiles map[common.Address]PrecompiledContract
-	switch {
-	case evm.chainRules.IsEmerald:
-		precompiles = PrecompiledContractsEmerald
-	case evm.chainRules.IsMorph203:
-		precompiles = PrecompiledContractsMorph203
-	case evm.chainRules.IsBernoulli:
-		precompiles = PrecompiledContractsBernoulli
-	case evm.chainRules.IsArchimedes:
-		precompiles = PrecompiledContractsArchimedes
-	case evm.chainRules.IsBerlin:
-		precompiles = PrecompiledContractsBerlin
-	case evm.chainRules.IsIstanbul:
-		precompiles = PrecompiledContractsIstanbul
-	case evm.chainRules.IsByzantium:
-		precompiles = PrecompiledContractsByzantium
-	default:
-		precompiles = PrecompiledContractsHomestead
+	precompiles := activePrecompiledContracts(evm.chainRules)
+	if evm.customPrecompiles {
+		precompiles = evm.precompiles
 	}
 	p, ok := precompiles[addr]
 	return p, ok
@@ -133,21 +119,69 @@ type EVM struct {
 	// available gas is calculated in gasCall* according to the 63/64 rule and later
 	// applied in opCall*.
 	callGasTemp uint64
+
+	// precompiles holds the precompiled contracts for this EVM instance.
+	precompiles       PrecompiledContracts
+	customPrecompiles bool
 }
 
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
 // only ever be used *once*.
 func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig *params.ChainConfig, config Config) *EVM {
+	blockTime := uint64(0)
+	if blockCtx.Time != nil {
+		blockTime = blockCtx.Time.Uint64()
+	}
 	evm := &EVM{
 		Context:     blockCtx,
 		TxContext:   txCtx,
 		StateDB:     statedb,
 		Config:      config,
 		chainConfig: chainConfig,
-		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockCtx.Time.Uint64()),
+		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockTime),
 	}
+	// Seed the instance precompile map with the chain-rule defaults. While
+	// customPrecompiles stays false, precompile() ignores this field and reads
+	// the global map directly (zero overhead for normal transactions); the
+	// seeded map is only consumed by CopyPrecompiles/ActivePrecompiles so that
+	// RPC-only overrides and nested probe EVMs have a concrete map to clone
+	// from even before SetPrecompiles flips customPrecompiles to true.
+	evm.precompiles = activePrecompiledContracts(evm.chainRules)
 	evm.interpreter = NewEVMInterpreter(evm, config)
 	return evm
+}
+
+// SetPrecompiles sets the precompiled contracts for the EVM.
+// This method is only used through RPC calls and is not thread-safe.
+func (evm *EVM) SetPrecompiles(precompiles PrecompiledContracts) {
+	evm.precompiles = precompiles
+	evm.customPrecompiles = true
+}
+
+// HasCustomPrecompiles returns whether RPC code overrode this EVM's precompile map.
+func (evm *EVM) HasCustomPrecompiles() bool {
+	return evm != nil && evm.customPrecompiles
+}
+
+// ActivePrecompiles returns the precompile addresses configured on this EVM instance.
+func (evm *EVM) ActivePrecompiles() []common.Address {
+	if evm == nil {
+		return nil
+	}
+	if !evm.customPrecompiles {
+		return ActivePrecompiles(evm.chainRules)
+	}
+	return PrecompileAddresses(evm.precompiles)
+}
+
+// CopyPrecompiles returns a clone of the precompiled contracts configured on
+// this EVM instance. It lets RPC-only precompile overrides be propagated to
+// nested probe EVMs without exposing the instance's internal map.
+func (evm *EVM) CopyPrecompiles() PrecompiledContracts {
+	if evm == nil {
+		return nil
+	}
+	return maps.Clone(evm.precompiles)
 }
 
 // Reset resets the EVM with a new transaction context.Reset
@@ -500,7 +534,9 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	if err == nil {
 		createDataGas := uint64(len(ret)) * params.CreateDataGas
 		if contract.UseGas(createDataGas, evm.Config.Tracer, tracing.GasChangeCallCodeStorage) {
-			evm.StateDB.SetCode(address, ret)
+			if len(ret) > 0 {
+				evm.StateDB.SetCode(address, ret)
+			}
 		} else {
 			err = ErrCodeStoreOutOfGas
 		}
@@ -601,12 +637,23 @@ func (evm *EVM) captureEnd(depth int, startGas uint64, leftOverGas uint64, ret [
 // GetVMContext provides context about the block being executed as well as state
 // to the tracers.
 func (evm *EVM) GetVMContext() *tracing.VMContext {
-	return &tracing.VMContext{
+	if evm == nil {
+		return &tracing.VMContext{}
+	}
+	blockTime := uint64(0)
+	if evm.Context.Time != nil {
+		blockTime = evm.Context.Time.Uint64()
+	}
+	ctx := &tracing.VMContext{
 		To:          evm.To,
 		Coinbase:    evm.Context.Coinbase,
 		BlockNumber: evm.Context.BlockNumber,
-		Time:        evm.Context.Time.Uint64(),
+		Time:        blockTime,
 		BaseFee:     evm.Context.BaseFee,
 		StateDB:     evm.StateDB,
 	}
+	if evm.customPrecompiles {
+		ctx.Precompiles = PrecompileAddresses(evm.precompiles)
+	}
+	return ctx
 }

@@ -673,26 +673,28 @@ func makeTestReceipts(n int, nPerBlock int) []types.Receipts {
 }
 
 type fullLogRLP struct {
-	Address     common.Address
-	Topics      []common.Hash
-	Data        []byte
-	BlockNumber uint64
-	TxHash      common.Hash
-	TxIndex     uint
-	BlockHash   common.Hash
-	Index       uint
+	Address        common.Address
+	Topics         []common.Hash
+	Data           []byte
+	BlockNumber    uint64
+	BlockTimestamp uint64
+	TxHash         common.Hash
+	TxIndex        uint
+	BlockHash      common.Hash
+	Index          uint
 }
 
 func newFullLogRLP(l *types.Log) *fullLogRLP {
 	return &fullLogRLP{
-		Address:     l.Address,
-		Topics:      l.Topics,
-		Data:        l.Data,
-		BlockNumber: l.BlockNumber,
-		TxHash:      l.TxHash,
-		TxIndex:     l.TxIndex,
-		BlockHash:   l.BlockHash,
-		Index:       l.Index,
+		Address:        l.Address,
+		Topics:         l.Topics,
+		Data:           l.Data,
+		BlockNumber:    l.BlockNumber,
+		BlockTimestamp: l.BlockTimestamp,
+		TxHash:         l.TxHash,
+		TxIndex:        l.TxIndex,
+		BlockHash:      l.BlockHash,
+		Index:          l.Index,
 	}
 }
 
@@ -734,12 +736,17 @@ func TestReadLogs(t *testing.T) {
 	receipt2.Bloom = types.CreateBloom(types.Receipts{receipt2})
 	receipts := []*types.Receipt{receipt1, receipt2}
 
-	hash := common.BytesToHash([]byte{0x03, 0x14})
+	// Create a header so that ReadLogs can recover the block timestamp for the
+	// derived logs. The header hash is used as the storage key for body/receipts.
+	const blockTime = uint64(1234)
+	header := &types.Header{Number: big.NewInt(0), Time: blockTime}
+	hash := header.Hash()
 	// Check that no receipt entries are in a pristine database
 	if rs := ReadReceipts(db, hash, 0, 0, params.TestChainConfig); len(rs) != 0 {
 		t.Fatalf("non existent receipts returned: %v", rs)
 	}
-	// Insert the body that corresponds to the receipts
+	// Insert the header, body and receipts that correspond to the logs
+	WriteHeader(db, header)
 	WriteBody(db, hash, 0, body)
 
 	// Insert the receipt slice into the database and check presence
@@ -760,7 +767,7 @@ func TestReadLogs(t *testing.T) {
 	}
 
 	// Fill in log fields so we can compare their rlp encoding
-	if err := types.Receipts(receipts).DeriveFields(params.TestChainConfig, hash, 0, 0, nil, body.Transactions); err != nil {
+	if err := types.Receipts(receipts).DeriveFields(params.TestChainConfig, hash, 0, blockTime, nil, body.Transactions); err != nil {
 		t.Fatal(err)
 	}
 	for i, pr := range receipts {
@@ -831,7 +838,8 @@ func TestDeriveLogFields(t *testing.T) {
 	// Derive log metadata fields
 	number := big.NewInt(1)
 	hash := common.BytesToHash([]byte{0x03, 0x14})
-	if err := deriveLogFields(receipts, hash, number.Uint64(), txs); err != nil {
+	blockTime := uint64(12)
+	if err := deriveLogFields(receipts, hash, number.Uint64(), blockTime, txs); err != nil {
 		t.Fatal(err)
 	}
 
@@ -844,6 +852,9 @@ func TestDeriveLogFields(t *testing.T) {
 			}
 			if receipts[i].Logs[j].BlockHash != hash {
 				t.Errorf("receipts[%d].Logs[%d].BlockHash = %s, want %s", i, j, receipts[i].Logs[j].BlockHash.String(), hash.String())
+			}
+			if receipts[i].Logs[j].BlockTimestamp != blockTime {
+				t.Errorf("receipts[%d].Logs[%d].BlockTimestamp = %d, want %d", i, j, receipts[i].Logs[j].BlockTimestamp, blockTime)
 			}
 			if receipts[i].Logs[j].TxHash != txs[i].Hash() {
 				t.Errorf("receipts[%d].Logs[%d].TxHash = %s, want %s", i, j, receipts[i].Logs[j].TxHash.String(), txs[i].Hash().String())

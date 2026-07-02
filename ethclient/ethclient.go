@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/morph-l2/go-ethereum"
 	"github.com/morph-l2/go-ethereum/common"
@@ -140,6 +141,9 @@ func (ec *Client) getBlock(ctx context.Context, method string, args ...interface
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, err
+	}
+	if head == nil {
+		return nil, ethereum.NotFound
 	}
 	// Quick-verify transaction and uncle lists. This mostly helps with debugging the server.
 	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
@@ -308,6 +312,11 @@ func (ec *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*
 		}
 	}
 	return r, err
+}
+
+// SubscribeTransactionReceipts subscribes to batches of transaction receipts.
+func (ec *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.TransactionReceiptsQuery, ch chan<- []*types.Receipt) (ethereum.Subscription, error) {
+	return ec.c.EthSubscribe(ctx, ch, "transactionReceipts", q)
 }
 
 // SyncProgress retrieves the current progress of the sync algorithm. If there's
@@ -489,18 +498,6 @@ func (ec *Client) GetRollupBatchByIndex(ctx context.Context, batchIndex uint64) 
 	rpcRollupBatch := new(eth.RPCRollupBatch)
 	err := ec.c.CallContext(ctx, rpcRollupBatch, "morph_getRollupBatchByIndex", batchIndex)
 	return rpcRollupBatch, err
-}
-
-// GetRollupBatchL1FeeByIndex query the batch to be rollup by batchIndex
-func (ec *Client) GetRollupBatchL1FeeByIndex(ctx context.Context, batchIndex uint64) (*big.Int, error) {
-	var fee *hexutil.Big
-	err := ec.c.CallContext(ctx, &fee, "morph_getRollupBatchL1FeeByIndex", batchIndex)
-	if err != nil {
-		return nil, err
-	} else if fee == nil {
-		return nil, nil
-	}
-	return (*big.Int)(fee), err
 }
 
 // State Access
@@ -734,6 +731,32 @@ func (ec *Client) SendTransaction(ctx context.Context, tx *types.Transaction) er
 		return err
 	}
 	return ec.c.CallContext(ctx, nil, "eth_sendRawTransaction", hexutil.Encode(data))
+}
+
+// SendTransactionSync submits a signed transaction and waits for a receipt. If
+// timeout is nil or zero, the server uses its configured default timeout.
+func (ec *Client) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, error) {
+	data, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return ec.SendRawTransactionSync(ctx, data, timeout)
+}
+
+// SendRawTransactionSync submits raw transaction bytes and waits for a receipt.
+func (ec *Client) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, error) {
+	var timeoutMs *hexutil.Uint64
+	if timeout != nil && *timeout > 0 {
+		if timeoutMillis := timeout.Milliseconds(); timeoutMillis > 0 {
+			ms := hexutil.Uint64(timeoutMillis)
+			timeoutMs = &ms
+		}
+	}
+	var receipt types.Receipt
+	if err := ec.c.CallContext(ctx, &receipt, "eth_sendRawTransactionSync", hexutil.Bytes(rawTx), timeoutMs); err != nil {
+		return nil, err
+	}
+	return &receipt, nil
 }
 
 func toBlockNumArg(number *big.Int) string {

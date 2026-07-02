@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"math/big"
 	"math/rand"
 	"os"
@@ -410,6 +411,24 @@ func TestInvalidTransactions(t *testing.T) {
 	}
 	if err := pool.AddLocal(tx); err != nil {
 		t.Error("expected", nil, "got", err)
+	}
+}
+
+func TestValidateTxNonceMax(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPoolWithConfig(noL1feeConfig)
+	defer pool.Stop()
+
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	testAddBalance(pool, from, big.NewInt(1000000000000000000))
+	testSetNonce(pool, from, math.MaxUint64-2)
+
+	if err := pool.validateTx(transaction(math.MaxUint64, 100000, key), false); !errors.Is(err, ErrNonceMax) {
+		t.Fatalf("expected %v for max nonce, got %v", ErrNonceMax, err)
+	}
+	if err := pool.validateTx(transaction(math.MaxUint64-1, 100000, key), false); err != nil {
+		t.Fatalf("expected max-1 nonce to pass validation, got %v", err)
 	}
 }
 
@@ -2334,6 +2353,86 @@ func TestTransactionReplacementDynamicFee(t *testing.T) {
 
 	if err := validateTxPoolInternals(pool); err != nil {
 		t.Fatalf("pool internal state corrupted: %v", err)
+	}
+}
+
+func TestTransactionReplacementDynamicFeeZeroTip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		oldFeeCap      int64
+		oldTipCap      int64
+		newFeeCap      int64
+		newTipCap      int64
+		wantErr        error
+		validateEvents bool
+	}{
+		{
+			name:           "zero tip fee bump accepted",
+			oldFeeCap:      2_000_000,
+			newFeeCap:      4_000_000,
+			validateEvents: true,
+		},
+		{
+			name:      "zero tip insufficient fee bump rejected",
+			oldFeeCap: 2_000_000,
+			newFeeCap: 2_100_000,
+			wantErr:   ErrReplaceUnderpriced,
+		},
+		{
+			name:      "nonzero tip requires tip bump",
+			oldFeeCap: 2_000_000,
+			oldTipCap: 100,
+			newFeeCap: 4_000_000,
+			newTipCap: 100,
+			wantErr:   ErrReplaceUnderpriced,
+		},
+		{
+			name:           "nonzero tip accepts dual bump",
+			oldFeeCap:      2_000_000,
+			oldTipCap:      100,
+			newFeeCap:      4_000_000,
+			newTipCap:      110,
+			validateEvents: true,
+		},
+	}
+	for _, stage := range []string{"pending", "queued"} {
+		for _, tt := range tests {
+			t.Run(stage+"/"+tt.name, func(t *testing.T) {
+				pool, key := setupTxPoolWithConfig(eip1559NoL1feeConfig)
+				defer pool.Stop()
+				testAddBalance(pool, crypto.PubkeyToAddress(key.PublicKey), big.NewInt(1_000_000_000_000_000_000))
+
+				events := make(chan NewTxsEvent, 32)
+				sub := pool.txFeed.Subscribe(events)
+				defer sub.Unsubscribe()
+
+				nonce := uint64(0)
+				if stage == "queued" {
+					nonce = 2
+				}
+				if err := pool.addRemoteSync(dynamicFeeTx(nonce, 100000, big.NewInt(tt.oldFeeCap), big.NewInt(tt.oldTipCap), key)); err != nil {
+					t.Fatalf("failed to add original %s transaction: %v", stage, err)
+				}
+				err := pool.AddRemote(dynamicFeeTx(nonce, 100000, big.NewInt(tt.newFeeCap), big.NewInt(tt.newTipCap), key))
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("replacement error mismatch: have %v, want %v", err, tt.wantErr)
+				}
+				if tt.validateEvents {
+					count := 2
+					if stage == "queued" {
+						count = 0
+					}
+					if err := validateEvents(events, count); err != nil {
+						t.Fatalf("replacement event firing failed: %v", err)
+					}
+				}
+				if err := validateTxPoolInternals(pool); err != nil {
+					t.Fatalf("pool internal state corrupted: %v", err)
+				}
+			})
+		}
 	}
 }
 

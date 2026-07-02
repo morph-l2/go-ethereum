@@ -55,10 +55,11 @@ func (c *callFrame) Type() string {
 }
 
 type jsonLogger struct {
-	encoder *json.Encoder
-	cfg     *Config
-	env     *tracing.VMContext
-	hooks   *tracing.Hooks
+	encoder         *json.Encoder
+	cfg             *Config
+	env             *tracing.VMContext
+	hooks           *tracing.Hooks
+	systemCallDepth int
 }
 
 // NewJSONLogger creates a new EVM tracer that prints execution steps as JSON objects
@@ -69,11 +70,13 @@ func NewJSONLogger(cfg *Config, writer io.Writer) *tracing.Hooks {
 		l.cfg = &Config{}
 	}
 	l.hooks = &tracing.Hooks{
-		OnTxStart:         l.OnTxStart,
-		OnSystemCallStart: l.onSystemCallStart,
-		OnExit:            l.OnExit,
-		OnOpcode:          l.OnOpcode,
-		OnFault:           l.OnFault,
+		OnTxStart:           l.OnTxStart,
+		OnSystemCallStart:   l.onSystemCallStartLegacy,
+		OnSystemCallStartV2: l.OnSystemCallStart,
+		OnSystemCallEnd:     l.OnSystemCallEnd,
+		OnExit:              l.OnExit,
+		OnOpcode:            l.OnOpcode,
+		OnFault:             l.OnFault,
 	}
 	return l.hooks
 }
@@ -86,22 +89,30 @@ func NewJSONLoggerWithCallFrames(cfg *Config, writer io.Writer) *tracing.Hooks {
 		l.cfg = &Config{}
 	}
 	l.hooks = &tracing.Hooks{
-		OnTxStart:         l.OnTxStart,
-		OnSystemCallStart: l.onSystemCallStart,
-		OnEnter:           l.OnEnter,
-		OnExit:            l.OnExit,
-		OnOpcode:          l.OnOpcode,
-		OnFault:           l.OnFault,
+		OnTxStart:           l.OnTxStart,
+		OnSystemCallStart:   l.onSystemCallStartLegacy,
+		OnSystemCallStartV2: l.OnSystemCallStart,
+		OnSystemCallEnd:     l.OnSystemCallEnd,
+		OnEnter:             l.OnEnter,
+		OnExit:              l.OnExit,
+		OnOpcode:            l.OnOpcode,
+		OnFault:             l.OnFault,
 	}
 	return l.hooks
 }
 
 func (l *jsonLogger) OnFault(pc uint64, op byte, gas uint64, cost uint64, scope tracing.OpContext, depth int, err error) {
+	if l.systemCallDepth > 0 {
+		return
+	}
 	// TODO: Add rData to this interface as well
 	l.OnOpcode(pc, op, gas, cost, scope, nil, depth, err)
 }
 
 func (l *jsonLogger) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+	if l.systemCallDepth > 0 {
+		return
+	}
 	memory := scope.MemoryData()
 	stack := scope.StackData()
 
@@ -127,18 +138,25 @@ func (l *jsonLogger) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracin
 	l.encoder.Encode(log)
 }
 
-func (l *jsonLogger) onSystemCallStart() {
-	// Process no events while in system call.
-	hooks := *l.hooks
-	*l.hooks = tracing.Hooks{
-		OnSystemCallEnd: func() {
-			*l.hooks = hooks
-		},
+func (l *jsonLogger) OnSystemCallStart(*tracing.VMContext) {
+	l.systemCallDepth++
+}
+
+func (l *jsonLogger) onSystemCallStartLegacy() {
+	l.systemCallDepth++
+}
+
+func (l *jsonLogger) OnSystemCallEnd() {
+	if l.systemCallDepth > 0 {
+		l.systemCallDepth--
 	}
 }
 
 // OnEnter is not enabled by default.
 func (l *jsonLogger) OnEnter(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+	if l.systemCallDepth > 0 {
+		return
+	}
 	frame := callFrame{
 		op:    vm.OpCode(typ),
 		From:  from,
@@ -153,6 +171,9 @@ func (l *jsonLogger) OnEnter(depth int, typ byte, from common.Address, to common
 }
 
 func (l *jsonLogger) OnExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	if l.systemCallDepth > 0 {
+		return
+	}
 	type endLog struct {
 		Output  string              `json:"output"`
 		GasUsed math.HexOrDecimal64 `json:"gasUsed"`

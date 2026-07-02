@@ -30,9 +30,36 @@ import (
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/internal/ethapi"
+	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/rollup/fees"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
+
+const maxTxHashes = 200
+const maxTopics = 4
+
+var (
+	errInvalidBlockRange   = invalidParamsErr("invalid block range params")
+	errExceedMaxTxHashes   = errors.New("exceed maximum transaction hash count")
+	errExceedMaxTopics     = errors.New("exceed max topics")
+	errExceedLogQueryLimit = errors.New("exceed max addresses or topics per search position")
+)
+
+type invalidParamsError struct {
+	err error
+}
+
+func invalidParamsErr(msg string) invalidParamsError {
+	return invalidParamsError{err: errors.New(msg)}
+}
+
+func (e invalidParamsError) Error() string {
+	return e.err.Error()
+}
+
+func (e invalidParamsError) ErrorCode() int {
+	return -32602
+}
 
 // filter is a helper struct that holds meta information over the filter type
 // and associated subscription in the event system.
@@ -56,6 +83,7 @@ type FilterAPI struct {
 	filters       map[rpc.ID]*filter
 	timeout       time.Duration
 	maxBlockRange int64
+	logQueryLimit int
 }
 
 // NewFilterAPI returns a new FilterAPI instance.
@@ -66,6 +94,7 @@ func NewFilterAPI(system *FilterSystem, lightMode bool, maxBlockRange int64) *Fi
 		filters:       make(map[rpc.ID]*filter),
 		timeout:       system.cfg.Timeout,
 		maxBlockRange: maxBlockRange,
+		logQueryLimit: system.cfg.LogQueryLimit,
 	}
 	go api.timeoutLoop(system.cfg.Timeout)
 
@@ -118,6 +147,7 @@ func (api *FilterAPI) NewPendingTransactionFilter(fullTx *bool) rpc.ID {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer pendingTxSub.Unsubscribe()
 		for {
 			select {
 			case pTx := <-pendingTxs:
@@ -160,13 +190,17 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 				// To keep the original behaviour, send a single tx hash in one notification.
 				// TODO(rjl493456442) Send a batch of tx hashes in one notification
 				latest := api.sys.backend.CurrentHeader()
+				sendFullTx := fullTx != nil && *fullTx
+				var l1BaseFee *big.Int
+				if sendFullTx {
+					var err error
+					l1BaseFee, err = api.pendingL1BaseFee(latest)
+					if err != nil {
+						continue
+					}
+				}
 				for _, tx := range txs {
-					if fullTx != nil && *fullTx {
-						stateDB, err := api.sys.backend.StateAt(latest.Root)
-						if err != nil {
-							continue
-						}
-						l1BaseFee := fees.GetL1BaseFee(stateDB)
+					if sendFullTx {
 						rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee)
 						notifier.Notify(rpcSub.ID, rpcTx)
 					} else {
@@ -201,6 +235,7 @@ func (api *FilterAPI) NewBlockFilter() rpc.ID {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer headerSub.Unsubscribe()
 		for {
 			select {
 			case h := <-headers:
@@ -289,6 +324,86 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 	return rpcSub, nil
 }
 
+// TransactionReceiptsQuery defines criteria for transaction receipts subscription.
+// Same as ethereum.TransactionReceiptsQuery but with UnmarshalJSON.
+type TransactionReceiptsQuery ethereum.TransactionReceiptsQuery
+
+// UnmarshalJSON sets receipt query fields with the given data.
+func (args *TransactionReceiptsQuery) UnmarshalJSON(data []byte) error {
+	type input struct {
+		TransactionHashes []common.Hash `json:"transactionHashes"`
+	}
+	var raw input
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	args.TransactionHashes = raw.TransactionHashes
+	return nil
+}
+
+// TransactionReceipts creates a subscription that sends receipt batches when
+// transactions are included in blocks.
+func (api *FilterAPI) TransactionReceipts(ctx context.Context, filter *TransactionReceiptsQuery) (*rpc.Subscription, error) {
+	if filter != nil && len(filter.TransactionHashes) > maxTxHashes {
+		return nil, errExceedMaxTxHashes
+	}
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	var txHashes []common.Hash
+	if filter != nil {
+		txHashes = filter.TransactionHashes
+	}
+	rpcSub := notifier.CreateSubscription()
+	matchedReceipts := make(chan []*ReceiptWithTx, txReceiptsChanSize)
+	receiptsSub := api.events.SubscribeTransactionReceipts(txHashes, matchedReceipts)
+
+	go func() {
+		defer receiptsSub.Unsubscribe()
+		chainConfig := api.sys.backend.ChainConfig()
+		for {
+			select {
+			case receiptsWithTxs := <-matchedReceipts:
+				marshaledReceipts := make([]map[string]interface{}, 0, len(receiptsWithTxs))
+				for _, receiptWithTx := range receiptsWithTxs {
+					blockNumber := receiptWithTx.Header.Number.Uint64()
+					bigblock := new(big.Int).SetUint64(blockNumber)
+					signer := types.MakeSigner(chainConfig, bigblock, receiptWithTx.Header.Time)
+					marshaled, err := ethapi.MarshalReceipt(
+						receiptWithTx.Receipt,
+						bigblock,
+						receiptWithTx.BlockHash,
+						blockNumber,
+						receiptWithTx.Header,
+						chainConfig,
+						signer,
+						receiptWithTx.Transaction,
+						receiptWithTx.TxIndex,
+					)
+					if err == nil {
+						marshaledReceipts = append(marshaledReceipts, marshaled)
+					} else {
+						log.Warn("Failed to marshal transaction receipt for subscription", "hash", receiptWithTx.Receipt.TxHash, "err", err)
+					}
+				}
+				if len(marshaledReceipts) > 0 {
+					notifier.Notify(rpcSub.ID, marshaledReceipts)
+				}
+			case <-rpcSub.Err():
+				return
+			case <-notifier.Closed():
+				return
+			case <-receiptsSub.Err():
+				return
+			}
+		}
+	}()
+
+	return rpcSub, nil
+}
+
 // FilterCriteria represents a request to create a new filter.
 // Same as ethereum.FilterQuery but with UnmarshalJSON() method.
 type FilterCriteria ethereum.FilterQuery
@@ -318,6 +433,7 @@ func (api *FilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 	api.filtersMu.Unlock()
 
 	go func() {
+		defer logsSub.Unsubscribe()
 		for {
 			select {
 			case l := <-logs:
@@ -342,6 +458,9 @@ func (api *FilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 //
 // https://eth.wiki/json-rpc/API#eth_getlogs
 func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*types.Log, error) {
+	if err := validateLogQuery(ethereum.FilterQuery(crit), api.logQueryLimit); err != nil {
+		return nil, err
+	}
 	var filter *Filter
 	if crit.BlockHash != nil {
 		// Block filter requested, construct a single-shot filter
@@ -356,6 +475,10 @@ func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*type
 		if crit.ToBlock != nil {
 			end = crit.ToBlock.Int64()
 		}
+		// Block numbers below 0 are special cases.
+		if begin > 0 && end > 0 && begin > end {
+			return nil, errInvalidBlockRange
+		}
 		// Construct the range filter
 		filter = api.sys.NewRangeFilter(begin, end, crit.Addresses, crit.Topics, api.maxBlockRange)
 	}
@@ -365,6 +488,24 @@ func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*type
 		return nil, err
 	}
 	return returnLogs(logs), err
+}
+
+func validateLogQuery(crit ethereum.FilterQuery, logQueryLimit int) error {
+	if len(crit.Topics) > maxTopics {
+		return errExceedMaxTopics
+	}
+	if logQueryLimit <= 0 {
+		return nil
+	}
+	if len(crit.Addresses) > logQueryLimit {
+		return errExceedLogQueryLimit
+	}
+	for _, topics := range crit.Topics {
+		if len(topics) > logQueryLimit {
+			return errExceedLogQueryLimit
+		}
+	}
+	return nil
 }
 
 // UninstallFilter removes the filter with the given filter id.
@@ -412,7 +553,7 @@ func (api *FilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*types.Lo
 			end = f.crit.ToBlock.Int64()
 		}
 		// Construct the range filter
-		filter = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics)
+		filter = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics, api.maxBlockRange)
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)
@@ -430,12 +571,10 @@ func (api *FilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*types.Lo
 //
 // https://eth.wiki/json-rpc/API#eth_getfilterchanges
 func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
-	api.filtersMu.Lock()
-	defer api.filtersMu.Unlock()
-
 	chainConfig := api.sys.backend.ChainConfig()
 	latest := api.sys.backend.CurrentHeader()
 
+	api.filtersMu.Lock()
 	if f, found := api.filters[id]; found {
 		if !f.deadline.Stop() {
 			// timer expired but filter is not yet removed in timeout loop
@@ -448,36 +587,64 @@ func (api *FilterAPI) GetFilterChanges(id rpc.ID) (interface{}, error) {
 		case BlocksSubscription:
 			hashes := f.hashes
 			f.hashes = nil
+			api.filtersMu.Unlock()
 			return returnHashes(hashes), nil
 		case PendingTransactionsSubscription:
+			txs := f.txs
+			f.txs = nil
 			if f.fullTx {
-				stateDB, err := api.sys.backend.StateAt(latest.Root)
+				api.filtersMu.Unlock()
+				l1BaseFee, err := api.pendingL1BaseFee(latest)
 				if err != nil {
+					api.filtersMu.Lock()
+					if current, found := api.filters[id]; found && current == f {
+						current.txs = append(txs, current.txs...)
+					}
+					api.filtersMu.Unlock()
 					return nil, err
 				}
-				l1BaseFee := fees.GetL1BaseFee(stateDB)
-				txs := make([]*ethapi.RPCTransaction, 0, len(f.txs))
-				for _, tx := range f.txs {
-					txs = append(txs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
+				rpcTxs := make([]*ethapi.RPCTransaction, 0, len(txs))
+				for _, tx := range txs {
+					rpcTxs = append(rpcTxs, ethapi.NewRPCPendingTransaction(tx, latest, chainConfig, l1BaseFee))
 				}
-				f.txs = nil
-				return txs, nil
+				return rpcTxs, nil
 			} else {
-				hashes := make([]common.Hash, 0, len(f.txs))
-				for _, tx := range f.txs {
+				hashes := make([]common.Hash, 0, len(txs))
+				for _, tx := range txs {
 					hashes = append(hashes, tx.Hash())
 				}
-				f.txs = nil
+				api.filtersMu.Unlock()
 				return hashes, nil
 			}
 		case LogsSubscription, MinedAndPendingLogsSubscription:
 			logs := f.logs
 			f.logs = nil
+			api.filtersMu.Unlock()
 			return returnLogs(logs), nil
 		}
 	}
+	api.filtersMu.Unlock()
 
 	return []interface{}{}, fmt.Errorf("filter not found")
+}
+
+func (api *FilterAPI) pendingL1BaseFee(latest *types.Header) (*big.Int, error) {
+	if latest == nil {
+		err := errors.New("State not found: latest header is nil")
+		log.Error("State not found", "err", err)
+		return nil, err
+	}
+	stateDB, err := api.sys.backend.StateAt(latest.Root)
+	if err != nil {
+		log.Error("State not found", "number", latest.Number, "hash", latest.Hash().Hex(), "state", stateDB, "err", err)
+		return nil, fmt.Errorf("State not found: %w", err)
+	}
+	if stateDB == nil {
+		err := errors.New("State not found")
+		log.Error("State not found", "number", latest.Number, "hash", latest.Hash().Hex(), "state", stateDB, "err", err)
+		return nil, err
+	}
+	return fees.GetL1BaseFee(stateDB), nil
 }
 
 // returnHashes is a helper that will return an empty hash array case the given hash array is nil,
@@ -560,6 +727,9 @@ func (args *FilterCriteria) UnmarshalJSON(data []byte) error {
 	// topics is an array consisting of strings and/or arrays of strings.
 	// JSON null values are converted to common.Hash{} and ignored by the filter manager.
 	if len(raw.Topics) > 0 {
+		if len(raw.Topics) > maxTopics {
+			return errExceedMaxTopics
+		}
 		args.Topics = make([][]common.Hash, len(raw.Topics))
 		for i, t := range raw.Topics {
 			switch topic := t.(type) {

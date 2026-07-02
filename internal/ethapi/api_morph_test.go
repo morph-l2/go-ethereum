@@ -3,17 +3,28 @@ package ethapi
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
+	"math"
 	"math/big"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/consensus"
+	"github.com/morph-l2/go-ethereum/core"
 	"github.com/morph-l2/go-ethereum/core/rawdb"
+	"github.com/morph-l2/go-ethereum/core/state"
+	"github.com/morph-l2/go-ethereum/core/tracing"
 	"github.com/morph-l2/go-ethereum/core/types"
+	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/ethdb"
+	"github.com/morph-l2/go-ethereum/event"
 	"github.com/morph-l2/go-ethereum/params"
 	"github.com/morph-l2/go-ethereum/rpc"
+	"github.com/morph-l2/go-ethereum/trie"
 )
 
 // mockMorphBackend is a minimal Backend mock that only implements ChainDb().
@@ -30,6 +41,281 @@ func makeTestRef(b byte) common.Reference {
 	var ref common.Reference
 	ref[0] = b
 	return ref
+}
+
+func TestDecodeHash(t *testing.T) {
+	valid64 := strings.Repeat("1", 64)
+	for _, tt := range []struct {
+		name    string
+		input   string
+		want    common.Hash
+		wantErr string
+	}{
+		{
+			name:  "64 hex",
+			input: valid64,
+			want:  common.HexToHash("0x" + valid64),
+		},
+		{
+			name:    "65 hex",
+			input:   strings.Repeat("1", 65),
+			wantErr: "hex string too long, want at most 32 bytes",
+		},
+		{
+			name:    "66 hex",
+			input:   strings.Repeat("1", 66),
+			wantErr: "hex string too long, want at most 32 bytes",
+		},
+		{
+			name:    "0x plus 65 hex",
+			input:   "0x" + strings.Repeat("1", 65),
+			wantErr: "hex string too long, want at most 32 bytes",
+		},
+		{
+			name:  "odd legal input",
+			input: "abc",
+			want:  common.HexToHash("0x0abc"),
+		},
+		{
+			name:    "short invalid hex",
+			input:   "zz",
+			wantErr: "hex string invalid",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decodeHash(tt.input)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error %q", tt.wantErr)
+				}
+				if err.Error() != tt.wantErr {
+					t.Fatalf("error mismatch: got %q, want %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("hash mismatch: got %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func newOverrideTestState(t *testing.T) *state.StateDB {
+	t.Helper()
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state: %v", err)
+	}
+	return statedb
+}
+
+func TestStateOverrideMovePrecompile(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	dst := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	original := precompiles[src]
+	if original == nil {
+		t.Fatalf("missing source precompile %s", src)
+	}
+
+	overrides := &StateOverride{
+		src: {MovePrecompileTo: &dst},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed", src)
+	}
+	if got := precompiles[dst]; got != original {
+		t.Fatalf("moved precompile mismatch: got %T want %T", got, original)
+	}
+
+	fresh := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	if _, ok := fresh[src]; !ok {
+		t.Fatalf("source precompile was removed from fresh active map")
+	}
+	if _, ok := fresh[dst]; ok {
+		t.Fatalf("moved target leaked into fresh active map")
+	}
+}
+
+func TestStateOverridePrecompileDeleteAllowsCodeOverride(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	code := hexutil.Bytes{0x60, 0x00, 0x60, 0x00, 0xf3}
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+
+	overrides := &StateOverride{
+		src: {Code: &code},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed for code override", src)
+	}
+	if got := statedb.GetCode(src); string(got) != string(code) {
+		t.Fatalf("code override mismatch: got %x want %x", got, []byte(code))
+	}
+}
+
+func TestStateOverrideMovePrecompileRejectsInvalidTargets(t *testing.T) {
+	srcA := common.BytesToAddress([]byte{0x01})
+	srcB := common.BytesToAddress([]byte{0x02})
+	dst := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	rules := params.TestChainConfig.Rules(big.NewInt(0), 0)
+
+	t.Run("non precompile source", func(t *testing.T) {
+		overrides := &StateOverride{
+			dst: {MovePrecompileTo: &srcA},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "is not a precompile") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("target also overridden", func(t *testing.T) {
+		overrides := &StateOverride{
+			srcA: {MovePrecompileTo: &dst},
+			dst:  {},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "already overridden") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("duplicate destination", func(t *testing.T) {
+		overrides := &StateOverride{
+			srcA: {MovePrecompileTo: &dst},
+			srcB: {MovePrecompileTo: &dst},
+		}
+		err := overrides.Apply(newOverrideTestState(t), vm.ActivePrecompiledContracts(rules))
+		if err == nil || !strings.Contains(err.Error(), "already been overridden by a precompile") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestStateOverrideMoveToExistingPrecompile(t *testing.T) {
+	statedb := newOverrideTestState(t)
+	src := common.BytesToAddress([]byte{0x01})
+	dst := common.BytesToAddress([]byte{0x02})
+	precompiles := vm.ActivePrecompiledContracts(params.TestChainConfig.Rules(big.NewInt(0), 0))
+	original := precompiles[src]
+	replaced := precompiles[dst]
+	if original == nil || replaced == nil {
+		t.Fatalf("missing source or destination precompile")
+	}
+
+	overrides := &StateOverride{
+		src: {MovePrecompileTo: &dst},
+	}
+	if err := overrides.Apply(statedb, precompiles); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, ok := precompiles[src]; ok {
+		t.Fatalf("source precompile %s was not removed", src)
+	}
+	if got := precompiles[dst]; got != original {
+		t.Fatalf("destination precompile was not replaced: got %T want %T", got, original)
+	}
+	if precompiles[dst] == replaced {
+		t.Fatalf("destination still points to the pre-existing precompile")
+	}
+}
+
+func TestMorphForkDisabledPrecompileMove(t *testing.T) {
+	archimedes := params.TestChainConfig.Clone()
+	archimedes.BernoulliBlock = nil
+	archimedes.CurieBlock = nil
+	archimedes.Morph203Time = nil
+	archimedes.ViridianTime = nil
+	archimedes.EmeraldTime = nil
+
+	bernoulli := params.TestChainConfig.Clone()
+	bernoulli.CurieBlock = nil
+	bernoulli.Morph203Time = nil
+	bernoulli.ViridianTime = nil
+	bernoulli.EmeraldTime = nil
+
+	tests := []struct {
+		name string
+		cfg  *params.ChainConfig
+		src  common.Address
+		want string
+	}{
+		{"archimedes sha256 disabled", archimedes, common.BytesToAddress([]byte{0x02}), "SHA256_DISABLED"},
+		{"archimedes ripemd160 disabled", archimedes, common.BytesToAddress([]byte{0x03}), "RIPEMD160_DISABLED"},
+		{"archimedes blake2f disabled", archimedes, common.BytesToAddress([]byte{0x09}), "BLAKE2F_DISABLED"},
+		{"bernoulli ripemd160 disabled", bernoulli, common.BytesToAddress([]byte{0x03}), "RIPEMD160_DISABLED"},
+		{"bernoulli blake2f disabled", bernoulli, common.BytesToAddress([]byte{0x09}), "BLAKE2F_DISABLED"},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := common.BytesToAddress([]byte{0xaa, byte(i)})
+			precompiles := vm.ActivePrecompiledContracts(tt.cfg.Rules(big.NewInt(0), 0))
+			original := precompiles[tt.src]
+			if original == nil {
+				t.Fatalf("missing disabled precompile %s", tt.src)
+			}
+			if original.Name() != tt.want {
+				t.Fatalf("precompile %s name = %q, want %q", tt.src, original.Name(), tt.want)
+			}
+			overrides := &StateOverride{
+				tt.src: {MovePrecompileTo: &dst},
+			}
+			if err := overrides.Apply(newOverrideTestState(t), precompiles); err != nil {
+				t.Fatalf("apply failed: %v", err)
+			}
+			if _, ok := precompiles[tt.src]; ok {
+				t.Fatalf("disabled source precompile %s was not removed", tt.src)
+			}
+			if got := precompiles[dst]; got != original {
+				t.Fatalf("disabled precompile was not moved: got %T want %T", got, original)
+			}
+		})
+	}
+}
+
+type proofStorageKeyDecodeBackend struct {
+	Backend
+	stateCalls int
+}
+
+func (m *proofStorageKeyDecodeBackend) StateAndHeaderByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*state.StateDB, *types.Header, error) {
+	m.stateCalls++
+	return nil, nil, nil
+}
+
+func TestGetProofInvalidStorageKeyBeforeStateAccess(t *testing.T) {
+	backend := new(proofStorageKeyDecodeBackend)
+	api := &PublicBlockChainAPI{b: backend}
+
+	_, err := api.GetProof(
+		context.Background(),
+		common.Address{},
+		[]string{
+			strings.Repeat("0", 64),
+			strings.Repeat("1", 65),
+		},
+		rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber),
+	)
+	if err == nil {
+		t.Fatal("expected storage key decode error")
+	}
+	if err.Error() != "hex string too long, want at most 32 bytes" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if backend.stateCalls != 0 {
+		t.Fatalf("state accessed before storage key validation: %d calls", backend.stateCalls)
+	}
 }
 
 func uint64Ptr(v uint64) *hexutil.Uint64 {
@@ -155,7 +441,7 @@ type mockSetDefaultsBackend struct {
 	header      *types.Header
 }
 
-func (m *mockSetDefaultsBackend) CurrentHeader() *types.Header    { return m.header }
+func (m *mockSetDefaultsBackend) CurrentHeader() *types.Header     { return m.header }
 func (m *mockSetDefaultsBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
 
 func uint16VersionPtr(v uint8) *hexutil.Uint16 {
@@ -163,11 +449,395 @@ func uint16VersionPtr(v uint8) *hexutil.Uint16 {
 	return &h
 }
 
+type estimateGasChainContext struct{}
+
+func (estimateGasChainContext) Engine() consensus.Engine { return nil }
+
+func (estimateGasChainContext) GetHeader(common.Hash, uint64) *types.Header { return nil }
+
+// estimateGasBackend is a minimal Backend that can run setDefaults -> DoEstimateGas
+// against an in-memory state without spinning up a full blockchain.
+type estimateGasBackend struct {
+	Backend
+	chainConfig *params.ChainConfig
+	header      *types.Header
+	block       *types.Block
+	state       *state.StateDB
+	gasCap      uint64
+}
+
+func newEstimateGasBackend(t *testing.T, sender common.Address) *estimateGasBackend {
+	t.Helper()
+
+	db := rawdb.NewMemoryDatabase()
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	statedb.SetBalance(sender, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil), tracing.BalanceChangeUnspecified)
+
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		Time:       0,
+		GasLimit:   30_000_000,
+		BaseFee:    big.NewInt(1),
+		Difficulty: big.NewInt(0),
+	}
+	return &estimateGasBackend{
+		chainConfig: params.TestNoL1DataFeeChainConfig,
+		header:      header,
+		block:       types.NewBlockWithHeader(header),
+		state:       statedb,
+		gasCap:      header.GasLimit,
+	}
+}
+
+func (m *estimateGasBackend) CurrentHeader() *types.Header { return types.CopyHeader(m.header) }
+
+func (m *estimateGasBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
+
+func (m *estimateGasBackend) RPCGasCap() uint64 { return m.gasCap }
+
+func (m *estimateGasBackend) RPCEVMTimeout() time.Duration { return 0 }
+
+func (m *estimateGasBackend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*types.Block, error) {
+	return m.block, nil
+}
+
+func (m *estimateGasBackend) StateAndHeaderByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*state.StateDB, *types.Header, error) {
+	return m.state.Copy(), types.CopyHeader(m.header), nil
+}
+
+func (m *estimateGasBackend) GetEVM(ctx context.Context, msg core.Message, statedb *state.StateDB, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
+	author := common.Address{}
+	blockCtx := core.NewEVMBlockContext(header, estimateGasChainContext{}, m.chainConfig, &author)
+	txCtx := core.NewEVMTxContext(msg)
+	return vm.NewEVM(blockCtx, txCtx, statedb, m.chainConfig, *vmConfig), func() error { return nil }, nil
+}
+
+func makeAuthorizationList(count int) []types.SetCodeAuthorization {
+	auths := make([]types.SetCodeAuthorization, count)
+	for i := range auths {
+		auths[i] = types.SetCodeAuthorization{
+			Address: common.Address{byte(i + 1)},
+			Nonce:   uint64(i),
+		}
+	}
+	return auths
+}
+
+func movedIdentityPrecompileOverrides(target common.Address) *StateOverride {
+	identity := common.BytesToAddress([]byte{0x04})
+	return &StateOverride{
+		identity: {MovePrecompileTo: &target},
+	}
+}
+
+func movedIdentityCallArgs(sender, target common.Address, input hexutil.Bytes) TransactionArgs {
+	gas := hexutil.Uint64(100_000)
+	return TransactionArgs{
+		From:  &sender,
+		To:    &target,
+		Gas:   &gas,
+		Input: &input,
+	}
+}
+
+func TestEthCallMovePrecompileMatchesOverride(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	target := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	input := hexutil.Bytes{0xde, 0xad, 0xbe, 0xef}
+	backend := newEstimateGasBackend(t, sender)
+	api := &PublicBlockChainAPI{b: backend}
+
+	got, err := api.Call(context.Background(), movedIdentityCallArgs(sender, target, input), rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), movedIdentityPrecompileOverrides(target))
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+	if string(got) != string(input) {
+		t.Fatalf("Call output mismatch: got %x want %x", []byte(got), []byte(input))
+	}
+}
+
+func TestEstimateGasMovePrecompile(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	target := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	input := hexutil.Bytes{0xde, 0xad, 0xbe, 0xef}
+	backend := newEstimateGasBackend(t, sender)
+	blockNr := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	gas, err := DoEstimateGas(context.Background(), backend, movedIdentityCallArgs(sender, target, input), blockNr, movedIdentityPrecompileOverrides(target), backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoEstimateGas failed: %v", err)
+	}
+	args := movedIdentityCallArgs(sender, target, input)
+	args.Gas = &gas
+	result, err := DoCall(context.Background(), backend, args, blockNr, movedIdentityPrecompileOverrides(target), 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall with estimated gas failed: %v", err)
+	}
+	if result.Failed() {
+		t.Fatalf("DoCall with estimated gas failed in EVM: %v", result.Err)
+	}
+	if string(result.Return()) != string(input) {
+		t.Fatalf("DoCall output mismatch: got %x want %x", result.Return(), []byte(input))
+	}
+}
+
+func TestCreateAccessListMovePrecompile(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x3000000000000000000000000000000000000003")
+	target := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	backend := newEstimateGasBackend(t, sender)
+	backend.state.SetCode(contract, []byte{
+		0x60, 0x00, // out size
+		0x60, 0x00, // out offset
+		0x60, 0x00, // in size
+		0x60, 0x00, // in offset
+		0x60, 0x00, // value
+		0x60, 0xaa, // moved identity precompile address
+		0x5a, // gas
+		0xf1, // call
+		0x50, // pop success flag
+		0x00, // stop
+	})
+
+	gas := hexutil.Uint64(100_000)
+	nonce := hexutil.Uint64(0)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	args := TransactionArgs{
+		From:                 &sender,
+		To:                   &contract,
+		Gas:                  &gas,
+		Nonce:                &nonce,
+		MaxFeePerGas:         maxFee,
+		MaxPriorityFeePerGas: tip,
+	}
+	acl, _, vmErr, err := AccessList(context.Background(), backend, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), args, movedIdentityPrecompileOverrides(target))
+	if err != nil {
+		t.Fatalf("AccessList failed: %v", err)
+	}
+	if vmErr != nil {
+		t.Fatalf("AccessList EVM error: %v", vmErr)
+	}
+	for _, tuple := range acl {
+		if tuple.Address == target {
+			t.Fatalf("moved precompile target %s should be excluded from access list", target)
+		}
+	}
+}
+
+func TestSetDefaultsEstimateGasIncludesAuthorizationList(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	backend := newEstimateGasBackend(t, sender)
+
+	nonce := hexutil.Uint64(0)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+
+	tests := []struct {
+		name  string
+		auths []types.SetCodeAuthorization
+		want  uint64
+	}{
+		{
+			name: "legacy call without authorization list",
+			want: params.TxGas,
+		},
+		{
+			name:  "set code with one authorization",
+			auths: makeAuthorizationList(1),
+			want:  params.TxGas + params.CallNewAccountGas,
+		},
+		{
+			name:  "set code with two authorizations",
+			auths: makeAuthorizationList(2),
+			want:  params.TxGas + 2*params.CallNewAccountGas,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := TransactionArgs{
+				From:                 &sender,
+				To:                   &to,
+				Nonce:                &nonce,
+				MaxFeePerGas:         maxFee,
+				MaxPriorityFeePerGas: tip,
+				AuthorizationList:    tt.auths,
+			}
+			if err := args.setDefaults(context.Background(), backend); err != nil {
+				t.Fatalf("setDefaults failed: %v", err)
+			}
+			if args.Gas == nil {
+				t.Fatal("expected gas to be populated")
+			}
+			// DoEstimateGas may overestimate by up to estimateGasErrorRatio to
+			// terminate the binary search early (aligned with upstream geth /
+			// morph-reth). Assert the estimate is no lower than the true minimum
+			// and no higher than the allowed 1.5% overestimation.
+			upper := uint64(math.Ceil(float64(tt.want) * (1 + estimateGasErrorRatio)))
+			if have := uint64(*args.Gas); have < tt.want || have > upper {
+				t.Fatalf("estimated gas out of range: have %d want [%d, %d]", have, tt.want, upper)
+			}
+		})
+	}
+}
+
+// TestDoEstimateGasMorphTxFeeTokenIDZero is a regression test for the bug where
+// gas estimation rejected an explicit feeTokenID=0 (ETH payment, valid for
+// MorphTx v1) with "invalid token". DoEstimateGas used to gate the alt-fee-token
+// branch on the pointer (args.FeeTokenID != nil) instead of the value, so an
+// explicit zero entered IsTokenActive(state, 0) which rejects token id 0.
+func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	backend := newEstimateGasBackend(t, sender)
+
+	nonce := hexutil.Uint64(0)
+	maxFee := (*hexutil.Big)(big.NewInt(10)) // non-zero feeCap triggers the balance-recap path
+	tip := (*hexutil.Big)(big.NewInt(1))
+	feeTokenZero := hexutil.Uint16(0)
+	feeTokenOne := hexutil.Uint16(1)
+	v1 := uint16VersionPtr(types.MorphTxVersion1)
+
+	blockNr := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	t.Run("v1 explicit feeTokenID=0 estimates as ETH transfer", func(t *testing.T) {
+		args := TransactionArgs{
+			From:                 &sender,
+			To:                   &to,
+			Nonce:                &nonce,
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: tip,
+			Version:              v1,
+			FeeTokenID:           &feeTokenZero,
+		}
+		gas, err := DoEstimateGas(context.Background(), backend, args, blockNr, nil, backend.gasCap)
+		if err != nil {
+			t.Fatalf("DoEstimateGas with feeTokenID=0 failed: %v", err)
+		}
+		if uint64(gas) != params.TxGas {
+			t.Fatalf("estimated gas mismatch: have %d want %d", uint64(gas), params.TxGas)
+		}
+	})
+
+	t.Run("explicit non-zero feeTokenID still validates token", func(t *testing.T) {
+		args := TransactionArgs{
+			From:                 &sender,
+			To:                   &to,
+			Nonce:                &nonce,
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: tip,
+			Version:              v1,
+			FeeTokenID:           &feeTokenOne, // not registered in the in-memory state
+		}
+		_, err := DoEstimateGas(context.Background(), backend, args, blockNr, nil, backend.gasCap)
+		if err == nil || !strings.Contains(err.Error(), "invalid token") {
+			t.Fatalf("expected 'invalid token' for unregistered feeTokenID, got %v", err)
+		}
+	})
+}
+
 // TestSetDefaults_MorphTxVersionHeuristic tests the heuristic version defaulting logic
 // in TransactionArgs.setDefaults():
 //   - Version == nil + no V1 fields → V0
 //   - Version == nil + Reference or Memo present → V1
 //   - Explicit Version → use as-is
+// deployStorageClearContract installs a contract whose body clears storage
+// slot 0 via SSTORE (non-zero -> zero), which credits a gas refund. The slot is
+// committed non-zero first so the EVM accounts it as a clearing operation.
+//   bytecode: PUSH1 0x00 (value) PUSH1 0x00 (key) SSTORE STOP
+func deployStorageClearContract(t *testing.T, backend *estimateGasBackend, contract common.Address) {
+	t.Helper()
+	backend.state.SetCode(contract, []byte{0x60, 0x00, 0x60, 0x00, 0x55, 0x00})
+	backend.state.SetState(contract, common.Hash{}, common.HexToHash("0x01"))
+	root, err := backend.state.Commit(false)
+	if err != nil {
+		t.Fatalf("commit state: %v", err)
+	}
+	reopened, err := state.New(root, backend.state.Database(), nil)
+	if err != nil {
+		t.Fatalf("reopen state: %v", err)
+	}
+	backend.state = reopened
+}
+
+// TestDoCallPopulatesRefundedGas verifies that ExecutionResult.RefundedGas is
+// filled in from the state transition's applied refund. This is the field the
+// optimistic gas-limit guess in DoEstimateGas relies on.
+func TestDoCallPopulatesRefundedGas(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x00000000000000000000000000000000000000c0")
+	backend := newEstimateGasBackend(t, sender)
+	deployStorageClearContract(t, backend, contract)
+
+	gas := hexutil.Uint64(backend.gasCap)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	// Calling the storage-clearing contract must produce a non-zero refund.
+	callArgs := TransactionArgs{From: &sender, To: &contract, Gas: &gas, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+	res, err := DoCall(context.Background(), backend, callArgs, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall (contract): %v", err)
+	}
+	if res.Failed() {
+		t.Fatalf("contract call failed: %v", res.Err)
+	}
+	if res.RefundedGas == 0 {
+		t.Fatal("expected non-zero RefundedGas for a storage-clearing call, got 0")
+	}
+
+	// A plain transfer performs no refundable operation -> RefundedGas == 0.
+	eoa := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	plainArgs := TransactionArgs{From: &sender, To: &eoa, Gas: &gas, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+	res2, err := DoCall(context.Background(), backend, plainArgs, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall (transfer): %v", err)
+	}
+	if res2.RefundedGas != 0 {
+		t.Fatalf("expected zero RefundedGas for plain transfer, got %d", res2.RefundedGas)
+	}
+}
+
+// TestEstimateGasOptimisticRefundHeavyCall checks that the optimistic gas-limit
+// probe leaves DoEstimateGas correct on a refund-heavy call: the estimate must
+// converge below the cap and be executable (never an under-estimate).
+func TestEstimateGasOptimisticRefundHeavyCall(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	contract := common.HexToAddress("0x00000000000000000000000000000000000000c0")
+	backend := newEstimateGasBackend(t, sender)
+	deployStorageClearContract(t, backend, contract)
+
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	args := TransactionArgs{From: &sender, To: &contract, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: tip}
+
+	est, err := DoEstimateGas(context.Background(), backend, args, blockNrOrHash, nil, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoEstimateGas: %v", err)
+	}
+	estimate := uint64(est)
+	if estimate >= backend.gasCap {
+		t.Fatalf("estimate did not converge below cap: got %d, cap %d", estimate, backend.gasCap)
+	}
+	// The estimate must be executable: running the call at exactly `estimate`
+	// gas must succeed, otherwise the estimator under-reported.
+	gas := hexutil.Uint64(estimate)
+	args.Gas = &gas
+	res, err := DoCall(context.Background(), backend, args, blockNrOrHash, nil, 0, backend.gasCap)
+	if err != nil {
+		t.Fatalf("DoCall at estimate: %v", err)
+	}
+	if res.Failed() {
+		t.Fatalf("estimate %d is not executable: %v", estimate, res.Err)
+	}
+}
+
 //   - Before jade fork: V1-specific fields rejected; default is V0
 //   - After jade fork: V1 fields allowed; heuristic picks V1 when present
 func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
@@ -303,9 +973,9 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: no MorphTx fields → not MorphTx (version nil)",
-			headTime: 1000,
-			modify:   func(args *TransactionArgs) {},
+			name:        "jade fork: no MorphTx fields → not MorphTx (version nil)",
+			headTime:    1000,
+			modify:      func(args *TransactionArgs) {},
 			wantVersion: nil,
 		},
 
@@ -392,16 +1062,16 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
-			headTime:    1000,
+			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
+			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				args.Version = uint16VersionPtr(types.MorphTxVersion1)
 			},
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:        "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
-			headTime:    1000,
+			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
+			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(0)
 				args.FeeTokenID = &fid
@@ -625,5 +1295,465 @@ func TestMarshalReceipt_FieldPresence(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type txSyncTestBackend struct {
+	Backend
+	feed             event.Feed
+	chainConfig      *params.ChainConfig
+	syncEnabled      bool
+	defaultTimeout   time.Duration
+	maxTimeout       time.Duration
+	sendEvent        bool
+	mineOnSend       bool
+	failHeaderByHash bool
+	minedBlock       *types.Block
+	minedReceipts    types.Receipts
+	minedTx          *types.Transaction
+}
+
+func newTxSyncTestBackend(sendEvent bool) *txSyncTestBackend {
+	return &txSyncTestBackend{
+		chainConfig:    &params.ChainConfig{ChainID: big.NewInt(1), EIP155Block: big.NewInt(0)},
+		syncEnabled:    true,
+		defaultTimeout: time.Second,
+		maxTimeout:     time.Second,
+		sendEvent:      sendEvent,
+	}
+}
+
+func (b *txSyncTestBackend) ChainConfig() *params.ChainConfig { return b.chainConfig }
+func (b *txSyncTestBackend) RPCTxFeeCap() float64             { return 0 }
+func (b *txSyncTestBackend) UnprotectedAllowed() bool         { return true }
+func (b *txSyncTestBackend) RPCTxSyncDefaultTimeout() time.Duration {
+	return b.defaultTimeout
+}
+func (b *txSyncTestBackend) RPCTxSyncMaxTimeout() time.Duration { return b.maxTimeout }
+func (b *txSyncTestBackend) RPCTxSyncEnabled() bool             { return b.syncEnabled }
+func (b *txSyncTestBackend) CurrentBlock() *types.Block {
+	return types.NewBlockWithHeader(&types.Header{Number: big.NewInt(1), Time: 1})
+}
+func (b *txSyncTestBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription {
+	return b.feed.Subscribe(ch)
+}
+func (b *txSyncTestBackend) SendTx(ctx context.Context, tx *types.Transaction) error {
+	header := &types.Header{Number: big.NewInt(1), Time: 1}
+	receipt := &types.Receipt{
+		Status:            types.ReceiptStatusSuccessful,
+		TxHash:            tx.Hash(),
+		TransactionIndex:  0,
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}
+	receipts := types.Receipts{receipt}
+	block := types.NewBlock(header, types.Transactions{tx}, nil, receipts, trie.NewStackTrie(nil))
+	receipt.BlockHash = block.Hash()
+	receipt.BlockNumber = block.Number()
+	if b.sendEvent {
+		b.feed.Send(core.ChainEvent{
+			Hash:         block.Hash(),
+			Header:       block.Header(),
+			Receipts:     receipts,
+			Transactions: types.Transactions{tx},
+		})
+	}
+	if b.mineOnSend {
+		b.minedBlock = block
+		b.minedReceipts = receipts
+		b.minedTx = tx
+	}
+	return nil
+}
+func (b *txSyncTestBackend) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
+	if b.minedTx != nil && b.minedTx.Hash() == txHash {
+		return b.minedTx, b.minedBlock.Hash(), b.minedBlock.NumberU64(), 0, nil
+	}
+	return nil, common.Hash{}, 0, 0, errors.New("not found")
+}
+func (b *txSyncTestBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
+	if b.minedBlock != nil && b.minedBlock.Hash() == hash {
+		return b.minedReceipts, nil
+	}
+	return nil, nil
+}
+func (b *txSyncTestBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+	if b.failHeaderByHash {
+		return nil, errors.New("header temporarily unavailable")
+	}
+	if b.minedBlock != nil && b.minedBlock.Hash() == hash {
+		return b.minedBlock.Header(), nil
+	}
+	return nil, nil
+}
+
+func makeTxSyncRaw(t *testing.T) (hexutil.Bytes, *types.Transaction) {
+	t.Helper()
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	to := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	tx := signTx(t, key, types.NewEIP155Signer(big.NewInt(1)), &types.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(1),
+		Gas:      21000,
+		To:       &to,
+		Value:    big.NewInt(1),
+	})
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		t.Fatalf("failed to marshal tx: %v", err)
+	}
+	return raw, tx
+}
+
+func TestSendRawTransactionSyncDisabled(t *testing.T) {
+	raw, _ := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.syncEnabled = false
+	api := NewPublicTransactionPoolAPI(backend, nil)
+	if _, err := api.SendRawTransactionSync(context.Background(), raw, nil); err == nil || err.Error() != "eth_sendRawTransactionSync is disabled" {
+		t.Fatalf("unexpected disabled error: %v", err)
+	}
+}
+
+func TestSendRawTransactionSyncEventSuccess(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	api := NewPublicTransactionPoolAPI(newTxSyncTestBackend(true), nil)
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err != nil {
+		t.Fatalf("SendRawTransactionSync failed: %v", err)
+	}
+	if got := receipt["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+	if _, ok := receipt["memo"]; !ok {
+		t.Fatalf("expected Morph receipt field memo to be present")
+	}
+}
+
+func TestSendRawTransactionSyncFastReceiptSuccess(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.mineOnSend = true
+	api := NewPublicTransactionPoolAPI(backend, nil)
+
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err != nil {
+		t.Fatalf("SendRawTransactionSync failed: %v", err)
+	}
+	if got := receipt["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+	if got := receipt["blockNumber"]; got != hexutil.Uint64(1) {
+		t.Fatalf("unexpected block number: got %v want %v", got, hexutil.Uint64(1))
+	}
+}
+
+func TestSendRawTransactionSyncFastReceiptErrorFallsBackToEvent(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(true)
+	backend.mineOnSend = true
+	backend.failHeaderByHash = true
+	api := NewPublicTransactionPoolAPI(backend, nil)
+
+	receipt, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err != nil {
+		t.Fatalf("SendRawTransactionSync failed: %v", err)
+	}
+	if got := receipt["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+}
+
+func TestReceiptFromChainEventFallbackPropagatesReceiptError(t *testing.T) {
+	_, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.mineOnSend = true
+	if err := backend.SendTx(context.Background(), tx); err != nil {
+		t.Fatalf("failed to mine test transaction: %v", err)
+	}
+	backend.failHeaderByHash = true
+	api := NewPublicTransactionPoolAPI(backend, nil)
+
+	_, err := api.receiptFromChainEvent(context.Background(), core.ChainEvent{}, tx.Hash())
+	if err == nil || err.Error() != "header temporarily unavailable" {
+		t.Fatalf("unexpected fallback error: %v", err)
+	}
+}
+
+func TestSendRawTransactionSyncTimeout(t *testing.T) {
+	raw, tx := makeTxSyncRaw(t)
+	backend := newTxSyncTestBackend(false)
+	backend.defaultTimeout = 5 * time.Millisecond
+	backend.maxTimeout = 5 * time.Millisecond
+	api := NewPublicTransactionPoolAPI(backend, nil)
+	_, err := api.SendRawTransactionSync(context.Background(), raw, nil)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	var dataErr interface {
+		ErrorCode() int
+		ErrorData() interface{}
+	}
+	if !errors.As(err, &dataErr) {
+		t.Fatalf("expected structured timeout error, got %T %v", err, err)
+	}
+	if dataErr.ErrorCode() != 4 {
+		t.Fatalf("unexpected timeout error code: %d", dataErr.ErrorCode())
+	}
+	if got, want := dataErr.ErrorData(), tx.Hash().Hex(); got != want {
+		t.Fatalf("unexpected timeout data: got %v want %v", got, want)
+	}
+}
+
+func TestSendRawTransactionSyncRejectsOverflowTimeout(t *testing.T) {
+	raw, _ := makeTxSyncRaw(t)
+	api := NewPublicTransactionPoolAPI(newTxSyncTestBackend(false), nil)
+	tooLarge := hexutil.Uint64(^uint64(0))
+
+	_, err := api.SendRawTransactionSync(context.Background(), raw, &tooLarge)
+	if err == nil || err.Error() != "transaction sync timeout too large" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type blockReceiptsTestBackend struct {
+	Backend
+	chainConfig     *params.ChainConfig
+	pendingBlock    *types.Block
+	pendingReceipts types.Receipts
+	blocksByHash    map[common.Hash]*types.Block
+	blocksByNumber  map[uint64]*types.Block
+	receiptsByHash  map[common.Hash]types.Receipts
+	latestNumber    uint64
+}
+
+func (b *blockReceiptsTestBackend) ChainConfig() *params.ChainConfig {
+	if b.chainConfig != nil {
+		return b.chainConfig
+	}
+	return &params.ChainConfig{
+		ChainID:        big.NewInt(1),
+		HomesteadBlock: big.NewInt(0),
+		EIP155Block:    big.NewInt(0),
+		EIP158Block:    big.NewInt(0),
+		ByzantiumBlock: big.NewInt(0),
+		LondonBlock:    big.NewInt(0),
+	}
+}
+
+func (b *blockReceiptsTestBackend) Pending() (*types.Block, types.Receipts, *state.StateDB) {
+	return b.pendingBlock, b.pendingReceipts, nil
+}
+
+func (b *blockReceiptsTestBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Block, error) {
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		return b.blocksByHash[hash], nil
+	}
+	if number, ok := blockNrOrHash.Number(); ok {
+		switch number {
+		case rpc.EarliestBlockNumber:
+			return b.blocksByNumber[0], nil
+		case rpc.LatestBlockNumber:
+			return b.blocksByNumber[b.latestNumber], nil
+		default:
+			if number < 0 {
+				return nil, nil
+			}
+			return b.blocksByNumber[uint64(number)], nil
+		}
+	}
+	return nil, nil
+}
+
+func (b *blockReceiptsTestBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
+	return b.receiptsByHash[hash], nil
+}
+
+func makeReceiptBlock(t *testing.T) (*types.Block, types.Receipts, *types.Transaction) {
+	t.Helper()
+	_, tx := makeTxSyncRaw(t)
+	receipt := &types.Receipt{
+		Status:            types.ReceiptStatusSuccessful,
+		TxHash:            tx.Hash(),
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}
+	receipts := types.Receipts{receipt}
+	block := types.NewBlock(&types.Header{Number: big.NewInt(7), Time: 1}, []*types.Transaction{tx}, nil, receipts, trie.NewStackTrie(nil))
+	return block, receipts, tx
+}
+
+func newBlockReceiptsTestBackend() *blockReceiptsTestBackend {
+	return &blockReceiptsTestBackend{
+		blocksByHash:   make(map[common.Hash]*types.Block),
+		blocksByNumber: make(map[uint64]*types.Block),
+		receiptsByHash: make(map[common.Hash]types.Receipts),
+	}
+}
+
+func (b *blockReceiptsTestBackend) addBlock(block *types.Block, receipts types.Receipts) {
+	b.blocksByHash[block.Hash()] = block
+	b.blocksByNumber[block.NumberU64()] = block
+	b.receiptsByHash[block.Hash()] = receipts
+	if block.NumberU64() >= b.latestNumber {
+		b.latestNumber = block.NumberU64()
+	}
+}
+
+func makeBlockReceiptTestBlock(number uint64, txs types.Transactions, receipts types.Receipts) *types.Block {
+	header := &types.Header{
+		Number:   new(big.Int).SetUint64(number),
+		Time:     number + 1,
+		GasLimit: 30_000_000,
+		BaseFee:  big.NewInt(1),
+	}
+	block := types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil))
+	for i, receipt := range receipts {
+		receipt.TxHash = txs[i].Hash()
+		receipt.BlockHash = block.Hash()
+		receipt.BlockNumber = block.Number()
+		receipt.TransactionIndex = uint(i)
+	}
+	return block
+}
+
+func TestPendingBlockReceipts(t *testing.T) {
+	block, receipts, tx := makeReceiptBlock(t)
+	api := &PublicBlockChainAPI{b: &blockReceiptsTestBackend{pendingBlock: block, pendingReceipts: receipts}}
+
+	result, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	if err != nil {
+		t.Fatalf("GetBlockReceipts pending failed: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(result))
+	}
+	if got := result[0]["transactionHash"]; got != tx.Hash() {
+		t.Fatalf("unexpected transaction hash: got %v want %v", got, tx.Hash())
+	}
+}
+
+func TestBlockReceiptsByHashNumberAndTransactionTypes(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	to := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	legacySigner := types.NewEIP155Signer(big.NewInt(1))
+	londonSigner := types.NewLondonSigner(big.NewInt(1))
+
+	emptyBlock := makeBlockReceiptTestBlock(0, nil, nil)
+	legacyTx := signTx(t, key, legacySigner, &types.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(7),
+		Gas:      21000,
+		To:       &to,
+		Value:    big.NewInt(1),
+	})
+	legacyReceipts := types.Receipts{{
+		Status:            types.ReceiptStatusSuccessful,
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}}
+	legacyBlock := makeBlockReceiptTestBlock(1, types.Transactions{legacyTx}, legacyReceipts)
+	createTx := signTx(t, key, legacySigner, &types.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(7),
+		Gas:      53000,
+		Value:    big.NewInt(0),
+	})
+	createAddress := common.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccc")
+	createReceipts := types.Receipts{{
+		Status:            types.ReceiptStatusSuccessful,
+		GasUsed:           53000,
+		CumulativeGasUsed: 53000,
+		ContractAddress:   createAddress,
+	}}
+	createBlock := makeBlockReceiptTestBlock(2, types.Transactions{createTx}, createReceipts)
+	dynamicTx := signTx(t, key, londonSigner, &types.DynamicFeeTx{
+		ChainID:   big.NewInt(1),
+		Nonce:     2,
+		GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(10),
+		Gas:       21000,
+		To:        &to,
+		Value:     big.NewInt(3),
+	})
+	dynamicReceipts := types.Receipts{{
+		Status:            types.ReceiptStatusSuccessful,
+		GasUsed:           21000,
+		CumulativeGasUsed: 21000,
+	}}
+	dynamicBlock := makeBlockReceiptTestBlock(3, types.Transactions{dynamicTx}, dynamicReceipts)
+
+	backend := newBlockReceiptsTestBackend()
+	backend.addBlock(emptyBlock, nil)
+	backend.addBlock(legacyBlock, legacyReceipts)
+	backend.addBlock(createBlock, createReceipts)
+	backend.addBlock(dynamicBlock, dynamicReceipts)
+	api := &PublicBlockChainAPI{b: backend}
+	tests := []struct {
+		name     string
+		query    rpc.BlockNumberOrHash
+		wantLen  int
+		wantHash common.Hash
+		wantAddr interface{}
+	}{
+		{name: "empty block by hash", query: rpc.BlockNumberOrHashWithHash(emptyBlock.Hash(), false), wantLen: 0},
+		{name: "legacy tx by number", query: rpc.BlockNumberOrHashWithNumber(1), wantLen: 1, wantHash: legacyTx.Hash()},
+		{name: "contract create by hash", query: rpc.BlockNumberOrHashWithHash(createBlock.Hash(), false), wantLen: 1, wantHash: createTx.Hash(), wantAddr: createAddress},
+		{name: "dynamic fee tx by latest", query: rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber), wantLen: 1, wantHash: dynamicTx.Hash()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := api.GetBlockReceipts(context.Background(), tt.query)
+			if err != nil {
+				t.Fatalf("GetBlockReceipts failed: %v", err)
+			}
+			if len(result) != tt.wantLen {
+				t.Fatalf("expected %d receipts, got %d", tt.wantLen, len(result))
+			}
+			if tt.wantLen == 0 {
+				return
+			}
+			if got := result[0]["transactionHash"]; got != tt.wantHash {
+				t.Fatalf("unexpected transaction hash: got %v want %v", got, tt.wantHash)
+			}
+			if tt.wantAddr != nil && result[0]["contractAddress"] != tt.wantAddr {
+				t.Fatalf("unexpected contract address: got %v want %v", result[0]["contractAddress"], tt.wantAddr)
+			}
+			if _, ok := result[0]["memo"]; !ok {
+				t.Fatalf("expected Morph receipt field memo to be present")
+			}
+		})
+	}
+}
+
+func TestPendingBlockReceiptsUnavailable(t *testing.T) {
+	api := &PublicBlockChainAPI{b: &blockReceiptsTestBackend{}}
+	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	if err == nil || err.Error() != "pending receipts is not available" {
+		t.Fatalf("unexpected pending unavailable error: %v", err)
+	}
+
+	block, _, _ := makeReceiptBlock(t)
+	api = &PublicBlockChainAPI{b: &blockReceiptsTestBackend{pendingBlock: block}}
+	_, err = api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	if err == nil || err.Error() != "pending receipts is not available" {
+		t.Fatalf("unexpected pending receipts unavailable error: %v", err)
+	}
+}
+
+func TestNonPendingBlockReceiptsNotFoundReturnsNull(t *testing.T) {
+	api := &PublicBlockChainAPI{b: &blockReceiptsTestBackend{}}
+	result, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(123)))
+	if err != nil {
+		t.Fatalf("unexpected non-pending error: %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result for missing non-pending block, got %#v", result)
 	}
 }

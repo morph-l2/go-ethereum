@@ -279,7 +279,6 @@ type Config struct {
 	Cache     int    // Memory allowance (MB) to use for caching trie nodes in memory
 	Journal   string // Journal of clean cache to survive node restarts
 	Preimages bool   // Flag whether the preimage of trie key is recorded
-	Zktrie    bool   // Deprecated: inert. State backend is always MPT (zkTrie storage mode retired); this flag no longer has any runtime effect.
 }
 
 // NewDatabase creates a new trie database to store ephemeral trie content before
@@ -855,8 +854,7 @@ func (db *Database) SaveCachePeriodically(dir string, interval time.Duration, st
 	}
 }
 
-// EmptyRoot is the root of an empty trie. The state backend is always MPT
-// (zkTrie storage mode retired), so this is unconditionally the MPT empty root.
+// EmptyRoot is the root of an empty trie.
 func (db *Database) EmptyRoot() common.Hash {
 	return emptyRoot
 }

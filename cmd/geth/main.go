@@ -152,7 +152,6 @@ var (
 		utils.GoerliFlag,
 		utils.MorphFlag,
 		utils.MorphHoodiFlag,
-		utils.MorphMPTFlag,
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,
 		utils.EthStatsURLFlag,

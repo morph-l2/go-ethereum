@@ -220,49 +220,17 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 
 	if genesis == nil {
 		storedcfg := rawdb.ReadChainConfig(db, stored)
-
-		// copy configs named under scroll to morph
-		if storedcfg.Morph.FeeVaultAddress == nil {
-			if storedcfg.Scroll.FeeVaultAddress == nil {
-				log.Error("something wrong with store chain config, both morph and scroll are empty")
-				return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
-			}
-			storedcfg.Morph.UseZktrie = storedcfg.Scroll.UseZktrie
-			storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
-			storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
-			storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
-		}
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
-			// State backend is always MPT (zkTrie storage mode retired).
 			trieCfg = &trie.Config{}
 		}
 	} else {
-		// State backend is always MPT (zkTrie storage mode retired).
 		trieCfg = &trie.Config{}
 	}
 
 	if _, err := state.New(header.Root, state.NewDatabaseWithConfig(db, trieCfg), nil); err != nil {
-		// Detect a legacy zkTrie database: zkTrie storage mode is retired and the
-		// node now always runs MPT, but an existing DB may still hold a stored
-		// chain config with UseZktrie=true (and a zkTrie genesis state root that
-		// cannot be opened as MPT). In that case re-commit genesis in MPT format;
-		// GenesisStateRoot keeps the genesis block hash consistent (see ToBlock()).
-		isTrieFormatMismatch := false
-		if genesis != nil {
-			storedcfg := rawdb.ReadChainConfig(db, stored)
-			if storedcfg != nil && storedcfg.Morph.UseZktrie != genesis.Config.Morph.UseZktrie {
-				isTrieFormatMismatch = true
-				log.Warn("Trie format mismatch detected, re-committing genesis with new format",
-					"stored_format", trieFormatName(storedcfg.Morph.UseZktrie),
-					"configured_format", trieFormatName(genesis.Config.Morph.UseZktrie),
-					"header_root", header.Root.String())
-			}
-		}
-		if !isTrieFormatMismatch {
-			log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
-		}
+		log.Error("failed to new state in SetupGenesisBlockWithOverride", "header root", header.Root.String(), "error", err)
 
 		if genesis == nil {
 			genesis = DefaultGenesisBlock()
@@ -270,21 +238,11 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		// Ensure the stored genesis matches with the given one.
 		hash := genesis.ToBlock(nil).Hash()
 		if hash != stored {
-			if isTrieFormatMismatch {
-				return genesis.Config, hash, fmt.Errorf(
-					"genesis hash mismatch during trie format switch (stored: %x, new: %x); "+
-						"ensure GenesisStateRoot is correctly configured", stored, hash)
-			}
 			return genesis.Config, hash, &GenesisMismatchError{stored, hash}
 		}
 		block, err := genesis.Commit(db)
 		if err != nil {
 			return genesis.Config, hash, err
-		}
-		if isTrieFormatMismatch {
-			log.Info("Successfully re-committed genesis with new trie format",
-				"format", trieFormatName(genesis.Config.Morph.UseZktrie),
-				"block_hash", block.Hash().String())
 		}
 		return genesis.Config, block.Hash(), nil
 	}
@@ -313,16 +271,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		log.Warn("Found genesis block without chain config")
 		rawdb.WriteChainConfig(db, stored, newcfg)
 		return newcfg, stored, nil
-	} else if storedcfg.Morph.FeeVaultAddress == nil {
-		if storedcfg.Scroll.FeeVaultAddress == nil {
-			log.Error("something wrong with store chain config, both morph and scroll are empty")
-			return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
-		}
-		storedcfg.Morph.UseZktrie = storedcfg.Scroll.UseZktrie
-		storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
-		storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
-		storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
-
 	}
 	// Special case: don't change the existing config of a non-mainnet chain if no new
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)
@@ -342,14 +290,6 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 	}
 	rawdb.WriteChainConfig(db, stored, newcfg)
 	return newcfg, stored, nil
-}
-
-// trieFormatName returns a human-readable name for the trie format.
-func trieFormatName(useZktrie bool) string {
-	if useZktrie {
-		return "zkTrie"
-	}
-	return "MPT"
 }
 
 func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
@@ -383,7 +323,6 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	}
 	var trieCfg *trie.Config
 	if g.Config != nil {
-		// State backend is always MPT (zkTrie storage mode retired).
 		trieCfg = &trie.Config{}
 	}
 	statedb, err := state.New(common.Hash{}, state.NewDatabaseWithConfig(db, trieCfg), nil)

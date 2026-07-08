@@ -264,6 +264,7 @@ func TestCheckCompatibleAmsterdamTimestamp(t *testing.T) {
 	require.Equal(t, "AmsterdamTime fork timestamp", err.What)
 	require.Equal(t, NewUint64(100), err.StoredTime)
 	require.Equal(t, NewUint64(200), err.NewTime)
+	require.Equal(t, uint64(99), err.RewindToTime)
 
 	// Head still before both timestamps -> compatible.
 	require.Nil(t, stored.CheckCompatible(newer, 0, 50))

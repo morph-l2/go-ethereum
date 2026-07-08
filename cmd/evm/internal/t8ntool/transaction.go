@@ -99,10 +99,10 @@ func Transaction(ctx *cli.Context) error {
 		if err := decoder.Decode(inputData); err != nil {
 			return NewError(ErrorJson, fmt.Errorf("failed unmarshaling stdin: %v", err))
 		}
-		if txStr == stdinSelector {
-			// Decode the body of already signed transactions
-			body = common.FromHex(inputData.TxRlp)
-		}
+	}
+	if txStr == stdinSelector {
+		// Decode the body of already signed transactions
+		body = common.FromHex(inputData.TxRlp)
 	} else {
 		// Read input from file
 		inFile, err := os.Open(txStr)
@@ -160,6 +160,13 @@ func Transaction(ctx *cli.Context) error {
 		} else {
 			r.Address = sender
 		}
+		// Enforce the Amsterdam per-transaction gas cap before intrinsic gas
+		// validation, matching the txpool's validateTx ordering.
+		if isAmsterdam && !tx.IsL1MessageTx() && tx.Gas() > params.MaxTxGas {
+			r.Error = fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
+			results = append(results, r)
+			continue
+		}
 		if gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil,
 			chainConfig.IsHomestead(new(big.Int)), chainConfig.IsIstanbul(new(big.Int)), chainConfig.IsShanghai(new(big.Int)), isAmsterdam); err != nil {
 			r.Error = err
@@ -172,11 +179,6 @@ func Transaction(ctx *cli.Context) error {
 				results = append(results, r)
 				continue
 			}
-		}
-		if isAmsterdam && !tx.IsL1MessageTx() && tx.Gas() > params.MaxTxGas {
-			r.Error = fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
-			results = append(results, r)
-			continue
 		}
 		// Validate <256bit fields
 		switch {

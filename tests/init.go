@@ -369,7 +369,14 @@ var Forks = map[string]*params.ChainConfig{
 		ShanghaiBlock:       big.NewInt(0),
 		BernoulliBlock:      big.NewInt(0),
 		CurieBlock:          big.NewInt(0),
+		Morph203Time:        new(uint64),
+		ViridianTime:        new(uint64),
+		EmeraldTime:         new(uint64),
+		JadeForkTime:        new(uint64),
 		AmsterdamTime:       params.NewUint64(1),
+		Morph: params.MorphConfig{
+			FeeVaultAddress: &params.MorphFeeVaultAddress,
+		},
 	},
 }
 

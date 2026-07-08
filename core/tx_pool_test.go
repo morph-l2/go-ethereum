@@ -247,13 +247,21 @@ func setupTxPoolWithConfigAndGasLimit(config *params.ChainConfig, gasLimit uint6
 
 func txPoolNextHead(parent *types.Header, ts uint64) *types.Header {
 	number := big.NewInt(1)
-	if parent != nil && parent.Number != nil {
-		number = new(big.Int).Add(parent.Number, big.NewInt(1))
+	var (
+		parentHash common.Hash
+		gasLimit   uint64
+	)
+	if parent != nil {
+		parentHash = parent.Hash()
+		gasLimit = parent.GasLimit
+		if parent.Number != nil {
+			number = new(big.Int).Add(parent.Number, big.NewInt(1))
+		}
 	}
 	return &types.Header{
-		ParentHash: parent.Hash(),
+		ParentHash: parentHash,
 		Number:     number,
-		GasLimit:   parent.GasLimit,
+		GasLimit:   gasLimit,
 		Time:       ts,
 	}
 }

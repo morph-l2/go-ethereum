@@ -1598,12 +1598,9 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.pendingNonces = newTxNoncer(statedb)
 	pool.currentMaxGas = newHead.GasLimit
 
-	// Inject any transactions discarded due to reorgs
-	log.Debug("Reinjecting stale transactions", "count", len(reinject))
-	senderCacher.recover(pool.signer, reinject)
-	pool.addTxsLocked(reinject, false)
-
-	// Update all fork indicator by next pending block number.
+	// Update all fork indicators by next pending block number before
+	// reinjecting reorged transactions, so they are validated against the
+	// fork rules of the new head instead of the stale ones.
 	next := new(big.Int).Add(newHead.Number, big.NewInt(1))
 	pool.istanbul = pool.chainconfig.IsIstanbul(next)
 
@@ -1614,6 +1611,14 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.jade = pool.chainconfig.IsJadeFork(newHead.Time)
 	pool.amsterdam = pool.chainconfig.IsAmsterdam(newHead.Time)
 
+	// Update current head
+	pool.currentHead = next
+
+	// Inject any transactions discarded due to reorgs
+	log.Debug("Reinjecting stale transactions", "count", len(reinject))
+	senderCacher.recover(pool.signer, reinject)
+	pool.addTxsLocked(reinject, false)
+
 	// Remove MorphTx V1 transactions if jade fork is not active (e.g. after reorg)
 	if !pool.jade {
 		pool.removeMorphTxV1()
@@ -1621,9 +1626,6 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	if !oldAmsterdam && pool.amsterdam {
 		pool.dropOversizedAmsterdamTxs()
 	}
-
-	// Update current head
-	pool.currentHead = next
 }
 
 // promoteExecutables moves transactions that have become processable from the

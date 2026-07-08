@@ -515,8 +515,16 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 func (pool *TxPool) dropOversizedAmsterdamTxs() {
 	var hashes []common.Hash
 	batch := pool.chainDb.NewBatch()
+	// Track for each affected sender the lowest nonce that was dropped, so
+	// that higher-nonce transactions from the same sender can be dropped as
+	// well, preserving the pool's "no nonce gap" invariant.
+	minDropped := make(map[common.Address]uint64)
 	for hash, tx := range pool.pending {
 		if tx.Gas() > params.MaxTxGas {
+			addr, _ := types.Sender(pool.signer, tx)
+			if lowest, ok := minDropped[addr]; !ok || tx.Nonce() < lowest {
+				minDropped[addr] = tx.Nonce()
+			}
 			delete(pool.pending, hash)
 			batch.Delete(hash.Bytes())
 			hashes = append(hashes, hash)
@@ -524,6 +532,29 @@ func (pool *TxPool) dropOversizedAmsterdamTxs() {
 	}
 	if len(hashes) == 0 {
 		return
+	}
+	// Drop now-gapped transactions of affected senders.
+	for hash, tx := range pool.pending {
+		addr, _ := types.Sender(pool.signer, tx)
+		if lowest, ok := minDropped[addr]; ok && tx.Nonce() > lowest {
+			delete(pool.pending, hash)
+			batch.Delete(hash.Bytes())
+			hashes = append(hashes, hash)
+		}
+	}
+	// Recompute the pending nonce of affected senders from the remaining
+	// transactions, so GetNonce does not keep returning stale values.
+	for addr := range minDropped {
+		delete(pool.nonce, addr)
+	}
+	for _, tx := range pool.pending {
+		addr, _ := types.Sender(pool.signer, tx)
+		if _, affected := minDropped[addr]; !affected {
+			continue
+		}
+		if nonce := tx.Nonce() + 1; nonce > pool.nonce[addr] {
+			pool.nonce[addr] = nonce
+		}
 	}
 	batch.Write()
 	pool.relay.Discard(hashes)

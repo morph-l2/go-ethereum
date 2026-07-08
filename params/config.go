@@ -38,7 +38,6 @@ var (
 	SepoliaGenesisHash           = common.HexToHash("0x25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9")
 	RinkebyGenesisHash           = common.HexToHash("0x6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177")
 	GoerliGenesisHash            = common.HexToHash("0xbf7e331f7f7c1dd2e05159666b3bf8bc7a8a3a9eb1d518969eab529dd9b88c1a")
-	MorphHoleskyGenesisHash      = common.HexToHash("0x74c3b27ba96d1f17f35849f51f5d786767bae9b1b63c338069a8cbd0e1d0b0b7")
 	MorphMainnetGenesisHash      = common.HexToHash("0x649c9b1f9f831771529dbf286a63dd071530d73c8fa410997eebaf449acfa7a9")
 	MorphHoodiGenesisHash        = common.HexToHash("0x2cbcff7ec8d68255cb130d5274217cded0c83c417b9ed5e045e1ffcc3ebfc35c")
 	MorphMainnetGenesisStateRoot = common.HexToHash("0x09688bec5d876538664e62247c2f64fc7a02c54a3f898b42020730c7dd4933aa")
@@ -264,38 +263,8 @@ var (
 	}
 
 	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
-	MorphHoleskyMaxTxPerBlock      = 1000
 
-	MorphFeeVaultAddress    = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
-	MorphHoleskyChainConfig = &ChainConfig{
-		ChainID:                 big.NewInt(2810),
-		HomesteadBlock:          big.NewInt(0),
-		DAOForkBlock:            nil,
-		DAOForkSupport:          false,
-		EIP150Block:             big.NewInt(0),
-		EIP155Block:             big.NewInt(0),
-		EIP158Block:             big.NewInt(0),
-		ByzantiumBlock:          big.NewInt(0),
-		ConstantinopleBlock:     big.NewInt(0),
-		PetersburgBlock:         big.NewInt(0),
-		IstanbulBlock:           big.NewInt(0),
-		MuirGlacierBlock:        nil,
-		BerlinBlock:             big.NewInt(0),
-		LondonBlock:             big.NewInt(0),
-		ArrowGlacierBlock:       nil,
-		ArchimedesBlock:         big.NewInt(0),
-		ShanghaiBlock:           big.NewInt(0),
-		BernoulliBlock:          big.NewInt(0),
-		CurieBlock:              big.NewInt(6330180),
-		Morph203Time:            NewUint64(1745388000),
-		TerminalTotalDifficulty: big.NewInt(0),
-		Morph: MorphConfig{
-			UseZktrie:                 true,
-			MaxTxPerBlock:             &MorphHoleskyMaxTxPerBlock,
-			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
-			FeeVaultAddress:           &MorphFeeVaultAddress,
-		},
-	}
+	MorphFeeVaultAddress = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
 
 	MorphHoodiFeeVaultAddress = common.HexToAddress("0x29107CB79Ef8f69fE1587F77e283d47E84c5202f")
 	MorphHoodiChainConfig     = &ChainConfig{
@@ -324,7 +293,8 @@ var (
 		JadeForkTime:            NewUint64(1774418400),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
-			UseZktrie:                 true,
+			// zkTrie storage mode retired: state always uses MPT.
+			UseZktrie:                 false,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphHoodiFeeVaultAddress,
 			GenesisStateRoot:          &MorphHoodiGenesisStateRoot,
@@ -357,7 +327,8 @@ var (
 		JadeForkTime:            NewUint64(1775628000),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
-			UseZktrie:                 true,
+			// zkTrie storage mode retired: state always uses MPT.
+			UseZktrie:                 false,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &rcfg.MorphFeeVaultAddress,
 			GenesisStateRoot:          &MorphMainnetGenesisStateRoot,
@@ -591,7 +562,7 @@ type ChainConfig struct {
 	Morph203Time        *uint64  `json:"morph203Time,omitempty"`        // Morph203Time switch time (nil = no fork, 0 = already on morph203)
 	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
 	EmeraldTime         *uint64  `json:"emeraldTime,omitempty"`         // EmeraldTime switch time (nil = no fork, 0 = already on emerald)
-	JadeForkTime        *uint64  `json:"jadeForkTime,omitempty"`        // JadeForkTime switch time (nil = no fork, blocks use zkTrie format)
+	JadeForkTime        *uint64  `json:"jadeForkTime,omitempty"`        // JadeForkTime switch time (nil = no fork). State backend is always MPT; Jade is only a historical epoch boundary: pre-Jade headers carry legacy zkTrie state roots and skip state-root validation, post-Jade headers are native MPT.
 	AmsterdamTime       *uint64  `json:"amsterdamTime,omitempty"`       // AmsterdamTime switch time (nil = no fork, 0 = already on amsterdam)
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
@@ -608,12 +579,17 @@ type ChainConfig struct {
 }
 
 type MorphConfig struct {
-	// Use zktrie [optional]
+	// UseZktrie is a legacy epoch marker only [optional].
+	// The state backend is always MPT (zkTrie storage mode retired); this flag no
+	// longer selects a runnable storage mode. It is retained solely to identify
+	// legacy networks whose pre-Jade headers carry zkTrie-format state roots.
 	UseZktrie bool `json:"useZktrie,omitempty"`
 
-	// Genesis state root for MPT mode [optional]
-	// When UseZktrie=false (MPT mode), this specifies the zkTrie genesis root
-	// to maintain compatibility. The actual MPT root will be computed and mapped.
+	// GenesisStateRoot is the legacy zkTrie genesis state root [optional].
+	// The genesis state is always committed as MPT; when set, this pins the genesis
+	// header.Root to the historical zkTrie root for hash compatibility and records a
+	// DiskStateRoot(GenesisStateRoot -> mptRoot) mapping so the genesis state stays
+	// accessible via the legacy root (see Genesis.ToBlock).
 	GenesisStateRoot *common.Hash `json:"genesisStateRoot,omitempty"`
 
 	// Maximum number of transactions per block [optional]

@@ -1,7 +1,6 @@
 package tracing
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"runtime"
@@ -30,7 +29,7 @@ import (
 var (
 	getTxResultTimer             = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result", nil)
 	getTxResultApplyMessageTimer = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result/apply_message", nil)
-	getTxResultZkTrieBuildTimer  = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result/zk_trie_build", nil)
+	getTxResultStorageProofTimer = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result/storage_proof", nil)
 	getTxResultTracerResultTimer = metrics.NewRegisteredTimer("rollup/tracing/get_tx_result/tracer_result", nil)
 	feedTxToTracerTimer          = metrics.NewRegisteredTimer("rollup/tracing/feed_tx_to_tracer", nil)
 	fillBlockTraceTimer          = metrics.NewRegisteredTimer("rollup/tracing/fill_block_trace", nil)
@@ -74,8 +73,6 @@ type TraceEnv struct {
 	*types.StorageTrace
 
 	Codes map[common.Hash]logger.CodeInfo
-	// zktrie tracer is used for zktrie storage to build additional deletion proof
-	ZkTrieTracer map[string]state.ZktrieProofTracer
 
 	// ExecutionResults stores the execution result for each transaction
 	ExecutionResults []*types.ExecutionResult
@@ -114,7 +111,6 @@ func CreateTraceEnvHelper(chainConfig *params.ChainConfig, logConfig *logger.Con
 			StorageProofs: make(map[string]map[string][]hexutil.Bytes),
 		},
 		Codes:             make(map[common.Hash]logger.CodeInfo),
-		ZkTrieTracer:      make(map[string]state.ZktrieProofTracer),
 		ExecutionResults:  make([]*types.ExecutionResult, block.Transactions().Len()),
 		StartL1QueueIndex: startL1QueueIndex,
 	}
@@ -319,7 +315,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	// Call Prepare to clear out the statedb access list
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
 
-	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), statedb, block.Number(), block.Hash(), tx, new(uint64), vmenv)
+	receipt, err := core.ApplyTransactionWithEVM(msg, env.chainConfig, new(core.GasPool).AddGas(msg.Gas()), statedb, block.Number(), block.Hash(), block.Time(), tx, new(uint64), vmenv)
 	if err != nil {
 		getTxResultApplyMessageTimer.UpdateSince(applyMessageStart)
 		return err
@@ -445,7 +441,7 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 		env.pMu.Unlock()
 	}
 
-	zkTrieBuildStart := time.Now()
+	storageProofStart := time.Now()
 
 	for addr, keys := range proofStorages {
 		env.sMu.Lock()
@@ -456,14 +452,11 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			env.sMu.Unlock()
 			continue
 		}
-		zktrieTracer := statedb.NewProofTracer(trie)
 		env.sMu.Unlock()
 
 		for key := range keys {
 			addrStr := addr.String()
 			keyStr := key.String()
-			value := statedb.GetState(addr, key)
-			isDelete := bytes.Equal(value.Bytes(), common.Hash{}.Bytes())
 
 			env.sMu.Lock()
 			m, existed := env.StorageProofs[addrStr]
@@ -471,26 +464,14 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 				m = make(map[string][]hexutil.Bytes)
 				env.StorageProofs[addrStr] = m
 			}
-			if zktrieTracer.Available() && !env.ZkTrieTracer[addrStr].Available() {
-				env.ZkTrieTracer[addrStr] = statedb.NewProofTracer(trie)
-			}
 
 			if _, existed := m[keyStr]; existed {
-				// still need to touch tracer for deletion
-				if isDelete && zktrieTracer.Available() {
-					env.ZkTrieTracer[addrStr].MarkDeletion(key)
-				}
 				env.sMu.Unlock()
 				continue
 			}
 			env.sMu.Unlock()
 
-			var proof [][]byte
-			if zktrieTracer.Available() {
-				proof, err = statedb.GetSecureTrieProof(zktrieTracer, key)
-			} else {
-				proof, err = statedb.GetSecureTrieProof(trie, key)
-			}
+			proof, err := statedb.GetSecureTrieProof(trie, key)
 			if err != nil {
 				log.Error("Storage proof not available", "error", err, "address", addrStr, "key", keyStr)
 				// but we still mark the proofs map with nil array
@@ -498,16 +479,10 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			wrappedProof := types.WrapProof(proof)
 			env.sMu.Lock()
 			m[keyStr] = wrappedProof
-			if zktrieTracer.Available() {
-				if isDelete {
-					zktrieTracer.MarkDeletion(key)
-				}
-				env.ZkTrieTracer[addrStr].Merge(zktrieTracer)
-			}
 			env.sMu.Unlock()
 		}
 	}
-	getTxResultZkTrieBuildTimer.UpdateSince(zkTrieBuildStart)
+	getTxResultStorageProofTimer.UpdateSince(storageProofStart)
 
 	tracerResultTimer := time.Now()
 	callTrace, err := callTracer.GetResult()

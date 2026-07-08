@@ -120,7 +120,6 @@ func NewDatabase(db ethdb.Database) Database {
 func NewDatabaseWithConfig(db ethdb.Database, config *trie.Config) Database {
 	csc, _ := lru.New(codeSizeCacheSize)
 	return &cachingDB{
-		zktrie:        config != nil && config.Zktrie,
 		db:            trie.NewDatabaseWithConfig(db, config),
 		codeSizeCache: csc,
 		codeCache:     lru2.NewSizeConstrainedLRU(codeCacheSize),
@@ -131,27 +130,19 @@ type cachingDB struct {
 	db            *trie.Database
 	codeSizeCache *lru.Cache
 	codeCache     *lru2.SizeConstrainedLRU
-	zktrie        bool
 }
 
 // OpenTrie opens the main account trie at a specific root hash.
 func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
 	// Try to resolve disk state root mapping first.
-	// If the block's trie format differs from our local format,
-	// the mapping will redirect us to the actual on-disk root.
+	// Pre-Jade blocks carry legacy zkTrie state roots in their headers; the
+	// mapping redirects those to the actual on-disk MPT root.
 	diskDB := db.db.DiskDB()
 	if diskRoot, err := rawdb.ReadDiskStateRoot(diskDB, root); err == nil {
 		root = diskRoot
 	}
 	// If mapping doesn't exist, root remains unchanged (normal case).
 
-	if db.zktrie {
-		tr, err := trie.NewZkTrie(root, trie.NewZktrieDatabaseFromTriedb(db.db))
-		if err != nil {
-			return nil, err
-		}
-		return tr, nil
-	}
 	tr, err := trie.NewSecure(root, db.db)
 	if err != nil {
 		return nil, err
@@ -161,13 +152,6 @@ func (db *cachingDB) OpenTrie(root common.Hash) (Trie, error) {
 
 // OpenStorageTrie opens the storage trie of an account.
 func (db *cachingDB) OpenStorageTrie(addrHash, root common.Hash) (Trie, error) {
-	if db.zktrie {
-		tr, err := trie.NewZkTrie(root, trie.NewZktrieDatabaseFromTriedb(db.db))
-		if err != nil {
-			return nil, err
-		}
-		return tr, nil
-	}
 	tr, err := trie.NewSecure(root, db.db)
 	if err != nil {
 		return nil, err
@@ -179,8 +163,6 @@ func (db *cachingDB) OpenStorageTrie(addrHash, root common.Hash) (Trie, error) {
 func (db *cachingDB) CopyTrie(t Trie) Trie {
 	switch t := t.(type) {
 	case *trie.SecureTrie:
-		return t.Copy()
-	case *trie.ZkTrie:
 		return t.Copy()
 	default:
 		panic(fmt.Errorf("unknown trie type %T", t))

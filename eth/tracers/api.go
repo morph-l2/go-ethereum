@@ -338,6 +338,9 @@ func traceERC20BalanceSlots(statedb *state.StateDB, evm *vm.EVM, tokenAddress, u
 	cfg := evm.Config
 	cfg.Tracer = &tracing.Hooks{OnOpcode: probeTracer.OnOpcode}
 	probeEVM := vm.NewEVM(evm.Context, evm.TxContext, statedb, evm.ChainConfig(), cfg)
+	if evm.HasCustomPrecompiles() {
+		probeEVM.SetPrecompiles(evm.CopyPrecompiles())
+	}
 	balance, err := core.GetAltTokenBalanceByEVM(probeEVM, tokenAddress, user)
 	if err != nil {
 		return nil, nil, err
@@ -571,7 +574,7 @@ func (api *API) traceChain(ctx context.Context, start, end *types.Block, config 
 						break
 					}
 
-					res, err := api.traceTx(localctx, tx, msg, txctx, blockCtx, task.statedb, config, l1DataFee)
+					res, err := api.traceTx(localctx, tx, msg, txctx, blockCtx, task.statedb, config, nil, l1DataFee)
 					if err != nil {
 						task.results[i] = &txTraceResult{Error: err.Error()}
 						log.Warn("Tracing failed", "hash", tx.Hash(), "block", task.block.NumberU64(), "err", err)
@@ -914,7 +917,7 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 					results[task.index] = &txTraceResult{Error: err.Error()}
 					continue
 				}
-				res, err := api.traceTx(ctx, txs[task.index], msg, txctx, blockCtx, task.statedb, config, l1DataFee)
+				res, err := api.traceTx(ctx, txs[task.index], msg, txctx, blockCtx, task.statedb, config, nil, l1DataFee)
 				if err != nil {
 					results[task.index] = &txTraceResult{Error: err.Error()}
 					continue
@@ -1128,7 +1131,7 @@ func (api *API) TraceTransaction(ctx context.Context, hash common.Hash, config *
 	if err != nil {
 		return nil, err
 	}
-	return api.traceTx(ctx, tx, msg, txctx, vmctx, statedb, config, l1DataFee)
+	return api.traceTx(ctx, tx, msg, txctx, vmctx, statedb, config, nil, l1DataFee)
 }
 
 // TraceCall lets you trace a given eth_call. It collects the structured logs
@@ -1165,13 +1168,15 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 	if err != nil {
 		return nil, err
 	}
+	vmctx := core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), api.backend.ChainConfig(), nil)
+	var precompiles vm.PrecompiledContracts
 	// Apply the customized state rules if required.
-	if config != nil {
-		if err := config.StateOverrides.Apply(statedb); err != nil {
+	if config != nil && config.StateOverrides != nil {
+		precompiles = vm.ActivePrecompiledContracts(api.backend.ChainConfig().Rules(block.Number(), block.Time()))
+		if err := config.StateOverrides.Apply(statedb, precompiles); err != nil {
 			return nil, err
 		}
 	}
-	vmctx := core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), api.backend.ChainConfig(), nil)
 
 	// Execute the trace
 	if err := args.CallDefaults(api.backend.RPCGasCap(), vmctx.BaseFee, api.backend.ChainConfig().ChainID); err != nil {
@@ -1195,13 +1200,13 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 		return nil, err
 	}
 
-	return api.traceTx(ctx, tx, msg, new(Context), vmctx, statedb, traceConfig, l1DataFee)
+	return api.traceTx(ctx, tx, msg, new(Context), vmctx, statedb, traceConfig, precompiles, l1DataFee)
 }
 
 // traceTx configures a new tracer according to the provided configuration, and
 // executes the given message in the provided environment. The return value will
 // be tracer dependent.
-func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, l1DataFee *big.Int) (interface{}, error) {
+func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core.Message, txctx *Context, vmctx vm.BlockContext, statedb *state.StateDB, config *TraceConfig, precompiles vm.PrecompiledContracts, l1DataFee *big.Int) (interface{}, error) {
 	// Assemble the structured logger or the JavaScript tracer
 	var (
 		tracer       *Tracer
@@ -1244,6 +1249,9 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 			execState.AddBalance(message.From(), l1DataFee, tracing.BalanceChangeUnspecified)
 		} else {
 			probeEVM := vm.NewEVM(vmctx, txContext, execState, api.backend.ChainConfig(), vm.Config{NoBaseFee: true})
+			if precompiles != nil {
+				probeEVM.SetPrecompiles(precompiles)
+			}
 			erc20Amount, err := fees.EthToAlt(execState, message.FeeTokenID(), l1DataFee)
 			if err != nil {
 				return nil, err
@@ -1259,6 +1267,9 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 	tracingStateDB := state.NewHookedState(execState, hooks)
 	// Run the transaction with tracing enabled.
 	vmenv := vm.NewEVM(vmctx, txContext, tracingStateDB, api.backend.ChainConfig(), vm.Config{Tracer: hooks, NoBaseFee: true})
+	if precompiles != nil {
+		vmenv.SetPrecompiles(precompiles)
+	}
 
 	// Define a meaningful timeout of a single transaction trace
 	if config.Timeout != nil {
@@ -1279,7 +1290,7 @@ func (api *API) traceTx(ctx context.Context, tx *types.Transaction, message core
 
 	// Call Prepare to clear out the statedb access list
 	execState.SetTxContext(txctx.TxHash, txctx.TxIndex)
-	_, err = core.ApplyTransactionWithEVM(message, api.backend.ChainConfig(), new(core.GasPool).AddGas(message.Gas()), execState, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, vmenv)
+	_, err = core.ApplyTransactionWithEVM(message, api.backend.ChainConfig(), new(core.GasPool).AddGas(message.Gas()), execState, vmctx.BlockNumber, txctx.BlockHash, vmctx.Time.Uint64(), tx, &usedGas, vmenv)
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %w", err)
 	}

@@ -175,17 +175,13 @@ var (
 		Name:  "morph",
 		Usage: "Morph mainnet network",
 	}
-	MorphHoleskyFlag = cli.BoolFlag{
-		Name:  "morph-holesky",
-		Usage: "Morph Holesky test network",
-	}
 	MorphHoodiFlag = cli.BoolFlag{
 		Name:  "morph-hoodi",
 		Usage: "Morph Hoodi test network",
 	}
 	MorphMPTFlag = cli.BoolFlag{
 		Name:  "morph-mpt",
-		Usage: "Use MPT (Merkle Patricia Trie) instead of zkTrie for state storage",
+		Usage: "Deprecated no-op: state backend is always MPT (zkTrie storage mode retired)",
 	}
 	OverrideGenesisFlag = &cli.StringFlag{
 		Name:  "override.genesis",
@@ -937,9 +933,6 @@ func MakeDataDir(ctx *cli.Context) string {
 		if ctx.GlobalBool(MorphFlag.Name) {
 			return filepath.Join(path, "morph")
 		}
-		if ctx.GlobalBool(MorphHoleskyFlag.Name) {
-			return filepath.Join(path, "morph-holesky")
-		}
 		if ctx.GlobalBool(MorphHoodiFlag.Name) {
 			return filepath.Join(path, "morph-hoodi")
 		}
@@ -1001,8 +994,6 @@ func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 		urls = params.GoerliBootnodes
 	case ctx.GlobalBool(MorphFlag.Name):
 		urls = params.MorphBootnodes
-	case ctx.GlobalBool(MorphHoleskyFlag.Name):
-		urls = params.MorphHoleskyBootnodes
 	case ctx.GlobalBool(MorphHoodiFlag.Name):
 		urls = params.MorphHoodiBootnodes
 	case cfg.BootstrapNodes != nil || len(urls) == 0:
@@ -1453,8 +1444,6 @@ func setDataDir(ctx *cli.Context, cfg *node.Config) {
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "sepolia")
 	case ctx.GlobalBool(MorphFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "morph")
-	case ctx.GlobalBool(MorphHoleskyFlag.Name) && cfg.DataDir == node.DefaultDataDir():
-		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "morph-holesky")
 	case ctx.GlobalBool(MorphHoodiFlag.Name) && cfg.DataDir == node.DefaultDataDir():
 		cfg.DataDir = filepath.Join(node.DefaultDataDir(), "morph-hoodi")
 	}
@@ -1688,8 +1677,8 @@ func validateTxSyncTimeouts(defaultTimeout, maxTimeout time.Duration) error {
 // SetEthConfig applies eth-related command line flags to the config.
 func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
-	CheckExclusive(ctx, OverrideGenesisFlag, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoleskyFlag, MorphHoodiFlag)
+	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoodiFlag)
+	CheckExclusive(ctx, OverrideGenesisFlag, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, MorphFlag, MorphHoodiFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	CheckExclusive(ctx, RPCRangeLimitFlag, MaxBlockRangeFlag)
@@ -1889,67 +1878,17 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.NetworkId = 2818
 		}
 		cfg.Genesis = core.DefaultMorphMainnetGenesisBlock()
-
-		// Handle MPT flag
-		cfg.Genesis.Config.Morph.UseZktrie = !ctx.GlobalBool(MorphMPTFlag.Name)
-		if cfg.Genesis.Config.Morph.UseZktrie {
-			// zkTrie mode: forced archive mode
-			if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-				log.Crit("zkTrie mode requires --gcmode=archive")
-			}
-			log.Info("Pruning disabled (zkTrie mode)")
-			cfg.NoPruning = true
-			// disable prefetch
-			log.Info("Prefetch disabled (zkTrie mode)")
-			cfg.NoPrefetch = true
-		} else {
-			// MPT mode: pruning is allowed
-			log.Info("MPT mode enabled, pruning is allowed")
-		}
-	case ctx.GlobalBool(MorphHoleskyFlag.Name):
-		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
-			cfg.NetworkId = 2810
-		}
-		cfg.Genesis = core.DefaultMorphHoleskyGenesisBlock()
-
-		// Handle MPT flag
-		cfg.Genesis.Config.Morph.UseZktrie = !ctx.GlobalBool(MorphMPTFlag.Name)
-		if cfg.Genesis.Config.Morph.UseZktrie {
-			// zkTrie mode: forced archive mode
-			if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-				log.Crit("zkTrie mode requires --gcmode=archive")
-			}
-			log.Info("Pruning disabled (zkTrie mode)")
-			cfg.NoPruning = true
-			// disable prefetch
-			log.Info("Prefetch disabled (zkTrie mode)")
-			cfg.NoPrefetch = true
-		} else {
-			// MPT mode: pruning is allowed
-			log.Info("MPT mode enabled, pruning is allowed")
-		}
+		// State backend is always MPT; UseZktrie stays at the params default (false)
+		// and acts only as a legacy epoch marker. The deprecated --morph-mpt flag is
+		// a no-op kept for backwards-compatible startup scripts.
 	case ctx.GlobalBool(MorphHoodiFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2910
 		}
 		cfg.Genesis = core.DefaultMorphHoodiGenesisBlock()
-
-		// Handle MPT flag
-		cfg.Genesis.Config.Morph.UseZktrie = !ctx.GlobalBool(MorphMPTFlag.Name)
-		if cfg.Genesis.Config.Morph.UseZktrie {
-			// zkTrie mode: forced archive mode
-			if ctx.GlobalString(GCModeFlag.Name) != GCModeArchive {
-				log.Crit("zkTrie mode requires --gcmode=archive")
-			}
-			log.Info("Pruning disabled (zkTrie mode)")
-			cfg.NoPruning = true
-			// disable prefetch
-			log.Info("Prefetch disabled (zkTrie mode)")
-			cfg.NoPrefetch = true
-		} else {
-			// MPT mode: pruning is allowed
-			log.Info("MPT mode enabled, pruning is allowed")
-		}
+		// State backend is always MPT; UseZktrie stays at the params default (false)
+		// and acts only as a legacy epoch marker. The deprecated --morph-mpt flag is
+		// a no-op kept for backwards-compatible startup scripts.
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -2242,8 +2181,6 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 		genesis = core.DefaultGoerliGenesisBlock()
 	case ctx.GlobalBool(MorphFlag.Name):
 		genesis = core.DefaultMorphMainnetGenesisBlock()
-	case ctx.GlobalBool(MorphHoleskyFlag.Name):
-		genesis = core.DefaultMorphHoleskyGenesisBlock()
 	case ctx.GlobalBool(MorphHoodiFlag.Name):
 		genesis = core.DefaultMorphHoodiGenesisBlock()
 	case ctx.GlobalBool(DeveloperFlag.Name):

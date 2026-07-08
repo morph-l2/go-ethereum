@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -113,6 +114,39 @@ func TestUnmarshalLog(t *testing.T) {
 				t.Errorf("test %q:\nGOT %sWANT %s", name, dumper.Sdump(log), dumper.Sdump(test.want))
 			}
 		}
+	}
+}
+
+// TestLogBlockTimestampMarshaling verifies that the derived blockTimestamp
+// field (upstream go-ethereum #31887 / execution-apis #639) is marshaled as a
+// hex quantity and survives a JSON round-trip.
+func TestLogBlockTimestampMarshaling(t *testing.T) {
+	log := &Log{
+		Address:        common.HexToAddress("0xecf8f87f810ecf450940c9f60066b4a7a501d6a7"),
+		Topics:         []common.Hash{common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")},
+		Data:           []byte{},
+		BlockNumber:    2019236,
+		BlockHash:      common.HexToHash("0x656c34545f90a730a19008c0e7a7cd4fb3895064b48d6d69761bd5abad681056"),
+		BlockTimestamp: 1234567890,
+		TxHash:         common.HexToHash("0x3b198bfd5d2907285af009e9ae84a0ecd63677110d89d7e030251acb87f6487e"),
+		TxIndex:        3,
+		Index:          2,
+	}
+
+	raw, err := json.Marshal(log)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if want := `"blockTimestamp":"0x499602d2"`; !strings.Contains(string(raw), want) {
+		t.Fatalf("blockTimestamp not hex-encoded in JSON; want %s, got %s", want, string(raw))
+	}
+
+	var got Log
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.BlockTimestamp != log.BlockTimestamp {
+		t.Fatalf("BlockTimestamp round-trip = %d, want %d", got.BlockTimestamp, log.BlockTimestamp)
 	}
 }
 

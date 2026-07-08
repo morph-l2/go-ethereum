@@ -1110,22 +1110,55 @@ func (s *PublicBlockChainAPI) marshalBlockReceipts(ctx context.Context, block *t
 // if statDiff is set, all diff will be applied first and then execute the call
 // message.
 type OverrideAccount struct {
-	Nonce     *hexutil.Uint64              `json:"nonce"`
-	Code      *hexutil.Bytes               `json:"code"`
-	Balance   **hexutil.Big                `json:"balance"`
-	State     *map[common.Hash]common.Hash `json:"state"`
-	StateDiff *map[common.Hash]common.Hash `json:"stateDiff"`
+	Nonce            *hexutil.Uint64              `json:"nonce"`
+	Code             *hexutil.Bytes               `json:"code"`
+	Balance          **hexutil.Big                `json:"balance"`
+	State            *map[common.Hash]common.Hash `json:"state"`
+	StateDiff        *map[common.Hash]common.Hash `json:"stateDiff"`
+	MovePrecompileTo *common.Address              `json:"movePrecompileToAddress"`
 }
 
 // StateOverride is the collection of overridden accounts.
 type StateOverride map[common.Address]OverrideAccount
 
+func (diff *StateOverride) has(address common.Address) bool {
+	if diff == nil {
+		return false
+	}
+	_, ok := (*diff)[address]
+	return ok
+}
+
 // Apply overrides the fields of specified accounts into the given state.
-func (diff *StateOverride) Apply(state *state.StateDB) error {
+func (diff *StateOverride) Apply(state *state.StateDB, precompiles vm.PrecompiledContracts) error {
 	if diff == nil {
 		return nil
 	}
+	dirtyAddrs := make(map[common.Address]struct{})
 	for addr, account := range *diff {
+		if _, ok := dirtyAddrs[addr]; ok {
+			return fmt.Errorf("account %s has already been overridden by a precompile", addr.Hex())
+		}
+		p, isPrecompile := precompiles[addr]
+		if account.MovePrecompileTo != nil {
+			if precompiles == nil {
+				return fmt.Errorf("precompile override is not supported for account %s", addr.Hex())
+			}
+			if !isPrecompile {
+				return fmt.Errorf("account %s is not a precompile", addr.Hex())
+			}
+			if diff.has(*account.MovePrecompileTo) {
+				return fmt.Errorf("account %s is already overridden", account.MovePrecompileTo.Hex())
+			}
+			if _, ok := dirtyAddrs[*account.MovePrecompileTo]; ok {
+				return fmt.Errorf("account %s has already been overridden by a precompile", account.MovePrecompileTo.Hex())
+			}
+			precompiles[*account.MovePrecompileTo] = p
+			dirtyAddrs[*account.MovePrecompileTo] = struct{}{}
+		}
+		if isPrecompile {
+			delete(precompiles, addr)
+		}
 		// Override account nonce.
 		if account.Nonce != nil {
 			state.SetNonce(addr, uint64(*account.Nonce), tracing.NonceChangeUnspecified)
@@ -1152,7 +1185,22 @@ func (diff *StateOverride) Apply(state *state.StateDB) error {
 			}
 		}
 	}
+	state.Finalise(false)
 	return nil
+}
+
+func applyStateOverrides(state *state.StateDB, header *types.Header, config *params.ChainConfig, overrides *StateOverride) (vm.PrecompiledContracts, error) {
+	precompiles := vm.ActivePrecompiledContracts(config.Rules(header.Number, header.Time))
+	if err := overrides.Apply(state, precompiles); err != nil {
+		return nil, err
+	}
+	return precompiles, nil
+}
+
+func setPrecompiles(evm *vm.EVM, precompiles vm.PrecompiledContracts) {
+	if evm != nil && precompiles != nil {
+		evm.SetPrecompiles(precompiles)
+	}
 }
 
 func EstimateL1MsgFee(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64, config *params.ChainConfig) (*big.Int, error) {
@@ -1164,7 +1212,8 @@ func EstimateL1MsgFee(ctx context.Context, b Backend, args TransactionArgs, bloc
 	if state == nil || err != nil {
 		return nil, err
 	}
-	if err := overrides.Apply(state); err != nil {
+	precompiles, err := applyStateOverrides(state, header, config, overrides)
+	if err != nil {
 		return nil, err
 	}
 	// Setup context so it may be cancelled the call has completed
@@ -1188,6 +1237,7 @@ func EstimateL1MsgFee(ctx context.Context, b Backend, args TransactionArgs, bloc
 	if err != nil {
 		return nil, err
 	}
+	setPrecompiles(evm, precompiles)
 	// Wait for the context to be done and cancel the evm. Even if the
 	// EVM has finished, cancelling may be done (repeatedly)
 	go func() {
@@ -1206,7 +1256,8 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	if state == nil || err != nil {
 		return nil, err
 	}
-	if err := overrides.Apply(state); err != nil {
+	precompiles, err := applyStateOverrides(state, header, b.ChainConfig(), overrides)
+	if err != nil {
 		return nil, err
 	}
 	// Setup context so it may be cancelled the call has completed
@@ -1230,6 +1281,7 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	if err != nil {
 		return nil, err
 	}
+	setPrecompiles(evm, precompiles)
 	// Wait for the context to be done and cancel the evm. Even if the
 	// EVM has finished, cancelling may be done (repeatedly)
 	go func() {
@@ -1312,7 +1364,12 @@ func (s *PublicBlockChainAPI) Call(ctx context.Context, args TransactionArgs, bl
 	return result.Return(), result.Err
 }
 
-func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, gasCap uint64) (hexutil.Uint64, error) {
+// estimateGasErrorRatio is the amount of overestimation eth_estimateGas is
+// allowed to produce in order to speed up calculations. Aligned with upstream
+// go-ethereum (eth/gasestimator) and morph-reth (reth ESTIMATE_GAS_ERROR_RATIO).
+const estimateGasErrorRatio = 0.015
+
+func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, gasCap uint64) (hexutil.Uint64, error) {
 	// Binary search the gas requirement, as it may be higher than the amount used
 	var (
 		lo  uint64 = params.TxGas - 1
@@ -1352,15 +1409,26 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 	}
 	// Recap the highest gas limit with account's available balance.
 	if feeCap.BitLen() != 0 {
-		state, _, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+		state, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+		if state == nil || err != nil {
+			return 0, err
+		}
+		precompiles, err := applyStateOverrides(state, header, b.ChainConfig(), overrides)
 		if err != nil {
 			return 0, err
 		}
 		balance := state.GetBalance(*args.From) // from can't be nil
-		if args.FeeTokenID != nil {
-			// account for tx value
+		// Use the alt-fee-token branch only when a non-zero token is requested.
+		// FeeTokenID == 0 means ETH payment (valid for MorphTx v1), matching the
+		// value-based checks in state_transition.go and the tx pool. Guarding on
+		// the pointer alone would route an explicit feeTokenID=0 into IsTokenActive,
+		// which rejects token id 0 as "invalid token".
+		if args.FeeTokenID != nil && uint16(*args.FeeTokenID) != 0 {
+			// account for tx value: in token-fee mode ETH only needs to cover
+			// `value` (gas and L1 fee are paid in tokens), so value == balance is
+			// affordable. Aligns with morph-reth token path (`eth_balance < value`).
 			if args.Value != nil {
-				if args.Value.ToInt().Cmp(balance) >= 0 {
+				if args.Value.ToInt().Cmp(balance) > 0 {
 					return 0, errors.New("insufficient funds for transfer")
 				}
 			}
@@ -1368,10 +1436,11 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			if err != nil {
 				return 0, err
 			}
-			evm, _, err := b.GetEVM(ctx, msg, state, b.CurrentHeader(), &vm.Config{NoBaseFee: true})
+			evm, _, err := b.GetEVM(ctx, msg, state, header, &vm.Config{NoBaseFee: true})
 			if err != nil {
 				return 0, err
 			}
+			setPrecompiles(evm, precompiles)
 			tokenID := uint16(*args.FeeTokenID)
 			active, err := fees.IsTokenActive(state, tokenID)
 			if err != nil || !active {
@@ -1386,7 +1455,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 				limit = math.BigMin(altBalance, args.FeeLimit.ToInt())
 			}
 			// account for l1 fee
-			l1DataFee, err := EstimateL1MsgFee(ctx, b, args, blockNrOrHash, nil, 0, gasCap, b.ChainConfig())
+			l1DataFee, err := EstimateL1MsgFee(ctx, b, args, blockNrOrHash, overrides, 0, gasCap, b.ChainConfig())
 			if err != nil {
 				return 0, err
 			}
@@ -1428,7 +1497,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			}
 
 			// account for l1 fee
-			l1DataFee, err := EstimateL1MsgFee(ctx, b, args, blockNrOrHash, nil, 0, gasCap, b.ChainConfig())
+			l1DataFee, err := EstimateL1MsgFee(ctx, b, args, blockNrOrHash, overrides, 0, gasCap, b.ChainConfig())
 			if err != nil {
 				return 0, err
 			}
@@ -1461,7 +1530,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 	executable := func(gas uint64) (bool, *core.ExecutionResult, error) {
 		args.Gas = (*hexutil.Uint64)(&gas)
 
-		result, err := DoCall(ctx, b, args, blockNrOrHash, nil, 0, gasCap)
+		result, err := DoCall(ctx, b, args, blockNrOrHash, overrides, 0, gasCap)
 		if err != nil {
 			if errors.Is(err, core.ErrIntrinsicGas) {
 				return true, nil, nil // Special case, raise gas limit
@@ -1470,9 +1539,78 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		}
 		return result.Failed(), result, nil
 	}
-	// Execute the binary search and hone in on an executable gas limit
+	// If the transaction is a plain value transfer to an account without code,
+	// short circuit by trying params.TxGas directly. Executing it (instead of
+	// blindly returning 21000) keeps the result safe against field combos that
+	// bump the intrinsic price up, e.g. unused access list items or MorphTx
+	// fields, while still avoiding the full binary search in the common case.
+	if len(args.data()) == 0 && args.To != nil {
+		state, _, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+		if err != nil {
+			return 0, err
+		}
+		if state != nil && len(state.GetCode(*args.To)) == 0 {
+			failed, _, err := executable(params.TxGas)
+			if err == nil && !failed {
+				return hexutil.Uint64(params.TxGas), nil
+			}
+		}
+	}
+	// Execute the transaction at the highest allowable gas limit first. If it
+	// fails here we can report the failure reason immediately; on success the
+	// consumed gas tightens the lower bound and, since hi is now known to
+	// succeed, the error-ratio early-exit below stays safe.
+	failed, result, err := executable(hi)
+	if err != nil {
+		return 0, err
+	}
+	if failed {
+		if result != nil && result.Err != vm.ErrOutOfGas {
+			if len(result.Revert()) > 0 {
+				return 0, newRevertError(result)
+			}
+			return 0, result.Err
+		}
+		// Otherwise, the specified gas cap is too low
+		return 0, fmt.Errorf("gas required exceeds allowance (%d)", cap)
+	}
+	// The gas used by the unconstrained execution above lower-bounds the gas
+	// limit required for the transaction to succeed.
+	if result != nil && result.UsedGas > lo {
+		lo = result.UsedGas - 1
+	}
+	// Optimistic probe: the true minimal gas limit is bounded by the gross gas
+	// (net used + refund) plus the call stipend, scaled by the 63/64 rule. A
+	// single execution at this guess collapses the search range dramatically
+	// for refund-heavy calls, where lo (net UsedGas-1) sits far below the real
+	// minimum. Mirrors upstream eth/gasestimator and morph-reth.
+	if result != nil {
+		optimisticGasLimit := (result.UsedGas + result.RefundedGas + params.CallStipend) * 64 / 63
+		if optimisticGasLimit < hi {
+			failed, _, err = executable(optimisticGasLimit)
+			if err != nil {
+				// This should not happen: the transaction already executed
+				// successfully at hi above, so a higher-or-equal limit cannot
+				// produce a consensus-level error.
+				return 0, err
+			}
+			if failed {
+				lo = optimisticGasLimit
+			} else {
+				hi = optimisticGasLimit
+			}
+		}
+	}
+	// Execute the binary search and hone in on an executable gas limit.
 	for lo+1 < hi {
-		mid := (hi + lo) / 2
+		// It is pointless to return a perfect estimation: changing network
+		// conditions require the caller to bump it up anyway (wallets tend to
+		// use a 20-25% bump), so allowing a small upward approximation is fine
+		// once the remaining range is below estimateGasErrorRatio of hi.
+		if estimateGasErrorRatio > 0 && float64(hi-lo)/float64(hi) < estimateGasErrorRatio {
+			break
+		}
+		mid := lo + (hi-lo)/2 // overflow-safe midpoint
 		failed, _, err := executable(mid)
 
 		// If the error is not nil(consensus error), it means the provided message
@@ -1487,34 +1625,17 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 			hi = mid
 		}
 	}
-	// Reject the transaction as invalid if it still fails at the highest allowance
-	if hi == cap {
-		failed, result, err := executable(hi)
-		if err != nil {
-			return 0, err
-		}
-		if failed {
-			if result != nil && result.Err != vm.ErrOutOfGas {
-				if len(result.Revert()) > 0 {
-					return 0, newRevertError(result)
-				}
-				return 0, result.Err
-			}
-			// Otherwise, the specified gas cap is too low
-			return 0, fmt.Errorf("gas required exceeds allowance (%d)", cap)
-		}
-	}
 	return hexutil.Uint64(hi), nil
 }
 
 // EstimateGas returns an estimate of the amount of gas needed to execute the
 // given transaction against the current pending block.
-func (s *PublicBlockChainAPI) EstimateGas(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (hexutil.Uint64, error) {
+func (s *PublicBlockChainAPI) EstimateGas(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *StateOverride) (hexutil.Uint64, error) {
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
-	return DoEstimateGas(ctx, s.b, args, bNrOrHash, s.b.RPCGasCap())
+	return DoEstimateGas(ctx, s.b, args, bNrOrHash, overrides, s.b.RPCGasCap())
 }
 
 // RPCMarshalHeader converts the given header to the RPC output .
@@ -1788,12 +1909,12 @@ type accessListResult struct {
 
 // CreateAccessList creates a EIP-2930 type AccessList for the given transaction.
 // Reexec and BlockNrOrHash can be specified to create the accessList on top of a certain state.
-func (s *PublicBlockChainAPI) CreateAccessList(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*accessListResult, error) {
+func (s *PublicBlockChainAPI) CreateAccessList(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, stateOverrides *StateOverride) (*accessListResult, error) {
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
-	acl, gasUsed, vmerr, err := AccessList(ctx, s.b, bNrOrHash, args)
+	acl, gasUsed, vmerr, err := AccessList(ctx, s.b, bNrOrHash, args, stateOverrides)
 	if err != nil {
 		return nil, err
 	}
@@ -1807,10 +1928,14 @@ func (s *PublicBlockChainAPI) CreateAccessList(ctx context.Context, args Transac
 // AccessList creates an access list for the given transaction.
 // If the accesslist creation fails an error is returned.
 // If the transaction itself fails, an vmErr is returned.
-func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrHash, args TransactionArgs) (acl types.AccessList, gasUsed uint64, vmErr error, err error) {
+func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrHash, args TransactionArgs, stateOverrides *StateOverride) (acl types.AccessList, gasUsed uint64, vmErr error, err error) {
 	// Retrieve the execution context
 	db, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if db == nil || err != nil {
+		return nil, 0, nil, err
+	}
+	precompiles, err := applyStateOverrides(db, header, b.ChainConfig(), stateOverrides)
+	if err != nil {
 		return nil, 0, nil, err
 	}
 	// If the gas amount is not set, extract this as it will depend on access
@@ -1818,7 +1943,7 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 	nogas := args.Gas == nil
 
 	// Ensure any missing fields are filled, extract the recipient and input data
-	if err := args.setDefaults(ctx, b); err != nil {
+	if err := args.setDefaultsWithStateOverrides(ctx, b, stateOverrides); err != nil {
 		return nil, 0, nil, err
 	}
 	var to common.Address
@@ -1827,12 +1952,9 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 	} else {
 		to = crypto.CreateAddress(args.from(), uint64(*args.Nonce))
 	}
-	// Retrieve the precompiles since they don't need to be added to the access list
-	precompiles := vm.ActivePrecompiles(b.ChainConfig().Rules(header.Number, header.Time))
-
 	// addressesToExclude contains sender, receiver, precompiles and valid authorizations
 	addressesToExclude := map[common.Address]struct{}{args.from(): {}, to: {}}
-	for _, addr := range precompiles {
+	for _, addr := range vm.PrecompileAddresses(precompiles) {
 		addressesToExclude[addr] = struct{}{}
 	}
 
@@ -1874,7 +1996,7 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 		// and it's convered by the sender only anyway.
 		if nogas {
 			args.Gas = nil
-			if err := args.setDefaults(ctx, b); err != nil {
+			if err := args.setDefaultsWithStateOverrides(ctx, b, stateOverrides); err != nil {
 				return nil, 0, nil, err // shouldn't happen, just in case
 			}
 		}
@@ -1895,6 +2017,7 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 		if err != nil {
 			return nil, 0, nil, err
 		}
+		setPrecompiles(vmenv, precompiles)
 		signer := types.MakeSigner(b.ChainConfig(), header.Number, header.Time)
 		l1DataFee, err := fees.EstimateL1DataFeeForMessage(msg, header.BaseFee, b.ChainConfig(), signer, statedb, header.Number)
 		if err != nil {

@@ -104,8 +104,6 @@ func (miner *Miner) generateWorkLoop() {
 }
 
 // generateWork generates a sealing block based on the given parameters.
-// TODO the produced state data by the transactions will be commit to database, whether the block is confirmed or not.
-// TODO this issue will persist until the current zktrie based database optimizes its strategy.
 func (miner *Miner) generateWork(genParams *generateParams, interrupt *int32) (*NewBlockResult, error) {
 	work, prepareErr := miner.prepareWork(genParams)
 	if prepareErr != nil {

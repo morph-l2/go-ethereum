@@ -184,10 +184,8 @@ type Tree struct {
 //   - otherwise, the entire snapshot is considered invalid and will be recreated on
 //     a background thread.
 func New(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache int, root common.Hash, async bool, rebuild bool, recovery bool) (*Tree, error) {
-	// Create a new, empty snapshot tree
-	if triedb.Zktrie {
-		panic("zktrie does not support snapshot yet")
-	}
+	// Create a new, empty snapshot tree. State backend is always MPT
+	// (zkTrie storage mode retired), so the snapshot is unconditionally supported.
 	snap := &Tree{
 		diskdb: diskdb,
 		triedb: triedb,

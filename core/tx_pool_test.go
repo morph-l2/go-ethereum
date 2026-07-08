@@ -2451,6 +2451,86 @@ func TestTransactionReplacementDynamicFee(t *testing.T) {
 	}
 }
 
+func TestTransactionReplacementDynamicFeeZeroTip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		oldFeeCap      int64
+		oldTipCap      int64
+		newFeeCap      int64
+		newTipCap      int64
+		wantErr        error
+		validateEvents bool
+	}{
+		{
+			name:           "zero tip fee bump accepted",
+			oldFeeCap:      2_000_000,
+			newFeeCap:      4_000_000,
+			validateEvents: true,
+		},
+		{
+			name:      "zero tip insufficient fee bump rejected",
+			oldFeeCap: 2_000_000,
+			newFeeCap: 2_100_000,
+			wantErr:   ErrReplaceUnderpriced,
+		},
+		{
+			name:      "nonzero tip requires tip bump",
+			oldFeeCap: 2_000_000,
+			oldTipCap: 100,
+			newFeeCap: 4_000_000,
+			newTipCap: 100,
+			wantErr:   ErrReplaceUnderpriced,
+		},
+		{
+			name:           "nonzero tip accepts dual bump",
+			oldFeeCap:      2_000_000,
+			oldTipCap:      100,
+			newFeeCap:      4_000_000,
+			newTipCap:      110,
+			validateEvents: true,
+		},
+	}
+	for _, stage := range []string{"pending", "queued"} {
+		for _, tt := range tests {
+			t.Run(stage+"/"+tt.name, func(t *testing.T) {
+				pool, key := setupTxPoolWithConfig(eip1559NoL1feeConfig)
+				defer pool.Stop()
+				testAddBalance(pool, crypto.PubkeyToAddress(key.PublicKey), big.NewInt(1_000_000_000_000_000_000))
+
+				events := make(chan NewTxsEvent, 32)
+				sub := pool.txFeed.Subscribe(events)
+				defer sub.Unsubscribe()
+
+				nonce := uint64(0)
+				if stage == "queued" {
+					nonce = 2
+				}
+				if err := pool.addRemoteSync(dynamicFeeTx(nonce, 100000, big.NewInt(tt.oldFeeCap), big.NewInt(tt.oldTipCap), key)); err != nil {
+					t.Fatalf("failed to add original %s transaction: %v", stage, err)
+				}
+				err := pool.AddRemote(dynamicFeeTx(nonce, 100000, big.NewInt(tt.newFeeCap), big.NewInt(tt.newTipCap), key))
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("replacement error mismatch: have %v, want %v", err, tt.wantErr)
+				}
+				if tt.validateEvents {
+					count := 2
+					if stage == "queued" {
+						count = 0
+					}
+					if err := validateEvents(events, count); err != nil {
+						t.Fatalf("replacement event firing failed: %v", err)
+					}
+				}
+				if err := validateTxPoolInternals(pool); err != nil {
+					t.Fatalf("pool internal state corrupted: %v", err)
+				}
+			})
+		}
+	}
+}
+
 // Tests that local transactions are journaled to disk, but remote transactions
 // get discarded between restarts.
 func TestTransactionJournaling(t *testing.T)         { testTransactionJournaling(t, false) }

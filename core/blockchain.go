@@ -232,11 +232,8 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 	blockCache, _ := lru.New(blockCacheLimit)
 	txLookupCache, _ := lru.New(txLookupCacheLimit)
 	futureBlocks, _ := lru.New(maxFutureBlocks)
-	// override snapshot setting
-	if chainConfig.Morph.ZktrieEnabled() && cacheConfig.SnapshotLimit > 0 {
-		log.Warn("Snapshot has been disabled by zktrie")
-		cacheConfig.SnapshotLimit = 0
-	}
+	// State backend is always MPT (zkTrie storage mode retired); the snapshot is
+	// no longer disabled based on UseZktrie.
 
 	if chainConfig.Morph.FeeVaultEnabled() {
 		log.Warn("Using fee vault address", "FeeVaultAddress", *chainConfig.Morph.FeeVaultAddress)
@@ -251,7 +248,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 			Cache:     cacheConfig.TrieCleanLimit,
 			Journal:   cacheConfig.TrieCleanJournal,
 			Preimages: cacheConfig.Preimages,
-			Zktrie:    chainConfig.Morph.ZktrieEnabled(),
+			// State backend is always MPT; Zktrie is left at its zero value (false).
 		}),
 		quit:           make(chan struct{}),
 		chainmu:        syncx.NewClosableMutex(),
@@ -2029,8 +2026,14 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	for i := len(newChain) - 1; i >= 1; i-- {
 		rawdb.WriteReferenceIndexEntriesForBlock(indexesBatch, newChain[i])
 	}
-	// Delete any canonical number assignments above the new head
-	number := bc.CurrentBlock().NumberU64()
+	// Delete any canonical number assignments above the new head.
+	// When len(newChain) <= 1 (short-chain reorg), the insert loop above doesn't
+	// run, so bc.CurrentBlock() is still the old head. Use commonBlock as the base
+	// to correctly delete stale canonical hashes above the fork point.
+	number := commonBlock.NumberU64()
+	if len(newChain) > 1 {
+		number = newChain[1].NumberU64()
+	}
 	for i := number + 1; ; i++ {
 		hash := rawdb.ReadCanonicalHash(bc.db, i)
 		if hash == (common.Hash{}) {

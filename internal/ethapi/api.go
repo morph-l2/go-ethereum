@@ -655,7 +655,6 @@ func (api *PublicBlockChainAPI) ChainId() (*hexutil.Big, error) {
 
 // morphExtension contains Morph-specific configuration fields (EIP-7910 extension)
 type morphExtension struct {
-	UseZktrie    bool    `json:"useZktrie"`
 	JadeForkTime *uint64 `json:"jadeForkTime,omitempty"`
 }
 
@@ -718,7 +717,6 @@ func (api *PublicBlockChainAPI) Config(ctx context.Context) (*configResponse, er
 
 		// Morph extension
 		morph := &morphExtension{
-			UseZktrie:    c.Morph.UseZktrie,
 			JadeForkTime: c.JadeForkTime,
 		}
 
@@ -799,13 +797,8 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 		return nil, err
 	}
 
-	zktrie := s.b.ChainConfig().Morph.ZktrieEnabled()
-
 	storageTrie := state.StorageTrie(address)
-	var storageHash common.Hash
-	if !zktrie {
-		storageHash = types.EmptyRootHash
-	}
+	storageHash := types.EmptyRootHash
 	keccakCodeHash := state.GetKeccakCodeHash(address)
 	poseidonCodeHash := state.GetPoseidonCodeHash(address)
 	storageProof := make([]StorageResult, len(storageKeys))

@@ -142,9 +142,7 @@ Alternative modes:
     --contract 0xADDR    inspect a single contract's storage trie + snap
                          view, bypassing the top-N account-trie scan
 
-This command only supports MPT mode. It refuses to run against ZKTrie-
-encoded history (pre-JadeFork on morph mainnet/Holesky); target a block
-after the JadeFork activation time or run on an MPT-native chain.`,
+This command only supports MPT mode.`,
 	}
 	dbInspectCmd = cli.Command{
 		Action:    utils.MigrateFlags(inspect),
@@ -440,9 +438,8 @@ func inspect(ctx *cli.Context) error {
 //	<blocknum>             canonical block at decimal height
 //	snapshot               state root recorded by the snapshot layer
 //
-// ZKTrie-encoded morph history is refused via trie.ErrUnsupportedTrieFormat.
-// This matches upstream's "MPT only" contract since the inspector does
-// not understand morph's zkTrie encoding.
+// Only MPT-format state is supported; unsupported formats are refused
+// via trie.ErrUnsupportedTrieFormat.
 func inspectTrie(ctx *cli.Context) error {
 	topN := ctx.Int(inspectTrieTopFlag.Name)
 	if err := validateInspectTrieTopN(topN); err != nil {
@@ -470,19 +467,9 @@ func inspectTrie(ctx *cli.Context) error {
 	db := utils.MakeChainDatabase(ctx, stack, true)
 	defer db.Close()
 
-	root, blockNumber, blockTime, blockMetaKnown, err := resolveInspectTarget(ctx, db)
+	root, blockNumber, blockTime, _, err := resolveInspectTarget(ctx, db)
 	if err != nil {
 		return err
-	}
-
-	// Detect ZKTrie mode: when the chain uses ZKTrie format we must be
-	// able to confirm the target block is past JadeFork (where the trie
-	// switched to MPT). If block metadata is unknown we cannot make that
-	// determination, so we treat unknown metadata as unsafe and refuse.
-	chainConfig := rawdb.ReadChainConfig(db, rawdb.ReadCanonicalHash(db, 0))
-	if chainConfig != nil && chainConfig.Morph.UseZktrie && (!blockMetaKnown || !chainConfig.IsJadeFork(blockTime)) {
-		return fmt.Errorf("%w (block %d time %d predates or cannot confirm JadeFork)",
-			trie.ErrUnsupportedTrieFormat, blockNumber, blockTime)
 	}
 
 	triedb := trie.NewDatabase(db)

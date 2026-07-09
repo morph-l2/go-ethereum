@@ -137,8 +137,8 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 		return nil, fmt.Errorf("missing FirstQueueIndexNotInL2Block for block during trace call: hash=%v, parentHash=%vv", block.Hash(), parent.Hash())
 	}
 
-	// Get diskRoot for cross-format state access (MPT ↔ zkTrie).
-	// When node's trie format differs from block's format, use diskRoot instead of headerRoot.
+	// Pre-Jade headers carry legacy zkTrie state roots; resolve to the
+	// actual MPT root on disk via DiskStateRoot mapping when available.
 	rootBefore := parent.Root()
 	if diskRoot, err := rawdb.ReadDiskStateRoot(chaindb, parent.Root()); err == nil && diskRoot != (common.Hash{}) {
 		rootBefore = diskRoot
@@ -362,16 +362,9 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 				poseidonCodeHash := statedb.GetPoseidonCodeHash(addr)
 				codeSize := statedb.GetCodeSize(addr)
 
-				// Determine the code key based on trie mode:
-				// zkTrie mode uses poseidon hash, MPT mode uses keccak hash
-				codeKey := keccakCodeHash
-				if poseidonCodeHash != (common.Hash{}) {
-					codeKey = poseidonCodeHash
-				}
-
-				if codeKey != (common.Hash{}) {
-					if _, exists := env.Codes[codeKey]; !exists {
-						env.Codes[codeKey] = logger.CodeInfo{
+				if keccakCodeHash != (common.Hash{}) {
+					if _, exists := env.Codes[keccakCodeHash]; !exists {
+						env.Codes[keccakCodeHash] = logger.CodeInfo{
 							CodeSize:         codeSize,
 							KeccakCodeHash:   keccakCodeHash,
 							PoseidonCodeHash: poseidonCodeHash,

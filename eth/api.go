@@ -667,8 +667,8 @@ type DiskAndHeaderRoot struct {
 }
 
 // DiskRoot returns both the disk state root and header root for a given block.
-// This is useful for debugging cross-format state access (zkTrie ↔ MPT).
-// If no disk root mapping exists, returns the block's root for both fields.
+// Pre-Jade headers carry legacy zkTrie roots; this API resolves the actual
+// on-disk MPT root. If no mapping exists, returns the block's root for both.
 func (api *MorphAPI) DiskRoot(ctx context.Context, blockNrOrHash *rpc.BlockNumberOrHash) (DiskAndHeaderRoot, error) {
 	if blockNrOrHash == nil {
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)

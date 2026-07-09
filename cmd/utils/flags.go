@@ -179,10 +179,6 @@ var (
 		Name:  "morph-hoodi",
 		Usage: "Morph Hoodi test network",
 	}
-	MorphMPTFlag = cli.BoolFlag{
-		Name:  "morph-mpt",
-		Usage: "Deprecated no-op: state backend is always MPT (zkTrie storage mode retired)",
-	}
 	OverrideGenesisFlag = &cli.StringFlag{
 		Name:  "override.genesis",
 		Usage: "Load genesis block and configuration from file at this path",
@@ -1878,17 +1874,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			cfg.NetworkId = 2818
 		}
 		cfg.Genesis = core.DefaultMorphMainnetGenesisBlock()
-		// State backend is always MPT; UseZktrie stays at the params default (false)
-		// and acts only as a legacy epoch marker. The deprecated --morph-mpt flag is
-		// a no-op kept for backwards-compatible startup scripts.
 	case ctx.GlobalBool(MorphHoodiFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 2910
 		}
 		cfg.Genesis = core.DefaultMorphHoodiGenesisBlock()
-		// State backend is always MPT; UseZktrie stays at the params default (false)
-		// and acts only as a legacy epoch marker. The deprecated --morph-mpt flag is
-		// a no-op kept for backwards-compatible startup scripts.
 	case ctx.GlobalBool(DeveloperFlag.Name):
 		if !ctx.GlobalIsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337

@@ -87,9 +87,6 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	if params.Timestamp != nil {
 		timestamp = time.Unix(int64(*params.Timestamp), 0)
 	}
-	// zkTrie storage mode retired: state is always MPT in every epoch, so the
-	// former fork/format-coupling guard (which forced a binary switch at Jade)
-	// is no longer required.
 	newBlockResult, err := api.eth.Miner().BuildBlock(parent.Hash(), timestamp, transactions)
 	if err != nil {
 		return nil, err
@@ -459,9 +456,6 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(params AssembleL2BlockV2Params) (*E
 		ts = time.Unix(int64(*params.Timestamp), 0)
 	}
 
-	// zkTrie storage mode retired: state is always MPT in every epoch, so the
-	// former fork/format-coupling guard (which forced a binary switch at Jade)
-	// is no longer required.
 	newBlockResult, err := api.eth.Miner().BuildBlock(params.ParentHash, ts, transactions)
 	if err != nil {
 		return nil, err

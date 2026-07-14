@@ -329,7 +329,7 @@ func (h *httpServer) enableWS(apis []rpc.API, config wsConfig) error {
 	}
 	h.wsConfig = config
 	h.wsHandler.Store(&rpcHandler{
-		Handler: srv.WebsocketHandler(config.Origins),
+		Handler: NewWSHandlerStack(srv.WebsocketHandler(config.Origins), config.jwtSecret),
 		server:  srv,
 	})
 	return nil
@@ -382,6 +382,18 @@ func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, jwtSe
 		handler = newJWTHandler(jwtSecret, handler)
 	}
 	return newGzipHandler(handler)
+}
+
+// NewWSHandlerStack returns a wrapped ws-related handler. When a JWT secret is
+// configured (as it is for the authenticated Engine API endpoint) the handshake
+// is gated on JWT validation, matching the protection applied to the HTTP path
+// in NewHTTPHandlerStack. Without this the authenticated WebSocket listener
+// would serve Engine API methods with no token check.
+func NewWSHandlerStack(srv http.Handler, jwtSecret []byte) http.Handler {
+	if len(jwtSecret) != 0 {
+		return newJWTHandler(jwtSecret, srv)
+	}
+	return srv
 }
 
 func newCorsHandler(srv http.Handler, allowedOrigins []string) http.Handler {

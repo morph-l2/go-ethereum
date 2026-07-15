@@ -351,6 +351,33 @@ var Forks = map[string]*params.ChainConfig{
 			FeeVaultAddress: &params.MorphFeeVaultAddress,
 		},
 	},
+	"Amsterdam": {
+		ChainID:             big.NewInt(1),
+		HomesteadBlock:      big.NewInt(0),
+		EIP150Block:         big.NewInt(0),
+		EIP155Block:         big.NewInt(0),
+		EIP158Block:         big.NewInt(0),
+		ByzantiumBlock:      big.NewInt(0),
+		ConstantinopleBlock: big.NewInt(0),
+		PetersburgBlock:     big.NewInt(0),
+		IstanbulBlock:       big.NewInt(0),
+		MuirGlacierBlock:    big.NewInt(0),
+		BerlinBlock:         big.NewInt(0),
+		LondonBlock:         big.NewInt(0),
+		ArrowGlacierBlock:   big.NewInt(0),
+		ArchimedesBlock:     big.NewInt(0),
+		ShanghaiBlock:       big.NewInt(0),
+		BernoulliBlock:      big.NewInt(0),
+		CurieBlock:          big.NewInt(0),
+		Morph203Time:        new(uint64),
+		ViridianTime:        new(uint64),
+		EmeraldTime:         new(uint64),
+		JadeForkTime:        new(uint64),
+		AmsterdamTime:       params.NewUint64(1),
+		Morph: params.MorphConfig{
+			FeeVaultAddress: &params.MorphFeeVaultAddress,
+		},
+	},
 }
 
 // Returns the set of defined fork names

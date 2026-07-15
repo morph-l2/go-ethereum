@@ -112,6 +112,12 @@ var (
 	// ErrSenderNoEOA is returned if the sender of a transaction is a contract.
 	ErrSenderNoEOA = errors.New("sender not an eoa")
 
+	// ErrGasLimitTooHigh is returned by preCheck when EIP-7825 is active (post
+	// Amsterdam) and the transaction's declared gas limit exceeds
+	// `params.MaxTxGas`. L1 message and fake-simulation transactions are
+	// exempt.
+	ErrGasLimitTooHigh = errors.New("transaction gas limit too high")
+
 	// -- EIP-7702 errors --
 
 	// Message validation errors:
@@ -130,6 +136,14 @@ var (
 	// signed by an address which already has in-flight transactions known to the
 	// pool.
 	ErrAuthorityReserved = errors.New("authority already reserved")
+
+	// ErrInsufficientAuthorizationGas is returned from applyAuthorization in the
+	// post-Amsterdam EIP-7702 gas accounting path when the remaining transaction
+	// gas is insufficient to cover the `CallNewAccountGas - TxAuthTupleGas`
+	// delta required to install a delegation on a non-existing authority
+	// account. Like other applyAuthorization errors, the caller in TransitionDb
+	// silently skips the authorization.
+	ErrInsufficientAuthorizationGas = errors.New("EIP-7702 authorization has insufficient gas for new-account charge")
 )
 
 // EIP-7702 state transition errors.

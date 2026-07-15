@@ -347,6 +347,85 @@ func TestStacktrieNotModifyValues(t *testing.T) {
 	}
 }
 
+func TestStackTrieUpdateCopiesValue(t *testing.T) {
+	st := NewStackTrie(nil)
+	nt, _ := New(common.Hash{}, NewDatabase(memorydb.New()))
+
+	key1, key2 := []byte{0x01}, []byte{0x02}
+	value1, value2 := []byte("value-one"), []byte("value-two")
+	nt.TryUpdate(key1, common.CopyBytes(value1))
+	nt.TryUpdate(key2, common.CopyBytes(value2))
+
+	if err := st.TryUpdate(key1, value1); err != nil {
+		t.Fatal(err)
+	}
+	for i := range value1 {
+		value1[i] ^= 0xff
+	}
+	if err := st.TryUpdate(key2, value2); err != nil {
+		t.Fatal(err)
+	}
+	if have, want := st.Hash(), nt.Hash(); have != want {
+		t.Fatalf("root mismatch after mutating caller value: have %x want %x", have, want)
+	}
+}
+
+func TestStackTrieUpdateCopiesKey(t *testing.T) {
+	st := NewStackTrie(nil)
+	nt, _ := New(common.Hash{}, NewDatabase(memorydb.New()))
+
+	key1, key2 := []byte{0x01}, []byte{0x02}
+	value1, value2 := []byte("value-one"), []byte("value-two")
+	nt.TryUpdate(common.CopyBytes(key1), common.CopyBytes(value1))
+	nt.TryUpdate(common.CopyBytes(key2), common.CopyBytes(value2))
+
+	if err := st.TryUpdate(key1, value1); err != nil {
+		t.Fatal(err)
+	}
+	key1[0] = 0xff
+	if err := st.TryUpdate(key2, value2); err != nil {
+		t.Fatal(err)
+	}
+	if have, want := st.Hash(), nt.Hash(); have != want {
+		t.Fatalf("root mismatch after mutating caller key: have %x want %x", have, want)
+	}
+}
+
+func TestStackTrieResetListHasherReuse(t *testing.T) {
+	st := NewStackTrie(nil)
+	if err := st.TryUpdate([]byte{0x01}, []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	st.Hash()
+	st.Reset()
+
+	nt, _ := New(common.Hash{}, NewDatabase(memorydb.New()))
+	nt.TryUpdate([]byte{0x02}, []byte("second"))
+	if err := st.TryUpdate([]byte{0x02}, []byte("second")); err != nil {
+		t.Fatal(err)
+	}
+	if have, want := st.Hash(), nt.Hash(); have != want {
+		t.Fatalf("root mismatch after reset reuse: have %x want %x", have, want)
+	}
+}
+
+func TestStackTrieResetBeforeHashReleasesOwnedValues(t *testing.T) {
+	st := NewStackTrie(nil)
+	if err := st.TryUpdate([]byte{0x01}, []byte("stale-value")); err != nil {
+		t.Fatal(err)
+	}
+	st.Reset()
+
+	nt, _ := New(common.Hash{}, NewDatabase(memorydb.New()))
+	nt.TryUpdate([]byte{0x02}, []byte("fresh-value"))
+	if err := st.TryUpdate([]byte{0x02}, []byte("fresh-value")); err != nil {
+		t.Fatal(err)
+	}
+	if have, want := st.Hash(), nt.Hash(); have != want {
+		t.Fatalf("root mismatch after reset before hash: have %x want %x", have, want)
+	}
+}
+
 // TestStacktrieSerialization tests that the stacktrie works well if we
 // serialize/unserialize it a lot
 func TestStacktrieSerialization(t *testing.T) {
@@ -372,7 +451,9 @@ func TestStacktrieSerialization(t *testing.T) {
 		keyDelta.Add(keyDelta, common.Big1)
 	}
 	for i, k := range keys {
-		nt.TryUpdate(k, common.CopyBytes(vals[i]))
+		if err := nt.TryUpdate(k, vals[i]); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	for i, k := range keys {
@@ -385,7 +466,9 @@ func TestStacktrieSerialization(t *testing.T) {
 			t.Fatal(err)
 		}
 		st = newSt
-		st.TryUpdate(k, common.CopyBytes(vals[i]))
+		if err := st.TryUpdate(k, vals[i]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if have, want := st.Hash(), nt.Hash(); have != want {
 		t.Fatalf("have %#x want %#x", have, want)

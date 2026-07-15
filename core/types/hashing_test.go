@@ -24,6 +24,7 @@ import (
 	mrand "math/rand"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core/types"
@@ -38,7 +39,7 @@ func TestDeriveSha(t *testing.T) {
 		t.Fatal(err)
 	}
 	for len(txs) < 1000 {
-		exp := types.DeriveSha(txs, new(trie.Trie))
+		exp := types.DeriveSha(txs, trie.NewListHasher())
 		got := types.DeriveSha(txs, trie.NewStackTrie(nil))
 		if !bytes.Equal(got[:], exp[:]) {
 			t.Fatalf("%d txs: got %x exp %x", len(txs), got, exp)
@@ -49,6 +50,45 @@ func TestDeriveSha(t *testing.T) {
 		}
 		txs = append(txs, newTxs...)
 	}
+}
+
+func TestDeriveShaStackTrieMatchesListHasher(t *testing.T) {
+	txs, err := genTxs(16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDeriveShaMatches(t, txs)
+	assertDeriveShaMatches(t, typedDeriveShaTransactions())
+	assertDeriveShaMatches(t, typedDeriveShaReceipts())
+}
+
+func TestDeriveShaBufferReuseDoesNotAlias(t *testing.T) {
+	list := flatList{
+		"0x010203040506070809",
+		"0x101112131415161718191a1b1c1d1e1f",
+		"0x202122232425262728292a2b2c2d2e2f30313233",
+	}
+	assertDeriveShaMatches(t, list)
+}
+
+func TestBlobTxDeriveSha(t *testing.T) {
+	assertDeriveShaMatches(t, types.Transactions{typedDeriveShaTransactions()[2]})
+	assertDeriveShaMatches(t, types.Receipts{typedReceipt(types.BlobTxType)})
+}
+
+func TestSetCodeTxDeriveSha(t *testing.T) {
+	assertDeriveShaMatches(t, types.Transactions{typedDeriveShaTransactions()[3]})
+	assertDeriveShaMatches(t, types.Receipts{typedReceipt(types.SetCodeTxType)})
+}
+
+func TestMorphTxDeriveSha(t *testing.T) {
+	assertDeriveShaMatches(t, types.Transactions{typedDeriveShaTransactions()[5]})
+	assertDeriveShaMatches(t, types.Receipts{typedReceipt(types.MorphTxType)})
+}
+
+func TestL1MessageReceiptDeriveSha(t *testing.T) {
+	assertDeriveShaMatches(t, types.Transactions{typedDeriveShaTransactions()[4]})
+	assertDeriveShaMatches(t, types.Receipts{typedReceipt(types.L1MessageTxType)})
 }
 
 // TestEIP2718DeriveSha tests that the input to the DeriveSha function is correct.
@@ -85,7 +125,7 @@ func BenchmarkDeriveSha200(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			exp = types.DeriveSha(txs, new(trie.Trie))
+			exp = types.DeriveSha(txs, trie.NewListHasher())
 		}
 	})
 
@@ -106,7 +146,7 @@ func TestFuzzDeriveSha(t *testing.T) {
 	rndSeed := mrand.Int()
 	for i := 0; i < 10; i++ {
 		seed := rndSeed + i
-		exp := types.DeriveSha(newDummy(i), new(trie.Trie))
+		exp := types.DeriveSha(newDummy(i), trie.NewListHasher())
 		got := types.DeriveSha(newDummy(i), trie.NewStackTrie(nil))
 		if !bytes.Equal(got[:], exp[:]) {
 			printList(newDummy(seed))
@@ -134,7 +174,7 @@ func TestDerivableList(t *testing.T) {
 		},
 	}
 	for i, tc := range tcs[1:] {
-		exp := types.DeriveSha(flatList(tc), new(trie.Trie))
+		exp := types.DeriveSha(flatList(tc), trie.NewListHasher())
 		got := types.DeriveSha(flatList(tc), trie.NewStackTrie(nil))
 		if !bytes.Equal(got[:], exp[:]) {
 			t.Fatalf("case %d: got %x exp %x", i, got, exp)
@@ -163,6 +203,122 @@ func genTxs(num uint64) (types.Transactions, error) {
 		txs = append(txs, tx)
 	}
 	return txs, nil
+}
+
+func assertDeriveShaMatches(t *testing.T, list types.DerivableList) {
+	t.Helper()
+	exp := types.DeriveSha(list, trie.NewListHasher())
+	got := types.DeriveSha(list, trie.NewStackTrie(nil))
+	if got != exp {
+		t.Fatalf("%T root mismatch: got %x exp %x", list, got, exp)
+	}
+}
+
+func typedDeriveShaTransactions() types.Transactions {
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	return types.Transactions{
+		types.NewTx(&types.AccessListTx{
+			ChainID:  big.NewInt(1),
+			Nonce:    1,
+			GasPrice: big.NewInt(1),
+			Gas:      21000,
+			To:       &to,
+			Value:    big.NewInt(1),
+			Data:     []byte{0x01},
+			V:        big.NewInt(0),
+			R:        big.NewInt(1),
+			S:        big.NewInt(1),
+		}),
+		types.NewTx(&types.DynamicFeeTx{
+			ChainID:   big.NewInt(1),
+			Nonce:     2,
+			GasTipCap: big.NewInt(1),
+			GasFeeCap: big.NewInt(2),
+			Gas:       21000,
+			To:        &to,
+			Value:     big.NewInt(2),
+			Data:      []byte{0x02},
+			V:         big.NewInt(0),
+			R:         big.NewInt(1),
+			S:         big.NewInt(1),
+		}),
+		types.NewTx(&types.BlobTx{
+			ChainID:    uint256.NewInt(1),
+			Nonce:      3,
+			GasTipCap:  uint256.NewInt(1),
+			GasFeeCap:  uint256.NewInt(2),
+			Gas:        21000,
+			To:         to,
+			Value:      uint256.NewInt(3),
+			Data:       []byte{0x03},
+			BlobFeeCap: uint256.NewInt(1),
+			BlobHashes: []common.Hash{common.HexToHash("0x01")},
+			V:          uint256.NewInt(0),
+			R:          uint256.NewInt(1),
+			S:          uint256.NewInt(1),
+		}),
+		types.NewTx(&types.SetCodeTx{
+			ChainID:   uint256.NewInt(1),
+			Nonce:     4,
+			GasTipCap: uint256.NewInt(1),
+			GasFeeCap: uint256.NewInt(2),
+			Gas:       21000,
+			To:        to,
+			Value:     uint256.NewInt(4),
+			Data:      []byte{0x04},
+			V:         uint256.NewInt(0),
+			R:         uint256.NewInt(1),
+			S:         uint256.NewInt(1),
+		}),
+		types.NewTx(&types.L1MessageTx{
+			QueueIndex: 5,
+			Gas:        21000,
+			To:         &to,
+			Value:      big.NewInt(5),
+			Data:       []byte{0x05},
+			Sender:     common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		}),
+		types.NewTx(&types.MorphTx{
+			ChainID:   big.NewInt(1),
+			Nonce:     6,
+			GasTipCap: big.NewInt(1),
+			GasFeeCap: big.NewInt(2),
+			Gas:       21000,
+			To:        &to,
+			Value:     big.NewInt(6),
+			Data:      []byte{0x06},
+			FeeLimit:  big.NewInt(1000),
+			V:         big.NewInt(0),
+			R:         big.NewInt(1),
+			S:         big.NewInt(1),
+		}),
+	}
+}
+
+func typedDeriveShaReceipts() types.Receipts {
+	return types.Receipts{
+		typedReceipt(types.AccessListTxType),
+		typedReceipt(types.DynamicFeeTxType),
+		typedReceipt(types.BlobTxType),
+		typedReceipt(types.SetCodeTxType),
+		typedReceipt(types.L1MessageTxType),
+		typedReceipt(types.MorphTxType),
+	}
+}
+
+func typedReceipt(txType uint8) *types.Receipt {
+	return &types.Receipt{
+		Type:              txType,
+		Status:            types.ReceiptStatusSuccessful,
+		CumulativeGasUsed: uint64(100 + txType),
+		Logs: []*types.Log{
+			{
+				Address: common.BytesToAddress([]byte{txType}),
+				Topics:  []common.Hash{common.BigToHash(big.NewInt(int64(txType)))},
+				Data:    []byte{txType, 0x01, 0x02},
+			},
+		},
+	}
 }
 
 type dummyDerivableList struct {
@@ -218,9 +374,10 @@ func (d *hashToHumanReadable) Reset() {
 	d.data = make([]byte, 0)
 }
 
-func (d *hashToHumanReadable) Update(i []byte, i2 []byte) {
+func (d *hashToHumanReadable) Update(i []byte, i2 []byte) error {
 	l := fmt.Sprintf("%x %x\n", i, i2)
 	d.data = append(d.data, []byte(l)...)
+	return nil
 }
 
 func (d *hashToHumanReadable) Hash() common.Hash {

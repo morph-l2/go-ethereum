@@ -99,7 +99,6 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 	{
 		Name: "TRANSACTION POOL",
 		Flags: []cli.Flag{
-			utils.TxPoolBlacklistFlag,
 			utils.TxPoolLocalsFlag,
 			utils.TxPoolNoLocalsFlag,
 			utils.TxPoolJournalFlag,

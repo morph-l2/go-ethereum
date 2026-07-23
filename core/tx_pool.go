@@ -35,7 +35,6 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/core/vm"
 	"github.com/morph-l2/go-ethereum/crypto/codehash"
-	"github.com/morph-l2/go-ethereum/ethdb"
 	"github.com/morph-l2/go-ethereum/event"
 	"github.com/morph-l2/go-ethereum/log"
 	"github.com/morph-l2/go-ethereum/metrics"
@@ -92,8 +91,6 @@ var (
 	// than some meaningful limit a user might use. This is not a consensus error
 	// making the transaction invalid, rather a DOS protection.
 	ErrOversizedData = errors.New("oversized data")
-
-	ErrTxNotAllowed = errors.New("tx is not allowed")
 )
 
 var (
@@ -164,8 +161,6 @@ type TxPoolConfig struct {
 	NoLocals  bool             // Whether local transaction handling should be disabled
 	Journal   string           // Journal of local transactions to survive node restarts
 	Rejournal time.Duration    // Time interval to regenerate the local transaction journal
-
-	Blacklist bool // Whether blacklist should be enabled
 
 	PriceLimit uint64 // Minimum gas price to enforce for acceptance into the pool
 	PriceBump  uint64 // Minimum price bump percentage to replace an already existing transaction (nonce)
@@ -267,7 +262,6 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	blacklist      *TxBlacklist
 	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
 
 	pending map[common.Address]*txList   // All currently processable transactions
@@ -379,14 +373,6 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	go pool.loop()
 
 	return pool
-}
-
-func (pool *TxPool) EnableBlacklist(db ethdb.Database) {
-	pool.blacklist = NewTxBlacklist(db, pool.signer)
-}
-
-func (pool *TxPool) GetBlacklist() *TxBlacklist {
-	return pool.blacklist
 }
 
 // loop is the transaction pool's main event loop, waiting for and reacting to
@@ -723,9 +709,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Limit nonce to 2^64-1 per EIP-2681.
 	if tx.Nonce()+1 < tx.Nonce() {
 		return ErrNonceMax
-	}
-	if pool.blacklist != nil && !pool.blacklist.Validate(tx) {
-		return ErrTxNotAllowed
 	}
 	// Drop non-local transactions under our own minimal accepted gas price or tip.
 	if !local && tx.GasFeeCapIntCmp(pool.gasPrice) < 0 {

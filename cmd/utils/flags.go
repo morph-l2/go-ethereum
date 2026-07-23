@@ -374,10 +374,6 @@ var (
 		Usage: "Lock memory maps for recent ethash mining DAGs",
 	}
 	// Transaction pool settings
-	TxPoolBlacklistFlag = cli.BoolFlag{
-		Name:  "txpool.blacklist",
-		Usage: "Enable the txpool blacklist",
-	}
 	TxPoolLocalsFlag = cli.StringFlag{
 		Name:  "txpool.locals",
 		Usage: "Comma separated accounts to treat as locals (no flush, priority inclusion)",
@@ -1479,9 +1475,6 @@ func setTxPool(ctx *cli.Context, cfg *core.TxPoolConfig) {
 				cfg.Locals = append(cfg.Locals, common.HexToAddress(account))
 			}
 		}
-	}
-	if ctx.GlobalIsSet(TxPoolBlacklistFlag.Name) {
-		cfg.Blacklist = ctx.GlobalBool(TxPoolBlacklistFlag.Name)
 	}
 	if ctx.GlobalIsSet(TxPoolNoLocalsFlag.Name) {
 		cfg.NoLocals = ctx.GlobalBool(TxPoolNoLocalsFlag.Name)

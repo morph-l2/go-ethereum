@@ -89,6 +89,10 @@ var (
 	// than required to start the invocation.
 	ErrIntrinsicGas = errors.New("intrinsic gas too low")
 
+	// ErrFloorDataGas is returned if the transaction gas limit is below the
+	// EIP-7623 calldata floor.
+	ErrFloorDataGas = errors.New("floor data gas too low")
+
 	// ErrTxTypeNotSupported is returned if a transaction is not supported in the
 	// current network configuration.
 	ErrTxTypeNotSupported = types.ErrTxTypeNotSupported

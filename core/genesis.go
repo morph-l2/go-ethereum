@@ -150,6 +150,7 @@ type ChainOverrides struct {
 	ViridianTime *uint64
 	EmeraldTime  *uint64
 	JadeForkTime *uint64
+	NextForkTime *uint64
 }
 
 // apply applies the chain overrides on the supplied chain config.
@@ -168,6 +169,9 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 	}
 	if o.JadeForkTime != nil {
 		cfg.JadeForkTime = o.JadeForkTime
+	}
+	if o.NextForkTime != nil {
+		cfg.NextForkTime = o.NextForkTime
 	}
 	return cfg.CheckConfigForkOrder()
 }

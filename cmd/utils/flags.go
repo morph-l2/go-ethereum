@@ -292,6 +292,10 @@ var (
 		Name:  "override.jadeforktime",
 		Usage: "Manually specify the Jade fork timestamp, overriding the bundled setting",
 	}
+	OverrideNextForkTimeFlag = &cli.Uint64Flag{
+		Name:  "override.nextforktime",
+		Usage: "Manually specify the NextFork timestamp, overriding the bundled setting",
+	}
 	// Light server and client settings
 	LightServeFlag = cli.IntFlag{
 		Name:  "light.serve",
@@ -574,7 +578,7 @@ var (
 	RPCTxSyncEnabledFlag = cli.BoolTFlag{
 		Name:  "rpc.txsync.enabled",
 		Usage: "Enable eth_sendRawTransactionSync receipt waiting",
-  }
+	}
 	RPCGlobalLogQueryLimit = cli.IntFlag{
 		Name:  "rpc.logquerylimit",
 		Usage: "Maximum number of alternative addresses or topics allowed per search position in eth_getLogs filter criteria (0 = no cap)",

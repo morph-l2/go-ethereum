@@ -51,12 +51,10 @@ func traceCodeWithAddress(l *StructLogger, address common.Address) {
 	code := l.env.StateDB.GetCode(address)
 
 	keccakCodeHash := l.env.StateDB.GetKeccakCodeHash(address)
-	poseidonCodeHash := l.env.StateDB.GetPoseidonCodeHash(address)
 	codeSize := l.env.StateDB.GetCodeSize(address)
 	l.bytecodes[keccakCodeHash] = CodeInfo{
 		codeSize,
 		keccakCodeHash,
-		poseidonCodeHash,
 		code,
 	}
 }

@@ -31,7 +31,6 @@ import (
 	"github.com/morph-l2/go-ethereum/rlp"
 )
 
-var emptyPoseidonCodeHash = codehash.EmptyPoseidonCodeHash.Bytes()
 var emptyKeccakCodeHash = codehash.EmptyKeccakCodeHash.Bytes()
 
 type Code []byte
@@ -97,7 +96,7 @@ type stateObject struct {
 
 // empty returns whether the account is considered empty.
 func (s *stateObject) empty() bool {
-	// note: if KeccakCodeHash is empty then PoseidonCodeHash and CodeSize will also be empty
+	// note: if KeccakCodeHash is empty then CodeSize will also be empty
 	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.KeccakCodeHash, emptyKeccakCodeHash)
 }
 
@@ -108,7 +107,6 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *st
 	}
 	if data.KeccakCodeHash == nil {
 		data.KeccakCodeHash = emptyKeccakCodeHash
-		data.PoseidonCodeHash = emptyPoseidonCodeHash
 		data.CodeSize = 0
 	}
 	if data.Root == (common.Hash{}) {
@@ -529,7 +527,6 @@ func (s *stateObject) setCode(code []byte) {
 	afterKeccakCodeHash := codehash.KeccakCodeHash(code)
 	s.code = code
 	s.data.KeccakCodeHash = afterKeccakCodeHash.Bytes()
-	s.data.PoseidonCodeHash = codehash.PoseidonCodeHash(code).Bytes()
 	s.data.CodeSize = uint64(len(code))
 	s.dirtyCode = true
 }
@@ -544,10 +541,6 @@ func (s *stateObject) SetNonce(nonce uint64) {
 
 func (s *stateObject) setNonce(nonce uint64) {
 	s.data.Nonce = nonce
-}
-
-func (s *stateObject) PoseidonCodeHash() []byte {
-	return nil
 }
 
 func (s *stateObject) KeccakCodeHash() []byte {

@@ -220,6 +220,17 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 
 	if genesis == nil {
 		storedcfg := rawdb.ReadChainConfig(db, stored)
+
+		// copy configs named under scroll to morph
+		if storedcfg != nil && storedcfg.Morph.FeeVaultAddress == nil {
+			if storedcfg.Scroll.FeeVaultAddress == nil {
+				log.Error("something wrong with store chain config, both morph and scroll are empty")
+				return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
+			}
+			storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
+			storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
+			storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
+		}
 		if storedcfg == nil {
 			log.Warn("Found genesis block without chain config")
 		} else {
@@ -271,6 +282,14 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, genesis *Genesis, override
 		log.Warn("Found genesis block without chain config")
 		rawdb.WriteChainConfig(db, stored, newcfg)
 		return newcfg, stored, nil
+	} else if storedcfg.Morph.FeeVaultAddress == nil {
+		if storedcfg.Scroll.FeeVaultAddress == nil {
+			log.Error("something wrong with store chain config, both morph and scroll are empty")
+			return nil, common.Hash{}, errors.New("something wrong with store chain config, both morph and scroll are empty")
+		}
+		storedcfg.Morph.MaxTxPerBlock = storedcfg.Scroll.MaxTxPerBlock
+		storedcfg.Morph.MaxTxPayloadBytesPerBlock = storedcfg.Scroll.MaxTxPayloadBytesPerBlock
+		storedcfg.Morph.FeeVaultAddress = storedcfg.Scroll.FeeVaultAddress
 	}
 	// Special case: don't change the existing config of a non-mainnet chain if no new
 	// config is supplied. These chains would get AllProtocolChanges (and a compat error)

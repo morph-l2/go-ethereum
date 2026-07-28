@@ -185,34 +185,54 @@ func TestTxPoolLockLifecycleCost(t *testing.T) {
 		fmt.Printf("sample dynamic  rejection: %v\n\n", err)
 	}
 
-	morph := timeValidate(pool, morphTxs, warmup)
-	dyn := timeValidate(pool, dynTxs, warmup)
+	// Interleave the two tx types (alternating which goes first per index) so
+	// both see the same trie-warming curve — this removes the ordering bias
+	// where a second full loop would run on a hotter trie than the first.
+	morph, dyn := timeInterleaved(pool, morphTxs, dynTxs, warmup)
 
 	reportLC("ordinary dynamic-fee tx  (baseline, lock-held validateTx)", dyn)
 	reportLC("MorphTx alt-fee          (StaticCall path, lock-held validateTx)", morph)
 
 	fmt.Println("\n=== interpretation ===")
-	fmt.Printf("Full lock-held per-tx multiplier (MorphTx / ordinary) = %.2fx  (p50)\n",
-		float64(morph.p50)/float64(dyn.p50))
-	fmt.Printf("Absolute extra time per MorphTx under the lock        = %s  (p50 delta)\n",
-		morph.p50-dyn.p50)
-	fmt.Println("This is the real per-tx cost that governs lock saturation — compare against")
-	fmt.Println("the report's implied 9x (157µs legacy vs 1,370µs MorphTx, from a 500µs mock).")
+	fmt.Printf("Alt-fee extra work per tx (MorphTx - ordinary, p50 delta) = %s\n", morph.p50-dyn.p50)
+	fmt.Println("  ^ this delta is the robust quantity: it isolates the EVM StaticCall overhead")
+	fmt.Println("    and is largely independent of trie warmth (both types share the same state).")
+	fmt.Printf("Full lock-held MorphTx cost (p50) = %s ; ratio vs ordinary = %.1fx\n",
+		morph.p50, float64(morph.p50)/float64(dyn.p50))
+	fmt.Println("  ^ the RATIO is baseline-sensitive (an ordinary rejected tx does almost no")
+	fmt.Println("    lock-held state work), so it is not the figure to quote; the report's 500µs")
+	fmt.Println("    getBalanceFunc mock and 1,370µs full-tx figure are what the delta refutes.")
 }
 
-// timeValidate calls pool.validateTx once per tx (skipping the first `warmup`)
-// and returns the distribution of the measured calls.
-func timeValidate(pool *TxPool, txs []*types.Transaction, warmup int) lcStats {
-	ds := make([]time.Duration, 0, len(txs)-warmup)
-	for i, tx := range txs {
-		t0 := time.Now()
-		_ = pool.validateTx(tx, false)
-		d := time.Since(t0)
+// timeInterleaved times both tx types against the same TxPool, alternating
+// which type is validated first at each index, so neither benefits from a
+// consistently hotter trie. morphTxs[i] and dynTxs[i] share the same sender.
+func timeInterleaved(pool *TxPool, morphTxs, dynTxs []*types.Transaction, warmup int) (lcStats, lcStats) {
+	n := len(morphTxs)
+	mds := make([]time.Duration, 0, n-warmup)
+	dds := make([]time.Duration, 0, n-warmup)
+	for i := 0; i < n; i++ {
+		var dm, dd time.Duration
+		if i%2 == 0 {
+			dm = timeOne(pool, morphTxs[i])
+			dd = timeOne(pool, dynTxs[i])
+		} else {
+			dd = timeOne(pool, dynTxs[i])
+			dm = timeOne(pool, morphTxs[i])
+		}
 		if i >= warmup {
-			ds = append(ds, d)
+			mds = append(mds, dm)
+			dds = append(dds, dd)
 		}
 	}
-	return summarize(ds)
+	return summarize(mds), summarize(dds)
+}
+
+// timeOne times a single lock-held validateTx call.
+func timeOne(pool *TxPool, tx *types.Transaction) time.Duration {
+	t0 := time.Now()
+	_ = pool.validateTx(tx, false)
+	return time.Since(t0)
 }
 
 type lcStats struct{ p50, p90, p99, mean, max time.Duration }

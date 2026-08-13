@@ -174,6 +174,10 @@ func makeFullNode(ctx *cli.Context) (*node.Node, ethapi.Backend) {
 		v := ctx.Uint64(utils.OverrideJadeForkTimeFlag.Name)
 		cfg.Eth.OverrideJadeForkTime = &v
 	}
+	if ctx.GlobalIsSet(utils.OverrideMaxTxPayloadBytesPerBlockFlag.Name) {
+		v := ctx.Int(utils.OverrideMaxTxPayloadBytesPerBlockFlag.Name)
+		cfg.Eth.OverrideMaxTxPayloadBytesPerBlock = &v
+	}
 
 	backend, _ := utils.RegisterEthService(stack, &cfg.Eth)
 

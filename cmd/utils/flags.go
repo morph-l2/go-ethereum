@@ -292,6 +292,11 @@ var (
 		Name:  "override.jadeforktime",
 		Usage: "Manually specify the Jade fork timestamp, overriding the bundled setting",
 	}
+	OverrideMaxTxPayloadBytesPerBlockFlag = &cli.IntFlag{
+		Name:   "override.maxtxpayloadbytesperblock",
+		Usage:  "Manually specify the per-block tx payload byte budget, overriding the stored chain config. Consensus rule: every node must use the same value",
+		EnvVar: "GETH_OVERRIDE_MAXTXPAYLOADBYTESPERBLOCK",
+	}
 	// Light server and client settings
 	LightServeFlag = cli.IntFlag{
 		Name:  "light.serve",
@@ -493,9 +498,10 @@ var (
 		Value: "0",
 	}
 	MinerGasLimitFlag = cli.Uint64Flag{
-		Name:  "miner.gaslimit",
-		Usage: "Target gas ceiling for mined blocks",
-		Value: ethconfig.Defaults.Miner.GasCeil,
+		Name:   "miner.gaslimit",
+		Usage:  "Target gas ceiling for mined blocks",
+		Value:  ethconfig.Defaults.Miner.GasCeil,
+		EnvVar: "GETH_MINER_GASLIMIT",
 	}
 	MinerGasPriceFlag = BigFlag{
 		Name:  "miner.gasprice",

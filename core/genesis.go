@@ -150,6 +150,12 @@ type ChainOverrides struct {
 	ViridianTime *uint64
 	EmeraldTime  *uint64
 	JadeForkTime *uint64
+	// MaxTxPayloadBytesPerBlock overrides the per-block transaction payload budget
+	// carried in the stored chain config. Applied to storedcfg as well as newcfg,
+	// so it takes effect on an existing chain without rewriting the persisted
+	// config via `geth init`. This is a consensus rule (ValidateBody rejects
+	// oversized blocks), so every node must be started with the same value.
+	MaxTxPayloadBytesPerBlock *int
 }
 
 // apply applies the chain overrides on the supplied chain config.
@@ -168,6 +174,9 @@ func (o *ChainOverrides) apply(cfg *params.ChainConfig) error {
 	}
 	if o.JadeForkTime != nil {
 		cfg.JadeForkTime = o.JadeForkTime
+	}
+	if o.MaxTxPayloadBytesPerBlock != nil {
+		cfg.Morph.MaxTxPayloadBytesPerBlock = o.MaxTxPayloadBytesPerBlock
 	}
 	return cfg.CheckConfigForkOrder()
 }

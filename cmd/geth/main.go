@@ -75,6 +75,7 @@ var (
 		utils.OverrideViridianTimeFlag,
 		utils.OverrideEmeraldTimeFlag,
 		utils.OverrideJadeForkTimeFlag,
+		utils.OverrideMaxTxPayloadBytesPerBlockFlag,
 		utils.OverrideGenesisFlag,
 		utils.EthashCacheDirFlag,
 		utils.EthashCachesInMemoryFlag,

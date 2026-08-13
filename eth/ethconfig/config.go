@@ -239,6 +239,9 @@ type Config struct {
 
 	// JadeForkTime override
 	OverrideJadeForkTime *uint64 `toml:",omitempty"`
+
+	// MaxTxPayloadBytesPerBlock override
+	OverrideMaxTxPayloadBytesPerBlock *int `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.

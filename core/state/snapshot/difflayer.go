@@ -40,7 +40,26 @@ var (
 	// Note, bumping this up might drastically increase the size of the bloom
 	// filters that's stored in every diff layer. Don't do that without fully
 	// understanding all the implications.
-	aggregatorMemoryLimit = uint64(4 * 1024 * 1024)
+	//
+	// Morph note: upstream's 4MiB was calibrated for mainnet, which generates
+	// tens of KiB of state diff per block and therefore fills the aggregator in
+	// ~42 blocks, keeping the disk layer within ~250 blocks of the head. Morph
+	// writes state orders of magnitude slower (a low-traffic chain can sit at a
+	// few bytes per second), so 4MiB takes days to fill and the disk layer falls
+	// hundreds of thousands of blocks behind the head.
+	//
+	// That matters because setHeadBeyondRoot uses the snapshot disk layer root
+	// as a hard rewind threshold (see core/blockchain.go, "Make sure the rewound
+	// point is lower than disk layer"). Once the lag exceeds
+	// params.FullImmutabilityThreshold, an unclean-shutdown repair rewinds past
+	// the freezer cutoff, which forces per-block ancient truncation instead of
+	// upstream's cheap "don't touch the header chain" repair path.
+	//
+	// 32KiB keeps the lag comfortably below the freezer cutoff at Morph's block
+	// rates while still flushing the disk layer only about once an hour. It also
+	// shrinks every diff layer's bloom filter, since bloomSize is derived from
+	// aggregatorItemLimit below.
+	aggregatorMemoryLimit = uint64(32 * 1024)
 
 	// aggregatorItemLimit is an approximate number of items that will end up
 	// in the agregator layer before it's flushed out to disk. A plain account

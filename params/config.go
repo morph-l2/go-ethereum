@@ -609,7 +609,12 @@ type MorphConfig struct {
 	// Maximum number of transactions per block [optional]
 	MaxTxPerBlock *int `json:"maxTxPerBlock,omitempty"`
 
-	// Maximum tx payload size of blocks that we produce [optional]
+	// MaxTxPayloadBytesPerBlock is a legacy field with no remaining consumer
+	// [optional]. The per-block payload budget now comes from
+	// MorphMaxTxPayloadBytesPerBlock, and the transaction pool bounds a single
+	// transaction by its own txMaxSize, so nothing reads this value any more. It
+	// is kept so that stored chain configs and genesis files continue to
+	// round-trip unchanged.
 	MaxTxPayloadBytesPerBlock *int `json:"maxTxPayloadBytesPerBlock,omitempty"`
 
 	// Transaction fee vault address [optional]

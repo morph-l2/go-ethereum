@@ -293,10 +293,14 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
-	// Using MaxTxPayloadBytesPerBlock as max tx bytes if it exists and smaller than 128K
+	// A transaction larger than the per-block payload budget could never be
+	// included in a block, so bound the accepted size by the budget as well.
+	// The budget is params.MorphMaxTxPayloadBytesPerBlock -- the same value
+	// IsValidBlockSize enforces -- rather than the chain config, so the bound
+	// does not depend on what a node happened to persist at genesis.
 	rawTxMaxSize := txMaxSize
-	if configSize := chainconfig.Morph.MaxTxPayloadBytesPerBlock; configSize != nil && *configSize < txMaxSize {
-		rawTxMaxSize = *configSize
+	if params.MorphMaxTxPayloadBytesPerBlock < rawTxMaxSize {
+		rawTxMaxSize = params.MorphMaxTxPayloadBytesPerBlock
 	}
 
 	// Create the transaction pool with its initial settings

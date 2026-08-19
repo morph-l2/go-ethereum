@@ -271,8 +271,12 @@ var (
 	// override it.
 	//
 	// The value must stay below the batch submitter's blob capacity
-	// (6 blobs * 4096 * 31 = 762048 bytes), otherwise a single oversized block
+	// (6 blobs * 4096 * 31 = 761856 bytes), otherwise a single oversized block
 	// can never be packed into a batch and rollup submission stalls.
+	//
+	// morph-reth carries the same value as MORPH_MAX_TX_PAYLOAD_BYTES_PER_BLOCK
+	// and applies it to block import. Both clients must be changed together or a
+	// mixed-client network splits on the first block between the two limits.
 	MorphMaxTxPayloadBytesPerBlock = 720 * 1024
 
 	MorphFeeVaultAddress = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")

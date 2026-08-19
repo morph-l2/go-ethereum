@@ -307,7 +307,7 @@ loop:
 			break
 		}
 		if !tx.IsL1MessageTx() && !miner.chainConfig.Morph.IsValidBlockSize(env.blockSize+tx.Size()) {
-			log.Trace("Block size limit reached", "have", env.blockSize, "want", miner.chainConfig.Morph.MaxTxPayloadBytesPerBlock, "tx", tx.Size())
+			log.Trace("Block size limit reached", "have", env.blockSize, "want", params.MorphMaxTxPayloadBytesPerBlock, "tx", tx.Size())
 			txs.Pop() // skip transactions from this account
 			continue
 		}

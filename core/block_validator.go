@@ -50,9 +50,15 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engin
 // header's transaction and uncle roots. The headers are assumed to be already
 // validated at this point.
 func (v *BlockValidator) ValidateBody(block *types.Block) error {
-	// Check whether the block's known, and if not, that it's linkable
+	// Check whether the block's known, and if not, that it's linkable.
+	//
+	// Only a block at or below the head is a duplicate worth skipping. A known block
+	// above the head still has to be adopted -- the normal case after a repair, which
+	// rewinds the head but leaves the blocks in place, so the consensus layer re-feeds
+	// blocks already on disk. Rejecting those stalls the node at that height.
 	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) &&
-		len(block.Transactions()) > 0 { // we allow the same state root when a block with no transactions
+		len(block.Transactions()) > 0 && // we allow the same state root when a block with no transactions
+		block.NumberU64() <= v.bc.CurrentBlock().NumberU64() {
 		return ErrKnownBlock
 	}
 	// Check if block payload size is smaller than the max size

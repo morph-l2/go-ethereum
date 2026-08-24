@@ -190,7 +190,7 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	chosen := current - TriesInMemory
 	//flushInterval := time.Duration(atomic.LoadInt64(&bc.flushInterval))
 	// If we exceeded time allowance, flush an entire trie to disk
-	if bc.gcproc > bc.cacheConfig.TrieTimeLimit {
+	if bc.gcproc > bc.cacheConfig.TrieTimeLimit || chosen > lastWrite+TrieCommitBlockInterval {
 		// If the header is missing (canonical chain behind), we're reorging a low
 		// diff sidechain. Suspend committing until this operation is completed.
 		header := bc.GetHeaderByNumber(chosen)

@@ -95,6 +95,21 @@ const (
 	maxTimeFutureBlocks = 30
 	TriesInMemory       = 128
 
+	// TrieCommitBlockInterval bounds, in blocks, how far the persisted state trie may
+	// fall behind the head. An unclean-shutdown repair rewinds to the newest block
+	// whose state is on disk, and only deletes freezer data if that target falls below
+	// the cutoff at head-FullImmutabilityThreshold -- so the bound that keeps repair
+	// non-destructive is a block count. Upstream only implies it, through TrieTimeLimit
+	// (processing time) and TrieDirtyLimit (bytes); a Morph block costs microseconds and
+	// writes a few hundred bytes, so neither trigger fires and the persisted state stops
+	// advancing at all.
+	//
+	// The interval doubles as the recovery cost, which is why it is a small fraction:
+	// repair re-executes up to this many blocks, and dense stretches import at only
+	// ~25 blocks/s, so a larger value can outlast a supervisor's start-up timeout and
+	// livelock the node.
+	TrieCommitBlockInterval = uint64(params.FullImmutabilityThreshold / 45)
+
 	// BlockChainVersion ensures that an incompatible database forces a resync from scratch.
 	//
 	// Changelog:
@@ -1322,7 +1337,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 			chosen := current - TriesInMemory
 
 			// If we exceeded out time allowance, flush an entire trie to disk
-			if bc.gcproc > bc.cacheConfig.TrieTimeLimit {
+			if bc.gcproc > bc.cacheConfig.TrieTimeLimit || chosen > lastWrite+TrieCommitBlockInterval {
 				// If the header is missing (canonical chain behind), we're reorging a low
 				// diff sidechain. Suspend committing until this operation is completed.
 				header := bc.GetHeaderByNumber(chosen)

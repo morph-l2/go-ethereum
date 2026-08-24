@@ -40,7 +40,15 @@ var (
 	// Note, bumping this up might drastically increase the size of the bloom
 	// filters that's stored in every diff layer. Don't do that without fully
 	// understanding all the implications.
-	aggregatorMemoryLimit = uint64(4 * 1024 * 1024)
+	//
+	// Morph note: 4MiB was calibrated for mainnet, which fills the aggregator in ~42
+	// blocks. Morph writes a few hundred bytes of state per block on its quiet
+	// stretches, so 4MiB takes days to fill and the disk layer ends up 10^5 blocks
+	// behind. That matters because setHeadBeyondRoot will not stop a rewind above the
+	// disk layer, making the lag a floor on the rewind depth of an unclean-shutdown
+	// repair -- past params.FullImmutabilityThreshold, where the rewind starts deleting
+	// block data. 32KiB keeps the lag at or under TrieCommitBlockInterval.
+	aggregatorMemoryLimit = uint64(32 * 1024)
 
 	// aggregatorItemLimit is an approximate number of items that will end up
 	// in the agregator layer before it's flushed out to disk. A plain account

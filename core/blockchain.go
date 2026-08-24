@@ -323,6 +323,14 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		var diskRoot common.Hash
 		if bc.cacheConfig.SnapshotLimit > 0 {
 			diskRoot = rawdb.ReadSnapshotRoot(bc.db)
+			// A recovery marker above the head means the disk layer is ahead of the
+			// chain, left by an earlier repair that rewound below it. The walk below can
+			// never cross such a root, so it would descend to genesis and wipe the
+			// freezer; ignore it and stop at the newest block that still has state.
+			if layer := rawdb.ReadSnapshotRecoveryNumber(bc.db); layer != nil && *layer > head.NumberU64() {
+				log.Warn("Snapshot disk layer ahead of head, ignoring for repair", "disklayer", *layer, "head", head.NumberU64())
+				diskRoot = common.Hash{}
+			}
 		}
 		if diskRoot != (common.Hash{}) {
 			log.Warn("Head state missing, repairing", "number", head.Number(), "hash", head.Hash(), "snaproot", diskRoot)

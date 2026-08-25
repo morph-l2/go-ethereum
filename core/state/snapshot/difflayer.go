@@ -86,6 +86,16 @@ var (
 	bloomStorageHasherOffset  = 0
 )
 
+// SetArchiveMode restores the upstream snapshot limits for archive nodes,
+// which persist every trie and don't need the additional snapshot I/O.
+// It must be called during blockchain startup, before snapshot layers exist.
+func SetArchiveMode() {
+	aggregatorMemoryLimit = 4 * 1024 * 1024
+	aggregatorItemLimit = aggregatorMemoryLimit / 42
+	bloomSize = math.Ceil(float64(aggregatorItemLimit) * math.Log(bloomTargetError) / math.Log(1/math.Pow(2, math.Log(2))))
+	bloomFuncs = math.Round((bloomSize / float64(aggregatorItemLimit)) * math.Log(2))
+}
+
 func init() {
 	// Init the bloom offsets in the range [0:24] (requires 8 bytes)
 	bloomDestructHasherOffset = rand.Intn(25)

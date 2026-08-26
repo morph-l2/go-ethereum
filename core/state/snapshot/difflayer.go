@@ -55,11 +55,10 @@ var (
 	// the freezer cutoff, which forces per-block ancient truncation instead of
 	// upstream's cheap "don't touch the header chain" repair path.
 	//
-	// 32KiB keeps the lag comfortably below the freezer cutoff at Morph's block
-	// rates while still flushing the disk layer only about once an hour. It also
-	// shrinks every diff layer's bloom filter, since bloomSize is derived from
-	// aggregatorItemLimit below.
-	aggregatorMemoryLimit = uint64(32 * 1024)
+	// Full nodes tighten this to 32KiB via SetFullNodeAggregator; archive keeps
+	// the upstream 4MiB because they persist every trie and don't need the extra
+	// snapshot I/O.
+	aggregatorMemoryLimit = uint64(4 * 1024 * 1024)
 
 	// aggregatorItemLimit is an approximate number of items that will end up
 	// in the agregator layer before it's flushed out to disk. A plain account
@@ -96,6 +95,16 @@ var (
 	bloomAccountHasherOffset  = 0
 	bloomStorageHasherOffset  = 0
 )
+
+// SetFullNodeAggregator tightens the snapshot aggregator for full nodes, whose
+// persisted trie can lag the head. Archive nodes keep the upstream 4MiB.
+// Must be called during blockchain startup, before snapshot layers exist.
+func SetFullNodeAggregator() {
+	aggregatorMemoryLimit = 32 * 1024
+	aggregatorItemLimit = aggregatorMemoryLimit / 42
+	bloomSize = math.Ceil(float64(aggregatorItemLimit) * math.Log(bloomTargetError) / math.Log(1/math.Pow(2, math.Log(2))))
+	bloomFuncs = math.Round((bloomSize / float64(aggregatorItemLimit)) * math.Log(2))
+}
 
 func init() {
 	// Init the bloom offsets in the range [0:24] (requires 8 bytes)

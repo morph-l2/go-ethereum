@@ -114,10 +114,9 @@ func (v *BlockValidator) ValidateState(block *types.Block, statedb *state.StateD
 	// Validate the state root against the received state root and throw
 	// an error if they don't match.
 	//
-	// zkTrie storage mode retired: state is always MPT. Pre-Jade blocks carry
-	// legacy zkTrie state roots in their headers (their state is replayed locally
-	// in MPT, so the local root won't match) and must skip state-root validation;
-	// post-Jade blocks are native MPT and validate normally.
+	// Pre-Jade blocks carry legacy zkTrie state roots in their headers; the
+	// local state is MPT so the roots won't match — skip validation for those.
+	// Post-Jade blocks are native MPT and validate normally.
 	shouldValidateStateRoot := v.config.IsJadeFork(header.Time)
 
 	if root := statedb.IntermediateRoot(v.config.IsEIP158(header.Number)); shouldValidateStateRoot && header.Root != root {

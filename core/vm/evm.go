@@ -458,7 +458,6 @@ type codeAndHash struct {
 
 func (c *codeAndHash) Hash() common.Hash {
 	if c.hash == (common.Hash{}) {
-		// when calculating CREATE2 address, we use Keccak256 not Poseidon
 		c.hash = crypto.Keccak256Hash(c.code)
 	}
 	return c.hash

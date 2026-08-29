@@ -15,7 +15,7 @@
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 // Package trie — inspect.go is a port of upstream go-ethereum PR #28892
-// adapted to morph's v1.10.26-era trie package and ZKTrie-aware state.
+// adapted to morph's v1.10.26-era trie package.
 //
 // The inspector walks a Merkle Patricia Trie in two passes:
 //
@@ -32,11 +32,9 @@
 // trie and additionally compares against the snapshot view so operators
 // can reason about both representations side-by-side.
 //
-// ZKTrie-encoded state is explicitly out of scope: the caller (typically
-// the geth CLI) is responsible for checking the chain config and
-// refusing to invoke Inspect / InspectContract against pre-JadeFork
-// morph history. The ErrUnsupportedTrieFormat constant is provided for
-// that purpose.
+// Only MPT-format state is supported; the ErrUnsupportedTrieFormat
+// constant is provided for callers to surface when an unsupported
+// format is detected.
 package trie
 
 import (
@@ -90,10 +88,9 @@ const (
 )
 
 // ErrUnsupportedTrieFormat is returned when a caller attempts to inspect a
-// state that is not stored in MPT format (e.g. morph pre-JadeFork ZKTrie
-// state). The inspector itself does not sniff the database; callers must
-// detect this condition and surface the error to the operator.
-var ErrUnsupportedTrieFormat = errors.New("inspect-trie: state format not supported (zktrie mode not supported; only MPT is implemented)")
+// state that is not stored in MPT format. The inspector itself does not sniff
+// the database; callers must detect this condition and surface the error.
+var ErrUnsupportedTrieFormat = errors.New("inspect-trie: unsupported state format (only MPT is supported)")
 
 // InspectConfig is the set of options shared between the pass-1 inspector
 // and the pass-2 summarizer. Field names and defaults match upstream so

@@ -57,7 +57,31 @@ const (
 	// considered immutable (i.e. soft finality). It is used by the downloader as a
 	// hard limit against deep ancestors, by the blockchain against deep reorgs, by
 	// the freezer as the cutoff threshold and by clique as the snapshot trust limit.
-	FullImmutabilityThreshold = 90000
+	//
+	// Morph note: raised from upstream's 90000 because on this chain the value's
+	// only reachable consumer is the freezer cutoff, and 90000 is too small there.
+	//
+	// Ancient truncation is the sole irreversible step in chain rewinding.
+	// setHeadBeyondRoot takes the destructive branch (`wipe`) only when the rewind
+	// target falls below the freezer cutoff; a rewind that stays above it leaves
+	// every block on disk and lets the node re-execute forward, which is what
+	// upstream's "try to skip touching the header chain altogether" repair path
+	// intends. Morph's rewind depth is driven by how far the snapshot disk layer
+	// lags the head -- a storage property unrelated to reorg depth -- and on a
+	// low-throughput chain that lag has been observed at ~286k blocks, far beyond
+	// 90000. A cutoff of 1000000 keeps such a rewind non-destructive and
+	// self-recoverable.
+	//
+	// The other consumers are unreachable here and so unaffected: Morph blocks
+	// carry zero difficulty, so chainSyncer.nextSyncOp always short-circuits on
+	// `op.td.Cmp(ourTD) <= 0` and the eth/les downloaders never reach
+	// findAncestor's fullMaxForkAncestry floor; clique is not the engine in use.
+	// If block difficulty ever becomes non-zero, revisit the downloader impact.
+	//
+	// Cost: the freezer holds ~340 bytes per block, so this keeps roughly 340MB
+	// more (compressed-equivalent) in the key-value store, traded against
+	// irreversibly deleting block data.
+	FullImmutabilityThreshold = 1000000
 
 	// LightImmutabilityThreshold is the number of blocks after which a header chain
 	// segment is considered immutable for light client(i.e. soft finality). It is used by

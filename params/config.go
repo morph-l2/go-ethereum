@@ -262,21 +262,17 @@ var (
 		Threshold: 2,
 	}
 
-	// MorphMaxTxPayloadBytesPerBlock is the per-block transaction payload budget
-	// enforced by IsValidBlockSize. It is baked into the binary rather than read
-	// from the chain config: the limit is a consensus rule (ValidateBody rejects
-	// oversized blocks), so a node reading a different value from its stored
-	// config or genesis file would fork. Keeping it here makes upgrading the
-	// binary sufficient to adopt the new limit. It stays a var only so tests can
-	// override it.
+	// MorphMaxTxPayloadBytesPerBlock is the default per-block transaction payload
+	// budget: the value the built-in mainnet and hoodi configs below point at, and
+	// the fallback the genesis generator uses when a deploy config leaves
+	// maxTxPayloadBytesPerBlock unset. The limit IsValidBlockSize enforces always
+	// comes from the chain config, so a network can carry its own value.
 	//
-	// The value must stay below the batch submitter's blob capacity
-	// (6 blobs * 4096 * 31 = 761856 bytes), otherwise a single oversized block
-	// can never be packed into a batch and rollup submission stalls.
-	//
-	// morph-reth carries the same value as MORPH_MAX_TX_PAYLOAD_BYTES_PER_BLOCK
-	// and applies it to block import. Both clients must be changed together or a
-	// mixed-client network splits on the first block between the two limits.
+	// Changing it is a consensus change: IsValidBlockSize backs ValidateBody, so
+	// every node on a network must agree on the value. Keep it within what the
+	// batch submitter can pack -- max_blob_count (a tx-submitter flag, default 6)
+	// times 4096*31 bounds the compressed batch payload, and the effective blob
+	// count is 1 before the batch-V2 upgrade.
 	MorphMaxTxPayloadBytesPerBlock = 720 * 1024
 
 	MorphFeeVaultAddress = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
@@ -609,12 +605,7 @@ type MorphConfig struct {
 	// Maximum number of transactions per block [optional]
 	MaxTxPerBlock *int `json:"maxTxPerBlock,omitempty"`
 
-	// MaxTxPayloadBytesPerBlock is a legacy field with no remaining consumer
-	// [optional]. The per-block payload budget now comes from
-	// MorphMaxTxPayloadBytesPerBlock, and the transaction pool bounds a single
-	// transaction by its own txMaxSize, so nothing reads this value any more. It
-	// is kept so that stored chain configs and genesis files continue to
-	// round-trip unchanged.
+	// Maximum tx payload size of blocks that we produce [optional]
 	MaxTxPayloadBytesPerBlock *int `json:"maxTxPayloadBytesPerBlock,omitempty"`
 
 	// Transaction fee vault address [optional]
@@ -651,10 +642,8 @@ func (s MorphConfig) IsValidTxCount(count int) bool {
 }
 
 // IsValidBlockSize returns whether the given block's transaction payload size is below the limit.
-// The limit comes from MorphMaxTxPayloadBytesPerBlock, not from the chain config: see the comment
-// there for why this is not configurable per network.
-func (MorphConfig) IsValidBlockSize(size common.StorageSize) bool {
-	return size <= common.StorageSize(MorphMaxTxPayloadBytesPerBlock)
+func (s MorphConfig) IsValidBlockSize(size common.StorageSize) bool {
+	return s.MaxTxPayloadBytesPerBlock == nil || size <= common.StorageSize(*s.MaxTxPayloadBytesPerBlock)
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.

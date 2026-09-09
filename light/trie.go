@@ -90,7 +90,7 @@ func (db *odrDatabase) ContractCodeSize(addrHash, codeHash common.Hash) (int, er
 }
 
 func (db *odrDatabase) TrieDB() *trie.Database {
-	return nil
+	return trie.NewDatabase(db.backend.Database())
 }
 
 type odrTrie struct {

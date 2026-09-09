@@ -314,6 +314,7 @@ func (t *StateTest) RunNoVerifyWithResult(subtest StateSubtest, vmconfig vm.Conf
 			rules.IsHomestead,
 			rules.IsIstanbul,
 			rules.IsShanghai,
+			rules.IsAmsterdam,
 		)
 		if intrinsicErr != nil {
 			return nil, nil, common.Hash{}, nil, intrinsicErr

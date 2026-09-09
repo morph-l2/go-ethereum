@@ -54,8 +54,9 @@ func (tt *TransactionTest) Run(config *params.ChainConfig) error {
 		if err != nil {
 			return nil, nil, err
 		}
-		// Intrinsic gas
-		requiredGas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, isHomestead, isIstanbul, false)
+		// Intrinsic gas. These historical transaction tests predate the Amsterdam
+		// fork, so EIP-7702 Amsterdam pricing is disabled.
+		requiredGas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, isHomestead, isIstanbul, false, false)
 		if err != nil {
 			return nil, nil, err
 		}

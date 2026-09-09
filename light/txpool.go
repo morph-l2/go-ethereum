@@ -74,6 +74,7 @@ type TxPool struct {
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
 	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
 	shanghai bool // Fork indicator whether we are in the shanghai stage.
+	nextFork bool // Fork indicator whether we are in the NextFork stage.
 
 	currentHead    *big.Int // Current blockchain head
 	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
@@ -351,6 +352,7 @@ func (pool *TxPool) setNewHead(head *types.Header) {
 	pool.istanbul = pool.config.IsIstanbul(next)
 	pool.eip2718 = pool.config.IsBerlin(next)
 	pool.shanghai = pool.config.IsShanghai(next)
+	pool.nextFork = pool.config.IsNextFork(head.Time)
 
 	pool.currentHead = next
 }
@@ -493,6 +495,15 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai)
 	if err != nil {
 		return err
+	}
+	if pool.nextFork {
+		floorGas, err := core.FloorDataGas(tx.Data())
+		if err != nil {
+			return err
+		}
+		if floorGas > gas {
+			gas = floorGas
+		}
 	}
 	if tx.Gas() < gas {
 		return core.ErrIntrinsicGas

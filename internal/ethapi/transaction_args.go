@@ -99,6 +99,7 @@ func (args *TransactionArgs) isMorphTxArgs() bool {
 //   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1: FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is not set or is 0, FeeLimit must not be set
+//   - Version 2: Version 1 rules plus a non-empty EIP-7702 authorization list
 //
 // If version is not explicitly specified, no version-specific validation is needed
 // because determineMorphTxVersion will assign the highest version.
@@ -130,6 +131,20 @@ func (args *TransactionArgs) validateMorphTxVersion() error {
 		}
 		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
 			return types.ErrMorphTxV1IllegalExtraParams
+		}
+	case types.MorphTxVersion2:
+		feeTokenID := uint16(0)
+		if args.FeeTokenID != nil {
+			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
+			return types.ErrMorphTxV1IllegalExtraParams
+		}
+		if len(args.AuthorizationList) == 0 {
+			return types.ErrMorphTxV2EmptyAuthList
+		}
+		if args.To == nil {
+			return types.ErrMorphTxV2ContractCreation
 		}
 	default:
 		return types.ErrMorphTxUnsupportedVersion
@@ -232,11 +247,22 @@ func (args *TransactionArgs) setDefaultsWithStateOverrides(ctx context.Context, 
 				return types.ErrMorphTxV1NotYetActive
 			}
 		}
-		// Determine version: explicit > V1 if V1-specific fields present > V0 (backward compatible)
+		if args.Version != nil && uint8(*args.Version) == types.MorphTxVersion2 &&
+			!b.ChainConfig().IsMorphTxV2(head.Time) {
+			return types.ErrMorphTxV2NotYetActive
+		}
+		// Determine version: explicit > V2 if authorizations are present >
+		// V1 if V1-specific fields are present > V0 (backward compatible).
 		if args.Version == nil {
 			hasV1Fields := (args.Reference != nil && *args.Reference != (common.Reference{})) ||
 				(args.Memo != nil && len(*args.Memo) > 0)
-			if hasV1Fields {
+			if args.AuthorizationList != nil {
+				if !b.ChainConfig().IsMorphTxV2(head.Time) {
+					return types.ErrMorphTxV2NotYetActive
+				}
+				v := hexutil.Uint16(types.MorphTxVersion2)
+				args.Version = &v
+			} else if hasV1Fields {
 				v := hexutil.Uint16(types.MorphTxVersion1)
 				args.Version = &v
 			} else {
@@ -536,6 +562,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: al,
+			AuthList:   args.AuthorizationList,
 		}
 
 	case types.AccessListTxType:

@@ -85,13 +85,14 @@ type SendTxArgs struct {
 	Input *hexutil.Bytes `json:"input,omitempty"`
 
 	// For non-legacy transactions
-	AccessList *types.AccessList `json:"accessList,omitempty"`
-	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
-	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
-	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
-	Version    *hexutil.Uint64   `json:"version,omitempty"`
-	Reference  *common.Reference `json:"reference,omitempty"`
-	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
+	AccessList        *types.AccessList            `json:"accessList,omitempty"`
+	ChainID           *hexutil.Big                 `json:"chainId,omitempty"`
+	FeeTokenID        *hexutil.Uint16              `json:"feeTokenID,omitempty"`
+	FeeLimit          *hexutil.Big                 `json:"feeLimit,omitempty"`
+	Version           *hexutil.Uint64              `json:"version,omitempty"`
+	Reference         *common.Reference            `json:"reference,omitempty"`
+	Memo              *hexutil.Bytes               `json:"memo,omitempty"`
+	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -133,6 +134,8 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		version := uint8(types.MorphTxVersion0)
 		if args.Version != nil {
 			version = uint8(*args.Version)
+		} else if len(args.AuthorizationList) > 0 {
+			version = uint8(types.MorphTxVersion2)
 		} else if (args.Reference != nil && *args.Reference != (common.Reference{})) ||
 			(args.Memo != nil && len(*args.Memo) > 0) {
 			version = uint8(types.MorphTxVersion1)
@@ -156,6 +159,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			Value:      (*big.Int)(&args.Value),
 			Data:       input,
 			AccessList: al,
+			AuthList:   args.AuthorizationList,
 		}
 	case args.MaxFeePerGas != nil:
 		al := types.AccessList{}

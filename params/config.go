@@ -563,6 +563,7 @@ type ChainConfig struct {
 	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
 	EmeraldTime         *uint64  `json:"emeraldTime,omitempty"`         // EmeraldTime switch time (nil = no fork, 0 = already on emerald)
 	JadeForkTime        *uint64  `json:"jadeForkTime,omitempty"`        // JadeForkTime switch time (nil = no fork). State backend is always MPT; Jade is only a historical epoch boundary: pre-Jade headers carry legacy zkTrie state roots and skip state-root validation, post-Jade headers are native MPT.
+	MorphTxV2Time       *uint64  `json:"morphTxV2Time,omitempty"`       // MorphTxV2Time enables MorphTx version 2 with EIP-7702 authorizations.
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -680,7 +681,7 @@ func (c *ChainConfig) String() string {
 		engine = "unknown"
 	}
 	return fmt.Sprintf(
-		"{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Emerald: %v, JadeFork: %v, Engine: %v, Morph config: %v}",
+		"{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Emerald: %v, JadeFork: %v, MorphTxV2: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -704,6 +705,7 @@ func (c *ChainConfig) String() string {
 		c.ViridianTime,
 		c.EmeraldTime,
 		c.JadeForkTime,
+		c.MorphTxV2Time,
 		engine,
 		c.Morph,
 	)
@@ -815,6 +817,11 @@ func (c *ChainConfig) IsJadeFork(time uint64) bool {
 	return isTimestampForked(c.JadeForkTime, time)
 }
 
+// IsMorphTxV2 returns whether MorphTx version 2 is active.
+func (c *ChainConfig) IsMorphTxV2(time uint64) bool {
+	return isTimestampForked(c.MorphTxV2Time, time)
+}
+
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
 func (c *ChainConfig) IsTerminalPoWBlock(parentTotalDiff *big.Int, totalDiff *big.Int) bool {
 	if c.TerminalTotalDifficulty == nil {
@@ -880,6 +887,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "viridianTime", timestamp: c.ViridianTime, optional: true},
 		{name: "emeraldTime", timestamp: c.EmeraldTime, optional: true},
 		{name: "jadeForkTime", timestamp: c.JadeForkTime, optional: true},
+		{name: "morphTxV2Time", timestamp: c.MorphTxV2Time, optional: true},
 	} {
 		if lastFork.name != "" {
 			switch {
@@ -991,6 +999,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTi
 	}
 	if isForkTimestampIncompatible(c.JadeForkTime, newcfg.JadeForkTime, headTimestamp) {
 		return newTimestampCompatError("JadeForkTime fork timestamp", c.JadeForkTime, newcfg.JadeForkTime)
+	}
+	if isForkTimestampIncompatible(c.MorphTxV2Time, newcfg.MorphTxV2Time, headTimestamp) {
+		return newTimestampCompatError("MorphTxV2Time fork timestamp", c.MorphTxV2Time, newcfg.MorphTxV2Time)
 	}
 	return nil
 }
@@ -1134,11 +1145,11 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                   *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158                 bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul   bool
-	IsBerlin, IsLondon, IsArchimedes, IsShanghai, IsBernoulli bool
-	IsCurie, IsMorph203, IsViridian, IsEmerald, IsJadeFork    bool
+	ChainID                                                             *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                           bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul             bool
+	IsBerlin, IsLondon, IsArchimedes, IsShanghai, IsBernoulli           bool
+	IsCurie, IsMorph203, IsViridian, IsEmerald, IsJadeFork, IsMorphTxV2 bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1167,6 +1178,7 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsViridian:       c.IsViridian(num, time),
 		IsEmerald:        c.IsEmerald(num, time),
 		IsJadeFork:       c.IsJadeFork(time),
+		IsMorphTxV2:      c.IsMorphTxV2(time),
 	}
 }
 

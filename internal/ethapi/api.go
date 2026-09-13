@@ -1833,6 +1833,9 @@ func NewRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 			result.Reference = (*common.Reference)(tx.Reference())
 			result.Memo = (*hexutil.Bytes)(tx.Memo())
 		}
+		if auths := tx.SetCodeAuthorizations(); len(auths) > 0 {
+			result.AuthorizationList = auths
+		}
 	case types.SetCodeTxType:
 		al := tx.AccessList()
 		yparity := hexutil.Uint64(v.Sign())

@@ -42,8 +42,11 @@ var (
 	ErrMemoTooLong                 = errors.New("memo exceeds maximum length of 64 bytes")
 	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
 	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
+	ErrMorphTxV2EmptyAuthList      = errors.New("version 2 MorphTx requires a non-empty authorization list")
+	ErrMorphTxV2ContractCreation   = errors.New("version 2 MorphTx cannot be used to create a contract")
 	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
 	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
+	ErrMorphTxV2NotYetActive       = errors.New("MorphTx version 2 is not yet active")
 	errEmptyTypedTx                = errors.New("empty typed transaction bytes")
 	errShortTypedTx                = errors.New("typed transaction too short")
 	errInvalidYParity              = errors.New("'yParity' field must be 0 or 1")
@@ -442,6 +445,20 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
 			return ErrMemoTooLong
 		}
+	case MorphTxVersion2:
+		// Version 2 inherits version 1 field rules and adds EIP-7702 authorizations.
+		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
+			return ErrMorphTxV1IllegalExtraParams
+		}
+		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
+			return ErrMemoTooLong
+		}
+		if len(morphTx.AuthList) == 0 {
+			return ErrMorphTxV2EmptyAuthList
+		}
+		if morphTx.To == nil {
+			return ErrMorphTxV2ContractCreation
+		}
 	default:
 		return ErrMorphTxUnsupportedVersion
 	}
@@ -592,25 +609,31 @@ func (tx *Transaction) WithoutBlobTxSidecar() *Transaction {
 
 // SetCodeAuthorizations returns the authorizations list of the transaction.
 func (tx *Transaction) SetCodeAuthorizations() []SetCodeAuthorization {
-	setcodetx, ok := tx.inner.(*SetCodeTx)
-	if !ok {
+	switch inner := tx.inner.(type) {
+	case *SetCodeTx:
+		return inner.AuthList
+	case *MorphTx:
+		if inner.Version == MorphTxVersion2 {
+			return inner.AuthList
+		}
+		return nil
+	default:
 		return nil
 	}
-	return setcodetx.AuthList
 }
 
 // SetCodeAuthorities returns a list of unique authorities from the
 // authorization list.
 func (tx *Transaction) SetCodeAuthorities() []common.Address {
-	setcodetx, ok := tx.inner.(*SetCodeTx)
-	if !ok {
+	authList := tx.SetCodeAuthorizations()
+	if authList == nil {
 		return nil
 	}
 	var (
 		marks = make(map[common.Address]bool)
-		auths = make([]common.Address, 0, len(setcodetx.AuthList))
+		auths = make([]common.Address, 0, len(authList))
 	)
-	for _, auth := range setcodetx.AuthList {
+	for _, auth := range authList {
 		if addr, err := auth.Authority(); err == nil {
 			if marks[addr] {
 				continue

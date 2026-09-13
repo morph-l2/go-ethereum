@@ -234,6 +234,9 @@ func (api *ExternalSigner) SignTx(account accounts.Account, tx *types.Transactio
 			memo := hexutil.Bytes(*tx.Memo())
 			args.Memo = &memo
 		}
+		if auths := tx.SetCodeAuthorizations(); len(auths) > 0 {
+			args.AuthorizationList = auths
+		}
 	default:
 		return nil, fmt.Errorf("unsupported tx type %d", tx.Type())
 	}

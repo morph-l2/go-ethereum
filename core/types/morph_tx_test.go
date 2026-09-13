@@ -3,9 +3,11 @@ package types
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"math/big"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/rlp"
@@ -207,6 +209,117 @@ func TestMorphTxV1Encoding(t *testing.T) {
 	}
 
 	t.Logf("Successfully encoded and decoded V1 MorphTx")
+}
+
+func TestMorphTxV2Encoding(t *testing.T) {
+	reference := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	memo := []byte("test memo")
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	auth := SetCodeAuthorization{
+		ChainID: *uint256.NewInt(2818),
+		Address: common.HexToAddress("0x9876543210987654321098765432109876543210"),
+		Nonce:   7,
+		V:       1,
+		R:       *uint256.NewInt(2),
+		S:       *uint256.NewInt(3),
+	}
+	tx := &MorphTx{
+		ChainID:    big.NewInt(2818),
+		Nonce:      1,
+		GasTipCap:  big.NewInt(1000000000),
+		GasFeeCap:  big.NewInt(2000000000),
+		Gas:        100000,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Data:       []byte{1, 2, 3},
+		AccessList: AccessList{},
+		FeeTokenID: 1,
+		FeeLimit:   big.NewInt(1000000),
+		Version:    MorphTxVersion2,
+		Reference:  &reference,
+		Memo:       &memo,
+		AuthList:   []SetCodeAuthorization{auth},
+		V:          big.NewInt(0),
+		R:          big.NewInt(0),
+		S:          big.NewInt(0),
+	}
+	encoded, err := encodeMorphTx(tx)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+	if encoded[0] != MorphTxType || encoded[1] != MorphTxVersion2 {
+		t.Fatalf("unexpected type/version prefix %x", encoded[:2])
+	}
+	var decoded MorphTx
+	if err := decoded.decode(encoded[1:]); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if decoded.Version != MorphTxVersion2 {
+		t.Fatalf("version = %d, want %d", decoded.Version, MorphTxVersion2)
+	}
+	if len(decoded.AuthList) != 1 || decoded.AuthList[0] != auth {
+		t.Fatalf("authorization list mismatch: %#v", decoded.AuthList)
+	}
+	if got := NewTx(&decoded).SetCodeAuthorizations(); len(got) != 1 || got[0] != auth {
+		t.Fatalf("transaction authorization accessor mismatch: %#v", got)
+	}
+}
+
+func TestMorphTxV2AuthorizationInSignatureHash(t *testing.T) {
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	base := &MorphTx{
+		ChainID: big.NewInt(2818), Nonce: 1, GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(2), Gas: 100000, To: &to, Value: big.NewInt(0),
+		Version: MorphTxVersion2, V: big.NewInt(0), R: big.NewInt(0), S: big.NewInt(0),
+		AuthList: []SetCodeAuthorization{{
+			ChainID: *uint256.NewInt(2818), Address: to, Nonce: 1,
+			V: 0, R: *uint256.NewInt(2), S: *uint256.NewInt(3),
+		}},
+	}
+	changed := base.copy().(*MorphTx)
+	changed.AuthList[0].Nonce++
+	if base.sigHash(base.ChainID) == changed.sigHash(changed.ChainID) {
+		t.Fatal("signature hash must commit to the authorization list")
+	}
+	v1 := base.copy().(*MorphTx)
+	v1.Version = MorphTxVersion1
+	v1.AuthList = nil
+	if base.sigHash(base.ChainID) == v1.sigHash(v1.ChainID) {
+		t.Fatal("v2 signature hash must not reuse the v1 hash")
+	}
+}
+
+func TestMorphTxUnknownVersionSigHashPanics(t *testing.T) {
+	tx := &MorphTx{Version: 99, ChainID: big.NewInt(1), GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(1), Value: big.NewInt(0)}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("unknown version must not silently hash as v1")
+		}
+	}()
+	_ = tx.sigHash(tx.ChainID)
+}
+
+func TestValidateMorphTxV2(t *testing.T) {
+	to := common.Address{}
+	valid := &MorphTx{
+		ChainID: big.NewInt(2818), GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(2),
+		To: &to, Value: big.NewInt(0), Version: MorphTxVersion2,
+		AuthList: []SetCodeAuthorization{{}},
+		V:        big.NewInt(0), R: big.NewInt(0), S: big.NewInt(0),
+	}
+	if err := NewTx(valid).ValidateMorphTxVersion(); err != nil {
+		t.Fatalf("valid v2 rejected: %v", err)
+	}
+	empty := valid.copy().(*MorphTx)
+	empty.AuthList = nil
+	if err := NewTx(empty).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxV2EmptyAuthList) {
+		t.Fatalf("empty auth list error = %v", err)
+	}
+	create := valid.copy().(*MorphTx)
+	create.To = nil
+	if err := NewTx(create).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxV2ContractCreation) {
+		t.Fatalf("contract creation error = %v", err)
+	}
 }
 
 // TestMorphTxV0V1RoundTrip tests encoding/decoding round trip for both versions
@@ -1319,7 +1432,7 @@ func TestDecodeRLP_EncodeDecodeSymmetry(t *testing.T) {
 		To: &to, Value: big.NewInt(1e18), Data: []byte{},
 		AccessList: AccessList{}, FeeTokenID: 1, FeeLimit: big.NewInt(1e17),
 		Version: MorphTxVersion0,
-		V: big.NewInt(1), R: big.NewInt(100), S: big.NewInt(200),
+		V:       big.NewInt(1), R: big.NewInt(100), S: big.NewInt(200),
 	}
 	txV1 := &MorphTx{
 		ChainID: big.NewInt(1), Nonce: 2,

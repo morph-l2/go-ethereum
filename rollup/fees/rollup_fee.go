@@ -179,6 +179,11 @@ func u256(x *big.Int) *uint256.Int {
 }
 
 func asUnsignedMorphTx(msg Message, chainID *big.Int) *types.Transaction {
+	version := msg.Version()
+	authList := msg.SetCodeAuthorizations()
+	if len(authList) > 0 {
+		version = types.MorphTxVersion2
+	}
 	return types.NewTx(&types.MorphTx{
 		Nonce:      msg.Nonce(),
 		To:         msg.To(),
@@ -188,11 +193,12 @@ func asUnsignedMorphTx(msg Message, chainID *big.Int) *types.Transaction {
 		GasTipCap:  msg.GasTipCap(),
 		FeeTokenID: msg.FeeTokenID(),
 		FeeLimit:   msg.FeeLimit(),
-		Version:    msg.Version(),
+		Version:    version,
 		Reference:  msg.Reference(),
 		Memo:       msg.Memo(),
 		Data:       msg.Data(),
 		AccessList: msg.AccessList(),
+		AuthList:   authList,
 		ChainID:    chainID,
 	})
 }

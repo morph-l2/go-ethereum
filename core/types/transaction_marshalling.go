@@ -211,6 +211,9 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 			enc.Reference = (*common.Reference)(itx.Reference)
 			enc.Memo = (*hexutil.Bytes)(itx.Memo)
 		}
+		if itx.Version >= MorphTxVersion2 {
+			enc.AuthorizationList = itx.AuthList
+		}
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
 		enc.S = (*hexutil.Big)(itx.S)
@@ -614,6 +617,12 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		}
 		itx.Reference = (*common.Reference)(dec.Reference)
 		itx.Memo = (*[]byte)(dec.Memo)
+		if itx.Version >= MorphTxVersion2 {
+			if dec.AuthorizationList == nil {
+				return errors.New("missing required field 'authorizationList' in version 2 MorphTx")
+			}
+			itx.AuthList = dec.AuthorizationList
+		}
 		if dec.Input == nil {
 			return errors.New("missing required field 'input' in transaction")
 		}

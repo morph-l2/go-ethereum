@@ -698,12 +698,17 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			log.Error("Failed to get token info for gas refund", "tokenID", st.msg.FeeTokenID(), "error", err)
 			return
 		}
-		tokenAmount, err := types.EthToAltFloor(
-			remaining,
-			st.altFeeRoundingCredit,
-			st.feeRate,
-			st.tokenScale,
-		)
+		var tokenAmount *big.Int
+		if st.evm.ChainConfig().IsMorphTxV2(st.evm.Context.Time.Uint64()) {
+			tokenAmount, err = types.EthToAltFloor(
+				remaining,
+				st.altFeeRoundingCredit,
+				st.feeRate,
+				st.tokenScale,
+			)
+		} else {
+			tokenAmount, _, err = types.EthToAlt(remaining, st.feeRate, st.tokenScale)
+		}
 		if err != nil {
 			log.Error("Failed to convert exchange rate", "tokenID", st.msg.FeeTokenID(), "error", err)
 		}

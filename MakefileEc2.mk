@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-GORUN = env GO111MODULE=on go run
+GORUN = env GO111MODULE=on GOFLAGS=-buildvcs=false go run
 
 # in go-ethereum repo
 build-bk-prod-morph-prod-mainnet-to-morph-geth:

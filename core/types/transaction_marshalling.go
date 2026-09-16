@@ -618,10 +618,12 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.Reference = (*common.Reference)(dec.Reference)
 		itx.Memo = (*[]byte)(dec.Memo)
 		if itx.Version >= MorphTxVersion2 {
-			if dec.AuthorizationList == nil {
-				return errors.New("missing required field 'authorizationList' in version 2 MorphTx")
-			}
+			// An empty authorization list is valid for MorphTx v2, and the RPC layer
+			// omits the field in that case, so a missing field decodes to an empty list.
 			itx.AuthList = dec.AuthorizationList
+			if itx.AuthList == nil {
+				itx.AuthList = []SetCodeAuthorization{}
+			}
 		}
 		if dec.Input == nil {
 			return errors.New("missing required field 'input' in transaction")

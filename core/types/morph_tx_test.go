@@ -3,8 +3,10 @@ package types
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/holiman/uint256"
@@ -348,6 +350,64 @@ func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
 	withAuth.AuthList = []SetCodeAuthorization{{}}
 	if got := NewTx(withAuth).SetCodeAuthorizations(); len(got) != 1 {
 		t.Fatalf("non-empty v2 authorizations = %#v, want one entry", got)
+	}
+}
+
+// TestMorphTxV2JSONRoundTrip checks that the JSON form produced for a v2
+// transaction decodes again. The RPC layer omits authorizationList when the list
+// is empty, so decoding must treat the missing field as an empty list; otherwise
+// Go clients cannot read any block holding such a transaction.
+func TestMorphTxV2JSONRoundTrip(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	auth, err := SignSetCode(key, SetCodeAuthorization{
+		ChainID: *uint256.NewInt(2818),
+		Address: to,
+		Nonce:   1,
+	})
+	if err != nil {
+		t.Fatalf("sign authorization: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		authList []SetCodeAuthorization
+	}{
+		{"empty auth list", []SetCodeAuthorization{}},
+		{"nil auth list", nil},
+		{"one authorization", []SetCodeAuthorization{auth}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			signer := LatestSignerForChainID(big.NewInt(2818))
+			tx, err := SignNewTx(key, signer, &MorphTx{
+				ChainID: big.NewInt(2818), Nonce: 7, GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(2),
+				Gas: 21000, To: &to, Value: big.NewInt(0), Version: MorphTxVersion2,
+				AuthList: tc.authList,
+			})
+			if err != nil {
+				t.Fatalf("sign tx: %v", err)
+			}
+			encoded, err := json.Marshal(tx)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if len(tc.authList) == 0 && strings.Contains(string(encoded), "authorizationList") {
+				t.Fatalf("empty list must be omitted, got %s", encoded)
+			}
+			var decoded Transaction
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if decoded.Version() != MorphTxVersion2 {
+				t.Fatalf("version = %d, want %d", decoded.Version(), MorphTxVersion2)
+			}
+			if len(decoded.SetCodeAuthorizations()) != len(tc.authList) {
+				t.Fatalf("authorizations = %d, want %d", len(decoded.SetCodeAuthorizations()), len(tc.authList))
+			}
+			if decoded.Hash() != tx.Hash() {
+				t.Fatalf("hash = %s, want %s", decoded.Hash(), tx.Hash())
+			}
+		})
 	}
 }
 

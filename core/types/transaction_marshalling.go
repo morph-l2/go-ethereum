@@ -212,7 +212,13 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 			enc.Memo = (*hexutil.Bytes)(itx.Memo)
 		}
 		if itx.Version >= MorphTxVersion2 {
-			enc.AuthorizationList = &itx.AuthList
+			// A v2 transaction always carries the field, so an empty list must
+			// marshal as [] rather than null.
+			authList := itx.AuthList
+			if authList == nil {
+				authList = []SetCodeAuthorization{}
+			}
+			enc.AuthorizationList = &authList
 		}
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
@@ -618,9 +624,8 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.Reference = (*common.Reference)(dec.Reference)
 		itx.Memo = (*[]byte)(dec.Memo)
 		if itx.Version >= MorphTxVersion2 {
-			// An empty authorization list is valid for MorphTx v2. Accept the
-			// field being omitted for compatibility with older RPC producers,
-			// but normalize the transaction structure to an empty list.
+			// An empty list is legal for v2, so an absent or null field is
+			// unambiguous and decodes to the empty list the structure requires.
 			if dec.AuthorizationList == nil {
 				itx.AuthList = []SetCodeAuthorization{}
 			} else {

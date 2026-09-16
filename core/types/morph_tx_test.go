@@ -359,8 +359,8 @@ func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
 }
 
 // TestMorphTxV2JSONRoundTrip checks that the JSON form produced for a v2
-// transaction decodes again. V2 JSON retains an empty authorizationList as part
-// of its structure, while decoding also accepts older producers that omitted it.
+// transaction decodes again. V2 JSON always carries authorizationList, and since
+// an empty list is legal, an absent or null field decodes to the empty list.
 func TestMorphTxV2JSONRoundTrip(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
@@ -412,21 +412,36 @@ func TestMorphTxV2JSONRoundTrip(t *testing.T) {
 				t.Fatalf("hash = %s, want %s", decoded.Hash(), tx.Hash())
 			}
 			if len(tc.authList) == 0 {
-				var legacyJSON map[string]json.RawMessage
-				if err := json.Unmarshal(encoded, &legacyJSON); err != nil {
-					t.Fatalf("unmarshal legacy map: %v", err)
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(encoded, &fields); err != nil {
+					t.Fatalf("unmarshal into map: %v", err)
 				}
-				delete(legacyJSON, "authorizationList")
-				withoutAuthList, err := json.Marshal(legacyJSON)
-				if err != nil {
-					t.Fatalf("marshal legacy JSON: %v", err)
-				}
-				var compatible Transaction
-				if err := json.Unmarshal(withoutAuthList, &compatible); err != nil {
-					t.Fatalf("decode omitted authorizationList: %v", err)
-				}
-				if got := compatible.SetCodeAuthorizations(); got == nil || len(got) != 0 {
-					t.Fatalf("compatible authorizations = %#v, want non-nil empty list", got)
+				for name, raw := range map[string]json.RawMessage{
+					"absent": nil,
+					"null":   json.RawMessage("null"),
+				} {
+					t.Run(name, func(t *testing.T) {
+						variant := make(map[string]json.RawMessage, len(fields))
+						for k, v := range fields {
+							variant[k] = v
+						}
+						if raw == nil {
+							delete(variant, "authorizationList")
+						} else {
+							variant["authorizationList"] = raw
+						}
+						encodedVariant, err := json.Marshal(variant)
+						if err != nil {
+							t.Fatalf("marshal variant: %v", err)
+						}
+						var decoded Transaction
+						if err := json.Unmarshal(encodedVariant, &decoded); err != nil {
+							t.Fatalf("decode variant: %v", err)
+						}
+						if got := decoded.SetCodeAuthorizations(); got == nil || len(got) != 0 {
+							t.Fatalf("authorizations = %#v, want non-nil empty list", got)
+						}
+					})
 				}
 			}
 		})

@@ -141,8 +141,8 @@ func (args *TransactionArgs) validateMorphTxVersion() error {
 		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
 			return types.ErrMorphTxV1IllegalExtraParams
 		}
-		// An empty authorization list is legal and behaves like v1, so the
-		// EIP-7702 restrictions only apply once the list carries entries.
+		// An empty authorization list is legal. The transaction remains v2,
+		// while EIP-7702 restrictions apply only when the list carries entries.
 		if len(args.AuthorizationList) > 0 && args.To == nil {
 			return types.ErrMorphTxV2ContractCreation
 		}

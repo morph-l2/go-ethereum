@@ -118,8 +118,8 @@ func TestTransactRoutesAuthorizationList(t *testing.T) {
 		if tx.Type() != types.MorphTxType || tx.Version() != types.MorphTxVersion2 {
 			t.Fatalf("got type/version %d/%d, want MorphTx/v2", tx.Type(), tx.Version())
 		}
-		if tx.SetCodeAuthorizations() != nil {
-			t.Fatalf("empty v2 authorization list must normalize to nil")
+		if auths := tx.SetCodeAuthorizations(); auths == nil || len(auths) != 0 {
+			t.Fatalf("empty v2 authorization list = %#v, want non-nil empty list", auths)
 		}
 	})
 

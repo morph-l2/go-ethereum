@@ -32,23 +32,23 @@ import (
 type txJSON struct {
 	Type hexutil.Uint64 `json:"type"`
 
-	ChainID              *hexutil.Big           `json:"chainId,omitempty"`
-	Nonce                *hexutil.Uint64        `json:"nonce"`
-	To                   *common.Address        `json:"to"`
-	Gas                  *hexutil.Uint64        `json:"gas"`
-	GasPrice             *hexutil.Big           `json:"gasPrice"`
-	MaxPriorityFeePerGas *hexutil.Big           `json:"maxPriorityFeePerGas"`
-	MaxFeePerGas         *hexutil.Big           `json:"maxFeePerGas"`
-	MaxFeePerBlobGas     *hexutil.Big           `json:"maxFeePerBlobGas,omitempty"`
-	Value                *hexutil.Big           `json:"value"`
-	Input                *hexutil.Bytes         `json:"input"`
-	AccessList           *AccessList            `json:"accessList,omitempty"`
-	BlobVersionedHashes  []common.Hash          `json:"blobVersionedHashes,omitempty"`
-	AuthorizationList    []SetCodeAuthorization `json:"authorizationList,omitempty"`
-	V                    *hexutil.Big           `json:"v"`
-	R                    *hexutil.Big           `json:"r"`
-	S                    *hexutil.Big           `json:"s"`
-	YParity              *hexutil.Uint64        `json:"yParity,omitempty"`
+	ChainID              *hexutil.Big            `json:"chainId,omitempty"`
+	Nonce                *hexutil.Uint64         `json:"nonce"`
+	To                   *common.Address         `json:"to"`
+	Gas                  *hexutil.Uint64         `json:"gas"`
+	GasPrice             *hexutil.Big            `json:"gasPrice"`
+	MaxPriorityFeePerGas *hexutil.Big            `json:"maxPriorityFeePerGas"`
+	MaxFeePerGas         *hexutil.Big            `json:"maxFeePerGas"`
+	MaxFeePerBlobGas     *hexutil.Big            `json:"maxFeePerBlobGas,omitempty"`
+	Value                *hexutil.Big            `json:"value"`
+	Input                *hexutil.Bytes          `json:"input"`
+	AccessList           *AccessList             `json:"accessList,omitempty"`
+	BlobVersionedHashes  []common.Hash           `json:"blobVersionedHashes,omitempty"`
+	AuthorizationList    *[]SetCodeAuthorization `json:"authorizationList,omitempty"`
+	V                    *hexutil.Big            `json:"v"`
+	R                    *hexutil.Big            `json:"r"`
+	S                    *hexutil.Big            `json:"s"`
+	YParity              *hexutil.Uint64         `json:"yParity,omitempty"`
 
 	// Blob transaction sidecar encoding:
 	Blobs       []kzg4844.Blob       `json:"blobs,omitempty"`
@@ -185,7 +185,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.Value = (*hexutil.Big)(itx.Value.ToBig())
 		enc.Input = (*hexutil.Bytes)(&itx.Data)
 		enc.AccessList = &itx.AccessList
-		enc.AuthorizationList = itx.AuthList
+		enc.AuthorizationList = &itx.AuthList
 		enc.V = (*hexutil.Big)(itx.V.ToBig())
 		enc.R = (*hexutil.Big)(itx.R.ToBig())
 		enc.S = (*hexutil.Big)(itx.S.ToBig())
@@ -212,7 +212,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 			enc.Memo = (*hexutil.Bytes)(itx.Memo)
 		}
 		if itx.Version >= MorphTxVersion2 {
-			enc.AuthorizationList = itx.AuthList
+			enc.AuthorizationList = &itx.AuthList
 		}
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
@@ -547,7 +547,7 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		if dec.AuthorizationList == nil {
 			return errors.New("missing required field 'authorizationList' in transaction")
 		}
-		itx.AuthList = dec.AuthorizationList
+		itx.AuthList = *dec.AuthorizationList
 
 		// signature R
 		if dec.R == nil {
@@ -618,11 +618,13 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		itx.Reference = (*common.Reference)(dec.Reference)
 		itx.Memo = (*[]byte)(dec.Memo)
 		if itx.Version >= MorphTxVersion2 {
-			// An empty authorization list is valid for MorphTx v2, and the RPC layer
-			// omits the field in that case, so a missing field decodes to an empty list.
-			itx.AuthList = dec.AuthorizationList
-			if itx.AuthList == nil {
+			// An empty authorization list is valid for MorphTx v2. Accept the
+			// field being omitted for compatibility with older RPC producers,
+			// but normalize the transaction structure to an empty list.
+			if dec.AuthorizationList == nil {
 				itx.AuthList = []SetCodeAuthorization{}
+			} else {
+				itx.AuthList = *dec.AuthorizationList
 			}
 		}
 		if dec.Input == nil {

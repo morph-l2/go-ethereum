@@ -312,7 +312,8 @@ func TestValidateMorphTxV2(t *testing.T) {
 	if err := NewTx(valid).ValidateMorphTxVersion(); err != nil {
 		t.Fatalf("valid v2 rejected: %v", err)
 	}
-	// An empty authorization list is legal and behaves like v1, including create.
+	// An empty authorization list is legal and skips only EIP-7702 processing.
+	// The transaction remains MorphTx v2 and may create a contract.
 	empty := valid.copy().(*MorphTx)
 	empty.AuthList = nil
 	if err := NewTx(empty).ValidateMorphTxVersion(); err != nil {
@@ -330,8 +331,8 @@ func TestValidateMorphTxV2(t *testing.T) {
 	}
 }
 
-// TestMorphTxV2EmptyAuthListAccessor ensures an empty v2 list collapses to nil so
-// that preCheck does not treat the transaction as EIP-7702.
+// TestMorphTxV2EmptyAuthListAccessor ensures the transaction structure retains
+// an empty list while its Message projection disables EIP-7702 processing.
 func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
 	to := common.Address{}
 	tx := &MorphTx{
@@ -340,10 +341,14 @@ func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
 		V: big.NewInt(0), R: big.NewInt(0), S: big.NewInt(0),
 	}
 	// NewTx copies the inner data, which turns a nil list into an empty slice.
-	if got := NewTx(tx).SetCodeAuthorizations(); got != nil {
-		t.Fatalf("empty v2 authorizations = %#v, want nil", got)
+	wrapped := NewTx(tx)
+	if got := wrapped.SetCodeAuthorizations(); got == nil || len(got) != 0 {
+		t.Fatalf("empty v2 authorizations = %#v, want non-nil empty list", got)
 	}
-	if got := NewTx(tx).SetCodeAuthorities(); len(got) != 0 {
+	if got := wrapped.messageSetCodeAuthorizations(); got != nil {
+		t.Fatalf("empty v2 message authorizations = %#v, want nil", got)
+	}
+	if got := wrapped.SetCodeAuthorities(); len(got) != 0 {
 		t.Fatalf("empty v2 authorities = %#v, want none", got)
 	}
 	withAuth := tx.copy().(*MorphTx)
@@ -354,9 +359,8 @@ func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
 }
 
 // TestMorphTxV2JSONRoundTrip checks that the JSON form produced for a v2
-// transaction decodes again. The RPC layer omits authorizationList when the list
-// is empty, so decoding must treat the missing field as an empty list; otherwise
-// Go clients cannot read any block holding such a transaction.
+// transaction decodes again. V2 JSON retains an empty authorizationList as part
+// of its structure, while decoding also accepts older producers that omitted it.
 func TestMorphTxV2JSONRoundTrip(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
@@ -391,8 +395,8 @@ func TestMorphTxV2JSONRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
-			if len(tc.authList) == 0 && strings.Contains(string(encoded), "authorizationList") {
-				t.Fatalf("empty list must be omitted, got %s", encoded)
+			if len(tc.authList) == 0 && !strings.Contains(string(encoded), `"authorizationList":[]`) {
+				t.Fatalf("empty list must be retained, got %s", encoded)
 			}
 			var decoded Transaction
 			if err := json.Unmarshal(encoded, &decoded); err != nil {
@@ -406,6 +410,24 @@ func TestMorphTxV2JSONRoundTrip(t *testing.T) {
 			}
 			if decoded.Hash() != tx.Hash() {
 				t.Fatalf("hash = %s, want %s", decoded.Hash(), tx.Hash())
+			}
+			if len(tc.authList) == 0 {
+				var legacyJSON map[string]json.RawMessage
+				if err := json.Unmarshal(encoded, &legacyJSON); err != nil {
+					t.Fatalf("unmarshal legacy map: %v", err)
+				}
+				delete(legacyJSON, "authorizationList")
+				withoutAuthList, err := json.Marshal(legacyJSON)
+				if err != nil {
+					t.Fatalf("marshal legacy JSON: %v", err)
+				}
+				var compatible Transaction
+				if err := json.Unmarshal(withoutAuthList, &compatible); err != nil {
+					t.Fatalf("decode omitted authorizationList: %v", err)
+				}
+				if got := compatible.SetCodeAuthorizations(); got == nil || len(got) != 0 {
+					t.Fatalf("compatible authorizations = %#v, want non-nil empty list", got)
+				}
 			}
 		})
 	}

@@ -454,8 +454,8 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
 			return ErrMemoTooLong
 		}
-		// An empty authorization list is legal and behaves like v1, so the
-		// EIP-7702 restrictions only apply once the list carries entries.
+		// An empty authorization list is legal. The transaction remains v2,
+		// while EIP-7702 restrictions apply only when the list carries entries.
 		if len(morphTx.AuthList) > 0 && morphTx.To == nil {
 			return ErrMorphTxV2ContractCreation
 		}
@@ -613,15 +613,26 @@ func (tx *Transaction) SetCodeAuthorizations() []SetCodeAuthorization {
 	case *SetCodeTx:
 		return inner.AuthList
 	case *MorphTx:
-		// An empty list must collapse to nil: preCheck treats a non-nil list as
-		// an EIP-7702 transaction, and v2 with no authorizations executes like v1.
-		if inner.Version == MorphTxVersion2 && len(inner.AuthList) > 0 {
+		// Preserve the v2 transaction structure. The execution-layer Message
+		// projection decides whether an empty list enables EIP-7702 processing.
+		if inner.Version == MorphTxVersion2 {
 			return inner.AuthList
 		}
 		return nil
 	default:
 		return nil
 	}
+}
+
+// messageSetCodeAuthorizations projects transaction authorizations into Message
+// semantics. MorphTx v2 remains v2, but an empty list disables only EIP-7702
+// authorization processing in the state transition.
+func (tx *Transaction) messageSetCodeAuthorizations() []SetCodeAuthorization {
+	auths := tx.SetCodeAuthorizations()
+	if tx.IsMorphTx() && tx.Version() == MorphTxVersion2 && len(auths) == 0 {
+		return nil
+	}
+	return auths
 }
 
 // SetCodeAuthorities returns a list of unique authorities from the
@@ -946,7 +957,7 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		accessList:            tx.AccessList(),
 		isFake:                false,
 		isL1MessageTx:         tx.IsL1MessageTx(),
-		setCodeAuthorizations: tx.SetCodeAuthorizations(),
+		setCodeAuthorizations: tx.messageSetCodeAuthorizations(),
 		feeTokenID:            tx.FeeTokenID(),
 		version:               tx.Version(),
 		reference:             tx.Reference(),

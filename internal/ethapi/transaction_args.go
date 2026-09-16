@@ -99,7 +99,8 @@ func (args *TransactionArgs) isMorphTxArgs() bool {
 //   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1: FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is not set or is 0, FeeLimit must not be set
-//   - Version 2: Version 1 rules plus a non-empty EIP-7702 authorization list
+//   - Version 2: Version 1 rules plus an EIP-7702 authorization list that may be
+//     empty; contract creation is only rejected for a non-empty list
 //
 // If version is not explicitly specified, no version-specific validation is needed
 // because determineMorphTxVersion will assign the highest version.
@@ -140,10 +141,9 @@ func (args *TransactionArgs) validateMorphTxVersion() error {
 		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
 			return types.ErrMorphTxV1IllegalExtraParams
 		}
-		if len(args.AuthorizationList) == 0 {
-			return types.ErrMorphTxV2EmptyAuthList
-		}
-		if args.To == nil {
+		// An empty authorization list is legal and behaves like v1, so the
+		// EIP-7702 restrictions only apply once the list carries entries.
+		if len(args.AuthorizationList) > 0 && args.To == nil {
 			return types.ErrMorphTxV2ContractCreation
 		}
 	default:

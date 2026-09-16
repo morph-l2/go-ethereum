@@ -42,7 +42,6 @@ var (
 	ErrMemoTooLong                 = errors.New("memo exceeds maximum length of 64 bytes")
 	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
 	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
-	ErrMorphTxV2EmptyAuthList      = errors.New("version 2 MorphTx requires a non-empty authorization list")
 	ErrMorphTxV2ContractCreation   = errors.New("version 2 MorphTx cannot be used to create a contract")
 	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
 	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
@@ -418,6 +417,8 @@ func (tx *Transaction) Memo() *[]byte {
 //   - Version 0 (legacy format): FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1 (with Reference/Memo): FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is 0, FeeLimit must not be set
+//   - Version 2 (with AuthList): version 1 rules; the authorization list may be
+//     empty, and contract creation is only rejected for a non-empty list
 //   - Other versions: not supported
 //
 // Returns nil if the transaction is not a MorphTx or if all checks pass.
@@ -453,10 +454,9 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
 			return ErrMemoTooLong
 		}
-		if len(morphTx.AuthList) == 0 {
-			return ErrMorphTxV2EmptyAuthList
-		}
-		if morphTx.To == nil {
+		// An empty authorization list is legal and behaves like v1, so the
+		// EIP-7702 restrictions only apply once the list carries entries.
+		if len(morphTx.AuthList) > 0 && morphTx.To == nil {
 			return ErrMorphTxV2ContractCreation
 		}
 	default:
@@ -613,7 +613,9 @@ func (tx *Transaction) SetCodeAuthorizations() []SetCodeAuthorization {
 	case *SetCodeTx:
 		return inner.AuthList
 	case *MorphTx:
-		if inner.Version == MorphTxVersion2 {
+		// An empty list must collapse to nil: preCheck treats a non-nil list as
+		// an EIP-7702 transaction, and v2 with no authorizations executes like v1.
+		if inner.Version == MorphTxVersion2 && len(inner.AuthList) > 0 {
 			return inner.AuthList
 		}
 		return nil

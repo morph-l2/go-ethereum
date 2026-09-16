@@ -310,15 +310,44 @@ func TestValidateMorphTxV2(t *testing.T) {
 	if err := NewTx(valid).ValidateMorphTxVersion(); err != nil {
 		t.Fatalf("valid v2 rejected: %v", err)
 	}
+	// An empty authorization list is legal and behaves like v1, including create.
 	empty := valid.copy().(*MorphTx)
 	empty.AuthList = nil
-	if err := NewTx(empty).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxV2EmptyAuthList) {
-		t.Fatalf("empty auth list error = %v", err)
+	if err := NewTx(empty).ValidateMorphTxVersion(); err != nil {
+		t.Fatalf("empty auth list rejected: %v", err)
+	}
+	emptyCreate := empty.copy().(*MorphTx)
+	emptyCreate.To = nil
+	if err := NewTx(emptyCreate).ValidateMorphTxVersion(); err != nil {
+		t.Fatalf("empty auth list must allow create: %v", err)
 	}
 	create := valid.copy().(*MorphTx)
 	create.To = nil
 	if err := NewTx(create).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxV2ContractCreation) {
 		t.Fatalf("contract creation error = %v", err)
+	}
+}
+
+// TestMorphTxV2EmptyAuthListAccessor ensures an empty v2 list collapses to nil so
+// that preCheck does not treat the transaction as EIP-7702.
+func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
+	to := common.Address{}
+	tx := &MorphTx{
+		ChainID: big.NewInt(2818), GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(2),
+		To: &to, Value: big.NewInt(0), Version: MorphTxVersion2,
+		V: big.NewInt(0), R: big.NewInt(0), S: big.NewInt(0),
+	}
+	// NewTx copies the inner data, which turns a nil list into an empty slice.
+	if got := NewTx(tx).SetCodeAuthorizations(); got != nil {
+		t.Fatalf("empty v2 authorizations = %#v, want nil", got)
+	}
+	if got := NewTx(tx).SetCodeAuthorities(); len(got) != 0 {
+		t.Fatalf("empty v2 authorities = %#v, want none", got)
+	}
+	withAuth := tx.copy().(*MorphTx)
+	withAuth.AuthList = []SetCodeAuthorization{{}}
+	if got := NewTx(withAuth).SetCodeAuthorizations(); len(got) != 1 {
+		t.Fatalf("non-empty v2 authorizations = %#v, want one entry", got)
 	}
 }
 

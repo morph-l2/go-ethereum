@@ -951,8 +951,11 @@ func TestMorphTxValidation(t *testing.T) {
 			{"V1 FeeTokenID=0 with FeeLimit", MorphTxVersion1, 0, feeLimit, nil, nil, ErrMorphTxV1IllegalExtraParams},
 			{"V1 FeeTokenID>0 with FeeLimit", MorphTxVersion1, 1, feeLimit, nil, nil, nil},
 			{"V1 FeeTokenID=0 with zero FeeLimit", MorphTxVersion1, 0, big.NewInt(0), nil, nil, nil},
+			// Version 2 tests (inherits the version 1 field rules)
+			{"V2 with empty auth list", MorphTxVersion2, 0, nil, nil, nil, nil},
+			{"V2 with Reference and Memo", MorphTxVersion2, 1, nil, &ref, &memo, nil},
+			{"V2 FeeTokenID=0 with FeeLimit", MorphTxVersion2, 0, feeLimit, nil, nil, ErrMorphTxV1IllegalExtraParams},
 			// Unsupported versions
-			{"Unsupported version 2", 2, 0, nil, nil, nil, ErrMorphTxUnsupportedVersion},
 			{"Unsupported version 255", 255, 1, nil, nil, nil, ErrMorphTxUnsupportedVersion},
 		}
 
@@ -1142,22 +1145,6 @@ func TestMorphTxAsMessage(t *testing.T) {
 			},
 			wantErr: ErrMemoTooLong,
 		},
-		// --- Unsupported version ---
-		{
-			name: "unsupported version 255 → ErrMorphTxUnsupportedVersion",
-			txdata: &MorphTx{
-				ChainID:    big.NewInt(1),
-				Nonce:      30,
-				GasTipCap:  big.NewInt(1),
-				GasFeeCap:  big.NewInt(10),
-				Gas:        21000,
-				To:         &testAddr,
-				Value:      big.NewInt(0),
-				Version:    255,
-				FeeTokenID: 1,
-			},
-			wantErr: ErrMorphTxUnsupportedVersion,
-		},
 	}
 
 	for _, tc := range tests {
@@ -1182,6 +1169,25 @@ func TestMorphTxAsMessage(t *testing.T) {
 			}
 		})
 	}
+
+	// An unsupported version panics in sigHash, so such a transaction can never be
+	// signed. AsMessage must reject it before it tries to recover the sender.
+	t.Run("unsupported version 255 → ErrMorphTxUnsupportedVersion", func(t *testing.T) {
+		tx := NewTx(&MorphTx{
+			ChainID:    big.NewInt(1),
+			Nonce:      30,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  big.NewInt(10),
+			Gas:        21000,
+			To:         &testAddr,
+			Value:      big.NewInt(0),
+			Version:    255,
+			FeeTokenID: 1,
+		})
+		if _, err := tx.AsMessage(signer, baseFee); !errors.Is(err, ErrMorphTxUnsupportedVersion) {
+			t.Fatalf("AsMessage error mismatch: got %v, want %v", err, ErrMorphTxUnsupportedVersion)
+		}
+	})
 
 	// Non-MorphTx should always pass (not affected by the check)
 	t.Run("DynamicFeeTx → success (not affected)", func(t *testing.T) {

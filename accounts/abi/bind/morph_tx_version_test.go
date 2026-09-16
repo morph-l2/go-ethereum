@@ -76,6 +76,16 @@ func TestMorphTxVersion_HeuristicDefault(t *testing.T) {
 			wantVersion: types.MorphTxVersion0,
 		},
 		{
+			name:        "nil Version, FeeTokenID > 0, empty AuthorizationList → V2",
+			opts:        &TransactOpts{FeeTokenID: 1, AuthorizationList: []types.SetCodeAuthorization{}},
+			wantVersion: types.MorphTxVersion2,
+		},
+		{
+			name:        "nil Version, FeeTokenID > 0, non-empty AuthorizationList → V2",
+			opts:        &TransactOpts{FeeTokenID: 1, AuthorizationList: []types.SetCodeAuthorization{{}}},
+			wantVersion: types.MorphTxVersion2,
+		},
+		{
 			name:        "nil Version, empty Reference → V0",
 			opts:        &TransactOpts{FeeTokenID: 1, Reference: refTestPtr(emptyRef)},
 			wantVersion: types.MorphTxVersion0,
@@ -123,6 +133,11 @@ func TestMorphTxVersion_HeuristicDefault(t *testing.T) {
 			name:        "explicit V1, with Reference + Memo → V1",
 			opts:        &TransactOpts{Version: versionPtr(types.MorphTxVersion1), Reference: refTestPtr(ref), Memo: memoTestPtr(memo)},
 			wantVersion: types.MorphTxVersion1,
+		},
+		{
+			name:        "explicit V2 with empty AuthorizationList → V2",
+			opts:        &TransactOpts{Version: versionPtr(types.MorphTxVersion2), AuthorizationList: []types.SetCodeAuthorization{}},
+			wantVersion: types.MorphTxVersion2,
 		},
 		{
 			name:    "explicit V0, FeeTokenID = 0 → error (V0 requires FeeTokenID > 0)",

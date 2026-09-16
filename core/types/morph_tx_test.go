@@ -345,7 +345,7 @@ func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
 	if got := wrapped.SetCodeAuthorizations(); got == nil || len(got) != 0 {
 		t.Fatalf("empty v2 authorizations = %#v, want non-nil empty list", got)
 	}
-	if got := wrapped.messageSetCodeAuthorizations(); got != nil {
+	if got := messageAuthorizations(wrapped.Version(), wrapped.SetCodeAuthorizations()); got != nil {
 		t.Fatalf("empty v2 message authorizations = %#v, want nil", got)
 	}
 	if got := wrapped.SetCodeAuthorities(); len(got) != 0 {

@@ -184,6 +184,11 @@ func asUnsignedMorphTx(msg Message, chainID *big.Int) *types.Transaction {
 	if len(authList) > 0 {
 		version = types.MorphTxVersion2
 	}
+	// Message nil disables EIP-7702 processing, but v2 transaction structure
+	// still carries an explicit empty authorization list.
+	if version == types.MorphTxVersion2 && authList == nil {
+		authList = []types.SetCodeAuthorization{}
+	}
 	return types.NewTx(&types.MorphTx{
 		Nonce:      msg.Nonce(),
 		To:         msg.To(),

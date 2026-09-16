@@ -461,23 +461,10 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		}
 	}
 
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.callAuthorizations(), true)
+	// NewMessage performs the v2 empty-list execution projection while keeping
+	// the Message version unchanged.
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.AuthorizationList, true)
 	return msg, nil
-}
-
-// callAuthorizations returns the authorization list that eth_call / eth_estimateGas
-// should execute. MorphTx v2 with an empty list is not an EIP-7702 transaction.
-func (args *TransactionArgs) callAuthorizations() []types.SetCodeAuthorization {
-	if args.isMorphTxArgs() {
-		var version uint8
-		if args.Version != nil {
-			version = uint8(*args.Version)
-		}
-		if version != types.MorphTxVersion2 || len(args.AuthorizationList) == 0 {
-			return nil
-		}
-	}
-	return args.AuthorizationList
 }
 
 // toTransaction converts the arguments to a transaction.

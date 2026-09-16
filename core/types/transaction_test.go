@@ -1170,6 +1170,28 @@ func TestMorphTxAsMessage(t *testing.T) {
 		})
 	}
 
+	t.Run("V2 empty list remains v2 but Message disables EIP-7702", func(t *testing.T) {
+		signedTx, err := SignNewTx(key, signer, &MorphTx{
+			ChainID: big.NewInt(1), Nonce: 5, GasTipCap: big.NewInt(1),
+			GasFeeCap: big.NewInt(10), Gas: 21000, To: &testAddr,
+			Value: big.NewInt(0), Version: MorphTxVersion2,
+			AuthList: []SetCodeAuthorization{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		msg, err := signedTx.AsMessage(signer, baseFee)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.Version() != MorphTxVersion2 {
+			t.Fatalf("message version = %d, want v2", msg.Version())
+		}
+		if msg.SetCodeAuthorizations() != nil {
+			t.Fatalf("message authorizations = %#v, want nil execution flag", msg.SetCodeAuthorizations())
+		}
+	})
+
 	// An unsupported version panics in sigHash, so such a transaction can never be
 	// signed. AsMessage must reject it before it tries to recover the sender.
 	t.Run("unsupported version 255 → ErrMorphTxUnsupportedVersion", func(t *testing.T) {

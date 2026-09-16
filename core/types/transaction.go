@@ -624,12 +624,11 @@ func (tx *Transaction) SetCodeAuthorizations() []SetCodeAuthorization {
 	}
 }
 
-// messageSetCodeAuthorizations projects transaction authorizations into Message
-// semantics. MorphTx v2 remains v2, but an empty list disables only EIP-7702
-// authorization processing in the state transition.
-func (tx *Transaction) messageSetCodeAuthorizations() []SetCodeAuthorization {
-	auths := tx.SetCodeAuthorizations()
-	if tx.IsMorphTx() && tx.Version() == MorphTxVersion2 && len(auths) == 0 {
+// messageAuthorizations converts structural transaction data to execution
+// semantics. An empty MorphTx v2 list disables only EIP-7702 processing; the
+// Message remains version 2.
+func messageAuthorizations(version uint8, auths []SetCodeAuthorization) []SetCodeAuthorization {
+	if version == MorphTxVersion2 && len(auths) == 0 {
 		return nil
 	}
 	return auths
@@ -922,17 +921,18 @@ func NewMessage(
 	isFake bool,
 ) Message {
 	return Message{
-		from:                  from,
-		to:                    to,
-		nonce:                 nonce,
-		amount:                amount,
-		gasLimit:              gasLimit,
-		gasPrice:              gasPrice,
-		gasFeeCap:             gasFeeCap,
-		gasTipCap:             gasTipCap,
-		data:                  data,
-		accessList:            accessList,
-		setCodeAuthorizations: authList,
+		from:       from,
+		to:         to,
+		nonce:      nonce,
+		amount:     amount,
+		gasLimit:   gasLimit,
+		gasPrice:   gasPrice,
+		gasFeeCap:  gasFeeCap,
+		gasTipCap:  gasTipCap,
+		data:       data,
+		accessList: accessList,
+		// Message uses nil as the "do not process EIP-7702" execution flag.
+		setCodeAuthorizations: messageAuthorizations(version, authList),
 		isFake:                isFake,
 		isL1MessageTx:         false,
 		feeTokenID:            feeTokenID,
@@ -946,18 +946,19 @@ func NewMessage(
 // AsMessage returns the transaction as a core.Message.
 func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	msg := Message{
-		nonce:                 tx.Nonce(),
-		gasLimit:              tx.Gas(),
-		gasPrice:              tx.GasPrice(),
-		gasFeeCap:             tx.GasFeeCap(),
-		gasTipCap:             tx.GasTipCap(),
-		to:                    tx.To(),
-		amount:                tx.Value(),
-		data:                  tx.Data(),
-		accessList:            tx.AccessList(),
-		isFake:                false,
-		isL1MessageTx:         tx.IsL1MessageTx(),
-		setCodeAuthorizations: tx.messageSetCodeAuthorizations(),
+		nonce:         tx.Nonce(),
+		gasLimit:      tx.Gas(),
+		gasPrice:      tx.GasPrice(),
+		gasFeeCap:     tx.GasFeeCap(),
+		gasTipCap:     tx.GasTipCap(),
+		to:            tx.To(),
+		amount:        tx.Value(),
+		data:          tx.Data(),
+		accessList:    tx.AccessList(),
+		isFake:        false,
+		isL1MessageTx: tx.IsL1MessageTx(),
+		// Preserve version while projecting an empty v2 list to Message nil.
+		setCodeAuthorizations: messageAuthorizations(tx.Version(), tx.SetCodeAuthorizations()),
 		feeTokenID:            tx.FeeTokenID(),
 		version:               tx.Version(),
 		reference:             tx.Reference(),

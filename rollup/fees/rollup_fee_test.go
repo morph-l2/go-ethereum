@@ -228,6 +228,17 @@ func TestAsUnsignedTxPreservesMorphAuthList(t *testing.T) {
 	assert.Equal(t, authList, ethFeeTx.SetCodeAuthorizations())
 }
 
+func TestAsUnsignedTxRestoresEmptyMorphV2List(t *testing.T) {
+	chainID := big.NewInt(1)
+	msg := newTestMorphMessage(&testTo, nil, 0, types.MorphTxVersion2)
+
+	tx := asUnsignedTx(msg, big.NewInt(1), chainID)
+	assert.Equal(t, uint8(types.MorphTxType), tx.Type())
+	assert.Equal(t, types.MorphTxVersion2, tx.Version())
+	assert.NotNil(t, tx.SetCodeAuthorizations())
+	assert.Empty(t, tx.SetCodeAuthorizations())
+}
+
 func TestEstimateL1DataFeeIncludesMorphAuthorizations(t *testing.T) {
 	config := params.TestChainConfig
 	chainID := config.ChainID

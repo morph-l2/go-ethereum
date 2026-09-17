@@ -46,6 +46,7 @@ var (
 	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
 	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
 	ErrMorphTxV2NotYetActive       = errors.New("MorphTx version 2 is not yet active")
+	ErrMorphTxAuthListRequiresV2   = errors.New("authorizationList is only valid on MorphTx version 2")
 	errEmptyTypedTx                = errors.New("empty typed transaction bytes")
 	errShortTypedTx                = errors.New("typed transaction too short")
 	errInvalidYParity              = errors.New("'yParity' field must be 0 or 1")

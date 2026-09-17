@@ -102,14 +102,18 @@ func (args *TransactionArgs) isMorphTxArgs() bool {
 //   - Version 2: Version 1 rules plus an EIP-7702 authorization list that may be
 //     empty; contract creation is only rejected for a non-empty list
 //
-// If version is not explicitly specified, no version-specific validation is needed
-// because determineMorphTxVersion will assign the highest version.
+// authorizationList (including []) never implies v2. On MorphTx it is legal only
+// with an explicit version 2; v0, v1, and unspecified version all reject it.
 func (args *TransactionArgs) validateMorphTxVersion() error {
 	if !args.isMorphTxArgs() {
 		return nil
 	}
 
-	// Only validate when version is explicitly specified
+	if args.AuthorizationList != nil && (args.Version == nil || uint8(*args.Version) != types.MorphTxVersion2) {
+		return types.ErrMorphTxAuthListRequiresV2
+	}
+
+	// Remaining checks apply only when version is explicitly specified
 	if args.Version == nil {
 		return nil
 	}
@@ -251,18 +255,12 @@ func (args *TransactionArgs) setDefaultsWithStateOverrides(ctx context.Context, 
 			!b.ChainConfig().IsMorphTxV2(head.Time) {
 			return types.ErrMorphTxV2NotYetActive
 		}
-		// Determine version: explicit > V2 if authorizations are present >
-		// V1 if V1-specific fields are present > V0 (backward compatible).
+		// Determine version: explicit > V1 if V1-specific fields are present >
+		// V0 (backward compatible). authorizationList does not select v2.
 		if args.Version == nil {
 			hasV1Fields := (args.Reference != nil && *args.Reference != (common.Reference{})) ||
 				(args.Memo != nil && len(*args.Memo) > 0)
-			if args.AuthorizationList != nil {
-				if !b.ChainConfig().IsMorphTxV2(head.Time) {
-					return types.ErrMorphTxV2NotYetActive
-				}
-				v := hexutil.Uint16(types.MorphTxVersion2)
-				args.Version = &v
-			} else if hasV1Fields {
+			if hasV1Fields {
 				v := hexutil.Uint16(types.MorphTxVersion1)
 				args.Version = &v
 			} else {

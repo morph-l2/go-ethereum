@@ -425,22 +425,23 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 // If version is not explicitly specified, use heuristic detection:
 //   - V1 if V1-specific fields (Reference, Memo) are present
 //   - V0 otherwise (backward compatible with AltFeeTx behavior)
+//
+// authorizationList never implies v2. On MorphTx it is legal only with an
+// explicit version 2; otherwise this returns ErrMorphTxAuthListRequiresV2.
 func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
 	// Validate memo length
 	if opts.Memo != nil && len(*opts.Memo) > common.MaxMemoLength {
 		return 0, types.ErrMemoTooLong
 	}
 
+	if opts.AuthorizationList != nil && (opts.Version == nil || *opts.Version != types.MorphTxVersion2) {
+		return 0, types.ErrMorphTxAuthListRequiresV2
+	}
+
 	// If version is not explicitly specified, determine based on fields:
 	// - V1 if V1-specific fields (Reference, Memo) are present
 	// - V0 otherwise (backward compatible with AltFeeTx behavior)
 	if opts.Version == nil {
-		if opts.AuthorizationList != nil {
-			if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
-				return 0, types.ErrMorphTxV1IllegalExtraParams
-			}
-			return types.MorphTxVersion2, nil
-		}
 		hasV1Fields := (opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
 			(opts.Memo != nil && len(*opts.Memo) > 0)
 		if hasV1Fields {

@@ -745,10 +745,12 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 //   - Version == nil + no V1 fields → V0
 //   - Version == nil + Reference or Memo present → V1
 //   - Explicit Version → use as-is
+//
 // deployStorageClearContract installs a contract whose body clears storage
 // slot 0 via SSTORE (non-zero -> zero), which credits a gas refund. The slot is
 // committed non-zero first so the EVM accounts it as a clearing operation.
-//   bytecode: PUSH1 0x00 (value) PUSH1 0x00 (key) SSTORE STOP
+//
+//	bytecode: PUSH1 0x00 (value) PUSH1 0x00 (key) SSTORE STOP
 func deployStorageClearContract(t *testing.T, backend *estimateGasBackend, contract common.Address) {
 	t.Helper()
 	backend.state.SetCode(contract, []byte{0x60, 0x00, 0x60, 0x00, 0x55, 0x00})
@@ -838,8 +840,8 @@ func TestEstimateGasOptimisticRefundHeavyCall(t *testing.T) {
 	}
 }
 
-//   - Before jade fork: V1-specific fields rejected; default is V0
-//   - After jade fork: V1 fields allowed; heuristic picks V1 when present
+// - Before jade fork: V1-specific fields rejected; default is V0
+// - After jade fork: V1 fields allowed; heuristic picks V1 when present
 func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 	to := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
 	ref := common.HexToReference("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -853,9 +855,10 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 	makeBackend := func(headTime uint64) *mockSetDefaultsBackend {
 		return &mockSetDefaultsBackend{
 			chainConfig: &params.ChainConfig{
-				ChainID:      big.NewInt(1),
-				CurieBlock:   big.NewInt(0), // IsCurie = true so EIP-1559 path is used
-				JadeForkTime: &jadeForkTime,
+				ChainID:       big.NewInt(1),
+				CurieBlock:    big.NewInt(0), // IsCurie = true so EIP-1559 path is used
+				JadeForkTime:  &jadeForkTime,
+				MorphTxV2Time: &jadeForkTime,
 			},
 			header: &types.Header{
 				Number:  big.NewInt(1),
@@ -1100,6 +1103,54 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 				args.Version = uint16VersionPtr(types.MorphTxVersion1)
 			},
 			wantVersion: uint16Ref(types.MorphTxVersion1),
+		},
+		{
+			name:     "jade fork: MorphTx + empty authorizationList without version → rejected",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(1)
+				args.FeeTokenID = &fid
+				args.AuthorizationList = []types.SetCodeAuthorization{}
+			},
+			wantErr: true,
+		},
+		{
+			name:     "jade fork: MorphTx + authorizationList without version → rejected",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				fid := hexutil.Uint16(1)
+				args.FeeTokenID = &fid
+				args.AuthorizationList = makeAuthorizationList(1)
+			},
+			wantErr: true,
+		},
+		{
+			name:     "jade fork: explicit V1 + authorizationList → rejected",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				args.Version = uint16VersionPtr(types.MorphTxVersion1)
+				args.Memo = &memo
+				args.AuthorizationList = makeAuthorizationList(1)
+			},
+			wantErr: true,
+		},
+		{
+			name:     "jade fork: explicit V2 + authorizationList → V2",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				args.Version = uint16VersionPtr(types.MorphTxVersion2)
+				args.AuthorizationList = makeAuthorizationList(1)
+			},
+			wantVersion: uint16Ref(types.MorphTxVersion2),
+		},
+		{
+			name:     "jade fork: explicit V2 + empty authorizationList → V2",
+			headTime: 1000,
+			modify: func(args *TransactionArgs) {
+				args.Version = uint16VersionPtr(types.MorphTxVersion2)
+				args.AuthorizationList = []types.SetCodeAuthorization{}
+			},
+			wantVersion: uint16Ref(types.MorphTxVersion2),
 		},
 		{
 			name:     "jade fork: unsupported version 99 → rejected",

@@ -196,6 +196,34 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 			expectVersion:   0,
 			expectIsMorphTx: false,
 		},
+		{
+			name: "FeeTokenID + authorizationList without version → V0 (list does not select v2)",
+			args: SendTxArgs{
+				From:                 from,
+				To:                   &to,
+				MaxFeePerGas:         maxFee,
+				MaxPriorityFeePerGas: tip,
+				FeeTokenID:           uint16Ptr(1),
+				AuthorizationList:    []types.SetCodeAuthorization{{}},
+			},
+			expectType:      types.MorphTxType,
+			expectVersion:   types.MorphTxVersion0,
+			expectIsMorphTx: true,
+		},
+		{
+			name: "Explicit Version=2 + authorizationList → V2",
+			args: SendTxArgs{
+				From:                 from,
+				To:                   &to,
+				MaxFeePerGas:         maxFee,
+				MaxPriorityFeePerGas: tip,
+				Version:              uint64VersionPtr(uint64(types.MorphTxVersion2)),
+				AuthorizationList:    []types.SetCodeAuthorization{{}},
+			},
+			expectType:      types.MorphTxType,
+			expectVersion:   types.MorphTxVersion2,
+			expectIsMorphTx: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -212,6 +240,12 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 				}
 				if tx.Version() != tt.expectVersion {
 					t.Errorf("version: got %d, want %d", tx.Version(), tt.expectVersion)
+				}
+				if tt.expectVersion != types.MorphTxVersion2 && len(tx.SetCodeAuthorizations()) != 0 {
+					t.Errorf("non-v2 MorphTx must not carry authorizationList, got %d", len(tx.SetCodeAuthorizations()))
+				}
+				if tt.expectVersion == types.MorphTxVersion2 && len(tt.args.AuthorizationList) != len(tx.SetCodeAuthorizations()) {
+					t.Errorf("v2 authorizationList: got %d, want %d", len(tx.SetCodeAuthorizations()), len(tt.args.AuthorizationList))
 				}
 			}
 		})

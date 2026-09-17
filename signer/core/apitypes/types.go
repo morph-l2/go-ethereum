@@ -130,12 +130,11 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Determine version: explicit > V1 if V1-specific fields present > V0 (backward compatible)
+		// Determine version: explicit > V1 if V1-specific fields present > V0.
+		// authorizationList does not select v2; attach it only on explicit v2.
 		version := uint8(types.MorphTxVersion0)
 		if args.Version != nil {
 			version = uint8(*args.Version)
-		} else if len(args.AuthorizationList) > 0 {
-			version = uint8(types.MorphTxVersion2)
 		} else if (args.Reference != nil && *args.Reference != (common.Reference{})) ||
 			(args.Memo != nil && len(*args.Memo) > 0) {
 			version = uint8(types.MorphTxVersion1)
@@ -143,6 +142,10 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		var authList []types.SetCodeAuthorization
+		if version == types.MorphTxVersion2 {
+			authList = args.AuthorizationList
 		}
 		data = &types.MorphTx{
 			To:         to,
@@ -159,7 +162,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			Value:      (*big.Int)(&args.Value),
 			Data:       input,
 			AccessList: al,
-			AuthList:   args.AuthorizationList,
+			AuthList:   authList,
 		}
 	case args.MaxFeePerGas != nil:
 		al := types.AccessList{}

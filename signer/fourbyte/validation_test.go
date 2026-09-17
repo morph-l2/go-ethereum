@@ -17,11 +17,13 @@
 package fourbyte
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/common/hexutil"
+	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/signer/core/apitypes"
 )
 
@@ -133,5 +135,39 @@ func TestTransactionValidation(t *testing.T) {
 				t.Log()
 			}
 		}
+	}
+}
+
+func TestMorphTxAuthorizationListRequiresExplicitV2(t *testing.T) {
+	db := newEmpty()
+	base := func() *apitypes.SendTxArgs {
+		args := dummyTxArgs(txtestcase{
+			from: "000000000000000000000000000000000000dead",
+			to:   "0x000000000000000000000000000000000000dEaD",
+			n:    "0x01", g: "0x5208", gp: "0x40", value: "0x00",
+		})
+		feeTokenID := hexutil.Uint16(1)
+		args.FeeTokenID = &feeTokenID
+		args.AuthorizationList = []types.SetCodeAuthorization{}
+		return args
+	}
+
+	for _, version := range []*hexutil.Uint64{
+		nil,
+		func() *hexutil.Uint64 { v := hexutil.Uint64(types.MorphTxVersion0); return &v }(),
+		func() *hexutil.Uint64 { v := hexutil.Uint64(types.MorphTxVersion1); return &v }(),
+	} {
+		args := base()
+		args.Version = version
+		if _, err := db.ValidateTransaction(nil, args); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
+			t.Fatalf("version %v: got %v, want %v", version, err, types.ErrMorphTxAuthListRequiresV2)
+		}
+	}
+
+	args := base()
+	version := hexutil.Uint64(types.MorphTxVersion2)
+	args.Version = &version
+	if _, err := db.ValidateTransaction(nil, args); err != nil {
+		t.Fatalf("explicit v2: %v", err)
 	}
 }

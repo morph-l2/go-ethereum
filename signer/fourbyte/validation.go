@@ -23,6 +23,7 @@ import (
 	"math/big"
 
 	"github.com/morph-l2/go-ethereum/common"
+	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/signer/core/apitypes"
 )
 
@@ -31,6 +32,15 @@ import (
 // should be immediately rejected).
 func (db *Database) ValidateTransaction(selector *string, tx *apitypes.SendTxArgs) (*apitypes.ValidationMessages, error) {
 	messages := new(apitypes.ValidationMessages)
+
+	isMorphTx := tx.FeeTokenID != nil && *tx.FeeTokenID > 0 ||
+		tx.Version != nil ||
+		tx.Reference != nil && *tx.Reference != (common.Reference{}) ||
+		tx.Memo != nil && len(*tx.Memo) > 0
+	if isMorphTx && tx.AuthorizationList != nil &&
+		(tx.Version == nil || uint8(*tx.Version) != types.MorphTxVersion2) {
+		return nil, types.ErrMorphTxAuthListRequiresV2
+	}
 
 	// Prevent accidental erroneous usage of both 'input' and 'data' (show stopper)
 	if tx.Data != nil && tx.Input != nil && !bytes.Equal(*tx.Data, *tx.Input) {

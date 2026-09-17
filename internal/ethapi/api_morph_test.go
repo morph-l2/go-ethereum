@@ -1196,6 +1196,63 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 	}
 }
 
+func TestToMessageMorphTxAuthorizationList(t *testing.T) {
+	to := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	gas := hexutil.Uint64(21000)
+	nonce := hexutil.Uint64(0)
+	maxFee := (*hexutil.Big)(big.NewInt(100))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	fid := hexutil.Uint16(1)
+	base := func() TransactionArgs {
+		return TransactionArgs{
+			To:                   &to,
+			Gas:                  &gas,
+			Nonce:                &nonce,
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: tip,
+			FeeTokenID:           &fid,
+		}
+	}
+
+	t.Run("empty list without version is rejected", func(t *testing.T) {
+		args := base()
+		args.AuthorizationList = []types.SetCodeAuthorization{}
+		if _, err := args.ToMessage(0, big.NewInt(1)); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
+			t.Fatalf("got %v, want %v", err, types.ErrMorphTxAuthListRequiresV2)
+		}
+	})
+	t.Run("non-empty list without version is rejected", func(t *testing.T) {
+		args := base()
+		args.AuthorizationList = makeAuthorizationList(1)
+		if _, err := args.ToMessage(0, big.NewInt(1)); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
+			t.Fatalf("got %v, want %v", err, types.ErrMorphTxAuthListRequiresV2)
+		}
+	})
+	t.Run("explicit v1 with list is rejected", func(t *testing.T) {
+		args := base()
+		args.Version = uint16VersionPtr(types.MorphTxVersion1)
+		args.AuthorizationList = makeAuthorizationList(1)
+		if _, err := args.ToMessage(0, big.NewInt(1)); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
+			t.Fatalf("got %v, want %v", err, types.ErrMorphTxAuthListRequiresV2)
+		}
+	})
+	t.Run("explicit v2 keeps the list", func(t *testing.T) {
+		args := base()
+		args.Version = uint16VersionPtr(types.MorphTxVersion2)
+		args.AuthorizationList = makeAuthorizationList(1)
+		msg, err := args.ToMessage(0, big.NewInt(1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.Version() != types.MorphTxVersion2 {
+			t.Fatalf("version = %d, want v2", msg.Version())
+		}
+		if len(msg.SetCodeAuthorizations()) != 1 {
+			t.Fatalf("authorizations = %d, want 1", len(msg.SetCodeAuthorizations()))
+		}
+	})
+}
+
 func uint16Ref(v uint8) *uint16 {
 	u := uint16(v)
 	return &u

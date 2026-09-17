@@ -440,7 +440,11 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		reference  *common.Reference
 		memo       *[]byte
 	)
+	authList := args.AuthorizationList
 	if args.isMorphTxArgs() {
+		if err := args.validateMorphTxVersion(); err != nil {
+			return types.Message{}, err
+		}
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)
 		}
@@ -457,11 +461,14 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		if args.Memo != nil {
 			memo = (*[]byte)(args.Memo)
 		}
+		if args.Version == nil || version != types.MorphTxVersion2 {
+			authList = nil
+		}
 	}
 
 	// NewMessage performs the v2 empty-list execution projection while keeping
 	// the Message version unchanged.
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, args.AuthorizationList, true)
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, feeTokenID, feeLimit, version, reference, memo, data, accessList, authList, true)
 	return msg, nil
 }
 

@@ -1253,6 +1253,88 @@ func TestToMessageMorphTxAuthorizationList(t *testing.T) {
 	})
 }
 
+func TestMorphTxAuthorizationListCallAndEstimateConsistency(t *testing.T) {
+	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x2000000000000000000000000000000000000002")
+	backend := newEstimateGasBackend(t, sender)
+	activation := uint64(0)
+	config := *backend.chainConfig
+	config.JadeForkTime = &activation
+	config.MorphTxV2Time = &activation
+	backend.chainConfig = &config
+	block := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	gas := hexutil.Uint64(100_000)
+	maxFee := (*hexutil.Big)(big.NewInt(10))
+	tip := (*hexutil.Big)(big.NewInt(1))
+	feeTokenID := hexutil.Uint16(0)
+	memo := hexutil.Bytes{0x01}
+	base := func() TransactionArgs {
+		return TransactionArgs{
+			From:                 &sender,
+			To:                   &to,
+			Gas:                  &gas,
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: tip,
+			FeeTokenID:           &feeTokenID,
+			Memo:                 &memo,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		version *hexutil.Uint16
+		auths   []types.SetCodeAuthorization
+		wantErr error
+	}{
+		{
+			name:    "unspecified version with empty list",
+			auths:   []types.SetCodeAuthorization{},
+			wantErr: types.ErrMorphTxAuthListRequiresV2,
+		},
+		{
+			name:    "unspecified version with non-empty list",
+			auths:   makeAuthorizationList(1),
+			wantErr: types.ErrMorphTxAuthListRequiresV2,
+		},
+		{
+			name:    "explicit v1 with non-empty list",
+			version: uint16VersionPtr(types.MorphTxVersion1),
+			auths:   makeAuthorizationList(1),
+			wantErr: types.ErrMorphTxAuthListRequiresV2,
+		},
+		{
+			name:    "explicit v2 with empty list",
+			version: uint16VersionPtr(types.MorphTxVersion2),
+			auths:   []types.SetCodeAuthorization{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callArgs := base()
+			callArgs.Version = tt.version
+			callArgs.AuthorizationList = tt.auths
+			result, callErr := DoCall(context.Background(), backend, callArgs, block, nil, 0, backend.gasCap)
+			if !errors.Is(callErr, tt.wantErr) {
+				t.Fatalf("eth_call error = %v, want %v", callErr, tt.wantErr)
+			}
+			if tt.wantErr == nil && result.Failed() {
+				t.Fatalf("eth_call execution failed: %v", result.Err)
+			}
+
+			estimateArgs := base()
+			estimateArgs.Gas = nil
+			estimateArgs.Version = tt.version
+			estimateArgs.AuthorizationList = tt.auths
+			_, estimateErr := DoEstimateGas(context.Background(), backend, estimateArgs, block, nil, backend.gasCap)
+			if !errors.Is(estimateErr, tt.wantErr) {
+				t.Fatalf("eth_estimateGas error = %v, want %v", estimateErr, tt.wantErr)
+			}
+		})
+	}
+}
+
 func uint16Ref(v uint8) *uint16 {
 	u := uint16(v)
 	return &u

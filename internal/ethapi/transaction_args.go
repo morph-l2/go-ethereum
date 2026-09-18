@@ -103,8 +103,8 @@ func (args *TransactionArgs) morphTxAuthList(version uint8) []types.SetCodeAutho
 }
 
 // validateMorphTxVersion validates the MorphTx version and its associated field requirements.
-// Unsigned MorphTx defaults to v1; a present authorizationList (including [])
-// selects v2. Version is derived rather than accepted as a user argument.
+// Unsigned MorphTx defaults to v1; a non-empty authorizationList selects v2.
+// Version is derived rather than accepted as a user argument.
 func (args *TransactionArgs) validateMorphTxVersion() error {
 	if !args.isMorphTxArgs() {
 		return nil

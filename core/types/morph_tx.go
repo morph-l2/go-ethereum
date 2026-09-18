@@ -39,13 +39,14 @@ const (
 
 // InferUnsignedMorphTxVersion resolves the version for an unsigned MorphTx:
 //   - an explicit version is used as-is
-//   - otherwise an explicitly present authorization list (including empty) selects v2
-//   - otherwise MorphTx defaults to v1 (legacy v0 construction is folded into v1)
+//   - otherwise a non-empty authorization list selects v2
+//   - otherwise MorphTx defaults to v1 (legacy v0 construction is folded into v1;
+//     a nil or empty authorization list is treated as absent)
 func InferUnsignedMorphTxVersion(explicit *uint8, authList []SetCodeAuthorization) uint8 {
 	if explicit != nil {
 		return *explicit
 	}
-	if authList != nil {
+	if len(authList) > 0 {
 		return MorphTxVersion2
 	}
 	return MorphTxVersion1
@@ -268,6 +269,9 @@ func (tx *MorphTx) DecodeRLP(s *rlp.Stream) error {
 }
 
 func (tx *MorphTx) encode(b *bytes.Buffer) error {
+	if tx.Version != MorphTxVersion2 && len(tx.AuthList) > 0 {
+		return ErrMorphTxAuthListRequiresV2
+	}
 	switch tx.Version {
 	case MorphTxVersion0:
 		// Validate FeeTokenID for v0 (must match decodeV0MorphTxRLP behavior)

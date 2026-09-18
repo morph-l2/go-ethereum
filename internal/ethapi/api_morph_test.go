@@ -737,7 +737,7 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 
 // TestSetDefaults_MorphTxVersionHeuristic tests the heuristic version defaulting logic
 // in TransactionArgs.setDefaults():
-//   - a present authorization list (including empty) → V2
+//   - a non-empty authorization list → V2
 //   - otherwise → V1
 //   - before activation, the derived version is rejected
 //
@@ -1033,14 +1033,14 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: MorphTx + empty authorizationList → V2",
+			name:     "jade fork: MorphTx + empty authorizationList → V1",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
 				args.AuthorizationList = []types.SetCodeAuthorization{}
 			},
-			wantVersion: uint16Ref(types.MorphTxVersion2),
+			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
 			name:     "jade fork: MorphTx + non-empty authorizationList → V2",
@@ -1105,15 +1105,15 @@ func TestToMessageMorphTxAuthorizationList(t *testing.T) {
 		}
 	}
 
-	t.Run("empty list derives v2 but does not execute 7702", func(t *testing.T) {
+	t.Run("empty list derives v1 and does not execute 7702", func(t *testing.T) {
 		args := base()
 		args.AuthorizationList = []types.SetCodeAuthorization{}
 		msg, err := args.ToMessage(0, big.NewInt(1))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if msg.Version() != types.MorphTxVersion2 {
-			t.Fatalf("version = %d, want v2", msg.Version())
+		if msg.Version() != types.MorphTxVersion1 {
+			t.Fatalf("version = %d, want v1", msg.Version())
 		}
 		if msg.SetCodeAuthorizations() != nil {
 			t.Fatalf("authorizations = %#v, want nil", msg.SetCodeAuthorizations())
@@ -1147,8 +1147,8 @@ func TestTransactionArgsVersionIsDerived(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"feeTokenID":"0x1","version":"0x1","authorizationList":[]}`), &args); err != nil {
 		t.Fatal(err)
 	}
-	if got := args.inferredMorphTxVersion(); got != types.MorphTxVersion2 {
-		t.Fatalf("version = %d, want derived v2", got)
+	if got := args.inferredMorphTxVersion(); got != types.MorphTxVersion1 {
+		t.Fatalf("version = %d, want derived v1", got)
 	}
 }
 

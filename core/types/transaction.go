@@ -42,7 +42,7 @@ var (
 	ErrMemoTooLong                 = errors.New("memo exceeds maximum length of 64 bytes")
 	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
 	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
-	ErrMorphTxV2ContractCreation   = errors.New("version 2 MorphTx cannot be used to create a contract")
+	ErrMorphTxV2ContractCreation   = errors.New("MorphTx with an authorization list cannot create a contract")
 	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
 	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
 	ErrMorphTxV2NotYetActive       = errors.New("MorphTx version 2 is not yet active")
@@ -418,6 +418,7 @@ func (tx *Transaction) Memo() *[]byte {
 //   - Version 0 (legacy format): FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1 (with Reference/Memo): FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is 0, FeeLimit must not be set
+//   - Version 0 and 1 must not carry a non-empty AuthList
 //   - Version 2 (with AuthList): version 1 rules; the authorization list may be
 //     empty, and contract creation is only rejected for a non-empty list
 //   - Other versions: not supported
@@ -437,6 +438,9 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 			morphTx.Memo != nil && len(*morphTx.Memo) > 0 {
 			return ErrMorphTxV0IllegalExtraParams
 		}
+		if len(morphTx.AuthList) > 0 {
+			return ErrMorphTxAuthListRequiresV2
+		}
 	case MorphTxVersion1:
 		// Version 1: FeeTokenID, Reference, Memo are all optional
 		// If FeeTokenID is 0, FeeLimit must not be set
@@ -446,6 +450,9 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		// Validate memo length
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
 			return ErrMemoTooLong
+		}
+		if len(morphTx.AuthList) > 0 {
+			return ErrMorphTxAuthListRequiresV2
 		}
 	case MorphTxVersion2:
 		// Version 2 inherits version 1 field rules and adds EIP-7702 authorizations.

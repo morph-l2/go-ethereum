@@ -106,7 +106,7 @@ func TestTransactRoutesAuthorizationList(t *testing.T) {
 		}
 	})
 
-	t.Run("empty authorization list creates MorphTx v2", func(t *testing.T) {
+	t.Run("empty authorization list creates MorphTx v1", func(t *testing.T) {
 		opts := baseOpts()
 		opts.FeeTokenID = 1
 		opts.AuthorizationList = []types.SetCodeAuthorization{}
@@ -114,11 +114,11 @@ func TestTransactRoutesAuthorizationList(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if tx.Type() != types.MorphTxType || tx.Version() != types.MorphTxVersion2 {
-			t.Fatalf("got type/version %d/%d, want MorphTx/v2", tx.Type(), tx.Version())
+		if tx.Type() != types.MorphTxType || tx.Version() != types.MorphTxVersion1 {
+			t.Fatalf("got type/version %d/%d, want MorphTx/v1", tx.Type(), tx.Version())
 		}
-		if auths := tx.SetCodeAuthorizations(); auths == nil || len(auths) != 0 {
-			t.Fatalf("empty v2 authorization list = %#v, want non-nil empty list", auths)
+		if auths := tx.SetCodeAuthorizations(); len(auths) != 0 {
+			t.Fatalf("v1 authorization list = %#v, want empty", auths)
 		}
 	})
 

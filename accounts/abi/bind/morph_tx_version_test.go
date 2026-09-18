@@ -17,7 +17,7 @@ func memoTestPtr(b []byte) *[]byte {
 }
 
 // TestMorphTxVersion_HeuristicDefault tests version derivation:
-// MorphTx defaults to v1 and any present authorization list selects v2.
+// MorphTx defaults to v1 and a non-empty authorization list selects v2.
 func TestMorphTxVersion_HeuristicDefault(t *testing.T) {
 	ref := common.HexToReference("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	emptyRef := common.Reference{}
@@ -68,9 +68,9 @@ func TestMorphTxVersion_HeuristicDefault(t *testing.T) {
 			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "empty AuthorizationList → V2",
+			name:        "empty AuthorizationList → V1",
 			opts:        &TransactOpts{FeeTokenID: 1, AuthorizationList: []types.SetCodeAuthorization{}},
-			wantVersion: types.MorphTxVersion2,
+			wantVersion: types.MorphTxVersion1,
 		},
 		{
 			name:        "non-empty AuthorizationList → V2",

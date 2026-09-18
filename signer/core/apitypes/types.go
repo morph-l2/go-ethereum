@@ -104,7 +104,7 @@ func (args SendTxArgs) String() string {
 }
 
 // ToTransaction converts the arguments to a transaction.
-func (args *SendTxArgs) ToTransaction() *types.Transaction {
+func (args *SendTxArgs) ToTransaction() (*types.Transaction, error) {
 	// Add the To-field, if specified
 	var to *common.Address
 	if args.To != nil {
@@ -131,14 +131,16 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			al = *args.AccessList
 		}
 		// A version copied from an already-formed transaction is authoritative.
-		// Otherwise a present authorization list (including empty) selects v2;
-		// MorphTx defaults to v1.
+		// Otherwise a non-empty authorization list selects v2; MorphTx defaults to v1.
 		var explicit *uint8
 		if args.Version != nil {
 			v := uint8(*args.Version)
 			explicit = &v
 		}
 		version := types.InferUnsignedMorphTxVersion(explicit, args.AuthorizationList)
+		if version != types.MorphTxVersion2 && len(args.AuthorizationList) > 0 {
+			return nil, types.ErrMorphTxAuthListRequiresV2
+		}
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)
@@ -203,5 +205,5 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			Data:     input,
 		}
 	}
-	return types.NewTx(data)
+	return types.NewTx(data), nil
 }

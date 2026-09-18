@@ -1,6 +1,7 @@
 package apitypes
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/morph-l2/go-ethereum/common"
@@ -30,7 +31,7 @@ func memoPtr(b []byte) *hexutil.Bytes {
 // TestSendTxArgs_ToTransaction_VersionHeuristic tests version restoration and inference
 // in SendTxArgs.ToTransaction():
 //   - Explicit Version → use as-is
-//   - No Version + present authorization list (including empty) → V2
+//   - No Version + non-empty authorization list → V2
 //   - Other MorphTx arguments → V1
 func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 	from := common.NewMixedcaseAddress(common.HexToAddress("0x1234"))
@@ -211,7 +212,7 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 			expectIsMorphTx: true,
 		},
 		{
-			name: "FeeTokenID + empty authorizationList without version → V2",
+			name: "FeeTokenID + empty authorizationList without version → V1",
 			args: SendTxArgs{
 				From:                 from,
 				To:                   &to,
@@ -221,7 +222,7 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 				AuthorizationList:    []types.SetCodeAuthorization{},
 			},
 			expectType:      types.MorphTxType,
-			expectVersion:   types.MorphTxVersion2,
+			expectVersion:   types.MorphTxVersion1,
 			expectIsMorphTx: true,
 		},
 		{
@@ -242,7 +243,10 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tx := tt.args.ToTransaction()
+			tx, err := tt.args.ToTransaction()
+			if err != nil {
+				t.Fatalf("ToTransaction: %v", err)
+			}
 
 			if tx.Type() != tt.expectType {
 				t.Errorf("tx type: got %d, want %d", tx.Type(), tt.expectType)
@@ -263,5 +267,26 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSendTxArgs_ToTransaction_RejectsAuthListOnV0V1(t *testing.T) {
+	from := common.NewMixedcaseAddress(common.HexToAddress("0x1234"))
+	to := common.NewMixedcaseAddress(common.HexToAddress("0x5678"))
+	maxFee := (*hexutil.Big)(common.Big1)
+	tip := (*hexutil.Big)(common.Big1)
+	for _, version := range []uint64{uint64(types.MorphTxVersion0), uint64(types.MorphTxVersion1)} {
+		args := SendTxArgs{
+			From:                 from,
+			To:                   &to,
+			MaxFeePerGas:         maxFee,
+			MaxPriorityFeePerGas: tip,
+			FeeTokenID:           uint16Ptr(1),
+			Version:              uint64VersionPtr(version),
+			AuthorizationList:    []types.SetCodeAuthorization{{}},
+		}
+		if _, err := args.ToTransaction(); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
+			t.Fatalf("version %d: got %v, want %v", version, err, types.ErrMorphTxAuthListRequiresV2)
+		}
 	}
 }

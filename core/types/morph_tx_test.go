@@ -329,6 +329,15 @@ func TestValidateMorphTxV2(t *testing.T) {
 	if err := NewTx(create).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxV2ContractCreation) {
 		t.Fatalf("contract creation error = %v", err)
 	}
+	v1WithAuth := valid.copy().(*MorphTx)
+	v1WithAuth.Version = MorphTxVersion1
+	if err := NewTx(v1WithAuth).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxAuthListRequiresV2) {
+		t.Fatalf("v1 with auth list error = %v", err)
+	}
+	var encoded bytes.Buffer
+	if err := v1WithAuth.encode(&encoded); !errors.Is(err, ErrMorphTxAuthListRequiresV2) {
+		t.Fatalf("v1 encode with auth list error = %v", err)
+	}
 }
 
 // TestMorphTxV2EmptyAuthListAccessor ensures the transaction structure retains
@@ -1692,8 +1701,8 @@ func TestInferUnsignedMorphTxVersion(t *testing.T) {
 	if got := InferUnsignedMorphTxVersion(nil, nil); got != MorphTxVersion1 {
 		t.Fatalf("omitted = %d, want v1", got)
 	}
-	if got := InferUnsignedMorphTxVersion(nil, []SetCodeAuthorization{}); got != MorphTxVersion2 {
-		t.Fatalf("empty list = %d, want v2", got)
+	if got := InferUnsignedMorphTxVersion(nil, []SetCodeAuthorization{}); got != MorphTxVersion1 {
+		t.Fatalf("empty list = %d, want v1", got)
 	}
 	if got := InferUnsignedMorphTxVersion(nil, []SetCodeAuthorization{{}}); got != MorphTxVersion2 {
 		t.Fatalf("non-empty list = %d, want v2", got)

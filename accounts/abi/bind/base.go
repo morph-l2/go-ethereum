@@ -425,7 +425,7 @@ func morphTxAuthList(version uint8, authList []types.SetCodeAuthorization) []typ
 }
 
 // morphTxVersion derives the MorphTx version from transaction intent.
-// MorphTx defaults to v1; a present authorization list (including empty) selects v2.
+// MorphTx defaults to v1; a non-empty authorization list selects v2.
 func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
 	if opts.Memo != nil && len(*opts.Memo) > common.MaxMemoLength {
 		return 0, types.ErrMemoTooLong

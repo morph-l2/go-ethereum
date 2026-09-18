@@ -231,7 +231,7 @@ func (args *TransactionArgs) setDefaultsWithStateOverrides(ctx context.Context, 
 			}
 		}
 		if args.inferredMorphTxVersion() == types.MorphTxVersion2 &&
-			!b.ChainConfig().IsMorphTxV2(head.Time) {
+			!b.ChainConfig().IsCeladon(head.Time) {
 			return types.ErrMorphTxV2NotYetActive
 		}
 	}

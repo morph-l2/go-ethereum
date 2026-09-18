@@ -247,13 +247,13 @@ type TxPool struct {
 	signer      types.Signer
 	mu          sync.RWMutex
 
-	istanbul  bool // Fork indicator whether we are in the istanbul stage.
-	eip2718   bool // Fork indicator whether we are using EIP-2718 type transactions.
-	eip1559   bool // Fork indicator whether we are using EIP-1559 type transactions.
-	shanghai  bool // Fork indicator whether we are in the Shanghai stage.
-	eip7702   bool // Fork indicator whether we are in the Morph 3.0.0 stage.
-	jade      bool // Fork indicator whether we are in the Jade stage.
-	morphTxV2 bool // Fork indicator whether MorphTx version 2 is active.
+	istanbul bool // Fork indicator whether we are in the istanbul stage.
+	eip2718  bool // Fork indicator whether we are using EIP-2718 type transactions.
+	eip1559  bool // Fork indicator whether we are using EIP-1559 type transactions.
+	shanghai bool // Fork indicator whether we are in the Shanghai stage.
+	eip7702  bool // Fork indicator whether we are in the Morph 3.0.0 stage.
+	jade     bool // Fork indicator whether we are in the Jade stage.
+	celadon  bool // Fork indicator whether we are in the Celadon stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	currentHead   *big.Int       // Current blockchain head
@@ -668,7 +668,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if !pool.jade && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion1 {
 		return types.ErrMorphTxV1NotYetActive
 	}
-	if !pool.morphTxV2 && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
+	if !pool.celadon && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
 		return types.ErrMorphTxV2NotYetActive
 	}
 
@@ -1593,13 +1593,13 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.shanghai = pool.chainconfig.IsShanghai(next)
 	pool.eip7702 = pool.chainconfig.IsViridian(next, newHead.Time)
 	pool.jade = pool.chainconfig.IsJadeFork(newHead.Time)
-	pool.morphTxV2 = pool.chainconfig.IsMorphTxV2(newHead.Time)
+	pool.celadon = pool.chainconfig.IsCeladon(newHead.Time)
 
 	// Remove MorphTx V1 transactions if jade fork is not active (e.g. after reorg)
 	if !pool.jade {
 		pool.removeMorphTxV1()
 	}
-	if !pool.morphTxV2 {
+	if !pool.celadon {
 		pool.removeMorphTxV2()
 	}
 

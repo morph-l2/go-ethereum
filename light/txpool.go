@@ -417,7 +417,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		if tx.Version() == types.MorphTxVersion1 && !pool.config.IsJadeFork(header.Time) {
 			return types.ErrMorphTxV1NotYetActive
 		}
-		if tx.Version() == types.MorphTxVersion2 && !pool.config.IsMorphTxV2(header.Time) {
+		if tx.Version() == types.MorphTxVersion2 && !pool.config.IsCeladon(header.Time) {
 			return types.ErrMorphTxV2NotYetActive
 		}
 	}

@@ -61,13 +61,13 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	}
 	// Validate MorphTx for all transactions
 	isJadeFork := v.config.IsJadeFork(block.Time())
-	isMorphTxV2 := v.config.IsMorphTxV2(block.Time())
+	isCeladon := v.config.IsCeladon(block.Time())
 	for _, tx := range block.Transactions() {
 		// Reject MorphTx V1 before jade fork is active
 		if !isJadeFork && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion1 {
 			return types.ErrMorphTxV1NotYetActive
 		}
-		if !isMorphTxV2 && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
+		if !isCeladon && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
 			return types.ErrMorphTxV2NotYetActive
 		}
 		// Validate version, memo, and associated field requirements

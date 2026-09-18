@@ -844,16 +844,16 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 	memo := hexutil.Bytes([]byte("test memo"))
 	emptyMemo := hexutil.Bytes([]byte{})
 
-	jadeForkTime := uint64(1000)
+	celadonTime := uint64(1000)
 
-	// Helper to build a backend with jade fork at time 1000
+	// Helper to build a backend with Celadon at time 1000
 	makeBackend := func(headTime uint64) *mockSetDefaultsBackend {
 		return &mockSetDefaultsBackend{
 			chainConfig: &params.ChainConfig{
-				ChainID:       big.NewInt(1),
-				CurieBlock:    big.NewInt(0), // IsCurie = true so EIP-1559 path is used
-				JadeForkTime:  &jadeForkTime,
-				MorphTxV2Time: &jadeForkTime,
+				ChainID:      big.NewInt(1),
+				CurieBlock:   big.NewInt(0), // IsCurie = true so EIP-1559 path is used
+				JadeForkTime: &celadonTime,
+				CeladonTime:  &celadonTime,
 			},
 			header: &types.Header{
 				Number:  big.NewInt(1),
@@ -1159,7 +1159,7 @@ func TestMorphTxAuthorizationListCallAndEstimateConsistency(t *testing.T) {
 	activation := uint64(0)
 	config := *backend.chainConfig
 	config.JadeForkTime = &activation
-	config.MorphTxV2Time = &activation
+	config.CeladonTime = &activation
 	backend.chainConfig = &config
 	block := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 

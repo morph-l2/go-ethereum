@@ -699,7 +699,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			return
 		}
 		var tokenAmount *big.Int
-		if st.evm.ChainConfig().IsMorphTxV2(st.evm.Context.Time.Uint64()) {
+		if st.evm.ChainConfig().IsCeladon(st.evm.Context.Time.Uint64()) {
 			tokenAmount, err = types.EthToAltFloor(
 				remaining,
 				st.altFeeRoundingCredit,

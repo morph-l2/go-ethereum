@@ -37,9 +37,15 @@ func (db *Database) ValidateTransaction(selector *string, tx *apitypes.SendTxArg
 		tx.Version != nil ||
 		tx.Reference != nil && *tx.Reference != (common.Reference{}) ||
 		tx.Memo != nil && len(*tx.Memo) > 0
-	if isMorphTx && tx.AuthorizationList != nil &&
-		(tx.Version == nil || uint8(*tx.Version) != types.MorphTxVersion2) {
-		return nil, types.ErrMorphTxAuthListRequiresV2
+	if isMorphTx && len(tx.AuthorizationList) > 0 {
+		var explicit *uint8
+		if tx.Version != nil {
+			v := uint8(*tx.Version)
+			explicit = &v
+		}
+		if types.InferUnsignedMorphTxVersion(explicit, tx.AuthorizationList) != types.MorphTxVersion2 {
+			return nil, types.ErrMorphTxAuthListRequiresV2
+		}
 	}
 
 	// Prevent accidental erroneous usage of both 'input' and 'data' (show stopper)

@@ -53,7 +53,6 @@ type TransactionArgs struct {
 	// MorphTxType
 	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
 	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
-	Version    *hexutil.Uint16   `json:"version,omitempty"`
 	Reference  *common.Reference `json:"reference,omitempty"`
 	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
 
@@ -87,46 +86,32 @@ func (arg *TransactionArgs) data() []byte {
 // isMorphTxArgs returns true if the transaction args indicate a MorphTx type.
 func (args *TransactionArgs) isMorphTxArgs() bool {
 	// Check if any MorphTx-specific field is set
-	// Note: Version=0 with FeeTokenID=0 is invalid, but we still want to validate it
 	return (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
-		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
 		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
 		(args.Memo != nil && len(*args.Memo) > 0)
 }
 
+func (args *TransactionArgs) inferredMorphTxVersion() uint8 {
+	return types.InferUnsignedMorphTxVersion(nil, args.AuthorizationList)
+}
+
+func (args *TransactionArgs) morphTxAuthList(version uint8) []types.SetCodeAuthorization {
+	if version != types.MorphTxVersion2 {
+		return nil
+	}
+	return args.AuthorizationList
+}
+
 // validateMorphTxVersion validates the MorphTx version and its associated field requirements.
-// If version is explicitly specified, validate that parameters match:
-//   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
-//   - Version 1: FeeTokenID, Reference, Memo are all optional;
-//     if FeeTokenID is not set or is 0, FeeLimit must not be set
-//   - Version 2: Version 1 rules plus an EIP-7702 authorization list that may be
-//     empty; contract creation is only rejected for a non-empty list
-//
-// authorizationList (including []) never implies v2. On MorphTx it is legal only
-// with an explicit version 2; v0, v1, and unspecified version all reject it.
+// Unsigned MorphTx defaults to v1; a present authorizationList (including [])
+// selects v2. Version is derived rather than accepted as a user argument.
 func (args *TransactionArgs) validateMorphTxVersion() error {
 	if !args.isMorphTxArgs() {
 		return nil
 	}
 
-	if args.AuthorizationList != nil && (args.Version == nil || uint8(*args.Version) != types.MorphTxVersion2) {
-		return types.ErrMorphTxAuthListRequiresV2
-	}
-
-	// Remaining checks apply only when version is explicitly specified
-	if args.Version == nil {
-		return nil
-	}
-
-	version := uint8(*args.Version)
+	version := args.inferredMorphTxVersion()
 	switch version {
-	case types.MorphTxVersion0:
-		// Version 0 requires FeeTokenID > 0
-		if args.FeeTokenID == nil || *args.FeeTokenID == 0 ||
-			args.Reference != nil && *args.Reference != (common.Reference{}) ||
-			args.Memo != nil && len(*args.Memo) > 0 {
-			return types.ErrMorphTxV0IllegalExtraParams
-		}
 	case types.MorphTxVersion1:
 		// Version 1: FeeTokenID, Reference, Memo are all optional
 		// If FeeTokenID is not set or is 0, FeeLimit must not be set
@@ -241,32 +226,13 @@ func (args *TransactionArgs) setDefaultsWithStateOverrides(ctx context.Context, 
 	if args.isMorphTxArgs() {
 		isJadeFork := b.ChainConfig().IsJadeFork(head.Time)
 		if !isJadeFork {
-			// Reject explicit V1 before jade fork
-			if args.Version != nil && uint8(*args.Version) == types.MorphTxVersion1 {
-				return types.ErrMorphTxV1NotYetActive
-			}
-			// Reject V1-only fields (reference/memo) before jade fork
-			if (args.Reference != nil && *args.Reference != (common.Reference{})) ||
-				(args.Memo != nil && len(*args.Memo) > 0) {
+			if args.inferredMorphTxVersion() == types.MorphTxVersion1 {
 				return types.ErrMorphTxV1NotYetActive
 			}
 		}
-		if args.Version != nil && uint8(*args.Version) == types.MorphTxVersion2 &&
+		if args.inferredMorphTxVersion() == types.MorphTxVersion2 &&
 			!b.ChainConfig().IsMorphTxV2(head.Time) {
 			return types.ErrMorphTxV2NotYetActive
-		}
-		// Determine version: explicit > V1 if V1-specific fields are present >
-		// V0 (backward compatible). authorizationList does not select v2.
-		if args.Version == nil {
-			hasV1Fields := (args.Reference != nil && *args.Reference != (common.Reference{})) ||
-				(args.Memo != nil && len(*args.Memo) > 0)
-			if hasV1Fields {
-				v := hexutil.Uint16(types.MorphTxVersion1)
-				args.Version = &v
-			} else {
-				v := hexutil.Uint16(types.MorphTxVersion0)
-				args.Version = &v
-			}
 		}
 	}
 	// Validate memo length for MorphTx
@@ -291,7 +257,6 @@ func (args *TransactionArgs) setDefaultsWithStateOverrides(ctx context.Context, 
 			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
 			FeeTokenID:           args.FeeTokenID,
 			FeeLimit:             args.FeeLimit,
-			Version:              args.Version,
 			Reference:            args.Reference,
 			Memo:                 args.Memo,
 			Value:                args.Value,
@@ -451,19 +416,14 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		if args.FeeLimit != nil {
 			feeLimit = args.FeeLimit.ToInt()
 		}
-		// Use version from args (set by setDefaults or explicitly by caller)
-		if args.Version != nil {
-			version = uint8(*args.Version)
-		}
+		version = args.inferredMorphTxVersion()
 		if args.Reference != nil {
 			reference = args.Reference
 		}
 		if args.Memo != nil {
 			memo = (*[]byte)(args.Memo)
 		}
-		if args.Version == nil || version != types.MorphTxVersion2 {
-			authList = nil
-		}
+		authList = args.morphTxAuthList(version)
 	}
 
 	// NewMessage performs the v2 empty-list execution projection while keeping
@@ -479,7 +439,6 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 	switch {
 	//	must take precedence over MaxFeePerGas.
 	case (args.FeeTokenID != nil && *args.FeeTokenID > 0) ||
-		(args.Version != nil) || // Any explicit version setting indicates MorphTx intent
 		(args.Reference != nil && *args.Reference != (common.Reference{})) ||
 		(args.Memo != nil && len(*args.Memo) > 0):
 		usedType = types.MorphTxType
@@ -545,14 +504,14 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Use version from args (set by setDefaults or explicitly by caller)
-		var version uint8
-		if args.Version != nil {
-			version = uint8(*args.Version)
-		}
+		version := args.inferredMorphTxVersion()
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		authList := args.morphTxAuthList(version)
+		if version == types.MorphTxVersion2 && authList == nil {
+			authList = []types.SetCodeAuthorization{}
 		}
 		data = &types.MorphTx{
 			To:         args.To,
@@ -569,7 +528,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: al,
-			AuthList:   args.AuthorizationList,
+			AuthList:   authList,
 		}
 
 	case types.AccessListTxType:

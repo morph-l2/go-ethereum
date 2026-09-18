@@ -27,11 +27,11 @@ func memoPtr(b []byte) *hexutil.Bytes {
 	return &h
 }
 
-// TestSendTxArgs_ToTransaction_VersionHeuristic tests the heuristic version defaulting logic
+// TestSendTxArgs_ToTransaction_VersionHeuristic tests version restoration and inference
 // in SendTxArgs.ToTransaction():
 //   - Explicit Version → use as-is
-//   - No Version + Reference or Memo present → V1
-//   - No Version + no V1 fields → V0 (backward compatible)
+//   - No Version + present authorization list (including empty) → V2
+//   - Other MorphTx arguments → V1
 func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 	from := common.NewMixedcaseAddress(common.HexToAddress("0x1234"))
 	to := common.NewMixedcaseAddress(common.HexToAddress("0x5678"))
@@ -48,7 +48,7 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 		expectIsMorphTx bool
 	}{
 		{
-			name: "FeeTokenID only, no Version → V0",
+			name: "FeeTokenID only, no Version → V1",
 			args: SendTxArgs{
 				From:                 from,
 				To:                   &to,
@@ -57,7 +57,7 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 				FeeTokenID:           uint16Ptr(1),
 			},
 			expectType:      types.MorphTxType,
-			expectVersion:   types.MorphTxVersion0,
+			expectVersion:   types.MorphTxVersion1,
 			expectIsMorphTx: true,
 		},
 		{
@@ -115,7 +115,7 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 			expectIsMorphTx: true,
 		},
 		{
-			name: "Empty Reference (all zeros) + FeeTokenID → V0",
+			name: "Empty Reference (all zeros) + FeeTokenID → V1",
 			args: SendTxArgs{
 				From:                 from,
 				To:                   &to,
@@ -125,11 +125,11 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 				Reference:            refPtr(emptyRef),
 			},
 			expectType:      types.MorphTxType,
-			expectVersion:   types.MorphTxVersion0,
+			expectVersion:   types.MorphTxVersion1,
 			expectIsMorphTx: true,
 		},
 		{
-			name: "Empty Memo (len=0) + FeeTokenID → V0",
+			name: "Empty Memo (len=0) + FeeTokenID → V1",
 			args: SendTxArgs{
 				From:                 from,
 				To:                   &to,
@@ -139,7 +139,7 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 				Memo:                 memoPtr([]byte{}),
 			},
 			expectType:      types.MorphTxType,
-			expectVersion:   types.MorphTxVersion0,
+			expectVersion:   types.MorphTxVersion1,
 			expectIsMorphTx: true,
 		},
 		{
@@ -197,7 +197,7 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 			expectIsMorphTx: false,
 		},
 		{
-			name: "FeeTokenID + authorizationList without version → V0 (list does not select v2)",
+			name: "FeeTokenID + authorizationList without version → V2",
 			args: SendTxArgs{
 				From:                 from,
 				To:                   &to,
@@ -207,7 +207,21 @@ func TestSendTxArgs_ToTransaction_VersionHeuristic(t *testing.T) {
 				AuthorizationList:    []types.SetCodeAuthorization{{}},
 			},
 			expectType:      types.MorphTxType,
-			expectVersion:   types.MorphTxVersion0,
+			expectVersion:   types.MorphTxVersion2,
+			expectIsMorphTx: true,
+		},
+		{
+			name: "FeeTokenID + empty authorizationList without version → V2",
+			args: SendTxArgs{
+				From:                 from,
+				To:                   &to,
+				MaxFeePerGas:         maxFee,
+				MaxPriorityFeePerGas: tip,
+				FeeTokenID:           uint16Ptr(1),
+				AuthorizationList:    []types.SetCodeAuthorization{},
+			},
+			expectType:      types.MorphTxType,
+			expectVersion:   types.MorphTxVersion2,
 			expectIsMorphTx: true,
 		},
 		{

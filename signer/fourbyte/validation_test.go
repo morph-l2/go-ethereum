@@ -153,18 +153,32 @@ func TestMorphTxAuthorizationListRequiresExplicitV2(t *testing.T) {
 	}
 
 	for _, version := range []*hexutil.Uint64{
-		nil,
 		func() *hexutil.Uint64 { v := hexutil.Uint64(types.MorphTxVersion0); return &v }(),
 		func() *hexutil.Uint64 { v := hexutil.Uint64(types.MorphTxVersion1); return &v }(),
 	} {
 		args := base()
 		args.Version = version
+		args.AuthorizationList = []types.SetCodeAuthorization{{}}
 		if _, err := db.ValidateTransaction(nil, args); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
 			t.Fatalf("version %v: got %v, want %v", version, err, types.ErrMorphTxAuthListRequiresV2)
 		}
 	}
 
 	args := base()
+	args.Version = nil
+	args.AuthorizationList = []types.SetCodeAuthorization{{}}
+	if _, err := db.ValidateTransaction(nil, args); err != nil {
+		t.Fatalf("unspecified version with non-empty list: %v", err)
+	}
+
+	args = base()
+	args.Version = nil
+	args.AuthorizationList = []types.SetCodeAuthorization{}
+	if _, err := db.ValidateTransaction(nil, args); err != nil {
+		t.Fatalf("unspecified version with empty list: %v", err)
+	}
+
+	args = base()
 	version := hexutil.Uint64(types.MorphTxVersion2)
 	args.Version = &version
 	if _, err := db.ValidateTransaction(nil, args); err != nil {

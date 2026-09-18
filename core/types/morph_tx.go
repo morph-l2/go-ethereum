@@ -37,6 +37,20 @@ const (
 	MorphTxVersion2 = uint8(2)
 )
 
+// InferUnsignedMorphTxVersion resolves the version for an unsigned MorphTx:
+//   - an explicit version is used as-is
+//   - otherwise an explicitly present authorization list (including empty) selects v2
+//   - otherwise MorphTx defaults to v1 (legacy v0 construction is folded into v1)
+func InferUnsignedMorphTxVersion(explicit *uint8, authList []SetCodeAuthorization) uint8 {
+	if explicit != nil {
+		return *explicit
+	}
+	if authList != nil {
+		return MorphTxVersion2
+	}
+	return MorphTxVersion1
+}
+
 type MorphTx struct {
 	ChainID    *big.Int
 	Nonce      uint64

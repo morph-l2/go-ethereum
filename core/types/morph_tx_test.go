@@ -1687,6 +1687,28 @@ func assertMorphTxEqual(t *testing.T, want, got *MorphTx) {
 	}
 }
 
+func TestInferUnsignedMorphTxVersion(t *testing.T) {
+	v0, v1, v2 := MorphTxVersion0, MorphTxVersion1, MorphTxVersion2
+	if got := InferUnsignedMorphTxVersion(nil, nil); got != MorphTxVersion1 {
+		t.Fatalf("omitted = %d, want v1", got)
+	}
+	if got := InferUnsignedMorphTxVersion(nil, []SetCodeAuthorization{}); got != MorphTxVersion2 {
+		t.Fatalf("empty list = %d, want v2", got)
+	}
+	if got := InferUnsignedMorphTxVersion(nil, []SetCodeAuthorization{{}}); got != MorphTxVersion2 {
+		t.Fatalf("non-empty list = %d, want v2", got)
+	}
+	if got := InferUnsignedMorphTxVersion(&v0, []SetCodeAuthorization{{}}); got != MorphTxVersion0 {
+		t.Fatalf("explicit v0 = %d, want v0", got)
+	}
+	if got := InferUnsignedMorphTxVersion(&v1, nil); got != MorphTxVersion1 {
+		t.Fatalf("explicit v1 = %d, want v1", got)
+	}
+	if got := InferUnsignedMorphTxVersion(&v2, []SetCodeAuthorization{}); got != MorphTxVersion2 {
+		t.Fatalf("explicit v2 = %d, want v2", got)
+	}
+}
+
 func assertBigIntEqual(t *testing.T, name string, want, got *big.Int) {
 	t.Helper()
 	if want == nil && got == nil {

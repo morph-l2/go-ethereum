@@ -3,6 +3,7 @@ package ethapi
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"errors"
 	"math"
 	"math/big"
@@ -444,11 +445,6 @@ type mockSetDefaultsBackend struct {
 func (m *mockSetDefaultsBackend) CurrentHeader() *types.Header     { return m.header }
 func (m *mockSetDefaultsBackend) ChainConfig() *params.ChainConfig { return m.chainConfig }
 
-func uint16VersionPtr(v uint8) *hexutil.Uint16 {
-	h := hexutil.Uint16(v)
-	return &h
-}
-
 type estimateGasChainContext struct{}
 
 func (estimateGasChainContext) Engine() consensus.Engine { return nil }
@@ -700,19 +696,19 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 	tip := (*hexutil.Big)(big.NewInt(1))
 	feeTokenZero := hexutil.Uint16(0)
 	feeTokenOne := hexutil.Uint16(1)
-	v1 := uint16VersionPtr(types.MorphTxVersion1)
+	memo := hexutil.Bytes("morph")
 
 	blockNr := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 
-	t.Run("v1 explicit feeTokenID=0 estimates as ETH transfer", func(t *testing.T) {
+	t.Run("v1 feeTokenID=0 estimates as ETH transfer", func(t *testing.T) {
 		args := TransactionArgs{
 			From:                 &sender,
 			To:                   &to,
 			Nonce:                &nonce,
 			MaxFeePerGas:         maxFee,
 			MaxPriorityFeePerGas: tip,
-			Version:              v1,
 			FeeTokenID:           &feeTokenZero,
+			Memo:                 &memo,
 		}
 		gas, err := DoEstimateGas(context.Background(), backend, args, blockNr, nil, backend.gasCap)
 		if err != nil {
@@ -723,14 +719,13 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit non-zero feeTokenID still validates token", func(t *testing.T) {
+	t.Run("non-zero feeTokenID still validates token", func(t *testing.T) {
 		args := TransactionArgs{
 			From:                 &sender,
 			To:                   &to,
 			Nonce:                &nonce,
 			MaxFeePerGas:         maxFee,
 			MaxPriorityFeePerGas: tip,
-			Version:              v1,
 			FeeTokenID:           &feeTokenOne, // not registered in the in-memory state
 		}
 		_, err := DoEstimateGas(context.Background(), backend, args, blockNr, nil, backend.gasCap)
@@ -742,9 +737,9 @@ func TestDoEstimateGasMorphTxFeeTokenIDZero(t *testing.T) {
 
 // TestSetDefaults_MorphTxVersionHeuristic tests the heuristic version defaulting logic
 // in TransactionArgs.setDefaults():
-//   - Version == nil + no V1 fields → V0
-//   - Version == nil + Reference or Memo present → V1
-//   - Explicit Version → use as-is
+//   - a present authorization list (including empty) → V2
+//   - otherwise → V1
+//   - before activation, the derived version is rejected
 //
 // deployStorageClearContract installs a contract whose body clears storage
 // slot 0 via SSTORE (non-zero -> zero), which credits a gas refund. The slot is
@@ -893,13 +888,13 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 	}{
 		// === After jade fork (headTime >= 1000) ===
 		{
-			name:     "jade fork: FeeTokenID only → V0",
+			name:     "jade fork: FeeTokenID only → V1",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
 			},
-			wantVersion: uint16Ref(types.MorphTxVersion0),
+			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
 			name:     "jade fork: FeeTokenID + Reference → V1",
@@ -938,40 +933,22 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: empty Reference + FeeTokenID → V0",
+			name:     "jade fork: empty Reference + FeeTokenID → V1",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
 				args.Reference = &emptyRef
 			},
-			wantVersion: uint16Ref(types.MorphTxVersion0),
+			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: empty Memo + FeeTokenID → V0",
+			name:     "jade fork: empty Memo + FeeTokenID → V1",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
 				args.Memo = &emptyMemo
-			},
-			wantVersion: uint16Ref(types.MorphTxVersion0),
-		},
-		{
-			name:     "jade fork: explicit V0 → V0",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				fid := hexutil.Uint16(1)
-				args.FeeTokenID = &fid
-				args.Version = uint16VersionPtr(types.MorphTxVersion0)
-			},
-			wantVersion: uint16Ref(types.MorphTxVersion0),
-		},
-		{
-			name:     "jade fork: explicit V1 → V1",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				args.Version = uint16VersionPtr(types.MorphTxVersion1)
 			},
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
@@ -984,19 +961,11 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 
 		// === Before jade fork (headTime < 1000) ===
 		{
-			name:     "pre-jade: FeeTokenID only → V0",
+			name:     "pre-jade: FeeTokenID only → rejected because default V1 is inactive",
 			headTime: 500,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
-			},
-			wantVersion: uint16Ref(types.MorphTxVersion0),
-		},
-		{
-			name:     "pre-jade: explicit V1 → rejected",
-			headTime: 500,
-			modify: func(args *TransactionArgs) {
-				args.Version = uint16VersionPtr(types.MorphTxVersion1)
 			},
 			wantErr: true,
 		},
@@ -1021,35 +990,13 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:     "pre-jade: explicit V0 + FeeTokenID → V0 (ok)",
-			headTime: 500,
-			modify: func(args *TransactionArgs) {
-				fid := hexutil.Uint16(1)
-				args.FeeTokenID = &fid
-				args.Version = uint16VersionPtr(types.MorphTxVersion0)
-			},
-			wantVersion: uint16Ref(types.MorphTxVersion0),
-		},
-
-		// === validateMorphTxVersion rejection cases ===
-		{
-			name:     "jade fork: explicit V0 + FeeTokenID=0 → rejected",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				fid := hexutil.Uint16(0)
-				args.FeeTokenID = &fid
-				args.Version = uint16VersionPtr(types.MorphTxVersion0)
-			},
-			wantErr: true,
-		},
-		{
-			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit>0 → rejected",
+			name:     "jade fork: inferred V1 + FeeTokenID=0 + FeeLimit>0 → rejected",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(0)
 				args.FeeTokenID = &fid
 				args.FeeLimit = (*hexutil.Big)(big.NewInt(1000))
-				args.Version = uint16VersionPtr(types.MorphTxVersion1)
+				args.Reference = &ref
 			},
 			wantErr: true,
 		},
@@ -1065,100 +1012,45 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=nil → ok",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				args.Version = uint16VersionPtr(types.MorphTxVersion1)
-			},
-			wantVersion: uint16Ref(types.MorphTxVersion1),
-		},
-		{
-			name:     "jade fork: explicit V1 + FeeTokenID=0 + FeeLimit=0 → ok",
+			name:     "jade fork: inferred V1 + FeeTokenID=0 + FeeLimit=0 → ok",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(0)
 				args.FeeTokenID = &fid
 				args.FeeLimit = (*hexutil.Big)(big.NewInt(0))
-				args.Version = uint16VersionPtr(types.MorphTxVersion1)
+				args.Reference = &ref
 			},
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: auto V0 (FeeTokenID=1) + FeeLimit>0 → ok (V0 ignores FeeLimit)",
+			name:     "jade fork: auto V1 (FeeTokenID=1) + FeeLimit>0 → ok",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
 				args.FeeLimit = (*hexutil.Big)(big.NewInt(1000))
 			},
-			wantVersion: uint16Ref(types.MorphTxVersion0),
-		},
-		{
-			name:     "jade fork: explicit V1 + FeeTokenID>0 + FeeLimit>0 → ok",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				fid := hexutil.Uint16(1)
-				args.FeeTokenID = &fid
-				args.FeeLimit = (*hexutil.Big)(big.NewInt(1000))
-				args.Version = uint16VersionPtr(types.MorphTxVersion1)
-			},
 			wantVersion: uint16Ref(types.MorphTxVersion1),
 		},
 		{
-			name:     "jade fork: MorphTx + empty authorizationList without version → rejected",
+			name:     "jade fork: MorphTx + empty authorizationList → V2",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
 				args.AuthorizationList = []types.SetCodeAuthorization{}
 			},
-			wantErr: true,
+			wantVersion: uint16Ref(types.MorphTxVersion2),
 		},
 		{
-			name:     "jade fork: MorphTx + authorizationList without version → rejected",
+			name:     "jade fork: MorphTx + non-empty authorizationList → V2",
 			headTime: 1000,
 			modify: func(args *TransactionArgs) {
 				fid := hexutil.Uint16(1)
 				args.FeeTokenID = &fid
 				args.AuthorizationList = makeAuthorizationList(1)
 			},
-			wantErr: true,
-		},
-		{
-			name:     "jade fork: explicit V1 + authorizationList → rejected",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				args.Version = uint16VersionPtr(types.MorphTxVersion1)
-				args.Memo = &memo
-				args.AuthorizationList = makeAuthorizationList(1)
-			},
-			wantErr: true,
-		},
-		{
-			name:     "jade fork: explicit V2 + authorizationList → V2",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				args.Version = uint16VersionPtr(types.MorphTxVersion2)
-				args.AuthorizationList = makeAuthorizationList(1)
-			},
 			wantVersion: uint16Ref(types.MorphTxVersion2),
-		},
-		{
-			name:     "jade fork: explicit V2 + empty authorizationList → V2",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				args.Version = uint16VersionPtr(types.MorphTxVersion2)
-				args.AuthorizationList = []types.SetCodeAuthorization{}
-			},
-			wantVersion: uint16Ref(types.MorphTxVersion2),
-		},
-		{
-			name:     "jade fork: unsupported version 99 → rejected",
-			headTime: 1000,
-			modify: func(args *TransactionArgs) {
-				args.Version = uint16VersionPtr(99)
-			},
-			wantErr: true,
 		},
 	}
 
@@ -1180,16 +1072,15 @@ func TestSetDefaults_MorphTxVersionHeuristic(t *testing.T) {
 			}
 
 			if tt.wantVersion == nil {
-				// Not a MorphTx — Version should remain nil
-				if args.Version != nil {
-					t.Errorf("expected Version to be nil (non-MorphTx), got %d", *args.Version)
+				if args.isMorphTxArgs() {
+					t.Error("expected non-MorphTx arguments")
 				}
 			} else {
-				if args.Version == nil {
-					t.Fatalf("expected Version = %d, got nil", *tt.wantVersion)
+				if !args.isMorphTxArgs() {
+					t.Fatal("expected MorphTx arguments")
 				}
-				if uint16(*args.Version) != *tt.wantVersion {
-					t.Errorf("Version: got %d, want %d", *args.Version, *tt.wantVersion)
+				if got := args.inferredMorphTxVersion(); uint16(got) != *tt.wantVersion {
+					t.Errorf("Version: got %d, want %d", got, *tt.wantVersion)
 				}
 			}
 		})
@@ -1214,31 +1105,22 @@ func TestToMessageMorphTxAuthorizationList(t *testing.T) {
 		}
 	}
 
-	t.Run("empty list without version is rejected", func(t *testing.T) {
+	t.Run("empty list derives v2 but does not execute 7702", func(t *testing.T) {
 		args := base()
 		args.AuthorizationList = []types.SetCodeAuthorization{}
-		if _, err := args.ToMessage(0, big.NewInt(1)); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
-			t.Fatalf("got %v, want %v", err, types.ErrMorphTxAuthListRequiresV2)
+		msg, err := args.ToMessage(0, big.NewInt(1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.Version() != types.MorphTxVersion2 {
+			t.Fatalf("version = %d, want v2", msg.Version())
+		}
+		if msg.SetCodeAuthorizations() != nil {
+			t.Fatalf("authorizations = %#v, want nil", msg.SetCodeAuthorizations())
 		}
 	})
-	t.Run("non-empty list without version is rejected", func(t *testing.T) {
+	t.Run("non-empty list derives v2", func(t *testing.T) {
 		args := base()
-		args.AuthorizationList = makeAuthorizationList(1)
-		if _, err := args.ToMessage(0, big.NewInt(1)); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
-			t.Fatalf("got %v, want %v", err, types.ErrMorphTxAuthListRequiresV2)
-		}
-	})
-	t.Run("explicit v1 with list is rejected", func(t *testing.T) {
-		args := base()
-		args.Version = uint16VersionPtr(types.MorphTxVersion1)
-		args.AuthorizationList = makeAuthorizationList(1)
-		if _, err := args.ToMessage(0, big.NewInt(1)); !errors.Is(err, types.ErrMorphTxAuthListRequiresV2) {
-			t.Fatalf("got %v, want %v", err, types.ErrMorphTxAuthListRequiresV2)
-		}
-	})
-	t.Run("explicit v2 keeps the list", func(t *testing.T) {
-		args := base()
-		args.Version = uint16VersionPtr(types.MorphTxVersion2)
 		args.AuthorizationList = makeAuthorizationList(1)
 		msg, err := args.ToMessage(0, big.NewInt(1))
 		if err != nil {
@@ -1251,6 +1133,23 @@ func TestToMessageMorphTxAuthorizationList(t *testing.T) {
 			t.Fatalf("authorizations = %d, want 1", len(msg.SetCodeAuthorizations()))
 		}
 	})
+}
+
+func TestTransactionArgsVersionIsDerived(t *testing.T) {
+	var args TransactionArgs
+	if err := json.Unmarshal([]byte(`{"feeTokenID":"0x1","version":"0x2"}`), &args); err != nil {
+		t.Fatal(err)
+	}
+	if got := args.inferredMorphTxVersion(); got != types.MorphTxVersion1 {
+		t.Fatalf("version = %d, want derived v1", got)
+	}
+
+	if err := json.Unmarshal([]byte(`{"feeTokenID":"0x1","version":"0x1","authorizationList":[]}`), &args); err != nil {
+		t.Fatal(err)
+	}
+	if got := args.inferredMorphTxVersion(); got != types.MorphTxVersion2 {
+		t.Fatalf("version = %d, want derived v2", got)
+	}
 }
 
 func TestMorphTxAuthorizationListCallAndEstimateConsistency(t *testing.T) {
@@ -1282,54 +1181,37 @@ func TestMorphTxAuthorizationListCallAndEstimateConsistency(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		version *hexutil.Uint16
-		auths   []types.SetCodeAuthorization
-		wantErr error
+		name  string
+		auths []types.SetCodeAuthorization
 	}{
 		{
-			name:    "unspecified version with empty list",
-			auths:   []types.SetCodeAuthorization{},
-			wantErr: types.ErrMorphTxAuthListRequiresV2,
+			name:  "empty list",
+			auths: []types.SetCodeAuthorization{},
 		},
 		{
-			name:    "unspecified version with non-empty list",
-			auths:   makeAuthorizationList(1),
-			wantErr: types.ErrMorphTxAuthListRequiresV2,
-		},
-		{
-			name:    "explicit v1 with non-empty list",
-			version: uint16VersionPtr(types.MorphTxVersion1),
-			auths:   makeAuthorizationList(1),
-			wantErr: types.ErrMorphTxAuthListRequiresV2,
-		},
-		{
-			name:    "explicit v2 with empty list",
-			version: uint16VersionPtr(types.MorphTxVersion2),
-			auths:   []types.SetCodeAuthorization{},
+			name:  "non-empty list",
+			auths: makeAuthorizationList(1),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			callArgs := base()
-			callArgs.Version = tt.version
 			callArgs.AuthorizationList = tt.auths
 			result, callErr := DoCall(context.Background(), backend, callArgs, block, nil, 0, backend.gasCap)
-			if !errors.Is(callErr, tt.wantErr) {
-				t.Fatalf("eth_call error = %v, want %v", callErr, tt.wantErr)
+			if callErr != nil {
+				t.Fatalf("eth_call error = %v", callErr)
 			}
-			if tt.wantErr == nil && result.Failed() {
+			if result.Failed() {
 				t.Fatalf("eth_call execution failed: %v", result.Err)
 			}
 
 			estimateArgs := base()
 			estimateArgs.Gas = nil
-			estimateArgs.Version = tt.version
 			estimateArgs.AuthorizationList = tt.auths
 			_, estimateErr := DoEstimateGas(context.Background(), backend, estimateArgs, block, nil, backend.gasCap)
-			if !errors.Is(estimateErr, tt.wantErr) {
-				t.Fatalf("eth_estimateGas error = %v, want %v", estimateErr, tt.wantErr)
+			if estimateErr != nil {
+				t.Fatalf("eth_estimateGas error = %v", estimateErr)
 			}
 		})
 	}

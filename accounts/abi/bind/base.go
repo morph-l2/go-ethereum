@@ -60,7 +60,6 @@ type TransactOpts struct {
 
 	FeeTokenID        uint16                       // alt fee token id of transaction execution
 	FeeLimit          *big.Int                     // alt fee token limit of transaction execution
-	Version           *uint8                       // version of morph tx (nil = auto-detect)
 	Reference         *common.Reference            // reference key for the transaction (optional)
 	Memo              *[]byte                      // memo for the transaction (optional)
 	AuthorizationList []types.SetCodeAuthorization // EIP-7702 authorizations (optional)
@@ -408,60 +407,33 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 		Version:    version,
 		Reference:  opts.Reference,
 		Memo:       opts.Memo,
-		AuthList:   opts.AuthorizationList,
+		AuthList:   morphTxAuthList(version, opts.AuthorizationList),
 		Value:      value,
 		Data:       input,
 	}
 	return types.NewTx(baseTx), nil
 }
 
-// morphTxVersion determines the MorphTx version and validates field requirements.
-// If version is explicitly specified, validate that parameters match:
-//   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
-//   - Version 1: FeeTokenID, Reference, Memo are all optional;
-//     if FeeTokenID is 0, FeeLimit must not be set
-//   - Version 2: Version 1 rules plus an authorization list, which may be empty
-//
-// If version is not explicitly specified, use heuristic detection:
-//   - V1 if V1-specific fields (Reference, Memo) are present
-//   - V0 otherwise (backward compatible with AltFeeTx behavior)
-//
-// authorizationList never implies v2. On MorphTx it is legal only with an
-// explicit version 2; otherwise this returns ErrMorphTxAuthListRequiresV2.
+func morphTxAuthList(version uint8, authList []types.SetCodeAuthorization) []types.SetCodeAuthorization {
+	if version != types.MorphTxVersion2 {
+		return nil
+	}
+	if authList == nil {
+		return []types.SetCodeAuthorization{}
+	}
+	return authList
+}
+
+// morphTxVersion derives the MorphTx version from transaction intent.
+// MorphTx defaults to v1; a present authorization list (including empty) selects v2.
 func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
-	// Validate memo length
 	if opts.Memo != nil && len(*opts.Memo) > common.MaxMemoLength {
 		return 0, types.ErrMemoTooLong
 	}
 
-	if opts.AuthorizationList != nil && (opts.Version == nil || *opts.Version != types.MorphTxVersion2) {
-		return 0, types.ErrMorphTxAuthListRequiresV2
-	}
+	version := types.InferUnsignedMorphTxVersion(nil, opts.AuthorizationList)
 
-	// If version is not explicitly specified, determine based on fields:
-	// - V1 if V1-specific fields (Reference, Memo) are present
-	// - V0 otherwise (backward compatible with AltFeeTx behavior)
-	if opts.Version == nil {
-		hasV1Fields := (opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
-			(opts.Memo != nil && len(*opts.Memo) > 0)
-		if hasV1Fields {
-			if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
-				return 0, types.ErrMorphTxV1IllegalExtraParams
-			}
-			return types.MorphTxVersion1, nil
-		}
-		return types.MorphTxVersion0, nil
-	}
-
-	// Version explicitly specified - validate parameters match
-	version := *opts.Version
 	switch version {
-	case types.MorphTxVersion0:
-		if opts.FeeTokenID == 0 ||
-			opts.Reference != nil && *opts.Reference != (common.Reference{}) ||
-			opts.Memo != nil && len(*opts.Memo) > 0 {
-			return 0, types.ErrMorphTxV0IllegalExtraParams
-		}
 	case types.MorphTxVersion1:
 		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
 			return 0, types.ErrMorphTxV1IllegalExtraParams
@@ -569,7 +541,6 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 			return nil, errHead
 		} else if head.BaseFee != nil {
 			if opts.FeeTokenID != 0 ||
-				opts.Version != nil ||
 				(opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
 				(opts.Memo != nil && len(*opts.Memo) > 0) {
 				rawTx, err = c.createMorphTx(opts, contract, input, head)

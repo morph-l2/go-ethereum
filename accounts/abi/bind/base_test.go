@@ -90,19 +90,8 @@ func TestTransactRoutesAuthorizationList(t *testing.T) {
 		}
 	}
 
-	t.Run("Morph fields plus authorization list require explicit v2", func(t *testing.T) {
+	t.Run("Morph fields plus non-empty authorization list create v2", func(t *testing.T) {
 		opts := baseOpts()
-		opts.FeeTokenID = 1
-		opts.AuthorizationList = []types.SetCodeAuthorization{{}}
-		if _, err := bc.RawTransact(opts, nil); err != types.ErrMorphTxAuthListRequiresV2 {
-			t.Fatalf("got %v, want %v", err, types.ErrMorphTxAuthListRequiresV2)
-		}
-	})
-
-	t.Run("Morph fields plus authorization list create v2 when version is explicit", func(t *testing.T) {
-		opts := baseOpts()
-		version := uint8(types.MorphTxVersion2)
-		opts.Version = &version
 		opts.FeeTokenID = 1
 		opts.AuthorizationList = []types.SetCodeAuthorization{{}}
 		tx, err := bc.RawTransact(opts, nil)
@@ -117,10 +106,9 @@ func TestTransactRoutesAuthorizationList(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit empty v2 remains MorphTx", func(t *testing.T) {
+	t.Run("empty authorization list creates MorphTx v2", func(t *testing.T) {
 		opts := baseOpts()
-		version := uint8(types.MorphTxVersion2)
-		opts.Version = &version
+		opts.FeeTokenID = 1
 		opts.AuthorizationList = []types.SetCodeAuthorization{}
 		tx, err := bc.RawTransact(opts, nil)
 		if err != nil {

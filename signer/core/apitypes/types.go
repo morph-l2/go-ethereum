@@ -130,22 +130,24 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Determine version: explicit > V1 if V1-specific fields present > V0.
-		// authorizationList does not select v2; attach it only on explicit v2.
-		version := uint8(types.MorphTxVersion0)
+		// A version copied from an already-formed transaction is authoritative.
+		// Otherwise a present authorization list (including empty) selects v2;
+		// MorphTx defaults to v1.
+		var explicit *uint8
 		if args.Version != nil {
-			version = uint8(*args.Version)
-		} else if (args.Reference != nil && *args.Reference != (common.Reference{})) ||
-			(args.Memo != nil && len(*args.Memo) > 0) {
-			version = uint8(types.MorphTxVersion1)
+			v := uint8(*args.Version)
+			explicit = &v
 		}
+		version := types.InferUnsignedMorphTxVersion(explicit, args.AuthorizationList)
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)
 		}
-		var authList []types.SetCodeAuthorization
-		if version == types.MorphTxVersion2 {
-			authList = args.AuthorizationList
+		authList := args.AuthorizationList
+		if version != types.MorphTxVersion2 {
+			authList = nil
+		} else if authList == nil {
+			authList = []types.SetCodeAuthorization{}
 		}
 		data = &types.MorphTx{
 			To:         to,

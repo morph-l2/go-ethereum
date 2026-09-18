@@ -262,7 +262,18 @@ var (
 		Threshold: 2,
 	}
 
-	MorphMaxTxPayloadBytesPerBlock = 120 * 1024
+	// MorphMaxTxPayloadBytesPerBlock is the default per-block transaction payload
+	// budget: the value the built-in mainnet and hoodi configs below point at, and
+	// the fallback the genesis generator uses when a deploy config leaves
+	// maxTxPayloadBytesPerBlock unset. The limit IsValidBlockSize enforces always
+	// comes from the chain config, so a network can carry its own value.
+	//
+	// Changing it is a consensus change: IsValidBlockSize backs ValidateBody, so
+	// every node on a network must agree on the value. Keep it within what the
+	// batch submitter can pack -- max_blob_count (a tx-submitter flag, default 6)
+	// times 4096*31 bounds the compressed batch payload, and the effective blob
+	// count is 1 before the batch-V2 upgrade.
+	MorphMaxTxPayloadBytesPerBlock = 720 * 1024
 
 	MorphFeeVaultAddress = common.HexToAddress("0x48442aa154897eef141df231cc1517fc8c1d170f")
 

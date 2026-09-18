@@ -43,6 +43,22 @@ func (bc *BlockChain) UpdateBlockProcessMetrics(statedb *state.StateDB, procTime
 
 }
 
+// UpdateBlockHashMetrics records the per-block account/storage trie hashing
+// time accumulated in statedb. It is the build-path counterpart of the same
+// two samples that ProcessBlock records at its tail (blockchain_l2.go:76-77).
+//
+// On the sequencer, AssembleL2Block(V2) -> BuildBlock -> FinalizeAndAssemble
+// -> IntermediateRoot computes the state root, so AccountHashes/StorageHashes
+// are final at build time. The subsequent NewL2Block(V2) verified commit path
+// reuses this exact StateDB and skips ProcessBlock, so without this sample the
+// sequencer would contribute zero samples to chain/account/hashes and
+// chain/storage/hashes. Call exactly once per StateDB lifetime: build path
+// uses this, fullnode-replay path uses ProcessBlock's tail — never both.
+func (bc *BlockChain) UpdateBlockHashMetrics(statedb *state.StateDB) {
+	accountHashTimer.Update(statedb.AccountHashes)   // Account hashes are complete, we can mark them
+	storageHashTimer.Update(statedb.StorageHashes)   // Storage hashes are complete, we can mark them
+}
+
 func (bc *BlockChain) ProcessBlock(block *types.Block, parent *types.Header, safe bool) (*state.StateDB, types.Receipts, uint64, time.Duration, error) {
 	statedb, err := state.New(parent.Root, bc.stateCache, bc.snaps)
 	if err != nil {
@@ -156,6 +172,14 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	if err != nil {
 		return err
 	}
+	// Commit phase is complete, the per-block account/storage/snapshot commit
+	// time accumulated in `state` is final here. Record it to align with the L1
+	// insertChain path: without this sample the L2 write path leaves
+	// chain/account/commits, chain/storage/commits and chain/snapshot/commits
+	// with zero samples on both sequencer and fullnode.
+	accountCommitTimer.Update(state.AccountCommits)
+	storageCommitTimer.Update(state.StorageCommits)
+	snapshotCommitTimer.Update(state.SnapshotCommits)
 
 	// If the block header root differs from the local computed root,
 	// write the mapping for cross-format state access (MPT ↔ zkTrie).

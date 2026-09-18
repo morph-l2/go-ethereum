@@ -101,6 +101,10 @@ func (api *l2ConsensusAPI) AssembleL2Block(params AssembleL2BlockParams) (*Execu
 	// }
 	procTime := time.Since(start)
 	withdrawTrieRoot := api.writeVerified(newBlockResult.State, newBlockResult.Block, newBlockResult.Receipts, procTime)
+	// See UpdateBlockHashMetrics: state root is final after BuildBlock, sample
+	// the hash timers once here so the verified commit path (which reuses this
+	// StateDB and skips ProcessBlock) does not drop these samples.
+	api.eth.BlockChain().UpdateBlockHashMetrics(newBlockResult.State)
 	return &ExecutableL2Data{
 		ParentHash:   newBlockResult.Block.ParentHash(),
 		Number:       newBlockResult.Block.NumberU64(),
@@ -469,6 +473,10 @@ func (api *l2ConsensusAPI) AssembleL2BlockV2(params AssembleL2BlockV2Params) (*E
 
 	procTime := time.Since(start)
 	withdrawTrieRoot := api.writeVerified(newBlockResult.State, newBlockResult.Block, newBlockResult.Receipts, procTime)
+	// See UpdateBlockHashMetrics: state root is final after BuildBlock, sample
+	// the hash timers once here so the verified commit path (which reuses this
+	// StateDB and skips ProcessBlock) does not drop these samples.
+	api.eth.BlockChain().UpdateBlockHashMetrics(newBlockResult.State)
 
 	return &ExecutableL2Data{
 		ParentHash:   newBlockResult.Block.ParentHash(),

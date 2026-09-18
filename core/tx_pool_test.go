@@ -56,7 +56,7 @@ var (
 	// eip1559NoL1feeConfig is a chain config with EIP-1559 enabled at block 0 but not enabling L1fee.
 	eip1559NoL1feeConfig *params.ChainConfig
 
-	// morphTxConfig is a chain config with Emerald fork enabled (supports MorphTx).
+	// morphTxConfig is a chain config with Emerald, Jade, and Celadon enabled (MorphTx v0/v1/v2).
 	morphTxConfig *params.ChainConfig
 
 	// noEmeraldConfig is a chain config without Emerald fork (MorphTx not supported).
@@ -80,13 +80,14 @@ func init() {
 	eip1559NoL1feeConfig.BerlinBlock = common.Big0
 	eip1559NoL1feeConfig.LondonBlock = common.Big0
 
-	// MorphTx config with Emerald and Jade fork enabled (supports MorphTx V0 and V1)
+	// MorphTx config with Emerald, Jade, and Celadon enabled (supports MorphTx v0/v1/v2)
 	cpy3 := *params.TestChainConfig
 	morphTxConfig = &cpy3
 	morphTxConfig.BerlinBlock = common.Big0
 	morphTxConfig.LondonBlock = common.Big0
 	morphTxConfig.EmeraldTime = new(uint64)  // Enable Emerald fork at time 0
 	morphTxConfig.JadeForkTime = new(uint64) // Enable Jade fork at time 0
+	morphTxConfig.CeladonTime = new(uint64)  // Enable Celadon fork at time 0
 
 	// Config without Emerald fork (for testing MorphTx rejection)
 	cpy4 := *params.TestChainConfig
@@ -192,6 +193,30 @@ func morphTxV1(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, key
 		Version:    types.MorphTxVersion1,
 		Reference:  &ref,
 		Memo:       &memo,
+	})
+	return tx
+}
+
+// morphTxV2 creates a MorphTx Version 2 (empty authorization list is product-legal).
+func morphTxV2(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, key *ecdsa.PrivateKey) *types.Transaction {
+	ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	memo := []byte("test memo")
+	tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		GasTipCap:  tip,
+		GasFeeCap:  gasFee,
+		Gas:        gaslimit,
+		To:         &common.Address{},
+		Value:      big.NewInt(100),
+		Data:       nil,
+		AccessList: nil,
+		FeeTokenID: 0,
+		FeeLimit:   big.NewInt(0),
+		Version:    types.MorphTxVersion2,
+		Reference:  &ref,
+		Memo:       &memo,
+		AuthList:   []types.SetCodeAuthorization{},
 	})
 	return tx
 }
@@ -2863,36 +2888,6 @@ func TestMorphTxValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("UnsupportedVersion", func(t *testing.T) {
-		t.Parallel()
-
-		pool, key := setupTxPoolWithConfig(morphTxConfig)
-		defer pool.Stop()
-
-		account := crypto.PubkeyToAddress(key.PublicKey)
-		testAddBalance(pool, account, big.NewInt(1000000000))
-
-		// Create a MorphTx with unsupported version
-		ref := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-		memo := []byte("test")
-		tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.MorphTx{
-			ChainID:    params.TestChainConfig.ChainID,
-			Nonce:      0,
-			GasTipCap:  big.NewInt(1),
-			GasFeeCap:  big.NewInt(10),
-			Gas:        100000,
-			To:         &common.Address{},
-			Value:      big.NewInt(100),
-			FeeTokenID: 0,
-			Version:    2, // Unsupported version
-			Reference:  &ref,
-			Memo:       &memo,
-		})
-		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxUnsupportedVersion) {
-			t.Errorf("expected ErrMorphTxUnsupportedVersion, got %v", err)
-		}
-	})
-
 	t.Run("V0WithReference", func(t *testing.T) {
 		t.Parallel()
 
@@ -3269,6 +3264,65 @@ func TestMorphTxV1JadeForkGating(t *testing.T) {
 		err := pool.AddRemote(txV0)
 		if errors.Is(err, types.ErrMorphTxV1NotYetActive) || errors.Is(err, types.ErrMorphTxV0IllegalExtraParams) {
 			t.Errorf("V0 should be accepted after jade fork, got %v", err)
+		}
+	})
+}
+
+// TestMorphTxV2CeladonForkGating tests that MorphTx V2 is rejected before Celadon
+// and accepted after Celadon, while V1 remains accepted once Jade is active.
+func TestMorphTxV2CeladonForkGating(t *testing.T) {
+	t.Parallel()
+
+	preCeladonConfig := func() *params.ChainConfig {
+		cpy := *params.TestChainConfig
+		cfg := &cpy
+		cfg.BerlinBlock = common.Big0
+		cfg.LondonBlock = common.Big0
+		cfg.EmeraldTime = new(uint64)
+		cfg.JadeForkTime = new(uint64)
+		cfg.CeladonTime = nil
+		return cfg
+	}()
+
+	t.Run("V2RejectedBeforeCeladon", func(t *testing.T) {
+		t.Parallel()
+		pool, key := setupTxPoolWithConfig(preCeladonConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		tx := morphTxV2(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV2NotYetActive) {
+			t.Errorf("expected ErrMorphTxV2NotYetActive, got %v", err)
+		}
+	})
+
+	t.Run("V1AcceptedBeforeCeladon", func(t *testing.T) {
+		t.Parallel()
+		pool, key := setupTxPoolWithConfig(preCeladonConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		tx := morphTxV1(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.AddRemote(tx); err != nil {
+			t.Errorf("V1 should be accepted before Celadon, got %v", err)
+		}
+	})
+
+	t.Run("V2AcceptedAfterCeladon", func(t *testing.T) {
+		t.Parallel()
+		pool, key := setupTxPoolWithConfig(morphTxConfig)
+		defer pool.Stop()
+
+		account := crypto.PubkeyToAddress(key.PublicKey)
+		testAddBalance(pool, account, big.NewInt(1000000000))
+
+		tx := morphTxV2(0, 100000, big.NewInt(10), big.NewInt(1), key)
+		if err := pool.AddRemote(tx); err != nil {
+			t.Errorf("V2 should be accepted after Celadon, got %v", err)
 		}
 	})
 }

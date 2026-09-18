@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/holiman/uint256"
 	"github.com/morph-l2/go-ethereum"
 	"github.com/morph-l2/go-ethereum/accounts/abi"
 	"github.com/morph-l2/go-ethereum/common"
@@ -57,11 +58,11 @@ type TransactOpts struct {
 	GasTipCap *big.Int // Gas priority fee cap to use for the 1559 transaction execution (nil = gas price oracle)
 	GasLimit  uint64   // Gas limit to set for the transaction execution (0 = estimate)
 
-	FeeTokenID uint16            // alt fee token id of transaction execution
-	FeeLimit   *big.Int          // alt fee token limit of transaction execution
-	Version    *uint8            // version of morph tx (nil = auto-detect)
-	Reference  *common.Reference // reference key for the transaction (optional)
-	Memo       *[]byte           // memo for the transaction (optional)
+	FeeTokenID        uint16                       // alt fee token id of transaction execution
+	FeeLimit          *big.Int                     // alt fee token limit of transaction execution
+	Reference         *common.Reference            // reference key for the transaction (optional)
+	Memo              *[]byte                      // memo for the transaction (optional)
+	AuthorizationList []types.SetCodeAuthorization // EIP-7702 authorizations (optional)
 
 	Context context.Context // Network context to support cancellation and timeouts (nil = no timeout)
 
@@ -293,7 +294,58 @@ func (c *BoundContract) createDynamicTx(opts *TransactOpts, contract *common.Add
 	return types.NewTx(baseTx), nil
 }
 
+func (c *BoundContract) createSetCodeTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
+	if contract == nil {
+		return nil, types.ErrMorphTxV2ContractCreation
+	}
+	value := opts.Value
+	if value == nil {
+		value = new(big.Int)
+	}
+	gasTipCap := opts.GasTipCap
+	if gasTipCap == nil {
+		tip, err := c.transactor.SuggestGasTipCap(ensureContext(opts.Context))
+		if err != nil {
+			return nil, err
+		}
+		gasTipCap = tip
+	}
+	gasFeeCap := opts.GasFeeCap
+	if gasFeeCap == nil {
+		gasFeeCap = new(big.Int).Add(gasTipCap, new(big.Int).Mul(head.BaseFee, big.NewInt(2)))
+	}
+	if gasFeeCap.Cmp(gasTipCap) < 0 {
+		return nil, fmt.Errorf("maxFeePerGas (%v) < maxPriorityFeePerGas (%v)", gasFeeCap, gasTipCap)
+	}
+	gasLimit := opts.GasLimit
+	if gasLimit == 0 {
+		var err error
+		gasLimit, err = c.estimateGasLimit(opts, contract, input, nil, gasTipCap, gasFeeCap, value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	nonce, err := c.getNonce(opts)
+	if err != nil {
+		return nil, err
+	}
+	return types.NewTx(&types.SetCodeTx{
+		ChainID:   new(uint256.Int),
+		Nonce:     nonce,
+		GasTipCap: uint256.MustFromBig(gasTipCap),
+		GasFeeCap: uint256.MustFromBig(gasFeeCap),
+		Gas:       gasLimit,
+		To:        *contract,
+		Value:     uint256.MustFromBig(value),
+		Data:      input,
+		AuthList:  opts.AuthorizationList,
+	}), nil
+}
+
 func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
+	if len(opts.AuthorizationList) > 0 && contract == nil {
+		return nil, types.ErrMorphTxV2ContractCreation
+	}
 	// Normalize value
 	value := opts.Value
 	if value == nil {
@@ -355,52 +407,38 @@ func (c *BoundContract) createMorphTx(opts *TransactOpts, contract *common.Addre
 		Version:    version,
 		Reference:  opts.Reference,
 		Memo:       opts.Memo,
+		AuthList:   morphTxAuthList(version, opts.AuthorizationList),
 		Value:      value,
 		Data:       input,
 	}
 	return types.NewTx(baseTx), nil
 }
 
-// morphTxVersion determines the MorphTx version and validates field requirements.
-// If version is explicitly specified, validate that parameters match:
-//   - Version 0: FeeTokenID must be > 0, Reference and Memo must not be set
-//   - Version 1: FeeTokenID, Reference, Memo are all optional;
-//     if FeeTokenID is 0, FeeLimit must not be set
-//
-// If version is not explicitly specified, use heuristic detection:
-//   - V1 if V1-specific fields (Reference, Memo) are present
-//   - V0 otherwise (backward compatible with AltFeeTx behavior)
+func morphTxAuthList(version uint8, authList []types.SetCodeAuthorization) []types.SetCodeAuthorization {
+	if version != types.MorphTxVersion2 {
+		return nil
+	}
+	if authList == nil {
+		return []types.SetCodeAuthorization{}
+	}
+	return authList
+}
+
+// morphTxVersion derives the MorphTx version from transaction intent.
+// MorphTx defaults to v1; a non-empty authorization list selects v2.
 func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
-	// Validate memo length
 	if opts.Memo != nil && len(*opts.Memo) > common.MaxMemoLength {
 		return 0, types.ErrMemoTooLong
 	}
 
-	// If version is not explicitly specified, determine based on fields:
-	// - V1 if V1-specific fields (Reference, Memo) are present
-	// - V0 otherwise (backward compatible with AltFeeTx behavior)
-	if opts.Version == nil {
-		hasV1Fields := (opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
-			(opts.Memo != nil && len(*opts.Memo) > 0)
-		if hasV1Fields {
-			if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
-				return 0, types.ErrMorphTxV1IllegalExtraParams
-			}
-			return types.MorphTxVersion1, nil
-		}
-		return types.MorphTxVersion0, nil
-	}
+	version := types.InferUnsignedMorphTxVersion(nil, opts.AuthorizationList)
 
-	// Version explicitly specified - validate parameters match
-	version := *opts.Version
 	switch version {
-	case types.MorphTxVersion0:
-		if opts.FeeTokenID == 0 ||
-			opts.Reference != nil && *opts.Reference != (common.Reference{}) ||
-			opts.Memo != nil && len(*opts.Memo) > 0 {
-			return 0, types.ErrMorphTxV0IllegalExtraParams
-		}
 	case types.MorphTxVersion1:
+		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
+			return 0, types.ErrMorphTxV1IllegalExtraParams
+		}
+	case types.MorphTxVersion2:
 		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
 			return 0, types.ErrMorphTxV1IllegalExtraParams
 		}
@@ -464,13 +502,14 @@ func (c *BoundContract) estimateGasLimit(opts *TransactOpts, contract *common.Ad
 		}
 	}
 	msg := ethereum.CallMsg{
-		From:      opts.From,
-		To:        contract,
-		GasPrice:  gasPrice,
-		GasTipCap: gasTipCap,
-		GasFeeCap: gasFeeCap,
-		Value:     value,
-		Data:      input,
+		From:              opts.From,
+		To:                contract,
+		GasPrice:          gasPrice,
+		GasTipCap:         gasTipCap,
+		GasFeeCap:         gasFeeCap,
+		Value:             value,
+		Data:              input,
+		AuthorizationList: opts.AuthorizationList,
 	}
 	return c.transactor.EstimateGas(ensureContext(opts.Context), msg)
 }
@@ -502,10 +541,11 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 			return nil, errHead
 		} else if head.BaseFee != nil {
 			if opts.FeeTokenID != 0 ||
-				opts.Version != nil ||
 				(opts.Reference != nil && *opts.Reference != (common.Reference{})) ||
 				(opts.Memo != nil && len(*opts.Memo) > 0) {
 				rawTx, err = c.createMorphTx(opts, contract, input, head)
+			} else if opts.AuthorizationList != nil {
+				rawTx, err = c.createSetCodeTx(opts, contract, input, head)
 			} else {
 				rawTx, err = c.createDynamicTx(opts, contract, input, head)
 			}

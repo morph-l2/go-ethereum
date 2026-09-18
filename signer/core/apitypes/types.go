@@ -85,13 +85,14 @@ type SendTxArgs struct {
 	Input *hexutil.Bytes `json:"input,omitempty"`
 
 	// For non-legacy transactions
-	AccessList *types.AccessList `json:"accessList,omitempty"`
-	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
-	FeeTokenID *hexutil.Uint16   `json:"feeTokenID,omitempty"`
-	FeeLimit   *hexutil.Big      `json:"feeLimit,omitempty"`
-	Version    *hexutil.Uint64   `json:"version,omitempty"`
-	Reference  *common.Reference `json:"reference,omitempty"`
-	Memo       *hexutil.Bytes    `json:"memo,omitempty"`
+	AccessList        *types.AccessList            `json:"accessList,omitempty"`
+	ChainID           *hexutil.Big                 `json:"chainId,omitempty"`
+	FeeTokenID        *hexutil.Uint16              `json:"feeTokenID,omitempty"`
+	FeeLimit          *hexutil.Big                 `json:"feeLimit,omitempty"`
+	Version           *hexutil.Uint64              `json:"version,omitempty"`
+	Reference         *common.Reference            `json:"reference,omitempty"`
+	Memo              *hexutil.Bytes               `json:"memo,omitempty"`
+	AuthorizationList []types.SetCodeAuthorization `json:"authorizationList,omitempty"`
 }
 
 func (args SendTxArgs) String() string {
@@ -103,7 +104,7 @@ func (args SendTxArgs) String() string {
 }
 
 // ToTransaction converts the arguments to a transaction.
-func (args *SendTxArgs) ToTransaction() *types.Transaction {
+func (args *SendTxArgs) ToTransaction() (*types.Transaction, error) {
 	// Add the To-field, if specified
 	var to *common.Address
 	if args.To != nil {
@@ -129,17 +130,26 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 		if args.AccessList != nil {
 			al = *args.AccessList
 		}
-		// Determine version: explicit > V1 if V1-specific fields present > V0 (backward compatible)
-		version := uint8(types.MorphTxVersion0)
+		// A version copied from an already-formed transaction is authoritative.
+		// Otherwise a non-empty authorization list selects v2; MorphTx defaults to v1.
+		var explicit *uint8
 		if args.Version != nil {
-			version = uint8(*args.Version)
-		} else if (args.Reference != nil && *args.Reference != (common.Reference{})) ||
-			(args.Memo != nil && len(*args.Memo) > 0) {
-			version = uint8(types.MorphTxVersion1)
+			v := uint8(*args.Version)
+			explicit = &v
+		}
+		version := types.InferUnsignedMorphTxVersion(explicit, args.AuthorizationList)
+		if version != types.MorphTxVersion2 && len(args.AuthorizationList) > 0 {
+			return nil, types.ErrMorphTxAuthListRequiresV2
 		}
 		var feeTokenID uint16
 		if args.FeeTokenID != nil {
 			feeTokenID = uint16(*args.FeeTokenID)
+		}
+		authList := args.AuthorizationList
+		if version != types.MorphTxVersion2 {
+			authList = nil
+		} else if authList == nil {
+			authList = []types.SetCodeAuthorization{}
 		}
 		data = &types.MorphTx{
 			To:         to,
@@ -156,6 +166,7 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			Value:      (*big.Int)(&args.Value),
 			Data:       input,
 			AccessList: al,
+			AuthList:   authList,
 		}
 	case args.MaxFeePerGas != nil:
 		al := types.AccessList{}
@@ -194,5 +205,5 @@ func (args *SendTxArgs) ToTransaction() *types.Transaction {
 			Data:     input,
 		}
 	}
-	return types.NewTx(data)
+	return types.NewTx(data), nil
 }

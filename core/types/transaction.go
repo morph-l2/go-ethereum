@@ -42,8 +42,11 @@ var (
 	ErrMemoTooLong                 = errors.New("memo exceeds maximum length of 64 bytes")
 	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
 	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
+	ErrMorphTxV2ContractCreation   = errors.New("MorphTx with an authorization list cannot create a contract")
 	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
 	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
+	ErrMorphTxV2NotYetActive       = errors.New("MorphTx version 2 is not yet active")
+	ErrMorphTxAuthListRequiresV2   = errors.New("authorizationList is only valid on MorphTx version 2")
 	errEmptyTypedTx                = errors.New("empty typed transaction bytes")
 	errShortTypedTx                = errors.New("typed transaction too short")
 	errInvalidYParity              = errors.New("'yParity' field must be 0 or 1")
@@ -415,6 +418,9 @@ func (tx *Transaction) Memo() *[]byte {
 //   - Version 0 (legacy format): FeeTokenID must be > 0, Reference and Memo must not be set
 //   - Version 1 (with Reference/Memo): FeeTokenID, Reference, Memo are all optional;
 //     if FeeTokenID is 0, FeeLimit must not be set
+//   - Version 0 and 1 must not carry a non-empty AuthList
+//   - Version 2 (with AuthList): version 1 rules; the authorization list may be
+//     empty, and contract creation is only rejected for a non-empty list
 //   - Other versions: not supported
 //
 // Returns nil if the transaction is not a MorphTx or if all checks pass.
@@ -432,6 +438,9 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 			morphTx.Memo != nil && len(*morphTx.Memo) > 0 {
 			return ErrMorphTxV0IllegalExtraParams
 		}
+		if len(morphTx.AuthList) > 0 {
+			return ErrMorphTxAuthListRequiresV2
+		}
 	case MorphTxVersion1:
 		// Version 1: FeeTokenID, Reference, Memo are all optional
 		// If FeeTokenID is 0, FeeLimit must not be set
@@ -441,6 +450,22 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		// Validate memo length
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
 			return ErrMemoTooLong
+		}
+		if len(morphTx.AuthList) > 0 {
+			return ErrMorphTxAuthListRequiresV2
+		}
+	case MorphTxVersion2:
+		// Version 2 inherits version 1 field rules and adds EIP-7702 authorizations.
+		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
+			return ErrMorphTxV1IllegalExtraParams
+		}
+		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
+			return ErrMemoTooLong
+		}
+		// An empty authorization list is legal. The transaction remains v2,
+		// while EIP-7702 restrictions apply only when the list carries entries.
+		if len(morphTx.AuthList) > 0 && morphTx.To == nil {
+			return ErrMorphTxV2ContractCreation
 		}
 	default:
 		return ErrMorphTxUnsupportedVersion
@@ -592,25 +617,43 @@ func (tx *Transaction) WithoutBlobTxSidecar() *Transaction {
 
 // SetCodeAuthorizations returns the authorizations list of the transaction.
 func (tx *Transaction) SetCodeAuthorizations() []SetCodeAuthorization {
-	setcodetx, ok := tx.inner.(*SetCodeTx)
-	if !ok {
+	switch inner := tx.inner.(type) {
+	case *SetCodeTx:
+		return inner.AuthList
+	case *MorphTx:
+		// Preserve the v2 transaction structure. The execution-layer Message
+		// projection decides whether an empty list enables EIP-7702 processing.
+		if inner.Version == MorphTxVersion2 {
+			return inner.AuthList
+		}
+		return nil
+	default:
 		return nil
 	}
-	return setcodetx.AuthList
+}
+
+// messageAuthorizations converts structural transaction data to execution
+// semantics. An empty MorphTx v2 list disables only EIP-7702 processing; the
+// Message remains version 2.
+func messageAuthorizations(version uint8, auths []SetCodeAuthorization) []SetCodeAuthorization {
+	if version == MorphTxVersion2 && len(auths) == 0 {
+		return nil
+	}
+	return auths
 }
 
 // SetCodeAuthorities returns a list of unique authorities from the
 // authorization list.
 func (tx *Transaction) SetCodeAuthorities() []common.Address {
-	setcodetx, ok := tx.inner.(*SetCodeTx)
-	if !ok {
+	authList := tx.SetCodeAuthorizations()
+	if authList == nil {
 		return nil
 	}
 	var (
 		marks = make(map[common.Address]bool)
-		auths = make([]common.Address, 0, len(setcodetx.AuthList))
+		auths = make([]common.Address, 0, len(authList))
 	)
-	for _, auth := range setcodetx.AuthList {
+	for _, auth := range authList {
 		if addr, err := auth.Authority(); err == nil {
 			if marks[addr] {
 				continue
@@ -886,17 +929,18 @@ func NewMessage(
 	isFake bool,
 ) Message {
 	return Message{
-		from:                  from,
-		to:                    to,
-		nonce:                 nonce,
-		amount:                amount,
-		gasLimit:              gasLimit,
-		gasPrice:              gasPrice,
-		gasFeeCap:             gasFeeCap,
-		gasTipCap:             gasTipCap,
-		data:                  data,
-		accessList:            accessList,
-		setCodeAuthorizations: authList,
+		from:       from,
+		to:         to,
+		nonce:      nonce,
+		amount:     amount,
+		gasLimit:   gasLimit,
+		gasPrice:   gasPrice,
+		gasFeeCap:  gasFeeCap,
+		gasTipCap:  gasTipCap,
+		data:       data,
+		accessList: accessList,
+		// Message uses nil as the "do not process EIP-7702" execution flag.
+		setCodeAuthorizations: messageAuthorizations(version, authList),
 		isFake:                isFake,
 		isL1MessageTx:         false,
 		feeTokenID:            feeTokenID,
@@ -910,18 +954,19 @@ func NewMessage(
 // AsMessage returns the transaction as a core.Message.
 func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	msg := Message{
-		nonce:                 tx.Nonce(),
-		gasLimit:              tx.Gas(),
-		gasPrice:              tx.GasPrice(),
-		gasFeeCap:             tx.GasFeeCap(),
-		gasTipCap:             tx.GasTipCap(),
-		to:                    tx.To(),
-		amount:                tx.Value(),
-		data:                  tx.Data(),
-		accessList:            tx.AccessList(),
-		isFake:                false,
-		isL1MessageTx:         tx.IsL1MessageTx(),
-		setCodeAuthorizations: tx.SetCodeAuthorizations(),
+		nonce:         tx.Nonce(),
+		gasLimit:      tx.Gas(),
+		gasPrice:      tx.GasPrice(),
+		gasFeeCap:     tx.GasFeeCap(),
+		gasTipCap:     tx.GasTipCap(),
+		to:            tx.To(),
+		amount:        tx.Value(),
+		data:          tx.Data(),
+		accessList:    tx.AccessList(),
+		isFake:        false,
+		isL1MessageTx: tx.IsL1MessageTx(),
+		// Preserve version while projecting an empty v2 list to Message nil.
+		setCodeAuthorizations: messageAuthorizations(tx.Version(), tx.SetCodeAuthorizations()),
 		feeTokenID:            tx.FeeTokenID(),
 		version:               tx.Version(),
 		reference:             tx.Reference(),

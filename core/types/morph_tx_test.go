@@ -3,9 +3,13 @@ package types
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"math/big"
+	"strings"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/morph-l2/go-ethereum/common"
 	"github.com/morph-l2/go-ethereum/crypto"
 	"github.com/morph-l2/go-ethereum/rlp"
@@ -207,6 +211,250 @@ func TestMorphTxV1Encoding(t *testing.T) {
 	}
 
 	t.Logf("Successfully encoded and decoded V1 MorphTx")
+}
+
+func TestMorphTxV2Encoding(t *testing.T) {
+	reference := common.HexToReference("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	memo := []byte("test memo")
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	auth := SetCodeAuthorization{
+		ChainID: *uint256.NewInt(2818),
+		Address: common.HexToAddress("0x9876543210987654321098765432109876543210"),
+		Nonce:   7,
+		V:       1,
+		R:       *uint256.NewInt(2),
+		S:       *uint256.NewInt(3),
+	}
+	tx := &MorphTx{
+		ChainID:    big.NewInt(2818),
+		Nonce:      1,
+		GasTipCap:  big.NewInt(1000000000),
+		GasFeeCap:  big.NewInt(2000000000),
+		Gas:        100000,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Data:       []byte{1, 2, 3},
+		AccessList: AccessList{},
+		FeeTokenID: 1,
+		FeeLimit:   big.NewInt(1000000),
+		Version:    MorphTxVersion2,
+		Reference:  &reference,
+		Memo:       &memo,
+		AuthList:   []SetCodeAuthorization{auth},
+		V:          big.NewInt(0),
+		R:          big.NewInt(0),
+		S:          big.NewInt(0),
+	}
+	encoded, err := encodeMorphTx(tx)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+	if encoded[0] != MorphTxType || encoded[1] != MorphTxVersion2 {
+		t.Fatalf("unexpected type/version prefix %x", encoded[:2])
+	}
+	var decoded MorphTx
+	if err := decoded.decode(encoded[1:]); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if decoded.Version != MorphTxVersion2 {
+		t.Fatalf("version = %d, want %d", decoded.Version, MorphTxVersion2)
+	}
+	if len(decoded.AuthList) != 1 || decoded.AuthList[0] != auth {
+		t.Fatalf("authorization list mismatch: %#v", decoded.AuthList)
+	}
+	if got := NewTx(&decoded).SetCodeAuthorizations(); len(got) != 1 || got[0] != auth {
+		t.Fatalf("transaction authorization accessor mismatch: %#v", got)
+	}
+}
+
+func TestMorphTxV2AuthorizationInSignatureHash(t *testing.T) {
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	base := &MorphTx{
+		ChainID: big.NewInt(2818), Nonce: 1, GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(2), Gas: 100000, To: &to, Value: big.NewInt(0),
+		Version: MorphTxVersion2, V: big.NewInt(0), R: big.NewInt(0), S: big.NewInt(0),
+		AuthList: []SetCodeAuthorization{{
+			ChainID: *uint256.NewInt(2818), Address: to, Nonce: 1,
+			V: 0, R: *uint256.NewInt(2), S: *uint256.NewInt(3),
+		}},
+	}
+	changed := base.copy().(*MorphTx)
+	changed.AuthList[0].Nonce++
+	if base.sigHash(base.ChainID) == changed.sigHash(changed.ChainID) {
+		t.Fatal("signature hash must commit to the authorization list")
+	}
+	v1 := base.copy().(*MorphTx)
+	v1.Version = MorphTxVersion1
+	v1.AuthList = nil
+	if base.sigHash(base.ChainID) == v1.sigHash(v1.ChainID) {
+		t.Fatal("v2 signature hash must not reuse the v1 hash")
+	}
+}
+
+func TestMorphTxUnknownVersionSigHashPanics(t *testing.T) {
+	tx := &MorphTx{Version: 99, ChainID: big.NewInt(1), GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(1), Value: big.NewInt(0)}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("unknown version must not silently hash as v1")
+		}
+	}()
+	_ = tx.sigHash(tx.ChainID)
+}
+
+func TestValidateMorphTxV2(t *testing.T) {
+	to := common.Address{}
+	valid := &MorphTx{
+		ChainID: big.NewInt(2818), GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(2),
+		To: &to, Value: big.NewInt(0), Version: MorphTxVersion2,
+		AuthList: []SetCodeAuthorization{{}},
+		V:        big.NewInt(0), R: big.NewInt(0), S: big.NewInt(0),
+	}
+	if err := NewTx(valid).ValidateMorphTxVersion(); err != nil {
+		t.Fatalf("valid v2 rejected: %v", err)
+	}
+	// An empty authorization list is legal and skips only EIP-7702 processing.
+	// The transaction remains MorphTx v2 and may create a contract.
+	empty := valid.copy().(*MorphTx)
+	empty.AuthList = nil
+	if err := NewTx(empty).ValidateMorphTxVersion(); err != nil {
+		t.Fatalf("empty auth list rejected: %v", err)
+	}
+	emptyCreate := empty.copy().(*MorphTx)
+	emptyCreate.To = nil
+	if err := NewTx(emptyCreate).ValidateMorphTxVersion(); err != nil {
+		t.Fatalf("empty auth list must allow create: %v", err)
+	}
+	create := valid.copy().(*MorphTx)
+	create.To = nil
+	if err := NewTx(create).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxV2ContractCreation) {
+		t.Fatalf("contract creation error = %v", err)
+	}
+	v1WithAuth := valid.copy().(*MorphTx)
+	v1WithAuth.Version = MorphTxVersion1
+	if err := NewTx(v1WithAuth).ValidateMorphTxVersion(); !errors.Is(err, ErrMorphTxAuthListRequiresV2) {
+		t.Fatalf("v1 with auth list error = %v", err)
+	}
+	var encoded bytes.Buffer
+	if err := v1WithAuth.encode(&encoded); !errors.Is(err, ErrMorphTxAuthListRequiresV2) {
+		t.Fatalf("v1 encode with auth list error = %v", err)
+	}
+}
+
+// TestMorphTxV2EmptyAuthListAccessor ensures the transaction structure retains
+// an empty list while its Message projection disables EIP-7702 processing.
+func TestMorphTxV2EmptyAuthListAccessor(t *testing.T) {
+	to := common.Address{}
+	tx := &MorphTx{
+		ChainID: big.NewInt(2818), GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(2),
+		To: &to, Value: big.NewInt(0), Version: MorphTxVersion2,
+		V: big.NewInt(0), R: big.NewInt(0), S: big.NewInt(0),
+	}
+	// NewTx copies the inner data, which turns a nil list into an empty slice.
+	wrapped := NewTx(tx)
+	if got := wrapped.SetCodeAuthorizations(); got == nil || len(got) != 0 {
+		t.Fatalf("empty v2 authorizations = %#v, want non-nil empty list", got)
+	}
+	if got := messageAuthorizations(wrapped.Version(), wrapped.SetCodeAuthorizations()); got != nil {
+		t.Fatalf("empty v2 message authorizations = %#v, want nil", got)
+	}
+	if got := wrapped.SetCodeAuthorities(); len(got) != 0 {
+		t.Fatalf("empty v2 authorities = %#v, want none", got)
+	}
+	withAuth := tx.copy().(*MorphTx)
+	withAuth.AuthList = []SetCodeAuthorization{{}}
+	if got := NewTx(withAuth).SetCodeAuthorizations(); len(got) != 1 {
+		t.Fatalf("non-empty v2 authorizations = %#v, want one entry", got)
+	}
+}
+
+// TestMorphTxV2JSONRoundTrip checks that the JSON form produced for a v2
+// transaction decodes again. V2 JSON always carries authorizationList, and since
+// an empty list is legal, an absent or null field decodes to the empty list.
+func TestMorphTxV2JSONRoundTrip(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	auth, err := SignSetCode(key, SetCodeAuthorization{
+		ChainID: *uint256.NewInt(2818),
+		Address: to,
+		Nonce:   1,
+	})
+	if err != nil {
+		t.Fatalf("sign authorization: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		authList []SetCodeAuthorization
+	}{
+		{"empty auth list", []SetCodeAuthorization{}},
+		{"nil auth list", nil},
+		{"one authorization", []SetCodeAuthorization{auth}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			signer := LatestSignerForChainID(big.NewInt(2818))
+			tx, err := SignNewTx(key, signer, &MorphTx{
+				ChainID: big.NewInt(2818), Nonce: 7, GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(2),
+				Gas: 21000, To: &to, Value: big.NewInt(0), Version: MorphTxVersion2,
+				AuthList: tc.authList,
+			})
+			if err != nil {
+				t.Fatalf("sign tx: %v", err)
+			}
+			encoded, err := json.Marshal(tx)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if len(tc.authList) == 0 && !strings.Contains(string(encoded), `"authorizationList":[]`) {
+				t.Fatalf("empty list must be retained, got %s", encoded)
+			}
+			var decoded Transaction
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if decoded.Version() != MorphTxVersion2 {
+				t.Fatalf("version = %d, want %d", decoded.Version(), MorphTxVersion2)
+			}
+			if len(decoded.SetCodeAuthorizations()) != len(tc.authList) {
+				t.Fatalf("authorizations = %d, want %d", len(decoded.SetCodeAuthorizations()), len(tc.authList))
+			}
+			if decoded.Hash() != tx.Hash() {
+				t.Fatalf("hash = %s, want %s", decoded.Hash(), tx.Hash())
+			}
+			if len(tc.authList) == 0 {
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(encoded, &fields); err != nil {
+					t.Fatalf("unmarshal into map: %v", err)
+				}
+				for name, raw := range map[string]json.RawMessage{
+					"absent": nil,
+					"null":   json.RawMessage("null"),
+				} {
+					t.Run(name, func(t *testing.T) {
+						variant := make(map[string]json.RawMessage, len(fields))
+						for k, v := range fields {
+							variant[k] = v
+						}
+						if raw == nil {
+							delete(variant, "authorizationList")
+						} else {
+							variant["authorizationList"] = raw
+						}
+						encodedVariant, err := json.Marshal(variant)
+						if err != nil {
+							t.Fatalf("marshal variant: %v", err)
+						}
+						var decoded Transaction
+						if err := json.Unmarshal(encodedVariant, &decoded); err != nil {
+							t.Fatalf("decode variant: %v", err)
+						}
+						if got := decoded.SetCodeAuthorizations(); got == nil || len(got) != 0 {
+							t.Fatalf("authorizations = %#v, want non-nil empty list", got)
+						}
+					})
+				}
+			}
+		})
+	}
 }
 
 // TestMorphTxV0V1RoundTrip tests encoding/decoding round trip for both versions
@@ -1319,7 +1567,7 @@ func TestDecodeRLP_EncodeDecodeSymmetry(t *testing.T) {
 		To: &to, Value: big.NewInt(1e18), Data: []byte{},
 		AccessList: AccessList{}, FeeTokenID: 1, FeeLimit: big.NewInt(1e17),
 		Version: MorphTxVersion0,
-		V: big.NewInt(1), R: big.NewInt(100), S: big.NewInt(200),
+		V:       big.NewInt(1), R: big.NewInt(100), S: big.NewInt(200),
 	}
 	txV1 := &MorphTx{
 		ChainID: big.NewInt(1), Nonce: 2,
@@ -1445,6 +1693,28 @@ func assertMorphTxEqual(t *testing.T, want, got *MorphTx) {
 	}
 	if !bytes.Equal(wantMemo, gotMemo) {
 		t.Errorf("Memo: want %x, got %x", wantMemo, gotMemo)
+	}
+}
+
+func TestInferUnsignedMorphTxVersion(t *testing.T) {
+	v0, v1, v2 := MorphTxVersion0, MorphTxVersion1, MorphTxVersion2
+	if got := InferUnsignedMorphTxVersion(nil, nil); got != MorphTxVersion1 {
+		t.Fatalf("omitted = %d, want v1", got)
+	}
+	if got := InferUnsignedMorphTxVersion(nil, []SetCodeAuthorization{}); got != MorphTxVersion1 {
+		t.Fatalf("empty list = %d, want v1", got)
+	}
+	if got := InferUnsignedMorphTxVersion(nil, []SetCodeAuthorization{{}}); got != MorphTxVersion2 {
+		t.Fatalf("non-empty list = %d, want v2", got)
+	}
+	if got := InferUnsignedMorphTxVersion(&v0, []SetCodeAuthorization{{}}); got != MorphTxVersion0 {
+		t.Fatalf("explicit v0 = %d, want v0", got)
+	}
+	if got := InferUnsignedMorphTxVersion(&v1, nil); got != MorphTxVersion1 {
+		t.Fatalf("explicit v1 = %d, want v1", got)
+	}
+	if got := InferUnsignedMorphTxVersion(&v2, []SetCodeAuthorization{}); got != MorphTxVersion2 {
+		t.Fatalf("explicit v2 = %d, want v2", got)
 	}
 }
 

@@ -96,7 +96,7 @@ func TestMorphTxVersion_HeuristicDefault(t *testing.T) {
 		{
 			name:    "Reference + FeeTokenID=0 + FeeLimit > 0 → error",
 			opts:    &TransactOpts{FeeTokenID: 0, FeeLimit: big.NewInt(100), Reference: refTestPtr(ref)},
-			wantErr: types.ErrMorphTxV1IllegalExtraParams,
+			wantErr: types.ErrMorphTxIllegalExtraParams,
 		},
 		{
 			name:        "Reference + FeeTokenID=0 + FeeLimit=0 → V1",

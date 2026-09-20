@@ -41,17 +41,19 @@ var (
 	ErrGasFeeCapTooLow             = errors.New("fee cap less than base fee")
 	ErrMemoTooLong                 = errors.New("memo exceeds maximum length of 64 bytes")
 	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
-	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
-	ErrMorphTxV2ContractCreation   = errors.New("MorphTx with an authorization list cannot create a contract")
-	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
-	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
-	ErrMorphTxV2NotYetActive       = errors.New("MorphTx version 2 is not yet active")
-	ErrMorphTxAuthListRequiresV2   = errors.New("authorizationList is only valid on MorphTx version 2")
-	errEmptyTypedTx                = errors.New("empty typed transaction bytes")
-	errShortTypedTx                = errors.New("typed transaction too short")
-	errInvalidYParity              = errors.New("'yParity' field must be 0 or 1")
-	errVYParityMismatch            = errors.New("'v' and 'yParity' fields do not match")
-	errVYParityMissing             = errors.New("missing 'yParity' or 'v' field in transaction")
+	// ErrMorphTxIllegalExtraParams is returned when feeLimit is set while paying
+	// gas in ETH (feeTokenID == 0). The rule is independent of MorphTx version.
+	ErrMorphTxIllegalExtraParams = errors.New("illegal extra parameters of MorphTx")
+	ErrMorphTxV2ContractCreation = errors.New("MorphTx with an authorization list cannot create a contract")
+	ErrMorphTxUnsupportedVersion = errors.New("unsupported MorphTx version")
+	ErrMorphTxV1NotYetActive     = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
+	ErrMorphTxV2NotYetActive     = errors.New("MorphTx version 2 is not yet active")
+	ErrMorphTxAuthListRequiresV2 = errors.New("authorizationList is only valid on MorphTx version 2")
+	errEmptyTypedTx              = errors.New("empty typed transaction bytes")
+	errShortTypedTx              = errors.New("typed transaction too short")
+	errInvalidYParity            = errors.New("'yParity' field must be 0 or 1")
+	errVYParityMismatch          = errors.New("'v' and 'yParity' fields do not match")
+	errVYParityMissing           = errors.New("missing 'yParity' or 'v' field in transaction")
 )
 
 // Transaction types.
@@ -445,7 +447,7 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		// Version 1: FeeTokenID, Reference, Memo are all optional
 		// If FeeTokenID is 0, FeeLimit must not be set
 		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
-			return ErrMorphTxV1IllegalExtraParams
+			return ErrMorphTxIllegalExtraParams
 		}
 		// Validate memo length
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
@@ -457,7 +459,7 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 	case MorphTxVersion2:
 		// Version 2 inherits version 1 field rules and adds EIP-7702 authorizations.
 		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
-			return ErrMorphTxV1IllegalExtraParams
+			return ErrMorphTxIllegalExtraParams
 		}
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
 			return ErrMemoTooLong

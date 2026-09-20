@@ -120,7 +120,7 @@ func (args *TransactionArgs) validateMorphTxVersion() error {
 			feeTokenID = uint16(*args.FeeTokenID)
 		}
 		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
-			return types.ErrMorphTxV1IllegalExtraParams
+			return types.ErrMorphTxIllegalExtraParams
 		}
 	case types.MorphTxVersion2:
 		feeTokenID := uint16(0)
@@ -128,7 +128,7 @@ func (args *TransactionArgs) validateMorphTxVersion() error {
 			feeTokenID = uint16(*args.FeeTokenID)
 		}
 		if feeTokenID == 0 && args.FeeLimit != nil && args.FeeLimit.ToInt().Sign() != 0 {
-			return types.ErrMorphTxV1IllegalExtraParams
+			return types.ErrMorphTxIllegalExtraParams
 		}
 		// An empty authorization list is legal. The transaction remains v2,
 		// while EIP-7702 restrictions apply only when the list carries entries.

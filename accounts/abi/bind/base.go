@@ -436,11 +436,11 @@ func (c *BoundContract) morphTxVersion(opts *TransactOpts) (uint8, error) {
 	switch version {
 	case types.MorphTxVersion1:
 		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
-			return 0, types.ErrMorphTxV1IllegalExtraParams
+			return 0, types.ErrMorphTxIllegalExtraParams
 		}
 	case types.MorphTxVersion2:
 		if opts.FeeTokenID == 0 && opts.FeeLimit != nil && opts.FeeLimit.Sign() != 0 {
-			return 0, types.ErrMorphTxV1IllegalExtraParams
+			return 0, types.ErrMorphTxIllegalExtraParams
 		}
 	default:
 		return 0, types.ErrMorphTxUnsupportedVersion

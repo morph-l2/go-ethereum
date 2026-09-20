@@ -41,7 +41,11 @@ var (
 	ErrGasFeeCapTooLow             = errors.New("fee cap less than base fee")
 	ErrMemoTooLong                 = errors.New("memo exceeds maximum length of 64 bytes")
 	ErrMorphTxV0IllegalExtraParams = errors.New("illegal extra parameters of version 0 MorphTx")
-	ErrMorphTxV1IllegalExtraParams = errors.New("illegal extra parameters of version 1 MorphTx")
+	// ErrMorphTxIllegalExtraParams is returned when feeLimit is set while paying
+	// gas in ETH (feeTokenID == 0). The rule is independent of MorphTx version.
+	ErrMorphTxIllegalExtraParams = errors.New("illegal extra parameters of MorphTx")
+	// Deprecated: use ErrMorphTxIllegalExtraParams.
+	ErrMorphTxV1IllegalExtraParams = ErrMorphTxIllegalExtraParams
 	ErrMorphTxV2ContractCreation   = errors.New("MorphTx with an authorization list cannot create a contract")
 	ErrMorphTxUnsupportedVersion   = errors.New("unsupported MorphTx version")
 	ErrMorphTxV1NotYetActive       = errors.New("MorphTx version 1 is not yet active (jade fork not reached)")
@@ -445,7 +449,7 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 		// Version 1: FeeTokenID, Reference, Memo are all optional
 		// If FeeTokenID is 0, FeeLimit must not be set
 		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
-			return ErrMorphTxV1IllegalExtraParams
+			return ErrMorphTxIllegalExtraParams
 		}
 		// Validate memo length
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
@@ -457,7 +461,7 @@ func (tx *Transaction) ValidateMorphTxVersion() error {
 	case MorphTxVersion2:
 		// Version 2 inherits version 1 field rules and adds EIP-7702 authorizations.
 		if morphTx.FeeTokenID == 0 && morphTx.FeeLimit != nil && morphTx.FeeLimit.Sign() != 0 {
-			return ErrMorphTxV1IllegalExtraParams
+			return ErrMorphTxIllegalExtraParams
 		}
 		if morphTx.Memo != nil && len(*morphTx.Memo) > common.MaxMemoLength {
 			return ErrMemoTooLong

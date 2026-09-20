@@ -948,13 +948,13 @@ func TestMorphTxValidation(t *testing.T) {
 			{"V1 with Reference", MorphTxVersion1, 0, nil, &ref, nil, nil},
 			{"V1 with Memo", MorphTxVersion1, 0, nil, nil, &memo, nil},
 			{"V1 with Reference and Memo", MorphTxVersion1, 1, nil, &ref, &memo, nil},
-			{"V1 FeeTokenID=0 with FeeLimit", MorphTxVersion1, 0, feeLimit, nil, nil, ErrMorphTxV1IllegalExtraParams},
+			{"V1 FeeTokenID=0 with FeeLimit", MorphTxVersion1, 0, feeLimit, nil, nil, ErrMorphTxIllegalExtraParams},
 			{"V1 FeeTokenID>0 with FeeLimit", MorphTxVersion1, 1, feeLimit, nil, nil, nil},
 			{"V1 FeeTokenID=0 with zero FeeLimit", MorphTxVersion1, 0, big.NewInt(0), nil, nil, nil},
 			// Version 2 tests (inherits the version 1 field rules)
 			{"V2 with empty auth list", MorphTxVersion2, 0, nil, nil, nil, nil},
 			{"V2 with Reference and Memo", MorphTxVersion2, 1, nil, &ref, &memo, nil},
-			{"V2 FeeTokenID=0 with FeeLimit", MorphTxVersion2, 0, feeLimit, nil, nil, ErrMorphTxV1IllegalExtraParams},
+			{"V2 FeeTokenID=0 with FeeLimit", MorphTxVersion2, 0, feeLimit, nil, nil, ErrMorphTxIllegalExtraParams},
 			// Unsupported versions
 			{"Unsupported version 255", 255, 1, nil, nil, nil, ErrMorphTxUnsupportedVersion},
 		}
@@ -1114,7 +1114,7 @@ func TestMorphTxAsMessage(t *testing.T) {
 		},
 		// --- V1 rejection cases ---
 		{
-			name: "V1 FeeTokenID=0 + FeeLimit>0 → ErrMorphTxV1IllegalExtraParams",
+			name: "V1 FeeTokenID=0 + FeeLimit>0 → ErrMorphTxIllegalExtraParams",
 			txdata: &MorphTx{
 				ChainID:    big.NewInt(1),
 				Nonce:      20,
@@ -1127,7 +1127,7 @@ func TestMorphTxAsMessage(t *testing.T) {
 				FeeTokenID: 0,
 				FeeLimit:   big.NewInt(999),
 			},
-			wantErr: ErrMorphTxV1IllegalExtraParams,
+			wantErr: ErrMorphTxIllegalExtraParams,
 		},
 		{
 			name: "V1 memo too long → ErrMemoTooLong",

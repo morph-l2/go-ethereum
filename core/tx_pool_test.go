@@ -2970,8 +2970,8 @@ func TestMorphTxValidation(t *testing.T) {
 			Reference:  &ref,
 			Memo:       &memo,
 		})
-		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxV1IllegalExtraParams) {
-			t.Errorf("expected ErrMorphTxV1IllegalExtraParams, got %v", err)
+		if err := pool.AddRemote(tx); !errors.Is(err, types.ErrMorphTxIllegalExtraParams) {
+			t.Errorf("expected ErrMorphTxIllegalExtraParams, got %v", err)
 		}
 	})
 }

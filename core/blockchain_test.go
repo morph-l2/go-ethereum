@@ -3240,13 +3240,12 @@ func TestTransactionCountLimit(t *testing.T) {
 }
 
 func TestBlockPayloadSizeLimit(t *testing.T) {
-	// Allow at most 150 bytes per block payload. The limit is a package-level
-	// variable rather than a chain config field, so override it for this test.
+	// Create config that allows at most 150 bytes per block payload
 	config := params.TestChainConfig
-	prevLimit := params.MorphMaxTxPayloadBytesPerBlock
-	params.MorphMaxTxPayloadBytesPerBlock = 150
+	config.Morph.MaxTxPayloadBytesPerBlock = new(int)
+	*config.Morph.MaxTxPayloadBytesPerBlock = 150
 	defer func() {
-		params.MorphMaxTxPayloadBytesPerBlock = prevLimit
+		config.Morph.MaxTxPayloadBytesPerBlock = nil
 	}()
 
 	var (

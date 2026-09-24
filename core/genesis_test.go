@@ -161,6 +161,87 @@ func TestSetupGenesis(t *testing.T) {
 	}
 }
 
+// TestSetupGenesisMaxTxPayloadBytesPerBlock checks that the per-block tx payload limit is
+// a property of the chain rather than of the binary. A network without a built-in preset
+// flag (--morph / --morph-hoodi) passes no genesis at startup, so it must enforce the value
+// persisted by `geth init`; and re-running init with an updated genesis must replace that
+// value in place, without changing the genesis hash.
+func TestSetupGenesisMaxTxPayloadBytesPerBlock(t *testing.T) {
+	feeVault := common.HexToAddress("0x000000000000000000000000000000000000dead")
+	genesisWithLimit := func(limit int) *Genesis {
+		return &Genesis{
+			Config: &params.ChainConfig{
+				HomesteadBlock: big.NewInt(0),
+				Morph: params.MorphConfig{
+					FeeVaultAddress:           &feeVault,
+					MaxTxPayloadBytesPerBlock: &limit,
+				},
+			},
+			Alloc: GenesisAlloc{
+				{1}: {Balance: big.NewInt(1)},
+			},
+		}
+	}
+
+	// Both deliberately differ from params.MorphMaxTxPayloadBytesPerBlock so that a
+	// regression to a binary-level limit fails this test instead of passing silently.
+	const (
+		initialLimit = 150 * 1024
+		updatedLimit = 300 * 1024
+	)
+	if params.MorphMaxTxPayloadBytesPerBlock <= updatedLimit {
+		t.Fatalf("test needs params.MorphMaxTxPayloadBytesPerBlock (%d) to exceed %d",
+			params.MorphMaxTxPayloadBytesPerBlock, updatedLimit)
+	}
+
+	// `geth init` with a genesis carrying this network's own limit.
+	db := rawdb.NewMemoryDatabase()
+	initialHash := genesisWithLimit(initialLimit).MustCommit(db).Hash()
+
+	// Starting without a preset flag passes no genesis, so the config has to come from
+	// the database rather than from any built-in default.
+	config, hash, err := SetupGenesisBlock(db, nil)
+	if err != nil {
+		t.Fatalf("SetupGenesisBlock(db, nil): %v", err)
+	}
+	if hash != initialHash {
+		t.Fatalf("genesis hash = %s, want %s", hash.Hex(), initialHash.Hex())
+	}
+	if got := config.Morph.MaxTxPayloadBytesPerBlock; got == nil || *got != initialLimit {
+		t.Fatalf("stored MaxTxPayloadBytesPerBlock = %v, want %d", got, initialLimit)
+	}
+	if !config.Morph.IsValidBlockSize(common.StorageSize(initialLimit)) {
+		t.Errorf("IsValidBlockSize(%d) = false, want true", initialLimit)
+	}
+	if config.Morph.IsValidBlockSize(common.StorageSize(initialLimit + 1)) {
+		t.Errorf("IsValidBlockSize(%d) = true, want false: the enforced limit is not coming from the chain config",
+			initialLimit+1)
+	}
+
+	// Re-running `geth init` with an updated genesis rewrites the stored config in place.
+	// The limit is not part of the genesis header, so the hash is unchanged and the
+	// existing chain data stays usable.
+	config, hash, err = SetupGenesisBlock(db, genesisWithLimit(updatedLimit))
+	if err != nil {
+		t.Fatalf("re-init with updated genesis: %v", err)
+	}
+	if hash != initialHash {
+		t.Fatalf("re-init changed the genesis hash to %s, want %s", hash.Hex(), initialHash.Hex())
+	}
+	if got := config.Morph.MaxTxPayloadBytesPerBlock; got == nil || *got != updatedLimit {
+		t.Fatalf("after re-init MaxTxPayloadBytesPerBlock = %v, want %d", got, updatedLimit)
+	}
+
+	// ... and the updated value is what a subsequent flagless start reads back.
+	config, _, err = SetupGenesisBlock(db, nil)
+	if err != nil {
+		t.Fatalf("SetupGenesisBlock(db, nil) after re-init: %v", err)
+	}
+	if got := config.Morph.MaxTxPayloadBytesPerBlock; got == nil || *got != updatedLimit {
+		t.Fatalf("persisted MaxTxPayloadBytesPerBlock = %v, want %d", got, updatedLimit)
+	}
+}
+
 // TestGenesisHashes checks the congruity of default genesis data to
 // corresponding hardcoded genesis hash values.
 func TestGenesisHashes(t *testing.T) {

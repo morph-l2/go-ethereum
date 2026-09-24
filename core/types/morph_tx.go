@@ -33,7 +33,24 @@ const (
 	MorphTxVersion0 = uint8(0)
 	// MorphTxVersion1 includes Version, Reference, Memo fields
 	MorphTxVersion1 = uint8(1)
+	// MorphTxVersion2 extends version 1 with EIP-7702 authorizations
+	MorphTxVersion2 = uint8(2)
 )
+
+// InferUnsignedMorphTxVersion resolves the version for an unsigned MorphTx:
+//   - an explicit version is used as-is
+//   - otherwise a non-empty authorization list selects v2
+//   - otherwise MorphTx defaults to v1 (legacy v0 construction is folded into v1;
+//     a nil or empty authorization list is treated as absent)
+func InferUnsignedMorphTxVersion(explicit *uint8, authList []SetCodeAuthorization) uint8 {
+	if explicit != nil {
+		return *explicit
+	}
+	if len(authList) > 0 {
+		return MorphTxVersion2
+	}
+	return MorphTxVersion1
+}
 
 type MorphTx struct {
 	ChainID    *big.Int
@@ -46,11 +63,12 @@ type MorphTx struct {
 	Data       []byte
 	AccessList AccessList
 
-	Version    uint8             // version of morph tx (0 = legacy, 1 = with reference/memo)
-	FeeTokenID uint16            // ERC20 token ID for fee payment (0 = ETH)
-	FeeLimit   *big.Int          // maximum fee in token units (optional)
-	Reference  *common.Reference // reference key for the transaction (optional, v1 only)
-	Memo       *[]byte           // memo for the transaction (optional, v1 only)
+	Version    uint8                  // version of morph tx
+	FeeTokenID uint16                 // ERC20 token ID for fee payment (0 = ETH)
+	FeeLimit   *big.Int               // maximum fee in token units (optional)
+	Reference  *common.Reference      // reference key for the transaction (optional, v1 only)
+	Memo       *[]byte                // memo for the transaction (optional, v1 only)
+	AuthList   []SetCodeAuthorization // EIP-7702 authorizations (v2 only)
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -97,6 +115,28 @@ type v1MorphTxRLP struct {
 	S          *big.Int
 }
 
+// v2MorphTxRLP extends version 1 with EIP-7702 authorizations.
+// Version is encoded as a prefix byte before the RLP data.
+type v2MorphTxRLP struct {
+	ChainID    *big.Int
+	Nonce      uint64
+	GasTipCap  *big.Int
+	GasFeeCap  *big.Int
+	Gas        uint64
+	To         *common.Address `rlp:"nil"`
+	Value      *big.Int
+	Data       []byte
+	AccessList AccessList
+	FeeTokenID uint16
+	FeeLimit   *big.Int
+	Reference  []byte
+	Memo       []byte
+	AuthList   []SetCodeAuthorization
+	V          *big.Int
+	R          *big.Int
+	S          *big.Int
+}
+
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *MorphTx) copy() TxData {
 	cpy := &MorphTx{
@@ -110,6 +150,7 @@ func (tx *MorphTx) copy() TxData {
 		Memo:       copyBytesPtr(tx.Memo),
 		// These are copied below.
 		AccessList: make(AccessList, len(tx.AccessList)),
+		AuthList:   make([]SetCodeAuthorization, len(tx.AuthList)),
 		Value:      new(big.Int),
 		ChainID:    new(big.Int),
 		GasTipCap:  new(big.Int),
@@ -119,6 +160,7 @@ func (tx *MorphTx) copy() TxData {
 		S:          new(big.Int),
 	}
 	copy(cpy.AccessList, tx.AccessList)
+	copy(cpy.AuthList, tx.AuthList)
 	if tx.Value != nil {
 		cpy.Value.Set(tx.Value)
 	}
@@ -213,17 +255,23 @@ func (tx *MorphTx) DecodeRLP(s *rlp.Stream) error {
 	if err != nil {
 		return err
 	}
-	if versionByte != MorphTxVersion1 {
+	if versionByte != MorphTxVersion1 && versionByte != MorphTxVersion2 {
 		return errors.New("unsupported morph tx version: " + strconv.Itoa(int(versionByte)))
 	}
 	raw, err := s.Raw()
 	if err != nil {
 		return err
 	}
-	return decodeV1MorphTxRLP(tx, raw)
+	if versionByte == MorphTxVersion1 {
+		return decodeV1MorphTxRLP(tx, raw)
+	}
+	return decodeV2MorphTxRLP(tx, raw)
 }
 
 func (tx *MorphTx) encode(b *bytes.Buffer) error {
+	if tx.Version != MorphTxVersion2 && len(tx.AuthList) > 0 {
+		return ErrMorphTxAuthListRequiresV2
+	}
 	switch tx.Version {
 	case MorphTxVersion0:
 		// Validate FeeTokenID for v0 (must match decodeV0MorphTxRLP behavior)
@@ -279,6 +327,35 @@ func (tx *MorphTx) encode(b *bytes.Buffer) error {
 			R:          tx.R,
 			S:          tx.S,
 		})
+	case MorphTxVersion2:
+		b.WriteByte(tx.Version)
+		var reference []byte
+		if tx.Reference != nil {
+			reference = tx.Reference[:]
+		}
+		var memo []byte
+		if tx.Memo != nil {
+			memo = *tx.Memo
+		}
+		return rlp.Encode(b, &v2MorphTxRLP{
+			ChainID:    tx.ChainID,
+			Nonce:      tx.Nonce,
+			GasTipCap:  tx.GasTipCap,
+			GasFeeCap:  tx.GasFeeCap,
+			Gas:        tx.Gas,
+			To:         tx.To,
+			Value:      tx.Value,
+			Data:       tx.Data,
+			AccessList: tx.AccessList,
+			FeeTokenID: tx.FeeTokenID,
+			FeeLimit:   tx.FeeLimit,
+			Reference:  reference,
+			Memo:       memo,
+			AuthList:   tx.AuthList,
+			V:          tx.V,
+			R:          tx.R,
+			S:          tx.S,
+		})
 	default:
 		return errors.New("unsupported morph tx version: " + strconv.Itoa(int(tx.Version)))
 	}
@@ -299,10 +376,26 @@ func (tx *MorphTx) decode(input []byte) error {
 	}
 
 	// V1+ format: first byte is version, rest is RLP
-	if firstByte != MorphTxVersion1 {
+	if firstByte != MorphTxVersion1 && firstByte != MorphTxVersion2 {
 		return errors.New("unsupported morph tx version: " + strconv.Itoa(int(firstByte)))
 	}
-	return decodeV1MorphTxRLP(tx, input[1:])
+	if firstByte == MorphTxVersion1 {
+		return decodeV1MorphTxRLP(tx, input[1:])
+	}
+	return decodeV2MorphTxRLP(tx, input[1:])
+}
+
+func decodeV2MorphTxRLP(tx *MorphTx, blob []byte) error {
+	var v2 v2MorphTxRLP
+	if err := rlp.DecodeBytes(blob, &v2); err != nil {
+		return err
+	}
+	if err := setVersionedMorphTxFields(tx, v2.ChainID, v2.Nonce, v2.GasTipCap, v2.GasFeeCap, v2.Gas, v2.To, v2.Value, v2.Data, v2.AccessList, v2.FeeTokenID, v2.FeeLimit, v2.Reference, v2.Memo, v2.V, v2.R, v2.S); err != nil {
+		return err
+	}
+	tx.Version = MorphTxVersion2
+	tx.AuthList = v2.AuthList
+	return nil
 }
 
 func decodeV1MorphTxRLP(tx *MorphTx, blob []byte) error {
@@ -310,38 +403,43 @@ func decodeV1MorphTxRLP(tx *MorphTx, blob []byte) error {
 	if err := rlp.DecodeBytes(blob, &v1); err != nil {
 		return err
 	}
-
-	tx.ChainID = v1.ChainID
-	tx.Nonce = v1.Nonce
-	tx.GasTipCap = v1.GasTipCap
-	tx.GasFeeCap = v1.GasFeeCap
-	tx.Gas = v1.Gas
-	tx.To = v1.To
-	tx.Value = v1.Value
-	tx.Data = v1.Data
-	tx.AccessList = v1.AccessList
-	tx.Version = MorphTxVersion1
-	tx.FeeTokenID = v1.FeeTokenID
-	tx.FeeLimit = v1.FeeLimit
-	// Convert []byte to *common.Reference
-	if len(v1.Reference) != 0 && len(v1.Reference) != common.ReferenceLength {
-		return errors.New("invalid reference length: expected 0 or " + strconv.Itoa(common.ReferenceLength) + ", got " + strconv.Itoa(len(v1.Reference)))
+	if err := setVersionedMorphTxFields(tx, v1.ChainID, v1.Nonce, v1.GasTipCap, v1.GasFeeCap, v1.Gas, v1.To, v1.Value, v1.Data, v1.AccessList, v1.FeeTokenID, v1.FeeLimit, v1.Reference, v1.Memo, v1.V, v1.R, v1.S); err != nil {
+		return err
 	}
-	if len(v1.Reference) == common.ReferenceLength {
-		ref := common.BytesToReference(v1.Reference)
+	tx.Version = MorphTxVersion1
+	return nil
+}
+
+func setVersionedMorphTxFields(tx *MorphTx, chainID *big.Int, nonce uint64, gasTipCap, gasFeeCap *big.Int, gas uint64, to *common.Address, value *big.Int, data []byte, accessList AccessList, feeTokenID uint16, feeLimit *big.Int, reference, memo []byte, v, r, s *big.Int) error {
+	tx.ChainID = chainID
+	tx.Nonce = nonce
+	tx.GasTipCap = gasTipCap
+	tx.GasFeeCap = gasFeeCap
+	tx.Gas = gas
+	tx.To = to
+	tx.Value = value
+	tx.Data = data
+	tx.AccessList = accessList
+	tx.FeeTokenID = feeTokenID
+	tx.FeeLimit = feeLimit
+	// Convert []byte to *common.Reference
+	if len(reference) != 0 && len(reference) != common.ReferenceLength {
+		return errors.New("invalid reference length: expected 0 or " + strconv.Itoa(common.ReferenceLength) + ", got " + strconv.Itoa(len(reference)))
+	}
+	if len(reference) == common.ReferenceLength {
+		ref := common.BytesToReference(reference)
 		tx.Reference = &ref
 	}
 	// Convert []byte to *[]byte and validate memo length
-	if len(v1.Memo) > common.MaxMemoLength {
-		return errors.New("memo exceeds maximum length of " + strconv.Itoa(common.MaxMemoLength) + " bytes, got " + strconv.Itoa(len(v1.Memo)))
+	if len(memo) > common.MaxMemoLength {
+		return errors.New("memo exceeds maximum length of " + strconv.Itoa(common.MaxMemoLength) + " bytes, got " + strconv.Itoa(len(memo)))
 	}
-	if len(v1.Memo) > 0 {
-		tx.Memo = &v1.Memo
+	if len(memo) > 0 {
+		tx.Memo = &memo
 	}
-	tx.V = v1.V
-	tx.R = v1.R
-	tx.S = v1.S
-
+	tx.V = v
+	tx.R = r
+	tx.S = s
 	return nil
 }
 
@@ -374,10 +472,38 @@ func decodeV0MorphTxRLP(tx *MorphTx, blob []byte) error {
 }
 
 func (tx *MorphTx) sigHash(chainID *big.Int) common.Hash {
-	if tx.Version == MorphTxVersion0 {
+	switch tx.Version {
+	case MorphTxVersion0:
 		return tx.v0SigHash(chainID)
+	case MorphTxVersion1:
+		return tx.v1SigHash(chainID)
+	case MorphTxVersion2:
+		return tx.v2SigHash(chainID)
+	default:
+		panic("unsupported morph tx version: " + strconv.Itoa(int(tx.Version)))
 	}
-	return tx.v1SigHash(chainID)
+}
+
+func (tx *MorphTx) v2SigHash(chainID *big.Int) common.Hash {
+	return prefixedRlpHash(
+		MorphTxType,
+		[]any{
+			chainID,
+			tx.Nonce,
+			tx.GasTipCap,
+			tx.GasFeeCap,
+			tx.Gas,
+			tx.To,
+			tx.Value,
+			tx.Data,
+			tx.AccessList,
+			tx.FeeTokenID,
+			tx.FeeLimit,
+			tx.Version,
+			tx.Reference,
+			tx.Memo,
+			tx.AuthList,
+		})
 }
 
 func (tx *MorphTx) v1SigHash(chainID *big.Int) common.Hash {

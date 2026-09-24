@@ -48,21 +48,40 @@ func (dca *SuperAccount) SetAltAmount(id uint16, amount *big.Int) {
 	dca.altAmount[id] = amount
 }
 
-// EthToAlt altAmount = ethAmount / (tokenRate / tokenScale) = ethAmount * tokenScale / tokenRate
-func EthToAlt(ethAmount, rate, tokenScale *big.Int) (*big.Int, error) {
+// EthToAlt converts ethAmount to alt-token units, rounding up.
+// roundingCredit is the unused numerator created by that ceiling
+// (rate - remainder, or 0 if the division is exact). Refunds add this
+// credit then round down.
+func EthToAlt(ethAmount, rate, tokenScale *big.Int) (altAmount *big.Int, roundingCredit *big.Int, err error) {
+	if rate == nil || rate.Sign() <= 0 {
+		return nil, nil, errors.New("invalid rate")
+	}
+	if tokenScale == nil || tokenScale.Sign() <= 0 {
+		return nil, nil, errors.New("invalid token scale")
+	}
+	remainder := new(big.Int)
+	altAmount = new(big.Int)
+	altAmount.QuoRem(new(big.Int).Mul(ethAmount, tokenScale), rate, remainder)
+	roundingCredit = new(big.Int)
+	if remainder.Sign() != 0 {
+		altAmount.Add(altAmount, big.NewInt(1))
+		roundingCredit.Sub(rate, remainder)
+	}
+	return altAmount, roundingCredit, nil
+}
+
+// EthToAltFloor converts an ETH amount plus prepaid rounding credit into alt
+// token units, rounding down.
+func EthToAltFloor(ethAmount, roundingCredit, rate, tokenScale *big.Int) (*big.Int, error) {
 	if rate == nil || rate.Sign() <= 0 {
 		return nil, errors.New("invalid rate")
 	}
 	if tokenScale == nil || tokenScale.Sign() <= 0 {
 		return nil, errors.New("invalid token scale")
 	}
-	altAmount := new(big.Int)
-	remainder := new(big.Int)
-	altAmount.QuoRem(new(big.Int).Mul(ethAmount, tokenScale), rate, remainder)
-	if remainder.Sign() != 0 {
-		altAmount.Add(altAmount, big.NewInt(1))
-	}
-	return altAmount, nil
+	numerator := new(big.Int).Mul(ethAmount, tokenScale)
+	numerator.Add(numerator, roundingCredit)
+	return numerator.Quo(numerator, rate), nil
 }
 
 // AltToEth ethAmount = altAmount * (tokenRate / tokenScale)

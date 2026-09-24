@@ -300,7 +300,6 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		return nil, nil
 	}
 	for i := 0; i < n; i++ {
-		// State backend is always MPT (zkTrie storage mode retired).
 		statedb, err := state.New(parent.Root(), state.NewDatabaseWithConfig(db, &trie.Config{}), nil)
 		if err != nil {
 			panic(err)

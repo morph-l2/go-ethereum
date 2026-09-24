@@ -221,10 +221,6 @@ func (db *maskedTracingStateDB) GetKeccakCodeHash(addr common.Address) common.Ha
 	return db.inner.GetKeccakCodeHash(addr)
 }
 
-func (db *maskedTracingStateDB) GetPoseidonCodeHash(addr common.Address) common.Hash {
-	return db.inner.GetPoseidonCodeHash(addr)
-}
-
 func (db *maskedTracingStateDB) GetState(addr common.Address, key common.Hash) common.Hash {
 	if value, ok := db.mask.originalStorage(addr, key); ok {
 		return value

@@ -27,93 +27,35 @@ import (
 	"github.com/morph-l2/go-ethereum/trie"
 )
 
-// TestCrossFormatStateAccess tests accessing state across different trie formats (zkTrie ↔ MPT)
-func TestCrossFormatStateAccess(t *testing.T) {
-	// Create test account
+// TestMPTStateAccess tests basic MPT state write and read-back.
+func TestMPTStateAccess(t *testing.T) {
 	addr := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
-	tests := []struct {
-		name         string
-		writeFormat  string // "zktrie" or "mpt"
-		readFormat   string // "zktrie" or "mpt"
-		shouldUseMap bool   // whether disk state root mapping should be used
-		expectError  bool
-		description  string
-		skip         bool // skip this test (zkTrie not available in test env)
-	}{
-		{
-			name:         "Same format - MPT to MPT",
-			writeFormat:  "mpt",
-			readFormat:   "mpt",
-			shouldUseMap: false,
-			expectError:  false,
-			description:  "Reading MPT state with MPT - no mapping needed",
-			skip:         false,
-		},
-		// zkTrie tests skipped - zkTrie requires special initialization not available in unit tests
+	db := rawdb.NewMemoryDatabase()
+
+	writeDB := NewDatabaseWithConfig(db, &trie.Config{})
+	writeState, err := New(types.EmptyRootHash, writeDB, nil)
+	if err != nil {
+		t.Fatalf("Failed to create write state: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.skip {
-				t.Skip("Test skipped - requires special zkTrie initialization")
-			}
+	writeState.SetNonce(addr, 1, tracing.NonceChangeUnspecified)
+	writeState.SetBalance(addr, big.NewInt(1000000000), tracing.BalanceChangeUnspecified)
 
-			// Create database and write state with first format
-			db := rawdb.NewMemoryDatabase()
-
-			// Write state
-			writeConfig := &trie.Config{
-				Zktrie: tt.writeFormat == "zktrie",
-			}
-			writeDB := NewDatabaseWithConfig(db, writeConfig)
-			writeState, err := New(types.EmptyRootHash, writeDB, nil)
-			if err != nil {
-				t.Fatalf("Failed to create write state: %v", err)
-			}
-
-			// Set account
-			writeState.SetNonce(addr, 1, tracing.NonceChangeUnspecified)
-			writeState.SetBalance(addr, big.NewInt(1000000000), tracing.BalanceChangeUnspecified)
-
-			// Commit to get state root
-			stateRoot, err := writeState.Commit(false)
-			if err != nil {
-				t.Fatalf("Failed to commit state: %v", err)
-			}
-
-			// Commit trie changes to disk
-			err = writeDB.TrieDB().Commit(stateRoot, false, nil)
-			if err != nil {
-				t.Fatalf("Failed to commit trie: %v", err)
-			}
-
-			t.Logf("Written state with %s format, root: %x", tt.writeFormat, stateRoot)
-
-			// Try to read state with second format
-			readConfig := &trie.Config{
-				Zktrie: tt.readFormat == "zktrie",
-			}
-			readDB := NewDatabaseWithConfig(db, readConfig)
-
-			// Try to open trie with the state root
-			_, err = readDB.OpenTrie(stateRoot)
-
-			if tt.expectError {
-				if err == nil {
-					t.Errorf("%s: Expected error when reading cross-format state without mapping", tt.description)
-				} else {
-					t.Logf("✓ %s: Got expected error: %v", tt.description, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("%s: Unexpected error: %v", tt.description, err)
-				} else {
-					t.Logf("✓ %s: Successfully read same-format state", tt.description)
-				}
-			}
-		})
+	stateRoot, err := writeState.Commit(false)
+	if err != nil {
+		t.Fatalf("Failed to commit state: %v", err)
 	}
+	if err := writeDB.TrieDB().Commit(stateRoot, false, nil); err != nil {
+		t.Fatalf("Failed to commit trie: %v", err)
+	}
+	t.Logf("Written MPT state, root: %x", stateRoot)
+
+	readDB := NewDatabaseWithConfig(db, &trie.Config{})
+	if _, err := readDB.OpenTrie(stateRoot); err != nil {
+		t.Fatalf("Failed to open MPT trie: %v", err)
+	}
+	t.Log("Successfully read MPT state")
 }
 
 // TestDiskStateRootMapping tests the DiskStateRoot mapping mechanism
@@ -122,7 +64,7 @@ func TestDiskStateRootMapping(t *testing.T) {
 	addr := common.HexToAddress("0x1111111111111111111111111111111111111111")
 
 	// Create state with MPT format
-	mptConfig := &trie.Config{Zktrie: false}
+	mptConfig := &trie.Config{}
 	mptDB := NewDatabaseWithConfig(db, mptConfig)
 	mptState, err := New(types.EmptyRootHash, mptDB, nil)
 	if err != nil {
@@ -145,36 +87,34 @@ func TestDiskStateRootMapping(t *testing.T) {
 
 	t.Logf("MPT root: %x", mptRoot)
 
-	// Simulate a zkTrie root (would be from block header in real scenario)
-	simulatedZkTrieRoot := common.HexToHash("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	t.Logf("Simulated zkTrie root: %x", simulatedZkTrieRoot)
+	// Simulate a legacy header root (pre-Jade headers carry non-MPT roots)
+	legacyHeaderRoot := common.HexToHash("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Logf("Legacy header root: %x", legacyHeaderRoot)
 
-	// Test mapping: Write mapping from zkTrie root (header) to MPT root (disk)
-	// This simulates the case where blocks use zkTrie format but disk uses MPT format
-	rawdb.WriteDiskStateRoot(db, simulatedZkTrieRoot, mptRoot)
-	t.Logf("Written mapping: header=%x -> disk=%x", simulatedZkTrieRoot, mptRoot)
+	// Write mapping: legacy header root -> actual MPT disk root
+	rawdb.WriteDiskStateRoot(db, legacyHeaderRoot, mptRoot)
+	t.Logf("Written mapping: header=%x -> disk=%x", legacyHeaderRoot, mptRoot)
 
 	// Read mapping back
-	diskRoot, err := rawdb.ReadDiskStateRoot(db, simulatedZkTrieRoot)
+	diskRoot, err := rawdb.ReadDiskStateRoot(db, legacyHeaderRoot)
 	if err != nil {
 		t.Fatalf("Failed to read disk state root mapping: %v", err)
 	}
 	if diskRoot != mptRoot {
 		t.Errorf("Mapping mismatch: expected %x, got %x", mptRoot, diskRoot)
 	} else {
-		t.Logf("✓ Successfully read mapping: %x -> %x", simulatedZkTrieRoot, diskRoot)
+		t.Logf("✓ Successfully read mapping: %x -> %x", legacyHeaderRoot, diskRoot)
 	}
 
 }
 
-// TestCrossFormatStateAccessWithMapping tests cross-format access using DiskStateRoot mapping
-func TestCrossFormatStateAccessWithMapping(t *testing.T) {
+// TestDiskStateRootMappingWithOpenTrie tests that OpenTrie resolves a legacy
+// header root to the actual MPT disk root via the DiskStateRoot mapping.
+func TestDiskStateRootMappingWithOpenTrie(t *testing.T) {
 	db := rawdb.NewMemoryDatabase()
 	addr := common.HexToAddress("0x9999999999999999999999999999999999999999")
 
-	// Only test MPT format (zkTrie requires special initialization)
-	// Step 1: Create and commit state with MPT
-	mptConfig := &trie.Config{Zktrie: false}
+	mptConfig := &trie.Config{}
 	mptDB := NewDatabaseWithConfig(db, mptConfig)
 	mptState, err := New(types.EmptyRootHash, mptDB, nil)
 	if err != nil {
@@ -188,42 +128,35 @@ func TestCrossFormatStateAccessWithMapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to commit MPT state: %v", err)
 	}
-	err = mptDB.TrieDB().Commit(mptRoot, false, nil)
-	if err != nil {
+	if err = mptDB.TrieDB().Commit(mptRoot, false, nil); err != nil {
 		t.Fatalf("Failed to commit MPT trie: %v", err)
 	}
-
 	t.Logf("Created MPT state with root: %x", mptRoot)
 
-	// Step 2: Create a simulated "zkTrie" root (just a different hash)
-	// In reality this would be a real zkTrie root from a block header
-	simulatedZkTrieRoot := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	// Simulate a legacy header root (pre-Jade headers carry non-MPT roots)
+	legacyHeaderRoot := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
 
-	// Step 3: Create mapping (simulated zkTrie header -> actual MPT disk)
-	// This simulates: block uses zkTrie format, but disk uses MPT format
-	rawdb.WriteDiskStateRoot(db, simulatedZkTrieRoot, mptRoot)
-	t.Logf("Written mapping: headerRoot=%x -> diskRoot=%x", simulatedZkTrieRoot, mptRoot)
+	// Write mapping: legacy header root -> actual MPT disk root
+	rawdb.WriteDiskStateRoot(db, legacyHeaderRoot, mptRoot)
+	t.Logf("Written mapping: headerRoot=%x -> diskRoot=%x", legacyHeaderRoot, mptRoot)
 
-	// Step 4: Verify mapping resolution in OpenTrie
-	// When OpenTrie sees simulatedZkTrieRoot, it should resolve to mptRoot
-	diskRoot, err := rawdb.ReadDiskStateRoot(db, simulatedZkTrieRoot)
+	// Verify mapping resolution
+	diskRoot, err := rawdb.ReadDiskStateRoot(db, legacyHeaderRoot)
 	if err != nil {
 		t.Fatalf("Failed to read disk state root mapping: %v", err)
 	}
 	if diskRoot != mptRoot {
 		t.Errorf("Mapping mismatch: expected %x, got %x", mptRoot, diskRoot)
 	} else {
-		t.Logf("✓ Mapping correctly resolved: %x -> %x", simulatedZkTrieRoot, diskRoot)
+		t.Logf("✓ Mapping correctly resolved: %x -> %x", legacyHeaderRoot, diskRoot)
 	}
 
-	// Step 5: Test that OpenTrie can successfully open using the resolved root
-	// The actual resolution happens in database.go:OpenTrie
+	// Test that OpenTrie can resolve the legacy root via the mapping
 	mptReader := NewDatabaseWithConfig(db, mptConfig)
-	trie, err := mptReader.OpenTrie(simulatedZkTrieRoot)
+	trie, err := mptReader.OpenTrie(legacyHeaderRoot)
 	if err != nil {
-		// This is expected if the simulated root doesn't exist in disk
-		t.Logf("Note: Cannot open simulated root directly (expected)")
-		t.Logf("  In real scenario, OpenTrie would resolve %x -> %x automatically", simulatedZkTrieRoot, diskRoot)
+		t.Logf("Note: Cannot open legacy root directly (expected)")
+		t.Logf("  In real scenario, OpenTrie would resolve %x -> %x automatically", legacyHeaderRoot, diskRoot)
 	} else {
 		t.Logf("✓ Successfully opened trie via resolved root")
 		t.Logf("  Trie hash: %x", trie.Hash())

@@ -304,8 +304,6 @@ var (
 		JadeForkTime:            NewUint64(1774418400),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
-			// zkTrie storage mode retired: state always uses MPT.
-			UseZktrie:                 false,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &MorphHoodiFeeVaultAddress,
 			GenesisStateRoot:          &MorphHoodiGenesisStateRoot,
@@ -338,8 +336,6 @@ var (
 		JadeForkTime:            NewUint64(1775628000),
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
-			// zkTrie storage mode retired: state always uses MPT.
-			UseZktrie:                 false,
 			MaxTxPayloadBytesPerBlock: &MorphMaxTxPayloadBytesPerBlock,
 			FeeVaultAddress:           &rcfg.MorphFeeVaultAddress,
 			GenesisStateRoot:          &MorphMainnetGenesisStateRoot,
@@ -379,10 +375,10 @@ var (
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
 		Morph: MorphConfig{
-			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
 			MaxTxPayloadBytesPerBlock: nil,
-		}}
+		},
+	}
 
 	// AllCliqueProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Clique consensus.
@@ -417,10 +413,10 @@ var (
 		Ethash:                  nil,
 		Clique:                  &CliqueConfig{Period: 0, Epoch: 30000},
 		Morph: MorphConfig{
-			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
 			MaxTxPayloadBytesPerBlock: nil,
-		}}
+		},
+	}
 
 	TestChainConfig = &ChainConfig{
 		ChainID:                 big.NewInt(1),
@@ -450,7 +446,6 @@ var (
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
 		Morph: MorphConfig{
-			UseZktrie:                 false,
 			FeeVaultAddress:           &common.Address{123},
 			MaxTxPayloadBytesPerBlock: nil,
 		}}
@@ -484,10 +479,10 @@ var (
 		Ethash:                  new(EthashConfig),
 		Clique:                  nil,
 		Morph: MorphConfig{
-			UseZktrie:                 false,
 			FeeVaultAddress:           nil,
 			MaxTxPayloadBytesPerBlock: nil,
-		}}
+		},
+	}
 )
 
 // TrustedCheckpoint represents a set of post-processed trie roots (CHT and
@@ -589,12 +584,6 @@ type ChainConfig struct {
 }
 
 type MorphConfig struct {
-	// UseZktrie is a legacy epoch marker only [optional].
-	// The state backend is always MPT (zkTrie storage mode retired); this flag no
-	// longer selects a runnable storage mode. It is retained solely to identify
-	// legacy networks whose pre-Jade headers carry zkTrie-format state roots.
-	UseZktrie bool `json:"useZktrie,omitempty"`
-
 	// GenesisStateRoot is the legacy zkTrie genesis state root [optional].
 	// The genesis state is always committed as MPT; when set, this pins the genesis
 	// header.Root to the historical zkTrie root for hash compatibility and records a
@@ -616,10 +605,6 @@ func (s MorphConfig) FeeVaultEnabled() bool {
 	return s.FeeVaultAddress != nil
 }
 
-func (s MorphConfig) ZktrieEnabled() bool {
-	return s.UseZktrie
-}
-
 func (s MorphConfig) String() string {
 	maxTxPerBlock := "<nil>"
 	if s.MaxTxPerBlock != nil {
@@ -631,8 +616,8 @@ func (s MorphConfig) String() string {
 		maxTxPayloadBytesPerBlock = fmt.Sprintf("%v", *s.MaxTxPayloadBytesPerBlock)
 	}
 
-	return fmt.Sprintf("{useZktrie: %v, maxTxPerBlock: %v, MaxTxPayloadBytesPerBlock: %v, feeVaultAddress: %v}",
-		s.UseZktrie, maxTxPerBlock, maxTxPayloadBytesPerBlock, s.FeeVaultAddress)
+	return fmt.Sprintf("{maxTxPerBlock: %v, MaxTxPayloadBytesPerBlock: %v, feeVaultAddress: %v}",
+		maxTxPerBlock, maxTxPayloadBytesPerBlock, s.FeeVaultAddress)
 }
 
 // IsValidTxCount returns whether the given block's transaction count is below the limit.

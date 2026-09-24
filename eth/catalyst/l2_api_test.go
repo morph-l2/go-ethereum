@@ -20,7 +20,6 @@ var testNonce uint64
 
 func l2ChainConfig() params.ChainConfig {
 	config := *params.AllEthashProtocolChanges
-	config.Morph.UseZktrie = true
 	config.TerminalTotalDifficulty = common.Big0
 	addr := common.BigToAddress(big.NewInt(123))
 	config.Morph.FeeVaultAddress = &addr
@@ -29,14 +28,12 @@ func l2ChainConfig() params.ChainConfig {
 }
 
 // l2ChainConfigPostJade mirrors how the V2 sequencer runs in production: Jade
-// fork active (IsJadeFork == true) with MPT storage (UseZktrie == false). This
-// is required for the NextL1MsgIndex anti-tamper gate in
-// writeBlockStateWithoutHead to actually reject mismatches (it is a no-op before
-// Jade) while still validating state roots (block_validator only validates when
-// UseZktrie != IsJadeFork).
+// fork active (IsJadeFork == true). This is required for the NextL1MsgIndex
+// anti-tamper gate in writeBlockStateWithoutHead to actually reject mismatches
+// (it is a no-op before Jade) while still validating state roots
+// (block_validator only validates post-Jade).
 func l2ChainConfigPostJade() params.ChainConfig {
 	config := l2ChainConfig()
-	config.Morph.UseZktrie = false
 	config.JadeForkTime = new(uint64) // active from genesis (== 0)
 	return config
 }

@@ -21,7 +21,6 @@
     "viridianTime": 0,
     "emeraldTime": 0,
     "morph": {
-      "useZktrie": true,
       "feeVaultAddress": "0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
     }
   },

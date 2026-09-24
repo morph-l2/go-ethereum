@@ -2992,9 +2992,9 @@ func TestEIP1559Transition(t *testing.T) {
 	}
 }
 
-// TestPoseidonCodeHash makes sure that, after switching
-// to Poseidon, code hashes change but addresses do not.
-func TestPoseidonCodeHash(t *testing.T) {
+// TestContractCodeHashAndAddress makes sure that deployed contract code hashes
+// and addresses are stable across CREATE and CREATE2.
+func TestContractCodeHashAndAddress(t *testing.T) {
 	// pragma solidity =0.8.7;
 	//
 	// contract Factory {
@@ -3046,10 +3046,8 @@ func TestPoseidonCodeHash(t *testing.T) {
 
 	// check empty code hash
 	state, _ := blockchain.State()
-	poseidonCodeHash := state.GetPoseidonCodeHash(addr1)
 	keccakCodeHash := state.GetKeccakCodeHash(addr1)
 
-	assert.Equal(t, common.HexToHash("0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864"), poseidonCodeHash, "code hash mismatch")
 	assert.Equal(t, common.HexToHash("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"), keccakCodeHash, "code hash mismatch")
 
 	// deploy contract through transaction
@@ -3067,10 +3065,8 @@ func TestPoseidonCodeHash(t *testing.T) {
 	assert.Equal(t, common.HexToAddress("0x3A220f351252089D385b29beca14e27F204c296A"), contractAddress, "address mismatch")
 
 	state, _ = blockchain.State()
-	poseidonCodeHash = state.GetPoseidonCodeHash(contractAddress)
 	keccakCodeHash = state.GetKeccakCodeHash(contractAddress)
 
-	assert.Equal(t, common.HexToHash("0x0df04366a061c969e08137570a59536df95672ec21d00cb738fb90cac8e78bcc"), poseidonCodeHash, "code hash mismatch")
 	assert.Equal(t, common.HexToHash("0x089bfd332dfa6117cbc20756f31801ce4f5a175eb258e46bf8123317da54cd96"), keccakCodeHash, "code hash mismatch")
 
 	// deploy contract through another contract (CREATE and CREATE2)
@@ -3093,13 +3089,8 @@ func TestPoseidonCodeHash(t *testing.T) {
 	assert.Equal(t, common.HexToAddress("0x4099734c88B7D091E744da0E849df0e818e7E208"), address2, "address mismatch")
 
 	state, _ = blockchain.State()
-	poseidonCodeHash1 := state.GetPoseidonCodeHash(address1)
-	poseidonCodeHash2 := state.GetPoseidonCodeHash(address2)
 	keccakCodeHash1 := state.GetKeccakCodeHash(address1)
 	keccakCodeHash2 := state.GetKeccakCodeHash(address2)
-
-	assert.Equal(t, common.HexToHash("0x12eb18061d12f883c4d4c2041925cc2916c86fcfcb9458c8b9a3fb32257215d0"), poseidonCodeHash1, "code hash mismatch")
-	assert.Equal(t, common.HexToHash("0x12eb18061d12f883c4d4c2041925cc2916c86fcfcb9458c8b9a3fb32257215d0"), poseidonCodeHash2, "code hash mismatch")
 
 	assert.Equal(t, common.HexToHash("0xfb5cd93a70ce47f91d33fac3afdb7b54680a6b0683506646a108ef4dfc047583"), keccakCodeHash1, "code hash mismatch")
 	assert.Equal(t, common.HexToHash("0xfb5cd93a70ce47f91d33fac3afdb7b54680a6b0683506646a108ef4dfc047583"), keccakCodeHash2, "code hash mismatch")
@@ -3550,7 +3541,6 @@ func TestCurieTransition(t *testing.T) {
 		code := statedb.GetCode(rcfg.L1GasPriceOracleAddress)
 		codeSize := statedb.GetCodeSize(rcfg.L1GasPriceOracleAddress)
 		keccakCodeHash := statedb.GetKeccakCodeHash(rcfg.L1GasPriceOracleAddress)
-		poseidonCodeHash := statedb.GetPoseidonCodeHash(rcfg.L1GasPriceOracleAddress)
 
 		l1BlobBaseFee := statedb.GetState(rcfg.L1GasPriceOracleAddress, rcfg.L1BlobBaseFeeSlot)
 		commitScalar := statedb.GetState(rcfg.L1GasPriceOracleAddress, rcfg.CommitScalarSlot)
@@ -3565,7 +3555,6 @@ func TestCurieTransition(t *testing.T) {
 			assert.Nil(t, code)
 			assert.Equal(t, uint64(0), codeSize)
 			assert.Equal(t, common.Hash{}, keccakCodeHash)
-			assert.Equal(t, common.Hash{}, poseidonCodeHash)
 
 			assert.Equal(t, common.Hash{}, l1BlobBaseFee)
 			assert.Equal(t, common.Hash{}, commitScalar)
@@ -3578,7 +3567,6 @@ func TestCurieTransition(t *testing.T) {
 			assert.NotNil(t, code)
 			assert.NotEqual(t, uint64(0), codeSize)
 			assert.NotEqual(t, common.Hash{}, keccakCodeHash)
-			assert.NotEqual(t, common.Hash{}, poseidonCodeHash)
 
 			assert.NotEqual(t, common.Hash{}, l1BlobBaseFee)
 			assert.NotEqual(t, common.Hash{}, commitScalar)

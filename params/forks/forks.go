@@ -41,6 +41,8 @@ const (
 	Morph203
 	Viridian
 	Emerald
+	JadeFork
+	Amsterdam
 )
 
 // String implements fmt.Stringer.
@@ -74,4 +76,6 @@ var forkToString = map[Fork]string{
 	Morph203:         "Morph203",
 	Viridian:         "Viridian",
 	Emerald:          "Emerald",
+	JadeFork:         "JadeFork",
+	Amsterdam:        "Amsterdam",
 }

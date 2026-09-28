@@ -477,14 +477,13 @@ func (tx *MorphTx) sigHash(chainID *big.Int) common.Hash {
 		return tx.v0SigHash(chainID)
 	case MorphTxVersion1:
 		return tx.v1SigHash(chainID)
-	case MorphTxVersion2:
-		return tx.v2SigHash(chainID)
 	default:
-		// Unknown versions keep the pre-v2 signing payload. sigHash cannot
-		// return an error, and panicking here breaks callers that hash or
-		// sign a transaction before ValidateMorphTxVersion rejects it.
-		// Encode, decode, and ValidateMorphTxVersion still reject these.
-		return tx.v1SigHash(chainID)
+		// v0 and v1 are legacy payloads. Every later version, including v2,
+		// uses the latest payload. Before v2 existed, every non-v0 version
+		// used v1 the same way. The version byte is part of the payload, so
+		// an unknown version does not produce a v2 signature. Encode, decode,
+		// and ValidateMorphTxVersion still reject unknown versions.
+		return tx.v2SigHash(chainID)
 	}
 }
 

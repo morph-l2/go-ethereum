@@ -70,6 +70,8 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		OverrideMorph203Time    *uint64 `toml:",omitempty"`
 		OverrideMorph300Time    *uint64 `toml:",omitempty"`
 		OverrideEmeraldTime     *uint64 `toml:",omitempty"`
+		OverrideJadeForkTime    *uint64 `toml:",omitempty"`
+		OverrideNextForkTime    *uint64 `toml:",omitempty"`
 	}
 	var enc Config
 	enc.Genesis = c.Genesis
@@ -124,6 +126,8 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.OverrideMorph203Time = c.OverrideMorph203Time
 	enc.OverrideMorph300Time = c.OverrideViridianTime
 	enc.OverrideEmeraldTime = c.OverrideEmeraldTime
+	enc.OverrideJadeForkTime = c.OverrideJadeForkTime
+	enc.OverrideNextForkTime = c.OverrideNextForkTime
 	return &enc, nil
 }
 
@@ -182,6 +186,8 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		OverrideMorph203Time    *uint64 `toml:",omitempty"`
 		OverrideViridianTime    *uint64 `toml:",omitempty"`
 		OverrideEmeraldTime     *uint64 `toml:",omitempty"`
+		OverrideJadeForkTime    *uint64 `toml:",omitempty"`
+		OverrideNextForkTime    *uint64 `toml:",omitempty"`
 	}
 	var dec Config
 	if err := unmarshal(&dec); err != nil {
@@ -342,6 +348,12 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.OverrideEmeraldTime != nil {
 		c.OverrideEmeraldTime = dec.OverrideEmeraldTime
+	}
+	if dec.OverrideJadeForkTime != nil {
+		c.OverrideJadeForkTime = dec.OverrideJadeForkTime
+	}
+	if dec.OverrideNextForkTime != nil {
+		c.OverrideNextForkTime = dec.OverrideNextForkTime
 	}
 	return nil
 }

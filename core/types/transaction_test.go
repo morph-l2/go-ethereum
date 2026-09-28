@@ -1192,8 +1192,25 @@ func TestMorphTxAsMessage(t *testing.T) {
 		}
 	})
 
-	// An unsupported version panics in sigHash, so such a transaction can never be
-	// signed. AsMessage must reject it before it tries to recover the sender.
+	// Signing an unsupported version must not panic. AsMessage still rejects it
+	// before recovering the sender.
+	t.Run("unsupported version 255 signs without panic", func(t *testing.T) {
+		_, err := SignNewTx(key, signer, &MorphTx{
+			ChainID:    big.NewInt(1),
+			Nonce:      31,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  big.NewInt(10),
+			Gas:        21000,
+			To:         &testAddr,
+			Value:      big.NewInt(0),
+			Version:    255,
+			FeeTokenID: 1,
+		})
+		if err != nil {
+			t.Fatalf("SignNewTx failed: %v", err)
+		}
+	})
+
 	t.Run("unsupported version 255 → ErrMorphTxUnsupportedVersion", func(t *testing.T) {
 		tx := NewTx(&MorphTx{
 			ChainID:    big.NewInt(1),

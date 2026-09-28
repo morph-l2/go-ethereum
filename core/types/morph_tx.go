@@ -480,7 +480,11 @@ func (tx *MorphTx) sigHash(chainID *big.Int) common.Hash {
 	case MorphTxVersion2:
 		return tx.v2SigHash(chainID)
 	default:
-		panic("unsupported morph tx version: " + strconv.Itoa(int(tx.Version)))
+		// Unknown versions keep the pre-v2 signing payload. sigHash cannot
+		// return an error, and panicking here breaks callers that hash or
+		// sign a transaction before ValidateMorphTxVersion rejects it.
+		// Encode, decode, and ValidateMorphTxVersion still reject these.
+		return tx.v1SigHash(chainID)
 	}
 }
 

@@ -230,8 +230,8 @@ func (args *TransactionArgs) setDefaultsWithStateOverrides(ctx context.Context, 
 				return types.ErrMorphTxV1NotYetActive
 			}
 		}
-		// Celadon gate for transactions that will be signed or submitted.
-		// ToMessage does not repeat it: eth_call, estimateGas, and trace only simulate.
+		// Celadon gate for every setDefaults caller, including eth_createAccessList.
+		// eth_call, estimateGas, and trace do not call setDefaults and are not gated.
 		if args.inferredMorphTxVersion() == types.MorphTxVersion2 &&
 			!b.ChainConfig().IsCeladon(head.Time) {
 			return types.ErrMorphTxV2NotYetActive

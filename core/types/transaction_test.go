@@ -1215,9 +1215,7 @@ func TestMorphTxAsMessage(t *testing.T) {
 		if got, want := txdata.sigHash(signer.ChainID()), txdata.v2SigHash(signer.ChainID()); got != want {
 			t.Fatalf("sigHash = %s, want latest payload %s", got, want)
 		}
-		v1 := *txdata
-		v1.Version = MorphTxVersion1
-		if txdata.sigHash(signer.ChainID()) == v1.sigHash(signer.ChainID()) {
+		if txdata.sigHash(signer.ChainID()) == txdata.v1SigHash(signer.ChainID()) {
 			t.Fatal("unknown version used the v1 signing payload")
 		}
 	})

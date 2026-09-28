@@ -291,14 +291,14 @@ func TestMorphTxV2AuthorizationInSignatureHash(t *testing.T) {
 	}
 }
 
-func TestMorphTxUnknownVersionSigHashPanics(t *testing.T) {
+func TestMorphTxUnknownVersionSigHash(t *testing.T) {
 	tx := &MorphTx{Version: 99, ChainID: big.NewInt(1), GasTipCap: big.NewInt(1), GasFeeCap: big.NewInt(1), Value: big.NewInt(0)}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("unknown version must not silently hash as v1")
-		}
-	}()
-	_ = tx.sigHash(tx.ChainID)
+	if got, want := tx.sigHash(tx.ChainID), tx.v2SigHash(tx.ChainID); got != want {
+		t.Fatalf("sigHash = %s, want latest payload %s", got, want)
+	}
+	if tx.sigHash(tx.ChainID) == tx.v1SigHash(tx.ChainID) {
+		t.Fatal("unknown version used the v1 signing payload")
+	}
 }
 
 func TestValidateMorphTxV2(t *testing.T) {

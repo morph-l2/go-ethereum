@@ -253,6 +253,7 @@ type TxPool struct {
 	shanghai bool // Fork indicator whether we are in the Shanghai stage.
 	eip7702  bool // Fork indicator whether we are in the Morph 3.0.0 stage.
 	jade     bool // Fork indicator whether we are in the Jade stage.
+	celadon  bool // Fork indicator whether we are in the Celadon stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	currentHead   *big.Int       // Current blockchain head
@@ -666,6 +667,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Reject MorphTx V1 before jade fork is active
 	if !pool.jade && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion1 {
 		return types.ErrMorphTxV1NotYetActive
+	}
+	if !pool.celadon && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
+		return types.ErrMorphTxV2NotYetActive
 	}
 
 	// Validate MorphTx version, memo, and associated field requirements
@@ -1300,6 +1304,22 @@ func (pool *TxPool) removeMorphTxV1() {
 	}
 }
 
+// removeMorphTxV2 removes all MorphTx V2 transactions from the pool.
+// This is called after a reorg rolls back past the activation time.
+func (pool *TxPool) removeMorphTxV2() {
+	var toRemove []common.Hash
+	pool.all.Range(func(hash common.Hash, tx *types.Transaction, local bool) bool {
+		if tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
+			toRemove = append(toRemove, hash)
+		}
+		return true
+	}, true, true)
+	for _, hash := range toRemove {
+		log.Trace("Removing MorphTx V2 (activation not active)", "hash", hash)
+		pool.removeTx(hash, true)
+	}
+}
+
 // requestReset requests a pool reset to the new head block.
 // The returned channel is closed when the reset has occurred.
 func (pool *TxPool) requestReset(oldHead *types.Header, newHead *types.Header) chan struct{} {
@@ -1573,10 +1593,14 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.shanghai = pool.chainconfig.IsShanghai(next)
 	pool.eip7702 = pool.chainconfig.IsViridian(next, newHead.Time)
 	pool.jade = pool.chainconfig.IsJadeFork(newHead.Time)
+	pool.celadon = pool.chainconfig.IsCeladon(newHead.Time)
 
 	// Remove MorphTx V1 transactions if jade fork is not active (e.g. after reorg)
 	if !pool.jade {
 		pool.removeMorphTxV1()
+	}
+	if !pool.celadon {
+		pool.removeMorphTxV2()
 	}
 
 	// Update current head

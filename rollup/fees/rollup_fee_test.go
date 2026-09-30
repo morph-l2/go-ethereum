@@ -199,3 +199,86 @@ func TestEstimateL1DataFeeIncludesSetCodeAuthorizations(t *testing.T) {
 	assert.Equal(t, actual, withAuth,
 		"fallback estimate must equal the real SetCodeTx fee for identical fields")
 }
+
+func newTestMorphMessage(to *common.Address, authList []types.SetCodeAuthorization, feeTokenID uint16, version uint8) types.Message {
+	var feeLimit *big.Int
+	if feeTokenID != 0 {
+		feeLimit = big.NewInt(1e18)
+	}
+	return types.NewMessage(
+		testFrom, to, 1, big.NewInt(0), 100000,
+		big.NewInt(1e9), big.NewInt(1e9), big.NewInt(1e9),
+		feeTokenID, feeLimit, version, nil, nil,
+		testCallData, nil, authList, false,
+	)
+}
+
+func TestAsUnsignedTxPreservesMorphAuthList(t *testing.T) {
+	chainID := big.NewInt(1)
+	authList := testAuthList(chainID)
+
+	tx := asUnsignedTx(newTestMorphMessage(&testTo, authList, 1, types.MorphTxVersion1), big.NewInt(1), chainID)
+	assert.Equal(t, uint8(types.MorphTxType), tx.Type())
+	assert.Equal(t, types.MorphTxVersion2, tx.Version())
+	assert.Equal(t, authList, tx.SetCodeAuthorizations())
+
+	ethFeeTx := asUnsignedTx(newTestMorphMessage(&testTo, authList, 0, types.MorphTxVersion2), big.NewInt(1), chainID)
+	assert.Equal(t, uint8(types.MorphTxType), ethFeeTx.Type())
+	assert.Equal(t, types.MorphTxVersion2, ethFeeTx.Version())
+	assert.Equal(t, authList, ethFeeTx.SetCodeAuthorizations())
+}
+
+func TestAsUnsignedTxRestoresEmptyMorphV2List(t *testing.T) {
+	chainID := big.NewInt(1)
+	msg := newTestMorphMessage(&testTo, nil, 0, types.MorphTxVersion2)
+
+	tx := asUnsignedTx(msg, big.NewInt(1), chainID)
+	assert.Equal(t, uint8(types.MorphTxType), tx.Type())
+	assert.Equal(t, types.MorphTxVersion2, tx.Version())
+	assert.NotNil(t, tx.SetCodeAuthorizations())
+	assert.Empty(t, tx.SetCodeAuthorizations())
+}
+
+func TestEstimateL1DataFeeIncludesMorphAuthorizations(t *testing.T) {
+	config := params.TestChainConfig
+	chainID := config.ChainID
+	signer := types.LatestSignerForChainID(chainID)
+	state := &mockStateDB{}
+	blockNumber := big.NewInt(1)
+	baseFee := big.NewInt(1)
+	authList := testAuthList(chainID)
+
+	withAuth, err := EstimateL1DataFeeForMessage(
+		newTestMorphMessage(&testTo, authList, 1, types.MorphTxVersion2), baseFee, config, signer, state, blockNumber)
+	assert.NoError(t, err)
+	withoutAuth, err := EstimateL1DataFeeForMessage(
+		newTestMorphMessage(&testTo, nil, 1, types.MorphTxVersion1), baseFee, config, signer, state, blockNumber)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, withAuth.Cmp(withoutAuth),
+		"L1 data fee with MorphTx auth list must exceed the same MorphTx without authorizations")
+
+	fakeSig := append(bytes.Repeat([]byte{0xff}, crypto.SignatureLength-1), 0x01)
+	realTx, err := types.NewTx(&types.MorphTx{
+		ChainID:    chainID,
+		Nonce:      1,
+		GasTipCap:  big.NewInt(1e9),
+		GasFeeCap:  big.NewInt(1e9),
+		Gas:        100000,
+		To:         &testTo,
+		Value:      big.NewInt(0),
+		Data:       testCallData,
+		FeeTokenID: 1,
+		FeeLimit:   big.NewInt(1e18),
+		Version:    types.MorphTxVersion2,
+		AuthList:   authList,
+		V:          big.NewInt(0),
+		R:          big.NewInt(0),
+		S:          big.NewInt(0),
+	}).WithSignature(signer, fakeSig)
+	assert.NoError(t, err)
+
+	actual, err := CalculateL1DataFee(realTx, state, config, blockNumber)
+	assert.NoError(t, err)
+	assert.Equal(t, actual, withAuth,
+		"estimate must equal the real MorphTx v2 L1 data fee")
+}

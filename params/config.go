@@ -574,6 +574,7 @@ type ChainConfig struct {
 	ViridianTime        *uint64  `json:"viridianTime,omitempty"`        // ViridianTime switch time (nil = no fork, 0 = already on viridian)
 	EmeraldTime         *uint64  `json:"emeraldTime,omitempty"`         // EmeraldTime switch time (nil = no fork, 0 = already on emerald)
 	JadeForkTime        *uint64  `json:"jadeForkTime,omitempty"`        // JadeForkTime switch time (nil = no fork). State backend is always MPT; Jade is only a historical epoch boundary: pre-Jade headers carry legacy zkTrie state roots and skip state-root validation, post-Jade headers are native MPT.
+	CeladonTime         *uint64  `json:"celadonTime,omitempty"`         // CeladonTime switch time (nil = no fork, 0 = already on celadon). Enables MorphTx v2 (EIP-7702 authorizations) and the alt-token refund rounding change for all alt-fee transactions.
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -691,7 +692,7 @@ func (c *ChainConfig) String() string {
 		engine = "unknown"
 	}
 	return fmt.Sprintf(
-		"{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Emerald: %v, JadeFork: %v, Engine: %v, Morph config: %v}",
+		"{ChainID: %v Homestead: %v DAO: %v DAOSupport: %v EIP150: %v EIP155: %v EIP158: %v Byzantium: %v Constantinople: %v Petersburg: %v Istanbul: %v, Muir Glacier: %v, Berlin: %v, London: %v, Arrow Glacier: %v, Archimedes: %v, Shanghai: %v, Bernoulli: %v, Curie: %v, Morph203: %v, Viridian: %v, Emerald: %v, JadeFork: %v, Celadon: %v, Engine: %v, Morph config: %v}",
 		c.ChainID,
 		c.HomesteadBlock,
 		c.DAOForkBlock,
@@ -715,6 +716,7 @@ func (c *ChainConfig) String() string {
 		c.ViridianTime,
 		c.EmeraldTime,
 		c.JadeForkTime,
+		c.CeladonTime,
 		engine,
 		c.Morph,
 	)
@@ -826,6 +828,11 @@ func (c *ChainConfig) IsJadeFork(time uint64) bool {
 	return isTimestampForked(c.JadeForkTime, time)
 }
 
+// IsCeladon returns whether the given time is at or after the Celadon fork time.
+func (c *ChainConfig) IsCeladon(time uint64) bool {
+	return isTimestampForked(c.CeladonTime, time)
+}
+
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
 func (c *ChainConfig) IsTerminalPoWBlock(parentTotalDiff *big.Int, totalDiff *big.Int) bool {
 	if c.TerminalTotalDifficulty == nil {
@@ -891,6 +898,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 		{name: "viridianTime", timestamp: c.ViridianTime, optional: true},
 		{name: "emeraldTime", timestamp: c.EmeraldTime, optional: true},
 		{name: "jadeForkTime", timestamp: c.JadeForkTime, optional: true},
+		{name: "celadonTime", timestamp: c.CeladonTime, optional: true},
 	} {
 		if lastFork.name != "" {
 			switch {
@@ -1002,6 +1010,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int, headTi
 	}
 	if isForkTimestampIncompatible(c.JadeForkTime, newcfg.JadeForkTime, headTimestamp) {
 		return newTimestampCompatError("JadeForkTime fork timestamp", c.JadeForkTime, newcfg.JadeForkTime)
+	}
+	if isForkTimestampIncompatible(c.CeladonTime, newcfg.CeladonTime, headTimestamp) {
+		return newTimestampCompatError("Celadon fork timestamp", c.CeladonTime, newcfg.CeladonTime)
 	}
 	return nil
 }
@@ -1145,11 +1156,11 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                   *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158                 bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul   bool
-	IsBerlin, IsLondon, IsArchimedes, IsShanghai, IsBernoulli bool
-	IsCurie, IsMorph203, IsViridian, IsEmerald, IsJadeFork    bool
+	ChainID                                                           *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                         bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul           bool
+	IsBerlin, IsLondon, IsArchimedes, IsShanghai, IsBernoulli         bool
+	IsCurie, IsMorph203, IsViridian, IsEmerald, IsJadeFork, IsCeladon bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1178,6 +1189,7 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 		IsViridian:       c.IsViridian(num, time),
 		IsEmerald:        c.IsEmerald(num, time),
 		IsJadeFork:       c.IsJadeFork(time),
+		IsCeladon:        c.IsCeladon(time),
 	}
 }
 
@@ -1187,6 +1199,10 @@ func (c *ChainConfig) Rules(num *big.Int, time uint64) Rules {
 // We only check timestamp-based conditions here.
 func (c *ChainConfig) LatestFork(time uint64) forks.Fork {
 	switch {
+	case isTimestampForked(c.CeladonTime, time):
+		return forks.Celadon
+	case isTimestampForked(c.JadeForkTime, time):
+		return forks.Jade
 	case isTimestampForked(c.EmeraldTime, time):
 		return forks.Emerald
 	case isTimestampForked(c.ViridianTime, time):
@@ -1204,6 +1220,10 @@ func (c *ChainConfig) LatestFork(time uint64) forks.Fork {
 // the fork isn't defined or isn't a time-based fork.
 func (c *ChainConfig) Timestamp(fork forks.Fork) *uint64 {
 	switch fork {
+	case forks.Celadon:
+		return c.CeladonTime
+	case forks.Jade:
+		return c.JadeForkTime
 	case forks.Emerald:
 		return c.EmeraldTime
 	case forks.Viridian:

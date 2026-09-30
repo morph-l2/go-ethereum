@@ -75,6 +75,69 @@ func (mt *mockTransactor) SendTransaction(ctx context.Context, tx *types.Transac
 	return nil
 }
 
+func TestTransactRoutesAuthorizationList(t *testing.T) {
+	mt := &mockTransactor{baseFee: big.NewInt(1), gasTipCap: big.NewInt(1)}
+	contract := common.HexToAddress("0x1234")
+	bc := bind.NewBoundContract(contract, abi.ABI{}, nil, mt, nil)
+	baseOpts := func() *bind.TransactOpts {
+		return &bind.TransactOpts{
+			From:      common.HexToAddress("0xabcd"),
+			Signer:    mockSign,
+			GasFeeCap: big.NewInt(2),
+			GasTipCap: big.NewInt(1),
+			GasLimit:  100000,
+			NoSend:    true,
+		}
+	}
+
+	t.Run("Morph fields plus non-empty authorization list create v2", func(t *testing.T) {
+		opts := baseOpts()
+		opts.FeeTokenID = 1
+		opts.AuthorizationList = []types.SetCodeAuthorization{{}}
+		tx, err := bc.RawTransact(opts, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tx.Type() != types.MorphTxType || tx.Version() != types.MorphTxVersion2 {
+			t.Fatalf("got type/version %d/%d, want MorphTx/v2", tx.Type(), tx.Version())
+		}
+		if len(tx.SetCodeAuthorizations()) != 1 {
+			t.Fatalf("authorization list was not preserved")
+		}
+	})
+
+	t.Run("empty authorization list creates MorphTx v1", func(t *testing.T) {
+		opts := baseOpts()
+		opts.FeeTokenID = 1
+		opts.AuthorizationList = []types.SetCodeAuthorization{}
+		tx, err := bc.RawTransact(opts, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tx.Type() != types.MorphTxType || tx.Version() != types.MorphTxVersion1 {
+			t.Fatalf("got type/version %d/%d, want MorphTx/v1", tx.Type(), tx.Version())
+		}
+		if auths := tx.SetCodeAuthorizations(); len(auths) != 0 {
+			t.Fatalf("v1 authorization list = %#v, want empty", auths)
+		}
+	})
+
+	t.Run("authorization list without Morph fields creates SetCodeTx", func(t *testing.T) {
+		opts := baseOpts()
+		opts.AuthorizationList = []types.SetCodeAuthorization{{}}
+		tx, err := bc.RawTransact(opts, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tx.Type() != types.SetCodeTxType {
+			t.Fatalf("got type %d, want SetCodeTx", tx.Type())
+		}
+		if len(tx.SetCodeAuthorizations()) != 1 {
+			t.Fatalf("authorization list was not preserved")
+		}
+	})
+}
+
 type mockCaller struct {
 	codeAtBlockNumber         *big.Int
 	callContractBlockNumber   *big.Int

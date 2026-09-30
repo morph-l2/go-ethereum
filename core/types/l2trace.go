@@ -127,29 +127,29 @@ type StorageWrapper struct {
 }
 
 type TransactionData struct {
-	Type              uint8                      `json:"type"`
-	Nonce             uint64                     `json:"nonce"`
-	TxHash            string                     `json:"txHash"`
-	Gas               uint64                     `json:"gas"`
-	GasPrice          *hexutil.Big               `json:"gasPrice"`
-	GasTipCap         *hexutil.Big               `json:"gasTipCap"`
-	GasFeeCap         *hexutil.Big               `json:"gasFeeCap"`
-	FeeTokenID        *uint16                    `json:"feeTokenID,omitempty"`
-	FeeLimit          *hexutil.Big               `json:"feeLimit,omitempty"`
-	Version           uint8                      `json:"version,omitempty"`
-	Reference         *common.Reference          `json:"reference,omitempty"`
-	Memo              *hexutil.Bytes             `json:"memo,omitempty"`
-	From              common.Address             `json:"from"`
-	To                *common.Address            `json:"to"`
-	ChainId           *hexutil.Big               `json:"chainId"`
-	Value             *hexutil.Big               `json:"value"`
-	Data              string                     `json:"data"`
-	IsCreate          bool                       `json:"isCreate"`
-	AccessList        AccessList                 `json:"accessList"`
-	AuthorizationList []SetCodeAuthorizationData `json:"authorizationList,omitempty"`
-	V                 *hexutil.Big               `json:"v"`
-	R                 *hexutil.Big               `json:"r"`
-	S                 *hexutil.Big               `json:"s"`
+	Type              uint8                       `json:"type"`
+	Nonce             uint64                      `json:"nonce"`
+	TxHash            string                      `json:"txHash"`
+	Gas               uint64                      `json:"gas"`
+	GasPrice          *hexutil.Big                `json:"gasPrice"`
+	GasTipCap         *hexutil.Big                `json:"gasTipCap"`
+	GasFeeCap         *hexutil.Big                `json:"gasFeeCap"`
+	FeeTokenID        *uint16                     `json:"feeTokenID,omitempty"`
+	FeeLimit          *hexutil.Big                `json:"feeLimit,omitempty"`
+	Version           uint8                       `json:"version,omitempty"`
+	Reference         *common.Reference           `json:"reference,omitempty"`
+	Memo              *hexutil.Bytes              `json:"memo,omitempty"`
+	From              common.Address              `json:"from"`
+	To                *common.Address             `json:"to"`
+	ChainId           *hexutil.Big                `json:"chainId"`
+	Value             *hexutil.Big                `json:"value"`
+	Data              string                      `json:"data"`
+	IsCreate          bool                        `json:"isCreate"`
+	AccessList        AccessList                  `json:"accessList"`
+	AuthorizationList *[]SetCodeAuthorizationData `json:"authorizationList,omitempty"`
+	V                 *hexutil.Big                `json:"v"`
+	R                 *hexutil.Big                `json:"r"`
+	S                 *hexutil.Big                `json:"s"`
 }
 
 type SetCodeAuthorizationData struct {
@@ -174,24 +174,27 @@ func NewTransactionData(tx *Transaction, blockNumber uint64, blockTime uint64, c
 	}
 
 	result := &TransactionData{
-		Type:              tx.Type(),
-		TxHash:            tx.Hash().String(),
-		Nonce:             nonce,
-		ChainId:           (*hexutil.Big)(tx.ChainId()),
-		From:              from,
-		Gas:               tx.Gas(),
-		GasPrice:          (*hexutil.Big)(tx.GasPrice()),
-		GasTipCap:         (*hexutil.Big)(tx.GasTipCap()),
-		GasFeeCap:         (*hexutil.Big)(tx.GasFeeCap()),
-		To:                tx.To(),
-		Value:             (*hexutil.Big)(tx.Value()),
-		Data:              hexutil.Encode(tx.Data()),
-		IsCreate:          tx.To() == nil,
-		AccessList:        tx.AccessList(),
-		AuthorizationList: convertToAuthorizationData(tx.SetCodeAuthorizations()),
-		V:                 (*hexutil.Big)(v),
-		R:                 (*hexutil.Big)(r),
-		S:                 (*hexutil.Big)(s),
+		Type:       tx.Type(),
+		TxHash:     tx.Hash().String(),
+		Nonce:      nonce,
+		ChainId:    (*hexutil.Big)(tx.ChainId()),
+		From:       from,
+		Gas:        tx.Gas(),
+		GasPrice:   (*hexutil.Big)(tx.GasPrice()),
+		GasTipCap:  (*hexutil.Big)(tx.GasTipCap()),
+		GasFeeCap:  (*hexutil.Big)(tx.GasFeeCap()),
+		To:         tx.To(),
+		Value:      (*hexutil.Big)(tx.Value()),
+		Data:       hexutil.Encode(tx.Data()),
+		IsCreate:   tx.To() == nil,
+		AccessList: tx.AccessList(),
+		V:          (*hexutil.Big)(v),
+		R:          (*hexutil.Big)(r),
+		S:          (*hexutil.Big)(s),
+	}
+	if tx.Type() == SetCodeTxType || tx.IsMorphTx() && tx.Version() >= MorphTxVersion2 {
+		auths := convertToAuthorizationData(tx.SetCodeAuthorizations())
+		result.AuthorizationList = &auths
 	}
 
 	// Set FeeTokenID and FeeLimit for MorphTx

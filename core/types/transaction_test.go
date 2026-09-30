@@ -1192,8 +1192,34 @@ func TestMorphTxAsMessage(t *testing.T) {
 		}
 	})
 
-	// An unsupported version panics in sigHash, so such a transaction can never be
-	// signed. AsMessage must reject it before it tries to recover the sender.
+	// Signing an unsupported version must not panic. AsMessage still rejects it
+	// before recovering the sender.
+	t.Run("unsupported version 255 signs without panic", func(t *testing.T) {
+		txdata := &MorphTx{
+			ChainID:    big.NewInt(1),
+			Nonce:      31,
+			GasTipCap:  big.NewInt(1),
+			GasFeeCap:  big.NewInt(10),
+			Gas:        21000,
+			To:         &testAddr,
+			Value:      big.NewInt(0),
+			Version:    255,
+			FeeTokenID: 1,
+		}
+		if _, err := SignNewTx(key, signer, txdata); err != nil {
+			t.Fatalf("SignNewTx failed: %v", err)
+		}
+		// The latest payload includes the version byte, so this matches the
+		// v2 field list without being a version-2 signature, and it must not
+		// fall back to the v1 list.
+		if got, want := txdata.sigHash(signer.ChainID()), txdata.v2SigHash(signer.ChainID()); got != want {
+			t.Fatalf("sigHash = %s, want latest payload %s", got, want)
+		}
+		if txdata.sigHash(signer.ChainID()) == txdata.v1SigHash(signer.ChainID()) {
+			t.Fatal("unknown version used the v1 signing payload")
+		}
+	})
+
 	t.Run("unsupported version 255 → ErrMorphTxUnsupportedVersion", func(t *testing.T) {
 		tx := NewTx(&MorphTx{
 			ChainID:    big.NewInt(1),

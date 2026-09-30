@@ -230,6 +230,8 @@ func (args *TransactionArgs) setDefaultsWithStateOverrides(ctx context.Context, 
 				return types.ErrMorphTxV1NotYetActive
 			}
 		}
+		// Celadon gate for every setDefaults caller, including eth_createAccessList.
+		// eth_call, estimateGas, and trace do not call setDefaults and are not gated.
 		if args.inferredMorphTxVersion() == types.MorphTxVersion2 &&
 			!b.ChainConfig().IsCeladon(head.Time) {
 			return types.ErrMorphTxV2NotYetActive
@@ -416,6 +418,10 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		if args.FeeLimit != nil {
 			feeLimit = args.FeeLimit.ToInt()
 		}
+		// Morph fields plus a non-empty authorizationList infer v2 and keep the
+		// list. v1 cannot carry an authorization list, so this is not a v1
+		// transaction with a dropped list. The Celadon check lives in
+		// setDefaults, the tx pool, and block validation, not here.
 		version = args.inferredMorphTxVersion()
 		if args.Reference != nil {
 			reference = args.Reference

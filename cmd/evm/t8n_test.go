@@ -243,6 +243,7 @@ func TestT8n(t *testing.T) {
 
 type t9nInput struct {
 	inTxs  string
+	inEnv  string
 	stFork string
 }
 
@@ -250,6 +251,10 @@ func (args *t9nInput) get(base string) []string {
 	var out []string
 	if opt := args.inTxs; opt != "" {
 		out = append(out, "--input.txs")
+		out = append(out, fmt.Sprintf("%v/%v", base, opt))
+	}
+	if opt := args.inEnv; opt != "" {
+		out = append(out, "--input.env")
 		out = append(out, fmt.Sprintf("%v/%v", base, opt))
 	}
 	if opt := args.stFork; opt != "" {
@@ -266,6 +271,7 @@ func TestT9n(t *testing.T) {
 		input       t9nInput
 		expExitCode int
 		expOut      string
+		expErr      string
 	}{
 		{ // London txs on homestead
 			base: "./testdata/15",
@@ -315,6 +321,33 @@ func TestT9n(t *testing.T) {
 			},
 			expExitCode: t8ntool.ErrorIO,
 		},
+		{ // Oversized gas remains valid before Amsterdam activates
+			base: "./testdata/24",
+			input: t9nInput{
+				inTxs:  "signed_txs.rlp",
+				inEnv:  "env.pre.json",
+				stFork: "Amsterdam",
+			},
+			expOut: "exp.pre.json",
+		},
+		{ // Oversized gas is rejected after Amsterdam activates
+			base: "./testdata/24",
+			input: t9nInput{
+				inTxs:  "signed_txs.rlp",
+				inEnv:  "env.post.json",
+				stFork: "Amsterdam",
+			},
+			expOut: "exp.post.json",
+		},
+		{ // Amsterdam requires input.env to resolve currentTimestamp
+			base: "./testdata/24",
+			input: t9nInput{
+				inTxs:  "signed_txs.rlp",
+				stFork: "Amsterdam",
+			},
+			expExitCode: t8ntool.ErrorConfig,
+			expErr:      "Amsterdam transaction validation requires --input.env with currentTimestamp",
+		},
 	} {
 
 		args := []string{"t9n"}
@@ -341,6 +374,9 @@ func TestT9n(t *testing.T) {
 		tt.WaitExit()
 		if have, want := tt.ExitStatus(), tc.expExitCode; have != want {
 			t.Fatalf("test %d: wrong exit code, have %d, want %d", i, have, want)
+		}
+		if tc.expErr != "" && !strings.Contains(tt.StderrText(), tc.expErr) {
+			t.Fatalf("test %d: stderr missing %q, got %q", i, tc.expErr, tt.StderrText())
 		}
 	}
 }

@@ -71,9 +71,10 @@ type TxPool struct {
 	mined        map[common.Hash][]*types.Transaction // mined transactions by block hash
 	clearIdx     uint64                               // earliest block nr that can contain mined tx info
 
-	istanbul bool // Fork indicator whether we are in the istanbul stage.
-	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
-	shanghai bool // Fork indicator whether we are in the shanghai stage.
+	istanbul  bool // Fork indicator whether we are in the istanbul stage.
+	eip2718   bool // Fork indicator whether we are in the eip2718 stage.
+	shanghai  bool // Fork indicator whether we are in the shanghai stage.
+	amsterdam bool // Fork indicator whether we are in the Amsterdam stage.
 
 	currentHead    *big.Int // Current blockchain head
 	getBalanceFunc func(header *types.Header, state *state.StateDB, tokenID uint16, addr common.Address) (*big.Int, error)
@@ -140,9 +141,19 @@ func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBacke
 		evm := vm.NewEVM(blockContext, txContext, state, pool.config, vmConfig)
 		return core.GetAltTokenBalance(evm, tokenID, addr)
 	}
+	pool.updateForkIndicators(chain.CurrentHeader())
 	go pool.eventLoop()
 
 	return pool
+}
+
+func (pool *TxPool) updateForkIndicators(head *types.Header) {
+	next := new(big.Int).Add(head.Number, big.NewInt(1))
+	pool.istanbul = pool.config.IsIstanbul(next)
+	pool.eip2718 = pool.config.IsBerlin(next)
+	pool.shanghai = pool.config.IsShanghai(next)
+	pool.amsterdam = pool.config.IsAmsterdam(head.Time)
+	pool.currentHead = next
 }
 
 // currentState returns the light state of the current head header
@@ -341,18 +352,16 @@ func (pool *TxPool) setNewHead(head *types.Header) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), blockCheckTimeout)
 	defer cancel()
+	oldAmsterdam := pool.amsterdam
 
 	txc, _ := pool.reorgOnNewHead(ctx, head)
 	m, r := txc.getLists()
 	pool.relay.NewHead(pool.head, m, r)
 
-	// Update fork indicator by next pending block number
-	next := new(big.Int).Add(head.Number, big.NewInt(1))
-	pool.istanbul = pool.config.IsIstanbul(next)
-	pool.eip2718 = pool.config.IsBerlin(next)
-	pool.shanghai = pool.config.IsShanghai(next)
-
-	pool.currentHead = next
+	pool.updateForkIndicators(head)
+	if !oldAmsterdam && pool.amsterdam {
+		pool.dropOversizedAmsterdamTxs()
+	}
 }
 
 // Stop stops the light transaction pool
@@ -404,6 +413,9 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	header := pool.chain.GetHeaderByHash(pool.head)
 	if header.GasLimit < tx.Gas() {
 		return core.ErrGasLimit
+	}
+	if pool.amsterdam && tx.Gas() > params.MaxTxGas {
+		return fmt.Errorf("%w (cap: %d, tx: %d)", core.ErrGasLimitTooHigh, params.MaxTxGas, tx.Gas())
 	}
 
 	// Transactions can't be negative. This may never happen
@@ -490,7 +502,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	}
 
 	// Should supply enough intrinsic gas
-	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai)
+	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.SetCodeAuthorizations(), tx.To() == nil, true, pool.istanbul, pool.shanghai, pool.amsterdam)
 	if err != nil {
 		return err
 	}
@@ -498,6 +510,54 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 		return core.ErrIntrinsicGas
 	}
 	return currentState.Error()
+}
+
+func (pool *TxPool) dropOversizedAmsterdamTxs() {
+	var hashes []common.Hash
+	batch := pool.chainDb.NewBatch()
+	// Track for each affected sender the lowest nonce that was dropped, so
+	// that higher-nonce transactions from the same sender can be dropped as
+	// well, preserving the pool's "no nonce gap" invariant.
+	minDropped := make(map[common.Address]uint64)
+	for hash, tx := range pool.pending {
+		if tx.Gas() > params.MaxTxGas {
+			addr, _ := types.Sender(pool.signer, tx)
+			if lowest, ok := minDropped[addr]; !ok || tx.Nonce() < lowest {
+				minDropped[addr] = tx.Nonce()
+			}
+			delete(pool.pending, hash)
+			batch.Delete(hash.Bytes())
+			hashes = append(hashes, hash)
+		}
+	}
+	if len(hashes) == 0 {
+		return
+	}
+	// Drop now-gapped transactions of affected senders.
+	for hash, tx := range pool.pending {
+		addr, _ := types.Sender(pool.signer, tx)
+		if lowest, ok := minDropped[addr]; ok && tx.Nonce() > lowest {
+			delete(pool.pending, hash)
+			batch.Delete(hash.Bytes())
+			hashes = append(hashes, hash)
+		}
+	}
+	// Recompute the pending nonce of affected senders from the remaining
+	// transactions, so GetNonce does not keep returning stale values.
+	for addr := range minDropped {
+		delete(pool.nonce, addr)
+	}
+	for _, tx := range pool.pending {
+		addr, _ := types.Sender(pool.signer, tx)
+		if _, affected := minDropped[addr]; !affected {
+			continue
+		}
+		if nonce := tx.Nonce() + 1; nonce > pool.nonce[addr] {
+			pool.nonce[addr] = nonce
+		}
+	}
+	batch.Write()
+	pool.relay.Discard(hashes)
 }
 
 // add validates a new transaction and sets its state pending if processable.

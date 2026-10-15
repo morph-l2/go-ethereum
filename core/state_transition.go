@@ -81,8 +81,9 @@ type StateTransition struct {
 
 	l1DataFee *big.Int
 
-	feeRate    *big.Int
-	tokenScale *big.Int
+	feeRate              *big.Int
+	tokenScale           *big.Int
+	altFeeRoundingCredit *big.Int
 }
 
 // Message represents a message sent to a contract.
@@ -320,10 +321,11 @@ func (st *StateTransition) buyAltTokenGas() error {
 		"fee", mgval,
 	)
 
-	tokenFee, err := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
+	tokenFee, roundingCredit, err := types.EthToAlt(mgval, st.feeRate, st.tokenScale)
 	if err != nil {
 		return err
 	}
+	st.altFeeRoundingCredit = roundingCredit
 	feeLimit := tokenBalance
 	if st.msg.FeeLimit() != nil && st.msg.FeeLimit().Sign() > 0 {
 		feeLimit = cmath.BigMin(tokenBalance, st.msg.FeeLimit())
@@ -696,7 +698,17 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 			log.Error("Failed to get token info for gas refund", "tokenID", st.msg.FeeTokenID(), "error", err)
 			return
 		}
-		tokenAmount, err := types.EthToAlt(remaining, st.feeRate, st.tokenScale)
+		var tokenAmount *big.Int
+		if st.evm.ChainConfig().IsCeladon(st.evm.Context.Time.Uint64()) {
+			tokenAmount, err = types.EthToAltFloor(
+				remaining,
+				st.altFeeRoundingCredit,
+				st.feeRate,
+				st.tokenScale,
+			)
+		} else {
+			tokenAmount, _, err = types.EthToAlt(remaining, st.feeRate, st.tokenScale)
+		}
 		if err != nil {
 			log.Error("Failed to convert exchange rate", "tokenID", st.msg.FeeTokenID(), "error", err)
 		}

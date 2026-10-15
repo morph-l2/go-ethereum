@@ -139,6 +139,16 @@ func TestConfigRules(t *testing.T) {
 	}
 }
 
+func TestCheckConfigForkOrderRequiresJadeForNextFork(t *testing.T) {
+	cfg := AllEthashProtocolChanges.Clone()
+	cfg.NextForkTime = NewUint64(10)
+	cfg.JadeForkTime = nil
+	require.ErrorContains(t, cfg.CheckConfigForkOrder(), "nextForkTime set, but jadeForkTime not enabled")
+
+	cfg.JadeForkTime = NewUint64(9)
+	require.NoError(t, cfg.CheckConfigForkOrder())
+}
+
 func TestTimestampCompatError(t *testing.T) {
 	require.Equal(t, new(ConfigCompatError).Error(), "")
 

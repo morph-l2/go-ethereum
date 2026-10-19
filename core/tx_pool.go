@@ -253,6 +253,7 @@ type TxPool struct {
 	shanghai bool // Fork indicator whether we are in the Shanghai stage.
 	eip7702  bool // Fork indicator whether we are in the Morph 3.0.0 stage.
 	jade     bool // Fork indicator whether we are in the Jade stage.
+	celadon  bool // Fork indicator whether we are in the Celadon stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	currentHead   *big.Int       // Current blockchain head
@@ -293,14 +294,10 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
-	// A transaction larger than the per-block payload budget could never be
-	// included in a block, so bound the accepted size by the budget as well.
-	// The budget is params.MorphMaxTxPayloadBytesPerBlock -- the same value
-	// IsValidBlockSize enforces -- rather than the chain config, so the bound
-	// does not depend on what a node happened to persist at genesis.
+	// Using MaxTxPayloadBytesPerBlock as max tx bytes if it exists and smaller than 128K
 	rawTxMaxSize := txMaxSize
-	if params.MorphMaxTxPayloadBytesPerBlock < rawTxMaxSize {
-		rawTxMaxSize = params.MorphMaxTxPayloadBytesPerBlock
+	if configSize := chainconfig.Morph.MaxTxPayloadBytesPerBlock; configSize != nil && *configSize < txMaxSize {
+		rawTxMaxSize = *configSize
 	}
 
 	// Create the transaction pool with its initial settings
@@ -670,6 +667,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Reject MorphTx V1 before jade fork is active
 	if !pool.jade && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion1 {
 		return types.ErrMorphTxV1NotYetActive
+	}
+	if !pool.celadon && tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
+		return types.ErrMorphTxV2NotYetActive
 	}
 
 	// Validate MorphTx version, memo, and associated field requirements
@@ -1304,6 +1304,22 @@ func (pool *TxPool) removeMorphTxV1() {
 	}
 }
 
+// removeMorphTxV2 removes all MorphTx V2 transactions from the pool.
+// This is called after a reorg rolls back past the activation time.
+func (pool *TxPool) removeMorphTxV2() {
+	var toRemove []common.Hash
+	pool.all.Range(func(hash common.Hash, tx *types.Transaction, local bool) bool {
+		if tx.IsMorphTx() && tx.Version() == types.MorphTxVersion2 {
+			toRemove = append(toRemove, hash)
+		}
+		return true
+	}, true, true)
+	for _, hash := range toRemove {
+		log.Trace("Removing MorphTx V2 (activation not active)", "hash", hash)
+		pool.removeTx(hash, true)
+	}
+}
+
 // requestReset requests a pool reset to the new head block.
 // The returned channel is closed when the reset has occurred.
 func (pool *TxPool) requestReset(oldHead *types.Header, newHead *types.Header) chan struct{} {
@@ -1577,10 +1593,14 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.shanghai = pool.chainconfig.IsShanghai(next)
 	pool.eip7702 = pool.chainconfig.IsViridian(next, newHead.Time)
 	pool.jade = pool.chainconfig.IsJadeFork(newHead.Time)
+	pool.celadon = pool.chainconfig.IsCeladon(newHead.Time)
 
 	// Remove MorphTx V1 transactions if jade fork is not active (e.g. after reorg)
 	if !pool.jade {
 		pool.removeMorphTxV1()
+	}
+	if !pool.celadon {
+		pool.removeMorphTxV2()
 	}
 
 	// Update current head

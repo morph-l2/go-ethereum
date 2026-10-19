@@ -36,19 +36,20 @@ func TestAltToEthFloorRounding(t *testing.T) {
 // (EthToAlt) still rounds UP — the fee gate must never under-charge.
 func TestEthToAltCeilRounding(t *testing.T) {
 	cases := []struct {
-		name             string
-		eth, rate, scale int64
-		want             int64
+		name                     string
+		eth, rate, scale         int64
+		want, wantRoundingCredit int64
 	}{
-		{"exact division, no remainder", 6, 3, 2, 4}, // 6*2/3 = 4
-		{"remainder rounds up", 5, 3, 2, 4},          // 10/3 = 3.33 -> ceil 4
-		{"remainder rounds up 2", 7, 3, 2, 5},        // 14/3 = 4.67 -> ceil 5
+		{"exact division, no remainder", 6, 3, 2, 4, 0}, // 6*2/3 = 4
+		{"remainder rounds up", 5, 3, 2, 4, 2},          // 10/3 rem 1 -> ceil 4, credit 3-1
+		{"remainder rounds up 2", 7, 3, 2, 5, 1},        // 14/3 rem 2 -> ceil 5, credit 3-2
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := EthToAlt(big.NewInt(c.eth), big.NewInt(c.rate), big.NewInt(c.scale))
+			got, credit, err := EthToAlt(big.NewInt(c.eth), big.NewInt(c.rate), big.NewInt(c.scale))
 			require.NoError(t, err)
 			require.Zerof(t, got.Cmp(big.NewInt(c.want)), "got %s, want %d", got, c.want)
+			require.Zerof(t, credit.Cmp(big.NewInt(c.wantRoundingCredit)), "credit %s, want %d", credit, c.wantRoundingCredit)
 		})
 	}
 }
@@ -72,13 +73,13 @@ func TestAltToEthIsExactInverseOfEthToAlt(t *testing.T) {
 				ethBudget, err := AltToEth(bal, r, s)
 				require.NoError(t, err)
 
-				costAtBudget, err := EthToAlt(ethBudget, r, s)
+				costAtBudget, _, err := EthToAlt(ethBudget, r, s)
 				require.NoError(t, err)
 				require.True(t, costAtBudget.Cmp(bal) <= 0,
 					"AltToEth(%d) budget %s must be affordable: EthToAlt=%s > balance %d (rate=%d scale=%d)",
 					a, ethBudget, costAtBudget, a, rate, scale)
 
-				costAboveBudget, err := EthToAlt(new(big.Int).Add(ethBudget, big.NewInt(1)), r, s)
+				costAboveBudget, _, err := EthToAlt(new(big.Int).Add(ethBudget, big.NewInt(1)), r, s)
 				require.NoError(t, err)
 				require.True(t, costAboveBudget.Cmp(bal) > 0,
 					"AltToEth(%d) must be the MAX affordable budget: budget+1 (%s) still affordable at balance %d (rate=%d scale=%d)",
@@ -105,8 +106,88 @@ func TestTokenFeeConversionInvalidArgs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := AltToEth(big.NewInt(10), tc.rate, tc.scale)
 			require.Error(t, err)
-			_, err = EthToAlt(big.NewInt(10), tc.rate, tc.scale)
+			_, _, err = EthToAlt(big.NewInt(10), tc.rate, tc.scale)
+			require.Error(t, err)
+			_, err = EthToAltFloor(big.NewInt(10), big.NewInt(0), tc.rate, tc.scale)
 			require.Error(t, err)
 		})
+	}
+}
+
+func TestEthToAltFloorRounding(t *testing.T) {
+	cases := []struct {
+		name                     string
+		eth, credit, rate, scale int64
+		want                     int64
+	}{
+		{"exact division, no credit", 6, 0, 3, 2, 4},
+		{"remainder rounds down", 5, 0, 3, 2, 3},
+		{"credit carries into refund", 5, 2, 3, 2, 4},
+		{"zero amount and credit", 0, 0, 3, 2, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := EthToAltFloor(
+				big.NewInt(c.eth),
+				big.NewInt(c.credit),
+				big.NewInt(c.rate),
+				big.NewInt(c.scale),
+			)
+			require.NoError(t, err)
+			require.Zerof(t, got.Cmp(big.NewInt(c.want)), "got %s, want %d", got, c.want)
+		})
+	}
+}
+
+// Dual ceil(prepaid)-ceil(refund) can undercharge vs the theoretical net ETH
+// fee. The WBTC oracle sample (net 4_902_816_120_808 wei, ~15.83 sat) reproduces
+// that; carrying prepaid rounding credit into a floored refund produces 16 sat.
+func TestCeilPrepaidCeilRefundCanUndercharge(t *testing.T) {
+	rate := big.NewInt(309631617993)
+	scale := big.NewInt(1)
+	netEth := big.NewInt(4902816120808)
+	refundEth := new(big.Int).Add(new(big.Int).Mul(rate, big.NewInt(84)), big.NewInt(1))
+	prepaidEth := new(big.Int).Add(netEth, refundEth)
+
+	prepaid, roundingCredit, err := EthToAlt(prepaidEth, rate, scale)
+	require.NoError(t, err)
+	refundCeil, _, err := EthToAlt(refundEth, rate, scale)
+	require.NoError(t, err)
+	refundWithCredit, err := EthToAltFloor(refundEth, roundingCredit, rate, scale)
+	require.NoError(t, err)
+
+	netCeilCeil := new(big.Int).Sub(prepaid, refundCeil)
+	netWithCredit := new(big.Int).Sub(prepaid, refundWithCredit)
+	t.Logf("theoretical≈15.83 ceil-ceil=%s credit-carry=%s", netCeilCeil, netWithCredit)
+
+	require.Equal(t, int64(15), netCeilCeil.Int64(), "dual ceil undercharges this fixture")
+	require.Equal(t, int64(16), netWithCredit.Int64(), "credit carry must not undercharge")
+}
+
+func TestRoundingCreditEqualsCeilOfNetFee(t *testing.T) {
+	for rate := int64(1); rate <= 10; rate++ {
+		for scale := int64(1); scale <= 10; scale++ {
+			r := big.NewInt(rate)
+			s := big.NewInt(scale)
+			for prepaidEth := int64(1); prepaidEth <= 50; prepaidEth++ {
+				for refundEth := int64(0); refundEth <= prepaidEth; refundEth++ {
+					prepaid := big.NewInt(prepaidEth)
+					refund := big.NewInt(refundEth)
+
+					prepaidTokens, credit, err := EthToAlt(prepaid, r, s)
+					require.NoError(t, err)
+					refundTokens, err := EthToAltFloor(refund, credit, r, s)
+					require.NoError(t, err)
+					netTokens := new(big.Int).Sub(prepaidTokens, refundTokens)
+
+					netEth := new(big.Int).Sub(prepaid, refund)
+					want, _, err := EthToAlt(netEth, r, s)
+					require.NoError(t, err)
+					require.Equalf(t, 0, netTokens.Cmp(want),
+						"rate=%d scale=%d prepaid=%d refund=%d got=%s want=%s",
+						rate, scale, prepaidEth, refundEth, netTokens, want)
+				}
+			}
+		}
 	}
 }

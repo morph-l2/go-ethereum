@@ -43,7 +43,8 @@ func EthToAlt(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) 
 	if err != nil {
 		return nil, err
 	}
-	return types.EthToAlt(amount, rate, scale)
+	altAmount, _, err := types.EthToAlt(amount, rate, scale)
+	return altAmount, err
 }
 
 func AltToETH(state StateDB, tokenID uint16, amount *big.Int) (*big.Int, error) {

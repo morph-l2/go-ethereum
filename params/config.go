@@ -302,6 +302,7 @@ var (
 		ViridianTime:            NewUint64(1761544800),
 		EmeraldTime:             NewUint64(1766988000),
 		JadeForkTime:            NewUint64(1774418400),
+		CeladonTime:             NewUint64(1793167200), // 2026-10-28 14:00:00 UTC+8
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			// zkTrie storage mode retired: state always uses MPT.
@@ -336,6 +337,7 @@ var (
 		ViridianTime:            NewUint64(1762149600),
 		EmeraldTime:             NewUint64(1767765600),
 		JadeForkTime:            NewUint64(1775628000),
+		CeladonTime:             NewUint64(1793772000), // 2026-11-04 14:00:00 UTC+8
 		TerminalTotalDifficulty: big.NewInt(0),
 		Morph: MorphConfig{
 			// zkTrie storage mode retired: state always uses MPT.

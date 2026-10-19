@@ -43,9 +43,8 @@ var (
 	// emptyRoot is the known root hash of an empty trie.
 	emptyRoot = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
-	// emptyPoseidonCode is the known hash of the empty EVM bytecode.
-	emptyPoseidonCode = codehash.EmptyPoseidonCodeHash
-	emptyKeccakCode   = codehash.EmptyKeccakCodeHash
+	// emptyKeccakCode is the known hash of the empty EVM bytecode.
+	emptyKeccakCode = codehash.EmptyKeccakCodeHash
 
 	// accountCheckRange is the upper limit of the number of accounts involved in
 	// each range check. This is a value estimated based on experience. If this
@@ -616,12 +615,11 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 		}
 		// Retrieve the current account and flatten it into the internal format
 		var acc struct {
-			Nonce            uint64
-			Balance          *big.Int
-			Root             common.Hash
-			KeccakCodeHash   []byte
-			PoseidonCodeHash []byte `rlp:"-"` // zkTrie specific, not serialized to disk
-			CodeSize         uint64 `rlp:"-"` // Can be derived from code, not serialized
+			Nonce          uint64
+			Balance        *big.Int
+			Root           common.Hash
+			KeccakCodeHash []byte
+			CodeSize       uint64 `rlp:"-"` // Can be derived from code, not serialized
 		}
 		if err := rlp.DecodeBytes(val, &acc); err != nil {
 			log.Crit("Invalid account encountered during snapshot creation", "err", err)
@@ -631,15 +629,15 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 			dataLen := len(val) // Approximate size, saves us a round of RLP-encoding
 			if !write {
 				if bytes.Equal(acc.KeccakCodeHash, emptyKeccakCode[:]) {
-					// account for keccakCodeHash, poseidonCodeHash, and CodeSize
-					dataLen = dataLen - 32 - 32 - 8
+					// account for keccakCodeHash and CodeSize
+					dataLen = dataLen - 32 - 8
 				}
 				if acc.Root == emptyRoot {
 					dataLen -= 32
 				}
 				snapRecoveredAccountMeter.Mark(1)
 			} else {
-				data := SlimAccountRLP(acc.Nonce, acc.Balance, acc.Root, acc.KeccakCodeHash, acc.PoseidonCodeHash, acc.CodeSize)
+				data := SlimAccountRLP(acc.Nonce, acc.Balance, acc.Root, acc.KeccakCodeHash, acc.CodeSize)
 				dataLen = len(data)
 				rawdb.WriteAccountSnapshot(batch, accountHash, data)
 				snapGeneratedAccountMeter.Mark(1)

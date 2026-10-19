@@ -45,10 +45,6 @@ func (db *tracerTestStateDB) GetKeccakCodeHash(addr common.Address) common.Hash 
 	return crypto.Keccak256Hash(code)
 }
 
-func (db *tracerTestStateDB) GetPoseidonCodeHash(common.Address) common.Hash {
-	return common.Hash{}
-}
-
 func (db *tracerTestStateDB) GetState(addr common.Address, key common.Hash) common.Hash {
 	if slots, ok := db.storage[addr]; ok {
 		return slots[key]

@@ -16,7 +16,6 @@
     "arrowGlacierBlock": 0,
     "terminalTotalDifficulty": 0,
     "morph": {
-      "useZktrie": true,
       "maxTxPerBlock": 1000,
       "feeVaultAddress": "0x530000000000000000000000000000000000000a"
     }

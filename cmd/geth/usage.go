@@ -50,7 +50,6 @@ var AppHelpFlagGroups = []flags.FlagGroup{
 			utils.SepoliaFlag,
 			utils.MorphFlag,
 			utils.MorphHoodiFlag,
-			utils.MorphMPTFlag,
 			utils.SyncModeFlag,
 			utils.ExitWhenSyncedFlag,
 			utils.GCModeFlag,

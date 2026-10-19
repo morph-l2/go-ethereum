@@ -298,14 +298,6 @@ func (s *StateDB) GetCodeSize(addr common.Address) uint64 {
 	return 0
 }
 
-func (s *StateDB) GetPoseidonCodeHash(addr common.Address) common.Hash {
-	stateObject := s.getStateObject(addr)
-	if stateObject == nil {
-		return common.Hash{}
-	}
-	return common.BytesToHash(stateObject.PoseidonCodeHash())
-}
-
 func (s *StateDB) GetKeccakCodeHash(addr common.Address) common.Hash {
 	stateObject := s.getStateObject(addr)
 	if stateObject == nil {
@@ -526,7 +518,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 	// enough to track account updates at commit time, deletions need tracking
 	// at transaction boundary level to ensure we capture state clearing.
 	if s.snap != nil {
-		s.snapAccounts[obj.addrHash] = snapshot.SlimAccountRLP(obj.data.Nonce, obj.data.Balance, obj.data.Root, obj.data.KeccakCodeHash, obj.data.PoseidonCodeHash, obj.data.CodeSize)
+		s.snapAccounts[obj.addrHash] = snapshot.SlimAccountRLP(obj.data.Nonce, obj.data.Balance, obj.data.Root, obj.data.KeccakCodeHash, obj.data.CodeSize)
 	}
 }
 
@@ -577,16 +569,14 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 				return nil
 			}
 			data = &types.StateAccount{
-				Nonce:            acc.Nonce,
-				Balance:          acc.Balance,
-				Root:             common.BytesToHash(acc.Root),
-				KeccakCodeHash:   acc.KeccakCodeHash,
-				PoseidonCodeHash: acc.PoseidonCodeHash,
-				CodeSize:         acc.CodeSize,
+				Nonce:          acc.Nonce,
+				Balance:        acc.Balance,
+				Root:           common.BytesToHash(acc.Root),
+				KeccakCodeHash: acc.KeccakCodeHash,
+				CodeSize:       acc.CodeSize,
 			}
 			if len(data.KeccakCodeHash) == 0 {
 				data.KeccakCodeHash = emptyKeccakCodeHash
-				data.PoseidonCodeHash = emptyPoseidonCodeHash
 				data.CodeSize = 0
 			}
 			if data.Root == (common.Hash{}) {

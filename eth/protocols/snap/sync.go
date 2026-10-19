@@ -52,9 +52,6 @@ var (
 
 	// emptyKeccakCodeHash is the known keccak hash of the empty EVM bytecode.
 	emptyKeccakCodeHash = codehash.EmptyKeccakCodeHash
-
-	// emptyPoseidonCodeHash is the known poseidon hash of the empty EVM bytecode.
-	emptyPoseidonCodeHash = codehash.EmptyPoseidonCodeHash
 )
 
 const (
@@ -2200,7 +2197,7 @@ func (s *Syncer) forwardAccountTask(task *accountTask) {
 		if task.needCode[i] || task.needState[i] {
 			break
 		}
-		slim := snapshot.SlimAccountRLP(res.accounts[i].Nonce, res.accounts[i].Balance, res.accounts[i].Root, res.accounts[i].KeccakCodeHash, res.accounts[i].PoseidonCodeHash, res.accounts[i].CodeSize)
+		slim := snapshot.SlimAccountRLP(res.accounts[i].Nonce, res.accounts[i].Balance, res.accounts[i].Root, res.accounts[i].KeccakCodeHash, res.accounts[i].CodeSize)
 		rawdb.WriteAccountSnapshot(batch, hash, slim)
 
 		// If the task is complete, drop it into the stack trie to generate
@@ -2799,7 +2796,7 @@ func (s *Syncer) onHealState(paths [][]byte, value []byte) error {
 		if err := rlp.DecodeBytes(value, &account); err != nil {
 			return nil
 		}
-		blob := snapshot.SlimAccountRLP(account.Nonce, account.Balance, account.Root, account.KeccakCodeHash, account.PoseidonCodeHash, account.CodeSize)
+		blob := snapshot.SlimAccountRLP(account.Nonce, account.Balance, account.Root, account.KeccakCodeHash, account.CodeSize)
 		rawdb.WriteAccountSnapshot(s.stateWriter, common.BytesToHash(paths[0]), blob)
 		s.accountHealed += 1
 		s.accountHealedBytes += common.StorageSize(1 + common.HashLength + len(blob))

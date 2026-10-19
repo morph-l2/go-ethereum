@@ -655,7 +655,6 @@ func (api *PublicBlockChainAPI) ChainId() (*hexutil.Big, error) {
 
 // morphExtension contains Morph-specific configuration fields (EIP-7910 extension)
 type morphExtension struct {
-	UseZktrie    bool    `json:"useZktrie"`
 	JadeForkTime *uint64 `json:"jadeForkTime,omitempty"`
 }
 
@@ -718,7 +717,6 @@ func (api *PublicBlockChainAPI) Config(ctx context.Context) (*configResponse, er
 
 		// Morph extension
 		morph := &morphExtension{
-			UseZktrie:    c.Morph.UseZktrie,
 			JadeForkTime: c.JadeForkTime,
 		}
 
@@ -766,15 +764,14 @@ func (s *PublicBlockChainAPI) GetBalance(ctx context.Context, address common.Add
 
 // Result structs for GetProof
 type AccountResult struct {
-	Address          common.Address  `json:"address"`
-	AccountProof     []string        `json:"accountProof"`
-	Balance          *hexutil.Big    `json:"balance"`
-	PoseidonCodeHash common.Hash     `json:"poseidonCodeHash"`
-	KeccakCodeHash   common.Hash     `json:"keccakCodeHash"`
-	CodeSize         hexutil.Uint64  `json:"codeSize"`
-	Nonce            hexutil.Uint64  `json:"nonce"`
-	StorageHash      common.Hash     `json:"storageHash"`
-	StorageProof     []StorageResult `json:"storageProof"`
+	Address        common.Address  `json:"address"`
+	AccountProof   []string        `json:"accountProof"`
+	Balance        *hexutil.Big    `json:"balance"`
+	KeccakCodeHash common.Hash     `json:"keccakCodeHash"`
+	CodeSize       hexutil.Uint64  `json:"codeSize"`
+	Nonce          hexutil.Uint64  `json:"nonce"`
+	StorageHash    common.Hash     `json:"storageHash"`
+	StorageProof   []StorageResult `json:"storageProof"`
 }
 
 type StorageResult struct {
@@ -799,15 +796,9 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 		return nil, err
 	}
 
-	zktrie := s.b.ChainConfig().Morph.ZktrieEnabled()
-
 	storageTrie := state.StorageTrie(address)
-	var storageHash common.Hash
-	if !zktrie {
-		storageHash = types.EmptyRootHash
-	}
+	storageHash := types.EmptyRootHash
 	keccakCodeHash := state.GetKeccakCodeHash(address)
-	poseidonCodeHash := state.GetPoseidonCodeHash(address)
 	storageProof := make([]StorageResult, len(storageKeys))
 
 	// if we have a storageTrie, (which means the account exists), we can update the storagehash
@@ -816,7 +807,6 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 	} else {
 		// no storageTrie means the account does not exist, so the codeHash is the hash of an empty bytearray.
 		keccakCodeHash = codehash.EmptyKeccakCodeHash
-		poseidonCodeHash = codehash.EmptyPoseidonCodeHash
 	}
 
 	// create the proof for the storageKeys
@@ -840,15 +830,14 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 	}
 
 	return &AccountResult{
-		Address:          address,
-		AccountProof:     toHexSlice(accountProof),
-		Balance:          (*hexutil.Big)(state.GetBalance(address)),
-		KeccakCodeHash:   keccakCodeHash,
-		PoseidonCodeHash: poseidonCodeHash,
-		CodeSize:         hexutil.Uint64(state.GetCodeSize(address)),
-		Nonce:            hexutil.Uint64(state.GetNonce(address)),
-		StorageHash:      storageHash,
-		StorageProof:     storageProof,
+		Address:        address,
+		AccountProof:   toHexSlice(accountProof),
+		Balance:        (*hexutil.Big)(state.GetBalance(address)),
+		KeccakCodeHash: keccakCodeHash,
+		CodeSize:       hexutil.Uint64(state.GetCodeSize(address)),
+		Nonce:          hexutil.Uint64(state.GetNonce(address)),
+		StorageHash:    storageHash,
+		StorageProof:   storageProof,
 	}, state.Error()
 }
 

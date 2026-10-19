@@ -8,10 +8,6 @@ import (
 	"github.com/morph-l2/go-ethereum/core/types"
 )
 
-func versionPtr(v uint8) *uint8 {
-	return &v
-}
-
 func refTestPtr(r common.Reference) *common.Reference {
 	return &r
 }
@@ -20,11 +16,8 @@ func memoTestPtr(b []byte) *[]byte {
 	return &b
 }
 
-// TestMorphTxVersion_HeuristicDefault tests the heuristic version defaulting logic
-// in morphTxVersion():
-//   - Version == nil + no V1 fields → V0
-//   - Version == nil + Reference or Memo → V1
-//   - Explicit Version → use as-is (with validation)
+// TestMorphTxVersion_HeuristicDefault tests version derivation:
+// MorphTx defaults to v1 and a non-empty authorization list selects v2.
 func TestMorphTxVersion_HeuristicDefault(t *testing.T) {
 	ref := common.HexToReference("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	emptyRef := common.Reference{}
@@ -39,118 +32,83 @@ func TestMorphTxVersion_HeuristicDefault(t *testing.T) {
 		wantVersion uint8
 		wantErr     error
 	}{
-		// === Heuristic defaults (Version == nil) ===
 		{
-			name:        "nil Version, FeeTokenID > 0, no V1 fields → V0",
+			name:        "FeeTokenID > 0, no optional fields → V1",
 			opts:        &TransactOpts{FeeTokenID: 1},
-			wantVersion: types.MorphTxVersion0,
+			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, FeeTokenID > 0, with Reference → V1",
+			name:        "FeeTokenID > 0, with Reference → V1",
 			opts:        &TransactOpts{FeeTokenID: 1, Reference: refTestPtr(ref)},
 			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, FeeTokenID > 0, with Memo → V1",
+			name:        "FeeTokenID > 0, with Memo → V1",
 			opts:        &TransactOpts{FeeTokenID: 1, Memo: memoTestPtr(memo)},
 			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, FeeTokenID > 0, with Reference + Memo → V1",
+			name:        "FeeTokenID > 0, with Reference + Memo → V1",
 			opts:        &TransactOpts{FeeTokenID: 1, Reference: refTestPtr(ref), Memo: memoTestPtr(memo)},
 			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, FeeTokenID = 0, with Reference → V1",
+			name:        "FeeTokenID = 0, with Reference → V1",
 			opts:        &TransactOpts{FeeTokenID: 0, Reference: refTestPtr(ref)},
 			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, FeeTokenID = 0, with Memo → V1",
+			name:        "FeeTokenID = 0, with Memo → V1",
 			opts:        &TransactOpts{FeeTokenID: 0, Memo: memoTestPtr(memo)},
 			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, FeeTokenID = 0, no V1 fields → V0",
+			name:        "FeeTokenID = 0, no optional fields → V1",
 			opts:        &TransactOpts{FeeTokenID: 0},
-			wantVersion: types.MorphTxVersion0,
+			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, empty Reference → V0",
+			name:        "empty AuthorizationList → V1",
+			opts:        &TransactOpts{FeeTokenID: 1, AuthorizationList: []types.SetCodeAuthorization{}},
+			wantVersion: types.MorphTxVersion1,
+		},
+		{
+			name:        "non-empty AuthorizationList → V2",
+			opts:        &TransactOpts{FeeTokenID: 1, AuthorizationList: []types.SetCodeAuthorization{{}}},
+			wantVersion: types.MorphTxVersion2,
+		},
+		{
+			name:        "empty Reference → V1",
 			opts:        &TransactOpts{FeeTokenID: 1, Reference: refTestPtr(emptyRef)},
-			wantVersion: types.MorphTxVersion0,
+			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, empty Memo → V0",
+			name:        "empty Memo → V1",
 			opts:        &TransactOpts{FeeTokenID: 1, Memo: memoTestPtr(emptyMemo)},
-			wantVersion: types.MorphTxVersion0,
+			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, nil Reference, nil Memo → V0",
+			name:        "nil Reference and Memo → V1",
 			opts:        &TransactOpts{FeeTokenID: 1, Reference: nil, Memo: nil},
-			wantVersion: types.MorphTxVersion0,
+			wantVersion: types.MorphTxVersion1,
 		},
 
-		// === V1 heuristic with illegal params ===
 		{
-			name:    "nil Version, Reference + FeeTokenID=0 + FeeLimit > 0 → error",
+			name:    "Reference + FeeTokenID=0 + FeeLimit > 0 → error",
 			opts:    &TransactOpts{FeeTokenID: 0, FeeLimit: big.NewInt(100), Reference: refTestPtr(ref)},
-			wantErr: types.ErrMorphTxV1IllegalExtraParams,
+			wantErr: types.ErrMorphTxIllegalExtraParams,
 		},
 		{
-			name:        "nil Version, Reference + FeeTokenID=0 + FeeLimit=0 → V1 (ok)",
+			name:        "Reference + FeeTokenID=0 + FeeLimit=0 → V1",
 			opts:        &TransactOpts{FeeTokenID: 0, FeeLimit: big.NewInt(0), Reference: refTestPtr(ref)},
 			wantVersion: types.MorphTxVersion1,
 		},
 		{
-			name:        "nil Version, Reference + FeeTokenID=0 + nil FeeLimit → V1 (ok)",
+			name:        "Reference + FeeTokenID=0 + nil FeeLimit → V1",
 			opts:        &TransactOpts{FeeTokenID: 0, FeeLimit: nil, Reference: refTestPtr(ref)},
 			wantVersion: types.MorphTxVersion1,
 		},
 
-		// === Explicit Version ===
-		{
-			name:        "explicit V0, FeeTokenID > 0 → V0",
-			opts:        &TransactOpts{Version: versionPtr(types.MorphTxVersion0), FeeTokenID: 1},
-			wantVersion: types.MorphTxVersion0,
-		},
-		{
-			name:        "explicit V1, no special fields → V1",
-			opts:        &TransactOpts{Version: versionPtr(types.MorphTxVersion1)},
-			wantVersion: types.MorphTxVersion1,
-		},
-		{
-			name:        "explicit V1, with Reference + Memo → V1",
-			opts:        &TransactOpts{Version: versionPtr(types.MorphTxVersion1), Reference: refTestPtr(ref), Memo: memoTestPtr(memo)},
-			wantVersion: types.MorphTxVersion1,
-		},
-		{
-			name:    "explicit V0, FeeTokenID = 0 → error (V0 requires FeeTokenID > 0)",
-			opts:    &TransactOpts{Version: versionPtr(types.MorphTxVersion0), FeeTokenID: 0},
-			wantErr: types.ErrMorphTxV0IllegalExtraParams,
-		},
-		{
-			name:    "explicit V0, with Reference → error",
-			opts:    &TransactOpts{Version: versionPtr(types.MorphTxVersion0), FeeTokenID: 1, Reference: refTestPtr(ref)},
-			wantErr: types.ErrMorphTxV0IllegalExtraParams,
-		},
-		{
-			name:    "explicit V0, with Memo → error",
-			opts:    &TransactOpts{Version: versionPtr(types.MorphTxVersion0), FeeTokenID: 1, Memo: memoTestPtr(memo)},
-			wantErr: types.ErrMorphTxV0IllegalExtraParams,
-		},
-		{
-			name:    "explicit V1, FeeTokenID=0 + FeeLimit>0 → error",
-			opts:    &TransactOpts{Version: versionPtr(types.MorphTxVersion1), FeeTokenID: 0, FeeLimit: big.NewInt(100)},
-			wantErr: types.ErrMorphTxV1IllegalExtraParams,
-		},
-		{
-			name:    "unsupported version 255 → error",
-			opts:    &TransactOpts{Version: versionPtr(255)},
-			wantErr: types.ErrMorphTxUnsupportedVersion,
-		},
-
-		// === Memo length validation ===
 		{
 			name:    "memo too long → error",
 			opts:    &TransactOpts{FeeTokenID: 1, Memo: memoTestPtr(make([]byte, common.MaxMemoLength+1))},

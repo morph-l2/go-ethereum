@@ -1308,11 +1308,5 @@ func APIs(backend Backend, morphTracerWrapper morphTracerWrapper) []rpc.API {
 			Service:   NewAPI(backend, morphTracerWrapper),
 			Public:    false,
 		},
-		{
-			Namespace: "morph",
-			Version:   "1.0",
-			Service:   TraceBlock(NewAPI(backend, morphTracerWrapper)),
-			Public:    true,
-		},
 	}
 }

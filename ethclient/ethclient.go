@@ -30,7 +30,6 @@ import (
 	"github.com/morph-l2/go-ethereum/common/hexutil"
 	"github.com/morph-l2/go-ethereum/core/types"
 	"github.com/morph-l2/go-ethereum/eth"
-	"github.com/morph-l2/go-ethereum/eth/tracers"
 	"github.com/morph-l2/go-ethereum/rpc"
 )
 
@@ -342,24 +341,6 @@ func (ec *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, err
 // on the given channel.
 func (ec *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
 	return ec.c.EthSubscribe(ctx, ch, "newHeads")
-}
-
-// GetBlockTraceByHash returns the BlockTrace given the block hash.
-func (ec *Client) GetBlockTraceByHash(ctx context.Context, blockHash common.Hash) (*types.BlockTrace, error) {
-	blockTrace := &types.BlockTrace{}
-	return blockTrace, ec.c.CallContext(ctx, &blockTrace, "morph_getBlockTraceByNumberOrHash", blockHash)
-}
-
-// GetBlockTraceByNumber returns the BlockTrace given the block number.
-func (ec *Client) GetBlockTraceByNumber(ctx context.Context, number *big.Int) (*types.BlockTrace, error) {
-	blockTrace := &types.BlockTrace{}
-	return blockTrace, ec.c.CallContext(ctx, &blockTrace, "morph_getBlockTraceByNumberOrHash", toBlockNumArg(number))
-}
-
-// GetTxBlockTraceOnTopOfBlock returns the BlockTrace given the tx and block.
-func (ec *Client) GetTxBlockTraceOnTopOfBlock(ctx context.Context, tx *types.Transaction, blockNumberOrHash rpc.BlockNumberOrHash, config *tracers.TraceConfig) (*types.BlockTrace, error) {
-	blockTrace := &types.BlockTrace{}
-	return blockTrace, ec.c.CallContext(ctx, &blockTrace, "morph_getTxBlockTraceOnTopOfBlock", tx, blockNumberOrHash, config)
 }
 
 // GetNumSkippedTransactions returns the ...

@@ -857,23 +857,6 @@ web3._extend({
 	property: 'morph',
 	methods: [
 		new web3._extend.Method({
-			name: 'getBlockTraceByNumber',
-			call: 'morph_getBlockTraceByNumberOrHash',
-			params: 1,
-			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
-		}),
-		new web3._extend.Method({
-			name: 'getBlockTraceByHash',
-			call: 'morph_getBlockTraceByNumberOrHash',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'getTxBlockTraceOnTopOfBlock',
-			call: 'morph_getTxBlockTraceOnTopOfBlock',
-			params: 3,
-			inputFormatter: [web3._extend.formatters.inputTransactionFormatter, null, null]
-		}),
-		new web3._extend.Method({
 			name: 'getBlockByHash',
 			call: 'morph_getBlockByHash',
 			params: 2,

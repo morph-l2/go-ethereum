@@ -29,16 +29,15 @@ import (
 // or slim-snapshot format which replaces the empty root and code hash as nil
 // byte slice.
 type Account struct {
-	Nonce            uint64
-	Balance          *big.Int
-	Root             []byte
-	KeccakCodeHash   []byte
-	PoseidonCodeHash []byte `rlp:"-"` // zkTrie specific, not serialized to disk
-	CodeSize         uint64 `rlp:"-"` // Can be derived from code, not serialized
+	Nonce          uint64
+	Balance        *big.Int
+	Root           []byte
+	KeccakCodeHash []byte
+	CodeSize       uint64 `rlp:"-"` // Can be derived from code, not serialized
 }
 
 // SlimAccount converts a state.Account content into a slim snapshot account
-func SlimAccount(nonce uint64, balance *big.Int, root common.Hash, keccakcodehash []byte, poseidoncodehash []byte, codesize uint64) Account {
+func SlimAccount(nonce uint64, balance *big.Int, root common.Hash, keccakcodehash []byte, codesize uint64) Account {
 	slim := Account{
 		Nonce:   nonce,
 		Balance: balance,
@@ -48,7 +47,6 @@ func SlimAccount(nonce uint64, balance *big.Int, root common.Hash, keccakcodehas
 	}
 	if !bytes.Equal(keccakcodehash, emptyKeccakCode[:]) {
 		slim.KeccakCodeHash = keccakcodehash
-		slim.PoseidonCodeHash = poseidoncodehash
 		slim.CodeSize = codesize
 	}
 	return slim
@@ -56,8 +54,8 @@ func SlimAccount(nonce uint64, balance *big.Int, root common.Hash, keccakcodehas
 
 // SlimAccountRLP converts a state.Account content into a slim snapshot
 // version RLP encoded.
-func SlimAccountRLP(nonce uint64, balance *big.Int, root common.Hash, keccakcodehash []byte, poseidoncodehash []byte, codesize uint64) []byte {
-	data, err := rlp.EncodeToBytes(SlimAccount(nonce, balance, root, keccakcodehash, poseidoncodehash, codesize))
+func SlimAccountRLP(nonce uint64, balance *big.Int, root common.Hash, keccakcodehash []byte, codesize uint64) []byte {
+	data, err := rlp.EncodeToBytes(SlimAccount(nonce, balance, root, keccakcodehash, codesize))
 	if err != nil {
 		panic(err)
 	}
@@ -76,7 +74,6 @@ func FullAccount(data []byte) (Account, error) {
 	}
 	if len(account.KeccakCodeHash) == 0 {
 		account.KeccakCodeHash = emptyKeccakCode[:]
-		account.PoseidonCodeHash = emptyPoseidonCode[:]
 		account.CodeSize = 0
 	}
 	return account, nil

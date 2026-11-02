@@ -181,9 +181,9 @@ func (bc *BlockChain) writeBlockStateWithoutHead(block *types.Block, receipts []
 	storageCommitTimer.Update(state.StorageCommits)
 	snapshotCommitTimer.Update(state.SnapshotCommits)
 
-	// If the block header root differs from the local computed root,
-	// write the mapping for cross-format state access (MPT ↔ zkTrie).
-	// This happens when a zkTrie node processes an MPT block or vice versa.
+	// Pre-Jade block headers carry legacy zkTrie state roots that differ from
+	// the locally computed MPT root. Record the mapping so that code looking up
+	// state by header root can resolve to the actual on-disk MPT root.
 	if block.Root() != root {
 		rawdb.WriteDiskStateRoot(bc.db, block.Root(), root)
 	}

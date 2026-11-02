@@ -137,8 +137,8 @@ func CreateTraceEnv(chainConfig *params.ChainConfig, chainContext core.ChainCont
 		return nil, fmt.Errorf("missing FirstQueueIndexNotInL2Block for block during trace call: hash=%v, parentHash=%vv", block.Hash(), parent.Hash())
 	}
 
-	// Get diskRoot for cross-format state access (MPT ↔ zkTrie).
-	// When node's trie format differs from block's format, use diskRoot instead of headerRoot.
+	// Pre-Jade headers carry legacy zkTrie state roots; resolve to the
+	// actual MPT root on disk via DiskStateRoot mapping when available.
 	rootBefore := parent.Root()
 	if diskRoot, err := rawdb.ReadDiskStateRoot(chaindb, parent.Root()); err == nil && diskRoot != (common.Hash{}) {
 		rootBefore = diskRoot
@@ -273,22 +273,20 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	}
 
 	sender := &types.AccountWrapper{
-		Address:          from,
-		Nonce:            statedb.GetNonce(from),
-		Balance:          (*hexutil.Big)(statedb.GetBalance(from)),
-		KeccakCodeHash:   statedb.GetKeccakCodeHash(from),
-		PoseidonCodeHash: statedb.GetPoseidonCodeHash(from),
-		CodeSize:         statedb.GetCodeSize(from),
+		Address:        from,
+		Nonce:          statedb.GetNonce(from),
+		Balance:        (*hexutil.Big)(statedb.GetBalance(from)),
+		KeccakCodeHash: statedb.GetKeccakCodeHash(from),
+		CodeSize:       statedb.GetCodeSize(from),
 	}
 	var receiver *types.AccountWrapper
 	if to != nil {
 		receiver = &types.AccountWrapper{
-			Address:          *to,
-			Nonce:            statedb.GetNonce(*to),
-			Balance:          (*hexutil.Big)(statedb.GetBalance(*to)),
-			KeccakCodeHash:   statedb.GetKeccakCodeHash(*to),
-			PoseidonCodeHash: statedb.GetPoseidonCodeHash(*to),
-			CodeSize:         statedb.GetCodeSize(*to),
+			Address:        *to,
+			Nonce:          statedb.GetNonce(*to),
+			Balance:        (*hexutil.Big)(statedb.GetBalance(*to)),
+			KeccakCodeHash: statedb.GetKeccakCodeHash(*to),
+			CodeSize:       statedb.GetCodeSize(*to),
 		}
 	}
 
@@ -333,12 +331,11 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 	// collect affected account after tx being applied
 	for _, acc := range []common.Address{from, *to, env.coinbase} {
 		after = append(after, &types.AccountWrapper{
-			Address:          acc,
-			Nonce:            statedb.GetNonce(acc),
-			Balance:          (*hexutil.Big)(statedb.GetBalance(acc)),
-			KeccakCodeHash:   statedb.GetKeccakCodeHash(acc),
-			PoseidonCodeHash: statedb.GetPoseidonCodeHash(acc),
-			CodeSize:         statedb.GetCodeSize(acc),
+			Address:        acc,
+			Nonce:          statedb.GetNonce(acc),
+			Balance:        (*hexutil.Big)(statedb.GetBalance(acc)),
+			KeccakCodeHash: statedb.GetKeccakCodeHash(acc),
+			CodeSize:       statedb.GetCodeSize(acc),
 		})
 	}
 
@@ -359,23 +356,14 @@ func (env *TraceEnv) getTxResult(statedb *state.StateDB, index int, block *types
 			collectBytecode := func(addr common.Address) {
 				code := statedb.GetCode(addr)
 				keccakCodeHash := statedb.GetKeccakCodeHash(addr)
-				poseidonCodeHash := statedb.GetPoseidonCodeHash(addr)
 				codeSize := statedb.GetCodeSize(addr)
 
-				// Determine the code key based on trie mode:
-				// zkTrie mode uses poseidon hash, MPT mode uses keccak hash
-				codeKey := keccakCodeHash
-				if poseidonCodeHash != (common.Hash{}) {
-					codeKey = poseidonCodeHash
-				}
-
-				if codeKey != (common.Hash{}) {
-					if _, exists := env.Codes[codeKey]; !exists {
-						env.Codes[codeKey] = logger.CodeInfo{
-							CodeSize:         codeSize,
-							KeccakCodeHash:   keccakCodeHash,
-							PoseidonCodeHash: poseidonCodeHash,
-							Code:             code,
+				if keccakCodeHash != (common.Hash{}) {
+					if _, exists := env.Codes[keccakCodeHash]; !exists {
+						env.Codes[keccakCodeHash] = logger.CodeInfo{
+							CodeSize:       codeSize,
+							KeccakCodeHash: keccakCodeHash,
+							Code:           code,
 						}
 					}
 				}

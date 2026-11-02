@@ -25,10 +25,9 @@ type BlockTrace struct {
 
 // BytecodeTrace stores all accessed bytecodes
 type BytecodeTrace struct {
-	CodeSize         uint64        `json:"codeSize"`
-	KeccakCodeHash   common.Hash   `json:"keccakCodeHash"`
-	PoseidonCodeHash common.Hash   `json:"hash"`
-	Code             hexutil.Bytes `json:"code"`
+	CodeSize       uint64        `json:"codeSize"`
+	KeccakCodeHash common.Hash   `json:"keccakCodeHash"`
+	Code           hexutil.Bytes `json:"code"`
 }
 
 // StorageTrace stores proofs of storage needed by storage circuit
@@ -111,12 +110,11 @@ func NewStructLogResBasic(pc uint64, op string, gas, gasCost uint64, depth int, 
 }
 
 type AccountWrapper struct {
-	Address          common.Address `json:"address"`
-	Nonce            uint64         `json:"nonce"`
-	Balance          *hexutil.Big   `json:"balance"`
-	KeccakCodeHash   common.Hash    `json:"keccakCodeHash,omitempty"`
-	PoseidonCodeHash common.Hash    `json:"poseidonCodeHash,omitempty"`
-	CodeSize         uint64         `json:"codeSize"`
+	Address        common.Address `json:"address"`
+	Nonce          uint64         `json:"nonce"`
+	Balance        *hexutil.Big   `json:"balance"`
+	KeccakCodeHash common.Hash    `json:"keccakCodeHash,omitempty"`
+	CodeSize       uint64         `json:"codeSize"`
 }
 
 // StorageWrapper while key & value can also be retrieved from StructLogRes.Storage,

@@ -18,7 +18,6 @@ package les
 
 import (
 	"crypto/ecdsa"
-	"errors"
 	"time"
 
 	"github.com/morph-l2/go-ethereum/common/mclock"
@@ -82,11 +81,6 @@ func NewLesServer(node *node.Node, e ethBackend, config *ethconfig.Config) (*Les
 	if err != nil {
 		return nil, err
 	}
-	// Now disable for zktrie
-	if e.BlockChain().Config().Morph.ZktrieEnabled() {
-		return nil, errors.New("light server not work with zktrie storage")
-	}
-
 	// Calculate the number of threads used to service the light client
 	// requests based on the user-specified value.
 	threads := config.LightServ * 4 / 100

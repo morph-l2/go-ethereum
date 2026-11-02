@@ -59,10 +59,6 @@ func (s *hookedStateDB) GetKeccakCodeHash(addr common.Address) common.Hash {
 	return s.inner.GetKeccakCodeHash(addr)
 }
 
-func (s *hookedStateDB) GetPoseidonCodeHash(addr common.Address) common.Hash {
-	return s.inner.GetPoseidonCodeHash(addr)
-}
-
 func (s *hookedStateDB) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
 	return s.inner.GetCommittedState(addr, hash)
 }

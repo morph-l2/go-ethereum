@@ -661,12 +661,11 @@ func makeAccounts(size int) (addresses [][20]byte, accounts [][]byte) {
 		balance := new(big.Int).SetBytes(balanceBytes)
 
 		data, _ := rlp.EncodeToBytes(&types.StateAccount{
-			Nonce:            nonce,
-			Balance:          balance,
-			Root:             root,
-			KeccakCodeHash:   codehash.EmptyKeccakCodeHash.Bytes(),
-			PoseidonCodeHash: codehash.EmptyPoseidonCodeHash.Bytes(),
-			CodeSize:         0,
+			Nonce:          nonce,
+			Balance:        balance,
+			Root:           root,
+			KeccakCodeHash: codehash.EmptyKeccakCodeHash.Bytes(),
+			CodeSize:       0,
 		})
 
 		accounts[i] = data

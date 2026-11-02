@@ -20,7 +20,6 @@ func (jsTestStateDB) GetBalance(common.Address) *big.Int               { return 
 func (jsTestStateDB) GetNonce(common.Address) uint64                   { return 0 }
 func (jsTestStateDB) GetCode(common.Address) []byte                    { return nil }
 func (jsTestStateDB) GetKeccakCodeHash(common.Address) common.Hash     { return common.Hash{} }
-func (jsTestStateDB) GetPoseidonCodeHash(common.Address) common.Hash   { return common.Hash{} }
 func (jsTestStateDB) GetState(common.Address, common.Hash) common.Hash { return common.Hash{} }
 func (jsTestStateDB) GetTransientState(common.Address, common.Hash) common.Hash {
 	return common.Hash{}

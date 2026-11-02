@@ -20,7 +20,6 @@ func (loggerTestStateDB) GetBalance(common.Address) *big.Int               { ret
 func (loggerTestStateDB) GetNonce(common.Address) uint64                   { return 0 }
 func (loggerTestStateDB) GetCode(common.Address) []byte                    { return nil }
 func (loggerTestStateDB) GetKeccakCodeHash(common.Address) common.Hash     { return common.Hash{} }
-func (loggerTestStateDB) GetPoseidonCodeHash(common.Address) common.Hash   { return common.Hash{} }
 func (loggerTestStateDB) GetState(common.Address, common.Hash) common.Hash { return common.Hash{} }
 func (loggerTestStateDB) GetTransientState(common.Address, common.Hash) common.Hash {
 	return common.Hash{}

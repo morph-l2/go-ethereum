@@ -66,7 +66,6 @@ func TestDump(t *testing.T) {
             "nonce": 0,
             "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "keccakCodeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-            "poseidonCodeHash": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
             "codeSize": 0,
             "key": "0x1468288056310c82aa4c01a7e12a10f8111a0560e72b700555479031b86c357d"
         },
@@ -75,7 +74,6 @@ func TestDump(t *testing.T) {
             "nonce": 0,
             "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "keccakCodeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-            "poseidonCodeHash": "0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
             "codeSize": 0,
             "key": "0xd52688a8f926c816ca1e079067caba944f158e764817b83fc43594370ca9cf62"
         },
@@ -84,7 +82,6 @@ func TestDump(t *testing.T) {
             "nonce": 0,
             "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "keccakCodeHash": "0x87874902497a5bb968da31a2998d8f22e949d1ef6214bcdedd8bae24cca4b9e3",
-            "poseidonCodeHash": "0x1f090de833dd6dee7af5ee49f94fd64d1079aee3df47795eaaf2775d6921458c",
             "codeSize": 7,
             "code": "0x03030303030303",
             "key": "0xa17eacbc25cda025e81db9c5c62868822c73ce097cee2a63e33a2e41268358a1"
@@ -225,9 +222,6 @@ func compareStateObjects(so0, so1 *stateObject, t *testing.T) {
 	}
 	if !bytes.Equal(so0.KeccakCodeHash(), so1.KeccakCodeHash()) {
 		t.Fatalf("KeccakCodeHash mismatch: have %v, want %v", so0.KeccakCodeHash(), so1.KeccakCodeHash())
-	}
-	if !bytes.Equal(so0.PoseidonCodeHash(), so1.PoseidonCodeHash()) {
-		t.Fatalf("PoseidonCodeHash mismatch: have %v, want %v", so0.PoseidonCodeHash(), so1.PoseidonCodeHash())
 	}
 	if so0.CodeSize(so0.db.db) != so1.CodeSize(so1.db.db) {
 		t.Fatalf("CodeSize mismatch: have %v, want %v", so0.CodeSize(so0.db.db), so1.CodeSize(so1.db.db))

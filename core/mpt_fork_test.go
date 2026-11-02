@@ -95,25 +95,13 @@ func TestDiskStateRootInBlockProcessing(t *testing.T) {
 	funds := big.NewInt(1000000000000000)
 
 	tests := []struct {
-		name            string
-		useZktrie       bool
-		genesisOverride bool // Whether to use cross-format genesis
-		expectMapping   bool
+		name          string
+		expectMapping bool
 	}{
 		{
-			name:            "Pure MPT - no mapping",
-			useZktrie:       false,
-			genesisOverride: false,
-			expectMapping:   false,
+			name:          "MPT - no mapping",
+			expectMapping: false,
 		},
-		{
-			name:            "Pure zkTrie - no mapping",
-			useZktrie:       true,
-			genesisOverride: false,
-			expectMapping:   false,
-		},
-		// Note: Cross-format (zkTrie<->MPT) block sync was removed together with the
-		// retirement of the zkTrie storage mode; only same-format MPT mapping remains.
 	}
 
 	for _, tt := range tests {
@@ -121,7 +109,6 @@ func TestDiskStateRootInBlockProcessing(t *testing.T) {
 			db := rawdb.NewMemoryDatabase()
 
 			config := params.TestChainConfig.Clone()
-			config.Morph.UseZktrie = tt.useZktrie
 
 			gspec := &Genesis{
 				Config:  config,
@@ -180,16 +167,13 @@ func TestDiskStateRootInBlockProcessing(t *testing.T) {
 	}
 }
 
-// TestValidateStateRootGateAcrossJade verifies the state-root validation gate that
-// replaces the retired zkTrie storage mode: state is always MPT, so a header whose
-// (legacy zkTrie) state root differs from the locally computed MPT root must be
-// ACCEPTED before the Jade fork (gate skips validation) and REJECTED at/after it.
+// TestValidateStateRootGateAcrossJade verifies that state-root validation is
+// skipped for pre-Jade blocks (which carry legacy zkTrie roots) and enforced
+// for post-Jade blocks (native MPT roots).
 func TestValidateStateRootGateAcrossJade(t *testing.T) {
 	jadeTime := uint64(1000)
 
-	// Build a chain config with Jade at jadeTime. State backend is always MPT.
 	config := params.TestChainConfig.Clone()
-	config.Morph.UseZktrie = false
 	config.JadeForkTime = &jadeTime
 
 	db := rawdb.NewMemoryDatabase()
@@ -266,7 +250,6 @@ func TestGenesisStateRootMappingAccess(t *testing.T) {
 
 	db := rawdb.NewMemoryDatabase()
 	config := params.TestChainConfig.Clone()
-	config.Morph.UseZktrie = false
 
 	// Pin genesis header.Root to a legacy root distinct from the real MPT root.
 	legacyRoot := common.HexToHash("0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe")

@@ -51,7 +51,6 @@ type StateDB interface {
 	GetNonce(common.Address) uint64
 	GetCode(common.Address) []byte
 	GetKeccakCodeHash(common.Address) common.Hash
-	GetPoseidonCodeHash(common.Address) common.Hash
 	GetState(common.Address, common.Hash) common.Hash
 	GetTransientState(common.Address, common.Hash) common.Hash
 	Exist(common.Address) bool

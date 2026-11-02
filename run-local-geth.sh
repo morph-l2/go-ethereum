@@ -47,7 +47,6 @@ if [ ! -f "$GENESIS_FILE" ]; then
     "bernoulliBlock": 0,
     "curieBlock": 0,
     "morph": {
-      "useZktrie": true,
       "feeVaultAddress": "0x0e87cd091e091562F25CB1cf4641065dA2C049F5"
     }
   },

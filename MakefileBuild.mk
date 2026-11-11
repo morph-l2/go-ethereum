@@ -5,7 +5,7 @@
 # New release system: MakefileBuild.mk only produces build artifacts.
 # Service start commands live in MakefileEc2.mk / MakefileEks.mk.
 
-GORUN = env GO111MODULE=on go run
+GORUN = env GO111MODULE=on GOFLAGS=-buildvcs=false go run
 
 # in go-ethereum repo
 build-bk-prod-morph-prod-mainnet-to-morph-geth:

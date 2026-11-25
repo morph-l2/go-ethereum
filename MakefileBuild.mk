@@ -12,6 +12,7 @@ build-bk-prod-morph-prod-mainnet-to-morph-geth:
 	if [ ! -d dist ]; then mkdir -p dist; fi
 	$(GORUN) build/ci.go install ./cmd/geth
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-geth.tar.gz dist
 	aws s3 cp morph-geth.tar.gz s3://morph-0582-morph-technical-department-mainnet-data/morph-setup/morph-geth.tar.gz
 
@@ -20,6 +21,7 @@ build-bk-prod-morph-prod-mainnet-to-morph-nccc-geth:
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-nccc-geth.tar.gz dist
 	aws s3 cp morph-nccc-geth.tar.gz s3://morph-0582-morph-technical-department-mainnet-data/morph-setup/morph-nccc-geth.tar.gz
 
@@ -29,6 +31,7 @@ build-bk-prod-morph-prod-testnet-to-morph-geth-holesky:
 	if [ ! -d dist ]; then mkdir -p dist; fi
 	$(GORUN) build/ci.go install ./cmd/geth
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-geth.tar.gz dist
 	aws s3 cp morph-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/testnet/holesky/morph-setup/morph-geth.tar.gz
 
@@ -37,6 +40,7 @@ build-bk-prod-morph-prod-testnet-to-morph-nccc-geth-holesky:
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-nccc-geth.tar.gz dist
 	aws s3 cp morph-nccc-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/testnet/holesky/morph-setup/morph-nccc-geth.tar.gz
 
@@ -46,6 +50,7 @@ build-bk-prod-morph-prod-testnet-to-morph-geth-hoodi:
 	if [ ! -d dist ]; then mkdir -p dist; fi
 	$(GORUN) build/ci.go install ./cmd/geth
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-geth.tar.gz dist
 	aws s3 cp morph-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/testnet/hoodi/morph-setup/morph-geth.tar.gz
 
@@ -54,6 +59,7 @@ build-bk-prod-morph-prod-testnet-to-morph-nccc-geth-hoodi:
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-nccc-geth.tar.gz dist
 	aws s3 cp morph-nccc-geth.tar.gz s3://morph-0582-morph-technical-department-testnet-data/testnet/hoodi/morph-setup/morph-nccc-geth.tar.gz
 
@@ -63,6 +69,7 @@ build-bk-test-morph-test-qanet-to-morph-geth-qanet:
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-geth.tar.gz dist
 	aws s3 cp morph-geth.tar.gz s3://morph-7637-morph-technical-department-qanet-data/morph-setup/morph-geth.tar.gz
 
@@ -71,5 +78,6 @@ build-bk-test-morph-test-qanet-to-morph-nccc-geth-qanet:
 	$(GORUN) build/ci.go install ./cmd/geth
 	@echo "Done building."
 	cp build/bin/geth dist/
+	sha256sum dist/geth
 	tar -czvf morph-nccc-geth.tar.gz dist
 	aws s3 cp morph-nccc-geth.tar.gz s3://morph-7637-morph-technical-department-qanet-data/morph-setup/morph-nccc-geth.tar.gz

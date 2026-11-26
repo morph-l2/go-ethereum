@@ -9,6 +9,7 @@ GORUN = env GO111MODULE=on GOFLAGS=-buildvcs=false go run
 
 # in go-ethereum repo
 build-bk-prod-morph-prod-mainnet-to-morph-geth:
+	@env
 	if [ ! -d dist ]; then mkdir -p dist; fi
 	$(GORUN) build/ci.go install ./cmd/geth
 	cp build/bin/geth dist/
